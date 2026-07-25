@@ -1,0 +1,35 @@
+# Backend
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+backend/*.log
+*.class
+*.jar
+*.war
+*.ear
+
+# Environment / secrets — never commit these
+.env
+.env.*
+!.env.example
+backend/src/main/resources/application-local.yml
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# IDEs
+.idea/
+*.iml
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Backend secrets — real DB password + JWT secret live here

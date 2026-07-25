@@ -1,0 +1,24 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://ep-late-meadow-ax7d9inr.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require
+    username: neondb_owner
+    password: npg_2eUWASoqM7tP
+  jpa:
+    hibernate:
+      # Override validate — Flyway owns the schema; ddl-auto: validate
+      # fails on citext/timestamptz column types reported by Postgres metadata
+      ddl-auto: none
+
+app:
+  jwt:
+    secret: dzFiY/nlhxz9ufz5ETt8GluUFHlrEnZcB1XtYTuT09guhazFPuxTJfVawR3f4BYmXhV1asxwutUc1zjX5eoB3g==
+  cors:
+    allowed-origins: http://localhost:5180,http://localhost:5173,http://localhost:3000
+
+server:
+  port: 8081
+
+logging:
+  level:
+    com.nforce.onehr: DEBUG
+    org.flywaydb: DEBUG
