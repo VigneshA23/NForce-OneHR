@@ -1,0 +1,425 @@
+import { useEffect, useRef, useState } from 'react';
+import { UserPlus, X, Edit2, ChevronDown } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
+import { employeesApi, type EmployeeRecord, type CreateEmployeePayload, type UpdateEmployeePayload } from '../api/employees';
+import { orgApi } from '../api/org';
+
+const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
+const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'];
+
+const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
+const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.5)' };
+const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><label style={labelStyle}>{label}</label>{children}</div>;
+}
+
+function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    </div>
+  );
+}
+
+function StatusBadge({ active }: { active: boolean }) {
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#2FB67C' : '#E4373D', background: active ? 'rgba(47,182,124,.1)' : 'rgba(228,55,61,.1)', borderRadius: 4, padding: '2px 7px' }}>
+      {active ? 'Active' : 'Inactive'}
+    </span>
+  );
+}
+
+// ─── Creatable Location Select ────────────────────────────────────────────────
+interface Location { id: string; name: string; }
+
+function CreatableLocationSelect({
+  locations, value, onChange, token,
+}: {
+  locations: Location[];
+  value: string | undefined;
+  onChange: (id: string | undefined) => void;
+  token: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const currentName = value ? (locations.find(l => l.id === value)?.name ?? '') : '';
+
+  useEffect(() => {
+    if (!open) setQuery(currentName);
+  }, [open, currentName]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const filtered = query.trim()
+    ? locations.filter(l => l.name.toLowerCase().includes(query.toLowerCase()))
+    : locations;
+  const exactMatch = locations.some(l => l.name.toLowerCase() === query.trim().toLowerCase());
+  const showCreate = query.trim().length > 0 && !exactMatch;
+
+  async function handleCreate() {
+    setCreating(true);
+    try {
+      const newLoc = await orgApi.createLocation(token, { name: query.trim() });
+      locations.push(newLoc);
+      onChange(newLoc.id);
+      setOpen(false);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          style={{ ...inputStyle, paddingRight: 32 }}
+          placeholder="Select or type a new location…"
+          value={open ? query : currentName}
+          onFocus={() => { setOpen(true); setQuery(currentName); }}
+          onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange(undefined); }}
+        />
+        <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 200, overflowY: 'auto' }}>
+          {filtered.length === 0 && !showCreate && (
+            <div style={{ padding: '10px 14px', fontSize: 13, color: 'var(--txt-dim)' }}>No locations found</div>
+          )}
+          {filtered.map(l => (
+            <div key={l.id}
+              onMouseDown={() => { onChange(l.id); setOpen(false); }}
+              style={{ padding: '9px 14px', fontSize: 13, color: value === l.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === l.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--raised)')}
+              onMouseLeave={e => (e.currentTarget.style.background = value === l.id ? 'rgba(176,17,22,.12)' : 'transparent')}
+            >
+              {l.name}
+            </div>
+          ))}
+          {showCreate && (
+            <div
+              onMouseDown={creating ? undefined : handleCreate}
+              style={{ padding: '9px 14px', fontSize: 13, color: '#4C8DD6', borderTop: filtered.length > 0 ? '1px solid var(--line)' : 'none', cursor: creating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <span style={{ fontWeight: 700 }}>+</span> {creating ? 'Creating…' : `Create "${query.trim()}"`}
+            </div>
+          )}
+          <div
+            onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
+            style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}
+          >
+            — Clear —
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Add Modal ────────────────────────────────────────────────────────────────
+function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string }) {
+  const [form, setForm] = useState<CreateEmployeePayload>({ fullName: '', email: '', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
+  const [opts, setOpts] = useState<{ departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[] }>({ departments: [], designations: [], locations: [], managers: [] });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<EmployeeRecord | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      orgApi.listDepartments(token),
+      orgApi.listDesignations(token),
+      orgApi.listLocations(token),
+      employeesApi.potentialManagers(token),
+    ]).then(([d, des, l, m]) => setOpts({ departments: d, designations: des, locations: l, managers: m }));
+  }, [token]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.fullName.trim() || !form.email.trim() || !form.joiningDate) { setError('Name, email, and joining date are required.'); return; }
+    setSubmitting(true); setError(null);
+    try {
+      const emp = await employeesApi.create(form, token);
+      setCreated(emp);
+      onCreated(emp);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Create failed');
+    } finally { setSubmitting(false); }
+  }
+
+  if (created) {
+    return (
+      <div style={overlayStyle}>
+        <div style={modalStyle}>
+          <ModalHeader title="Employee Created" onClose={onClose} />
+          <div style={{ padding: 24 }}>
+            <div style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+              <div style={{ color: '#2FB67C', fontWeight: 600, marginBottom: 8 }}>Employee account created successfully</div>
+              <div style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.8 }}>
+                <b style={{ color: 'var(--txt)' }}>Name:</b> {created.fullName}<br />
+                <b style={{ color: 'var(--txt)' }}>Email:</b> {created.email}<br />
+                <b style={{ color: 'var(--txt)' }}>Employee ID:</b> {created.employeeCode}
+              </div>
+            </div>
+            {created.tempPassword && (
+              <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password — share once, store nowhere</div>
+                <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'monospace', userSelect: 'all' }}>{created.tempPassword}</code>
+              </div>
+            )}
+            <button onClick={onClose} style={{ marginTop: 20, width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 580 }}>
+        <ModalHeader title="Add Employee" onClose={onClose} />
+        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Full Name *">
+              <input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" />
+            </Field>
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Company Email *">
+              <input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" />
+            </Field>
+          </div>
+          <Field label="Employee ID (auto if blank)">
+            <input style={inputStyle} value={form.employeeCode ?? ''} onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value || undefined }))} placeholder="NF-00001" />
+          </Field>
+          <Field label="Joining Date *">
+            <input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} />
+          </Field>
+          <Field label="Department">
+            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
+              <option value="">— None —</option>
+              {opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Designation">
+            <select style={inputStyle} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
+              <option value="">— None —</option>
+              {opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+            </select>
+          </Field>
+          <Field label="Employment Type">
+            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}>
+              {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+            </select>
+          </Field>
+          <Field label="Work Mode">
+            <select style={inputStyle} value={form.workMode ?? 'ONSITE'} onChange={e => setForm(f => ({ ...f, workMode: e.target.value }))}>
+              {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+            </select>
+          </Field>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Location">
+              <CreatableLocationSelect
+                locations={opts.locations}
+                value={form.locationId}
+                onChange={id => setForm(f => ({ ...f, locationId: id }))}
+                token={token}
+              />
+            </Field>
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Manager">
+              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => setForm(f => ({ ...f, managerId: e.target.value || undefined }))}>
+                <option value="">— None —</option>
+                {opts.managers.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+              </select>
+            </Field>
+          </div>
+          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Creating…' : 'Create Employee'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Modal ───────────────────────────────────────────────────────────────
+function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+  const [form, setForm] = useState<UpdateEmployeePayload>({
+    fullName: emp.fullName,
+    departmentId: emp.departmentId ?? undefined,
+    designationId: emp.designationId ?? undefined,
+    locationId: emp.locationId ?? undefined,
+    employmentType: emp.employmentType,
+    workMode: emp.workMode ?? 'ONSITE',
+  });
+  const [opts, setOpts] = useState<{ departments: any[]; designations: any[]; locations: any[] }>({ departments: [], designations: [], locations: [] });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([orgApi.listDepartments(token), orgApi.listDesignations(token), orgApi.listLocations(token)])
+      .then(([d, des, l]) => setOpts({ departments: d, designations: des, locations: l }));
+  }, [token]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true); setError(null);
+    try {
+      const updated = await employeesApi.update(emp.userId, form, token);
+      onUpdated(updated);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update failed');
+    } finally { setSubmitting(false); }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 540 }}>
+        <ModalHeader title={`Edit — ${emp.fullName}`} onClose={onClose} />
+        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', fontSize: 13, padding: '10px 14px', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6 }}>{error}</div>}
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Full Name">
+              <input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
+            </Field>
+          </div>
+          <Field label="Department">
+            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
+              <option value="">— None —</option>
+              {opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Designation">
+            <select style={inputStyle} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
+              <option value="">— None —</option>
+              {opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+            </select>
+          </Field>
+          <Field label="Employment Type">
+            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}>
+              {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+            </select>
+          </Field>
+          <Field label="Work Mode">
+            <select style={inputStyle} value={form.workMode ?? 'ONSITE'} onChange={e => setForm(f => ({ ...f, workMode: e.target.value }))}>
+              {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+            </select>
+          </Field>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Location">
+              <CreatableLocationSelect
+                locations={opts.locations}
+                value={form.locationId}
+                onChange={id => setForm(f => ({ ...f, locationId: id }))}
+                token={token}
+              />
+            </Field>
+          </div>
+          <div style={{ gridColumn: '1/-1', fontSize: 11, color: 'var(--txt-dim)' }}>
+            Manager &amp; Role are managed by Super Admin only.
+          </div>
+          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+export default function EmployeeMasterPage() {
+  const token = useAuthStore(s => s.token)!;
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<EmployeeRecord | null>(null);
+
+  useEffect(() => {
+    employeesApi.list(token).then(setEmployees).finally(() => setLoading(false));
+  }, [token]);
+
+  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
+        <div>
+          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Add and manage employee records. Role, manager, and access are managed by Super Admin.</p>
+        </div>
+        <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <UserPlus size={14} /> Add Employee
+        </button>
+      </div>
+
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
+        ) : employees.length === 0 ? (
+          <div style={{ padding: 48, textAlign: 'center' }}>
+            <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>No employees yet</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Click "Add Employee" to create the first record.</div>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Employee ID', 'Name', 'Email', 'Dept', 'Designation', 'Manager', 'Location', 'Work Mode', 'Status', 'Actions'].map(h => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {employees.map(emp => (
+                  <tr key={emp.userId}>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{emp.employeeCode}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{emp.fullName}</td>
+                    <td style={tdStyle}>{emp.email}</td>
+                    <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                    <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                    <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                    <td style={tdStyle}>{emp.locationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                    <td style={tdStyle}><span style={{ fontSize: 11, fontWeight: 600, color: emp.workMode === 'REMOTE' ? '#4C8DD6' : emp.workMode === 'HYBRID' ? '#E0A93B' : '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>{emp.workMode ?? 'ONSITE'}</span></td>
+                    <td style={tdStyle}><StatusBadge active={emp.active} /></td>
+                    <td style={tdStyle}>
+                      <button onClick={() => setEditing(emp)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised2)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                        <Edit2 size={12} /> Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {showAdd && (
+        <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={emp => setEmployees(prev => [emp, ...prev])} />
+      )}
+      {editing && (
+        <EditModal emp={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setEmployees(prev => prev.map(e => e.userId === updated.userId ? updated : e))} />
+      )}
+    </div>
+  );
+}

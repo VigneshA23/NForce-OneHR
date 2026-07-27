@@ -5,6 +5,8 @@ import ChangePasswordPage from './pages/ChangePasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import Phase1Stub from './pages/Phase1Stub';
 import OrgSetupPage from './pages/OrgSetupPage';
+import EmployeeMasterPage from './pages/EmployeeMasterPage';
+import UserManagementPage from './pages/UserManagementPage';
 import { Shell } from './components/Shell';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -52,9 +54,9 @@ export default function App() {
           <Route path="/leave"        element={<Phase1Stub />} />
           <Route path="/help"         element={<Phase1Stub />} />
           <Route path="/approvals"    element={<Phase1Stub />} />
-          <Route path="/employees"    element={<Phase1Stub />} />
+          <Route path="/employees"    element={<EmployeeMasterPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
-          <Route path="/access"       element={<Phase1Stub />} />
+          <Route path="/access"       element={<UserManagementPage />} />
           <Route path="/masters"      element={<OrgSetupPage />} />
         </Route>
 

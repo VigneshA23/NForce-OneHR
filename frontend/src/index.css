@@ -141,6 +141,14 @@ body {
   color: #ffffff !important;
 }
 
+/* Date input — use native dark/light controls to match theme */
+input[type="date"] {
+  color-scheme: dark;
+}
+[data-theme="light"] input[type="date"] {
+  color-scheme: light;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

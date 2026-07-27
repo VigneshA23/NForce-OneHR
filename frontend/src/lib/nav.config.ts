@@ -60,8 +60,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   'Super Admin': [
     item('dashboard', 'Admin Dashboard', Home, 1),
-    item('access', 'Users & Permissions', Shield, 1),
-    item('employees', 'Employee Master', Users, 1),
+    item('access', 'User Management', Shield, 1),
     item('workflows', 'Workflow Studio', GitBranch, 2),
     item('masters', 'Organization Masters', FileText, 1),
     item('templates', 'Templates & Notifications', Bell, 2),
