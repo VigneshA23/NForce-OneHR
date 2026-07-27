@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, X, Edit2, RotateCcw, Power, ChevronDown } from 'lucide-react';
+import { UserPlus, X, Edit2, RotateCcw, Power, ChevronDown, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi } from '../api/org';
+import { useToast } from '../context/ToastContext';
 
 const ROLES = [
   { value: 'EMPLOYEE',    label: 'Employee' },
@@ -117,6 +118,7 @@ function CreatableLocationSelect({ locations, value, onChange, token }: { locati
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
 function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string }) {
+  const { showToast } = useToast();
   const [form, setForm] = useState<CreateUserPayload>({ fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
   const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [] });
   const [submitting, setSubmitting] = useState(false);
@@ -140,8 +142,11 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
       const emp = await usersApi.create(form, token);
       setCreated(emp);
       onCreated(emp);
+      showToast('success', `${emp.fullName} created successfully`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
+      const msg = err instanceof Error ? err.message : 'Create failed';
+      setError(msg);
+      showToast('error', msg);
     } finally { setSubmitting(false); }
   }
 
@@ -234,6 +239,7 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+  const { showToast } = useToast();
   const [form, setForm] = useState<UpdateUserPayload>({
     fullName: user.fullName,
     role: user.role,
@@ -263,9 +269,12 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     try {
       const updated = await usersApi.update(user.userId, form, token);
       onUpdated(updated);
+      showToast('success', `${updated.fullName} updated successfully`);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Update failed');
+      const msg = err instanceof Error ? err.message : 'Update failed';
+      setError(msg);
+      showToast('error', msg);
     } finally { setSubmitting(false); }
   }
 
@@ -330,6 +339,7 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
 function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; onClose: () => void; token: string }) {
+  const { showToast } = useToast();
   const [state, setState] = useState<'confirm' | 'loading' | 'done' | 'error'>('confirm');
   const [result, setResult] = useState<ResetPasswordResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -340,9 +350,12 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
       const r = await usersApi.resetPassword(user.userId, token);
       setResult(r);
       setState('done');
+      showToast('success', `Password reset for ${user.fullName}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Reset failed');
+      const msg = err instanceof Error ? err.message : 'Reset failed';
+      setError(msg);
       setState('error');
+      showToast('error', msg);
     }
   }
 
@@ -386,6 +399,7 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
 
 // ─── Status Toggle Confirm ────────────────────────────────────────────────────
 function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const action = user.active ? 'Deactivate' : 'Activate';
@@ -395,9 +409,12 @@ function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord
     try {
       const updated = await usersApi.setStatus(user.userId, !user.active, token);
       onUpdated(updated);
+      showToast('success', `${user.fullName} ${user.active ? 'deactivated' : 'reactivated'}`);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Status change failed');
+      const msg = err instanceof Error ? err.message : 'Status change failed';
+      setError(msg);
+      showToast('error', msg);
       setLoading(false);
     }
   }
@@ -429,6 +446,66 @@ function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord
   );
 }
 
+// ─── Delete (Soft-Delete) Confirm ─────────────────────────────────────────────
+function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord; onClose: () => void; onDeleted: (userId: string) => void; token: string }) {
+  const { showToast } = useToast();
+  const [typed, setTyped] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const match = typed.trim().toLowerCase() === user.email.toLowerCase();
+
+  async function confirm() {
+    if (!match) return;
+    setLoading(true); setError(null);
+    try {
+      await usersApi.softDelete(user.userId, token);
+      onDeleted(user.userId);
+      showToast('success', `${user.fullName} permanently deleted`);
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Delete failed';
+      setError(msg);
+      showToast('error', msg);
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 440 }}>
+        <ModalHeader title="Delete User" onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 8, padding: 14, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--risk)', marginBottom: 8 }}>This action is permanent</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
+              Deleting <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> ({user.email}) will immediately invalidate their session. This cannot be undone.
+            </div>
+          </div>
+          <label style={{ ...labelStyle, marginBottom: 6 }}>Type the user's email to confirm</label>
+          <input
+            style={{ ...inputStyle, marginBottom: 4, border: `1px solid ${match ? 'rgba(228,55,61,.5)' : 'var(--line2)'}` }}
+            placeholder={user.email}
+            value={typed}
+            onChange={e => setTyped(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <p style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 20, marginTop: 4 }}>
+            Must match exactly: <code style={{ fontFamily: 'monospace', color: 'var(--txt-mut)' }}>{user.email}</code>
+          </p>
+          {error && <div style={{ color: 'var(--risk)', marginBottom: 12, fontSize: 13 }}>{error}</div>}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={confirm} disabled={!match || loading} style={{ background: match ? '#C0392B' : 'var(--raised2)', color: match ? '#fff' : 'var(--txt-dim)', border: `1px solid ${match ? 'transparent' : 'var(--line2)'}`, borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: !match || loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+              {loading ? 'Deleting…' : 'Delete Permanently'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function UserManagementPage() {
   const token = useAuthStore(s => s.token)!;
@@ -438,6 +515,7 @@ export default function UserManagementPage() {
   const [editing, setEditing] = useState<EmployeeRecord | null>(null);
   const [resetting, setResetting] = useState<EmployeeRecord | null>(null);
   const [toggling, setToggling] = useState<EmployeeRecord | null>(null);
+  const [deleting, setDeleting] = useState<EmployeeRecord | null>(null);
 
   useEffect(() => {
     usersApi.list(token).then(setUsers).finally(() => setLoading(false));
@@ -497,6 +575,7 @@ export default function UserManagementPage() {
                         {actionBtn('Edit', <Edit2 size={11} />, () => setEditing(u))}
                         {actionBtn('Reset pwd', <RotateCcw size={11} />, () => setResetting(u))}
                         {actionBtn(u.active ? 'Deactivate' : 'Activate', <Power size={11} />, () => setToggling(u), u.active)}
+                        {actionBtn('Delete', <Trash2 size={11} />, () => setDeleting(u), true)}
                       </div>
                     </td>
                   </tr>
@@ -518,6 +597,9 @@ export default function UserManagementPage() {
       )}
       {toggling && (
         <StatusModal user={toggling} token={token} onClose={() => setToggling(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />
+      )}
+      {deleting && (
+        <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />
       )}
     </div>
   );

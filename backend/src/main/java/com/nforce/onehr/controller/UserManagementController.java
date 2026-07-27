@@ -51,4 +51,10 @@ public class UserManagementController {
         boolean active = Boolean.TRUE.equals(body.get("active"));
         return userManagementService.setActiveStatus(userId, active, principal.getName());
     }
+
+    @DeleteMapping("/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void softDeleteUser(@PathVariable UUID userId, Principal principal) {
+        userManagementService.softDeleteUser(userId, principal.getName());
+    }
 }

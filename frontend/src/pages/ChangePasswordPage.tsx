@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
+import { BrandMark } from '../components/BrandMark';
 
 const CRITERIA = [
   { label: 'Uppercase letter', test: (p: string) => /[A-Z]/.test(p) },
@@ -149,6 +150,7 @@ export default function ChangePasswordPage() {
         firstName: user?.firstName,
         lastName: user?.lastName,
         mustChangePassword: false,
+        role: user?.role,
       });
       navigate('/dashboard', { replace: true });
     } catch (err: unknown) {
@@ -165,12 +167,7 @@ export default function ChangePasswordPage() {
       <div className="w-full max-w-[420px]">
         {/* Logo */}
         <div className="flex items-center gap-2 mb-10">
-          <div
-            className="w-7 h-7 rounded flex items-center justify-center text-white text-xs font-bold"
-            style={{ background: '#b11116', fontFamily: 'Space Grotesk, system-ui' }}
-          >
-            N
-          </div>
+          <BrandMark size="sm" />
           <span
             className="text-base font-semibold"
             style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}

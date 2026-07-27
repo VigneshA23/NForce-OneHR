@@ -29,10 +29,11 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .map(role -> new SimpleGrantedAuthority("ROLE_" + role.getCode()))
                 .collect(Collectors.toList());
 
+        boolean disabled = !user.isActive() || user.getDeletedAt() != null;
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getEmail())
                 .password(user.getPasswordHash())
-                .disabled(!user.isActive())
+                .disabled(disabled)
                 .accountLocked(false)
                 .credentialsExpired(false)
                 .accountExpired(false)

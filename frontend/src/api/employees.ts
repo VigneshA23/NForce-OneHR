@@ -101,4 +101,13 @@ export const usersApi = {
 
   setStatus: (userId: string, active: boolean, token: string) =>
     fetch(`${BASE}/users/${userId}/status`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ active }) }).then(handle<EmployeeRecord>),
+
+  softDelete: (userId: string, token: string) =>
+    fetch(`${BASE}/users/${userId}`, { method: 'DELETE', headers: authHeaders(token) }).then(async (res) => {
+      if (!res.ok) {
+        let body: { message?: string } = {};
+        try { body = await res.json(); } catch { /* non-json */ }
+        throw new Error((body as any).message ?? `Request failed (${res.status})`);
+      }
+    }),
 };

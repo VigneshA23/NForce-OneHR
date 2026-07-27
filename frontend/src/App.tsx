@@ -8,6 +8,7 @@ import OrgSetupPage from './pages/OrgSetupPage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import UserManagementPage from './pages/UserManagementPage';
 import { Shell } from './components/Shell';
+import { ToastProvider } from './context/ToastContext';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -25,6 +26,7 @@ function RequirePasswordChanged({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
+    <ToastProvider>
     <BrowserRouter>
       <Routes>
         {/* Public */}
@@ -64,5 +66,6 @@ export default function App() {
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
+    </ToastProvider>
   );
 }

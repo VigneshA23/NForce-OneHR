@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -180,6 +181,20 @@ public class UserManagementService {
         userRepository.save(target);
         auditService.log(actor.getId(), active ? "USER_ACTIVATED" : "USER_DEACTIVATED", userId);
         return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /** Super Admin: soft-delete — sets deleted_at. Deleted user's JWT stops working immediately. */
+    @Transactional
+    public void softDeleteUser(UUID userId, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        User target = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (target.getDeletedAt() != null)
+            throw new IllegalArgumentException("User is already deleted");
+        target.setDeletedAt(Instant.now());
+        target.setActive(false);
+        userRepository.save(target);
+        auditService.log(actor.getId(), "USER_SOFT_DELETED", userId);
     }
 
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
