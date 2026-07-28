@@ -28,6 +28,7 @@ public class EmployeeService {
     private final LocationRepository locationRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final EmailService emailService;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -39,7 +40,7 @@ public class EmployeeService {
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
 
-        if (userRepository.existsByEmail(req.getEmail().toLowerCase().trim())) {
+        if (userRepository.existsByEmailAndDeletedAtIsNull(req.getEmail().toLowerCase().trim())) {
             throw new IllegalArgumentException("A user with this email already exists");
         }
 
@@ -87,6 +88,7 @@ public class EmployeeService {
         }
 
         auditService.log(actor.getId(), "EMPLOYEE_CREATED", newUser.getId());
+        emailService.sendInviteEmail(newUser.getEmail(), req.getFullName().trim(), tempPassword);
         return toResponse(emp, findCurrentManager(newUser.getId()), newUser, tempPassword);
     }
 
@@ -199,11 +201,9 @@ public class EmployeeService {
                 throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
             return code;
         }
-        int next = employeeRepository.findMaxEmployeeCode()
-                .filter(c -> c.startsWith("NF-"))
-                .map(c -> {
-                    try { return Integer.parseInt(c.substring(3)) + 1; } catch (NumberFormatException e) { return 1; }
-                }).orElse(1);
+        int next = employeeRepository.findMaxNumericEmployeeCode()
+                .map(c -> Integer.parseInt(c.substring(3)) + 1)
+                .orElse(1);
         return String.format("NF-%05d", next);
     }
 

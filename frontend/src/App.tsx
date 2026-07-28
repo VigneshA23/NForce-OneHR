@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import Login from './pages/auth/Login';
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import Phase1Stub from './pages/Phase1Stub';
@@ -31,6 +32,7 @@ export default function App() {
       <Routes>
         {/* Public */}
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
         {/* Auth required, password-change gate */}
         <Route

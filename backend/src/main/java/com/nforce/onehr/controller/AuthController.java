@@ -1,9 +1,6 @@
 package com.nforce.onehr.controller;
 
-import com.nforce.onehr.dto.ChangePasswordRequest;
-import com.nforce.onehr.dto.ChangePasswordResponse;
-import com.nforce.onehr.dto.LoginRequest;
-import com.nforce.onehr.dto.LoginResponse;
+import com.nforce.onehr.dto.*;
 import com.nforce.onehr.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -40,6 +37,11 @@ public class AuthController {
                 authentication.getName()
         );
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ForgotPasswordResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        return ResponseEntity.ok(authService.forgotPassword(request.getEmail()));
     }
 
     private String extractClientIp(HttpServletRequest request) {

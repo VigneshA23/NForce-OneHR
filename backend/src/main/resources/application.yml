@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:classpath:application-local.yml
   datasource:
     url: jdbc:postgresql://ep-late-meadow-ax7d9inr.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require
     username: neondb_owner
@@ -14,6 +16,11 @@ app:
     secret: dzFiY/nlhxz9ufz5ETt8GluUFHlrEnZcB1XtYTuT09guhazFPuxTJfVawR3f4BYmXhV1asxwutUc1zjX5eoB3g==
   cors:
     allowed-origins: http://localhost:5180,http://localhost:5173,http://localhost:3000
+  base-url: http://localhost:5180
+
+resend:
+  api-key: ${RESEND_API_KEY:re_placeholder_set_RESEND_API_KEY_env_var}
+  from: OneHR <onboarding@nforceone.com>
 
 server:
   port: 8081

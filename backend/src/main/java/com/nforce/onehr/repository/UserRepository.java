@@ -11,10 +11,13 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    @Query("SELECT u FROM User u WHERE u.email = :email AND u.deletedAt IS NULL")
     Optional<User> findByEmail(String email);
 
-    @Query("SELECT u FROM User u WHERE u.email = :email AND u.active = true")
+    @Query("SELECT u FROM User u WHERE u.email = :email AND u.active = true AND u.deletedAt IS NULL")
     Optional<User> findActiveByEmail(String email);
 
     boolean existsByEmail(String email);
+
+    boolean existsByEmailAndDeletedAtIsNull(String email);
 }

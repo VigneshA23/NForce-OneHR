@@ -17,8 +17,8 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     boolean existsByEmployeeCode(String employeeCode);
 
-    @Query("SELECT e.employeeCode FROM Employee e ORDER BY e.employeeCode DESC LIMIT 1")
-    Optional<String> findMaxEmployeeCode();
+    @Query(value = "SELECT employee_code FROM employees WHERE employee_code ~ '^NF-[0-9]+$' ORDER BY CAST(SUBSTRING(employee_code FROM 4) AS INTEGER) DESC LIMIT 1", nativeQuery = true)
+    Optional<String> findMaxNumericEmployeeCode();
 
     Optional<Employee> findByUser_Email(String email);
 }

@@ -30,6 +30,7 @@ public class UserManagementService {
     private final LocationRepository locationRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final EmailService emailService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -39,7 +40,7 @@ public class UserManagementService {
         String roleCode = req.getRole().toUpperCase();
         if (!PHASE1_ROLES.contains(roleCode))
             throw new IllegalArgumentException("Role '" + roleCode + "' is not a valid Phase 1 role");
-        if (userRepository.existsByEmail(req.getEmail().toLowerCase().trim()))
+        if (userRepository.existsByEmailAndDeletedAtIsNull(req.getEmail().toLowerCase().trim()))
             throw new IllegalArgumentException("A user with this email already exists");
 
         Role role = roleRepository.findByCode(roleCode)
@@ -84,6 +85,7 @@ public class UserManagementService {
         }
 
         auditService.log(actor.getId(), "USER_CREATED", newUser.getId());
+        emailService.sendInviteEmail(newUser.getEmail(), req.getFullName().trim(), tempPassword);
         return toResponse(emp, findCurrentManager(newUser.getId()), newUser, tempPassword);
     }
 
@@ -247,11 +249,9 @@ public class UserManagementService {
                 throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
             return code;
         }
-        int next = employeeRepository.findMaxEmployeeCode()
-                .filter(c -> c.startsWith("NF-"))
-                .map(c -> {
-                    try { return Integer.parseInt(c.substring(3)) + 1; } catch (NumberFormatException e) { return 1; }
-                }).orElse(1);
+        int next = employeeRepository.findMaxNumericEmployeeCode()
+                .map(c -> Integer.parseInt(c.substring(3)) + 1)
+                .orElse(1);
         return String.format("NF-%05d", next);
     }
 

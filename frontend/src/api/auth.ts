@@ -47,4 +47,11 @@ export const authApi = {
       },
       body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
     }).then(handle<ChangePasswordResponse>),
+
+  forgotPassword: (email: string) =>
+    fetch(`${BASE}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }).then(handle<{ message: string }>),
 };

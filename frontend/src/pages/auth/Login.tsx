@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { AuthLayout } from './AuthLayout';
@@ -152,9 +152,9 @@ export default function Login() {
           </motion.div>
 
           <motion.div variants={reduced ? undefined : itemVariants} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18, marginTop: -4 }}>
-            <a href="/forgot" onClick={(e) => e.preventDefault()} style={{ fontSize: 12, color: 'var(--txt-mut)', textDecoration: 'none', cursor: 'pointer' }}>
+            <Link to="/forgot-password" style={{ fontSize: 12, color: 'var(--txt-mut)', textDecoration: 'none', cursor: 'pointer' }}>
               Forgot password?
-            </a>
+            </Link>
           </motion.div>
 
           <motion.div variants={reduced ? undefined : itemVariants}>

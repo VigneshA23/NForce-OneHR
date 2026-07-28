@@ -1,10 +1,8 @@
 package com.nforce.onehr.service;
 
-import com.nforce.onehr.dto.ChangePasswordRequest;
-import com.nforce.onehr.dto.ChangePasswordResponse;
-import com.nforce.onehr.dto.LoginRequest;
-import com.nforce.onehr.dto.LoginResponse;
+import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -16,15 +14,21 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class AuthService {
 
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     private final UserRepository userRepository;
+    private final EmployeeRepository employeeRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final EmailService emailService;
 
     private static final String GENERIC_CRED_ERROR = "Invalid credentials";
 
@@ -103,6 +107,38 @@ public class AuthService {
                 .token(newToken)
                 .message("Password changed successfully")
                 .build();
+    }
+
+    /**
+     * Forgot-password flow: always returns generic success regardless of whether the email exists.
+     * Prevents email enumeration — response shape and timing must not reveal account existence.
+     */
+    @Transactional
+    public ForgotPasswordResponse forgotPassword(String email) {
+        String normalizedEmail = email.toLowerCase().trim();
+        userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
+            if (user.isActive() && user.getDeletedAt() == null) {
+                String tempPassword = generateTempPassword();
+                user.setPasswordHash(passwordEncoder.encode(tempPassword));
+                user.setMustChangePassword(true);
+                userRepository.save(user);
+
+                String fullName = employeeRepository.findById(user.getId())
+                        .map(com.nforce.onehr.entity.Employee::getFullName)
+                        .orElse(user.getEmail());
+
+                emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+                auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+            }
+        });
+        return ForgotPasswordResponse.builder()
+                .message("If that email is registered, we've sent password reset instructions.")
+                .build();
+    }
+
+    private String generateTempPassword() {
+        int digits = 100000 + RANDOM.nextInt(900000);
+        return "OneHR@" + digits;
     }
 
     private void validatePasswordStrength(String password) {
