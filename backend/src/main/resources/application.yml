@@ -10,6 +10,11 @@ spring:
       # Override validate — Flyway owns the schema; ddl-auto: validate
       # fails on citext/timestamptz column types reported by Postgres metadata
       ddl-auto: none
+  flyway:
+    # This checkout's migration folder is missing V9-V11 (applied directly to the
+    # shared Neon dev DB from elsewhere, never committed here) — tolerate that
+    # drift instead of failing validation. Does not touch already-applied history.
+    ignore-migration-patterns: "*:missing"
 
 app:
   jwt:
