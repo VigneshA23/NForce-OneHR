@@ -50,6 +50,31 @@ public class Employee {
     @Column(name = "joining_date", nullable = false)
     private LocalDate joiningDate;
 
+    // Self-service profile fields — employee updates these themselves
+    @Column(name = "phone", length = 30)
+    private String phone;
+
+    @Column(name = "date_of_birth")
+    private LocalDate dateOfBirth;
+
+    @Column(name = "gender", length = 20)
+    private String gender;
+
+    @Column(name = "personal_email", length = 255)
+    private String personalEmail;
+
+    @Column(name = "address")
+    private String address;
+
+    @Column(name = "emergency_contact_name", length = 200)
+    private String emergencyContactName;
+
+    @Column(name = "emergency_contact_phone", length = 30)
+    private String emergencyContactPhone;
+
+    @Column(name = "profile_photo", columnDefinition = "BYTEA")
+    private byte[] profilePhoto;
+
     @Column(name = "created_by")
     private UUID createdBy;
 
