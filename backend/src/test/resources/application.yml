@@ -14,3 +14,7 @@ app:
   jwt:
     secret: dGVzdFNlY3JldEtleUZvclRlc3RpbmdPbmx5TXVzdEJlQXRMZWFzdDMyQnl0ZXNMB25n
     expiration-hours: 1
+
+resend:
+  api-key: test-key-not-used
+  from: test@example.com
