@@ -17,6 +17,12 @@ app:
   cors:
     allowed-origins: http://localhost:5180,http://localhost:5173,http://localhost:3000
   base-url: http://localhost:5180
+  attendance:
+    regularization:
+      # N-day lookback window for regularization requests. OPEN QUESTION FOR PRODUCT
+      # OWNER: is 30 days correct, and should it vary by role/department? Kept
+      # configurable here rather than hardcoded pending that decision.
+      lookback-days: 30
 
 resend:
   api-key: ${RESEND_API_KEY:re_placeholder_set_RESEND_API_KEY_env_var}

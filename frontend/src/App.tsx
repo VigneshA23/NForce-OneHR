@@ -4,6 +4,7 @@ import Login from './pages/auth/Login';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import DashboardPage from './pages/DashboardPage';
+import AttendancePage from './pages/AttendancePage';
 import Phase1Stub from './pages/Phase1Stub';
 import OrgSetupPage from './pages/OrgSetupPage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
@@ -54,7 +55,7 @@ export default function App() {
         >
           {/* Phase 1 — real pages (per-role Phase 2 items are caught by Shell → ComingInPhase) */}
           <Route path="/dashboard"    element={<DashboardPage />} />
-          <Route path="/attendance"   element={<Phase1Stub />} />
+          <Route path="/attendance"   element={<AttendancePage />} />
           <Route path="/leave"        element={<Phase1Stub />} />
           <Route path="/help"         element={<Phase1Stub />} />
           <Route path="/approvals"    element={<Phase1Stub />} />
