@@ -1,7 +1,9 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.CreateEmployeeRequest;
+import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
+import com.nforce.onehr.dto.ManagerDashboardDto;
 import com.nforce.onehr.dto.UpdateEmployeeRequest;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
@@ -154,6 +156,62 @@ public class EmployeeService {
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * All authenticated users — work-info only, no personal fields.
+     */
+    @Transactional(readOnly = true)
+    public List<DirectoryEntryDto> listDirectory() {
+        List<Employee> emps = employeeRepository.findAllWithDetails();
+        return emps.stream()
+                .map(e -> {
+                    var mgr = findCurrentManager(e.getUserId());
+                    return DirectoryEntryDto.builder()
+                            .userId(e.getUserId().toString())
+                            .employeeCode(e.getEmployeeCode())
+                            .fullName(e.getFullName())
+                            .email(e.getUser().getEmail())
+                            .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
+                            .designationName(e.getDesignation() != null ? e.getDesignation().getTitle() : null)
+                            .locationName(e.getLocation() != null ? e.getLocation().getName() : null)
+                            .workMode(e.getWorkMode())
+                            .employmentType(e.getEmploymentType())
+                            .active(e.getUser().isActive())
+                            .managerName(mgr != null ? mgr.getFullName() : null)
+                            .managerEmail(mgr != null ? mgr.getEmail() : null)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Returns direct reports for the given manager email.
+     */
+    @Transactional(readOnly = true)
+    public ManagerDashboardDto getManagerDashboard(String managerEmail) {
+        User manager = userRepository.findByEmail(managerEmail)
+                .orElseThrow(() -> new IllegalStateException("User not found"));
+
+        List<ManagerDashboardDto.DirectReport> reports = historyRepository
+                .findByManagerUserIdAndEffectiveToIsNull(manager.getId())
+                .stream()
+                .flatMap(rel -> employeeRepository.findById(rel.getEmployeeUserId())
+                        .map(emp -> ManagerDashboardDto.DirectReport.builder()
+                                .userId(emp.getUserId().toString())
+                                .employeeCode(emp.getEmployeeCode())
+                                .fullName(emp.getFullName())
+                                .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                                .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                                .active(emp.getUser().isActive())
+                                .build())
+                        .stream())
+                .collect(Collectors.toList());
+
+        return ManagerDashboardDto.builder()
+                .directReportCount(reports.size())
+                .directReports(reports)
+                .build();
     }
 
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
