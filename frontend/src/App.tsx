@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import Phase1Stub from './pages/Phase1Stub';
 import OrgSetupPage from './pages/OrgSetupPage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
+import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
 import ProfilePage from './pages/ProfilePage';
 import NotificationsPage from './pages/NotificationsPage';
@@ -61,6 +62,8 @@ export default function App() {
           <Route path="/help"         element={<Phase1Stub />} />
           <Route path="/approvals"    element={<Phase1Stub />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
+          {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
+          <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
