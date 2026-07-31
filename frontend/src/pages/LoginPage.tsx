@@ -46,8 +46,6 @@ export default function LoginPage() {
       const res = await authApi.login(data.email, data.password);
       setAuth(res.token, {
         email: res.email,
-        firstName: res.firstName,
-        lastName: res.lastName,
         mustChangePassword: res.mustChangePassword,
       });
       navigate(res.mustChangePassword ? '/change-password' : '/dashboard', { replace: true });

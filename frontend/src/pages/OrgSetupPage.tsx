@@ -85,7 +85,6 @@ function AddModal({ tab, onClose, onCreated, token }: ModalProps) {
   useEffect(() => { firstRef.current?.focus(); }, []);
 
   const primaryLabel = tab === 'designations' ? 'Title' : 'Name';
-  const primaryValue = tab === 'designations' ? name : name;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
