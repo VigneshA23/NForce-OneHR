@@ -17,6 +17,15 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5180,http://localhost:5173,http://localhost:3000}
   base-url: ${APP_BASE_URL:http://localhost:5180}
+  attendance:
+    # Business timezone for punch timestamps and work-date attribution.
+    # Deliberately explicit — the JVM default is UTC on Railway.
+    zone: ${ATTENDANCE_ZONE:Asia/Kolkata}
+    # Provisional shift rules pending PO confirmation.
+    shift-start: "09:30"
+    late-grace-minutes: 15
+    half-day-max-hours: 4
+    full-day-min-hours: 8
 
 resend:
   api-key: ${RESEND_API_KEY}

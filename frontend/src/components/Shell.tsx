@@ -1,23 +1,10 @@
 import { useRef, useState, useEffect } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings } from 'lucide-react';
-import { NAV, type Role } from '../lib/nav.config';
+import { NAV, toShellRole, type Role } from '../lib/nav.config';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
-
-function toShellRole(dbRole: string | undefined): Role {
-  switch (dbRole) {
-    case 'SUPER_ADMIN':  return 'Super Admin';
-    case 'HR_ADMIN':     return 'HR Admin';
-    case 'MANAGER':      return 'Manager';
-    case 'EMPLOYEE':
-    case 'DELIVERY':
-    case 'FINANCE':
-    case 'LEADERSHIP':
-    default:             return 'Employee';
-  }
-}
 
 function toRoleTagline(role: Role): string {
   switch (role) {

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,6 +15,12 @@ import java.util.UUID;
 public interface EmployeeManagerHistoryRepository extends JpaRepository<EmployeeManagerHistory, Long> {
 
     Optional<EmployeeManagerHistory> findByEmployeeUserIdAndEffectiveToIsNull(UUID employeeUserId);
+
+    // Current direct reports of a manager — effective_to IS NULL is the open row,
+    // same convention as findByEmployeeUserIdAndEffectiveToIsNull above.
+    @Query("SELECT h.employeeUserId FROM EmployeeManagerHistory h "
+         + "WHERE h.managerUserId = :managerId AND h.effectiveTo IS NULL")
+    List<UUID> findCurrentDirectReportIds(UUID managerId);
 
     @Modifying
     @Query("UPDATE EmployeeManagerHistory h SET h.effectiveTo = :now WHERE h.employeeUserId = :employeeId AND h.effectiveTo IS NULL")

@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import Phase1Stub from './pages/Phase1Stub';
 import OrgSetupPage from './pages/OrgSetupPage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
+import AttendancePage from './pages/AttendancePage';
 import UserManagementPage from './pages/UserManagementPage';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -54,7 +55,7 @@ export default function App() {
         >
           {/* Phase 1 — real pages (per-role Phase 2 items are caught by Shell → ComingInPhase) */}
           <Route path="/dashboard"    element={<DashboardPage />} />
-          <Route path="/attendance"   element={<Phase1Stub />} />
+          <Route path="/attendance"   element={<AttendancePage />} />
           <Route path="/leave"        element={<Phase1Stub />} />
           <Route path="/help"         element={<Phase1Stub />} />
           <Route path="/approvals"    element={<Phase1Stub />} />
