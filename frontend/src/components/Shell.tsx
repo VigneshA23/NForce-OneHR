@@ -7,19 +7,6 @@ import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
 
-function toShellRole(dbRole: string | undefined): Role {
-  switch (dbRole) {
-    case 'SUPER_ADMIN':  return 'Super Admin';
-    case 'HR_ADMIN':     return 'HR Admin';
-    case 'MANAGER':      return 'Manager';
-    case 'EMPLOYEE':
-    case 'DELIVERY':
-    case 'FINANCE':
-    case 'LEADERSHIP':
-    default:             return 'Employee';
-  }
-}
-
 function toRoleTagline(role: Role): string {
   switch (role) {
     case 'Super Admin': return 'Super Admin Experience';

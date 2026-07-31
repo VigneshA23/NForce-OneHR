@@ -40,6 +40,12 @@ public class Attendance {
     @Builder.Default
     private Integer lateByMinutes = 0;
 
+    // SYSTEM for a normal punch, REGULARIZATION for a row created/edited via an approved
+    // regularization request. See V18 migration and RegularizationService.
+    @Column(name = "source", nullable = false)
+    @Builder.Default
+    private String source = "SYSTEM";
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

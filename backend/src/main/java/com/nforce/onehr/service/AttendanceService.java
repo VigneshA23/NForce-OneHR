@@ -27,6 +27,11 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * Punch-clock attendance: self-service check-in/check-out plus HR/Manager roster views.
+ * Regularization (employee-submitted corrections) lives in {@link RegularizationService},
+ * which upserts into the same {@link Attendance} rows this service writes.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -253,6 +258,7 @@ public class AttendanceService {
                 .status(record.getStatus())
                 .lateByMinutes(record.getLateByMinutes())
                 .fullDay(worked == null ? null : worked >= props.getFullDayMinHours() * 60)
+                .source(record.getSource())
                 .build();
     }
 }

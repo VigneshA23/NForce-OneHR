@@ -26,7 +26,11 @@ app:
     late-grace-minutes: 15
     half-day-max-hours: 4
     full-day-min-hours: 8
-
+    regularization:
+      # N-day lookback window for regularization requests. OPEN QUESTION FOR PRODUCT
+      # OWNER: is 30 days correct, and should it vary by role/department? Kept
+      # configurable here rather than hardcoded pending that decision.
+      lookback-days: 30
 resend:
   api-key: ${RESEND_API_KEY}
   from: OneHR <onboarding@nforceone.com>
