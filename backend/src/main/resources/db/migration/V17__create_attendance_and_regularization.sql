@@ -1,4 +1,4 @@
--- NForce OneHR — Flyway Migration V12
+-- NForce OneHR — Flyway Migration V17
 -- Attendance module (minimal) + Attendance Regularization feature.
 --
 -- Design notes:
@@ -10,9 +10,8 @@
 --    concurrently PENDING request for the same date.
 -- 3. Notification-on-approve/reject is deliberately NOT part of this schema — owned
 --    by another workstream; see RegularizationService for the TODO hook points.
--- 4. An earlier prototype (a since-removed V11 migration, not present in this repo)
---    created an incompatible attendance_records table on this shared dev DB. Dropping
---    it here — it held only 2 same-day dev/test rows with no FK dependents.
+-- 4. DROP TABLE IF EXISTS below is a no-op on a fresh database — kept defensively in
+--    case this runs against a dev DB that already has an older prototype of this table.
 
 DROP TABLE IF EXISTS attendance_records CASCADE;
 
