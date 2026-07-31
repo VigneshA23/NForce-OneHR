@@ -23,6 +23,7 @@ export interface ProfileData {
   managerName: string | null;
   managerEmail: string | null;
   active: boolean;
+  hasEmployeeRecord: boolean;
 }
 
 export interface UpdateProfilePayload {

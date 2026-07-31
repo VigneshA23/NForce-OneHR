@@ -1,5 +1,6 @@
 package com.nforce.onehr.controller;
 
+import com.nforce.onehr.dto.HierarchyNodeDto;
 import com.nforce.onehr.dto.org.*;
 import com.nforce.onehr.service.OrgService;
 import jakarta.validation.Valid;
@@ -15,6 +16,13 @@ import java.util.List;
 public class OrgController {
 
     private final OrgService orgService;
+
+    // ── Hierarchy ────────────────────────────────────────────────────────────
+
+    @GetMapping("/hierarchy")
+    public List<HierarchyNodeDto> hierarchy() {
+        return orgService.getHierarchy();
+    }
 
     // ── Departments ───────────────────────────────────────────────────────────
 

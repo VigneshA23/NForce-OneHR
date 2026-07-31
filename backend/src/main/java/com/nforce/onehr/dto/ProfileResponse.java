@@ -36,4 +36,5 @@ public class ProfileResponse {
     private String managerName;
     private String managerEmail;
     private boolean active;
+    private boolean hasEmployeeRecord;
 }

@@ -21,4 +21,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     Optional<String> findMaxNumericEmployeeCode();
 
     Optional<Employee> findByUser_Email(String email);
+
+    @Query("SELECT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH e.department LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.location WHERE u.deletedAt IS NULL AND u.active = true")
+    List<Employee> findAllActiveWithDetails();
 }

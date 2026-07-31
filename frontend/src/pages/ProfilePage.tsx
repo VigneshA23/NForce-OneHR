@@ -172,15 +172,19 @@ export default function ProfilePage() {
               {initials}
             </div>
           )}
-          <button
-            onClick={() => photoInputRef.current?.click()}
-            disabled={uploading}
-            aria-label="Change photo"
-            style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
-          >
-            <Camera size={11} color="#fff" aria-hidden />
-          </button>
-          <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+          {profile.hasEmployeeRecord && (
+            <>
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                disabled={uploading}
+                aria-label="Change photo"
+                style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
+              >
+                <Camera size={11} color="#fff" aria-hidden />
+              </button>
+              <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+            </>
+          )}
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -199,25 +203,27 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          {editing ? (
-            <>
-              <button onClick={() => { setEditing(false); setForm(toForm(profile)); }}
-                style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-                Cancel
+        {profile.hasEmployeeRecord && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            {editing ? (
+              <>
+                <button onClick={() => { setEditing(false); setForm(toForm(profile)); }}
+                  style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={handleSave} disabled={saving}
+                  style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .7 : 1 }}>
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditing(true)}
+                style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+                Edit Profile
               </button>
-              <button onClick={handleSave} disabled={saving}
-                style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .7 : 1 }}>
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setEditing(true)}
-              style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
-              Edit Profile
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
