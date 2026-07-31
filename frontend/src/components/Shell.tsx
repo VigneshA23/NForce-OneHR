@@ -1,10 +1,24 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings } from 'lucide-react';
+import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings, CheckCheck, KeyRound, UserPlus } from 'lucide-react';
 import { NAV, toShellRole, type Role } from '../lib/nav.config';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
+import { notificationsApi, type NotificationItem } from '../api/notifications';
+
+function toShellRole(dbRole: string | undefined): Role {
+  switch (dbRole) {
+    case 'SUPER_ADMIN':  return 'Super Admin';
+    case 'HR_ADMIN':     return 'HR Admin';
+    case 'MANAGER':      return 'Manager';
+    case 'EMPLOYEE':
+    case 'DELIVERY':
+    case 'FINANCE':
+    case 'LEADERSHIP':
+    default:             return 'Employee';
+  }
+}
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -112,12 +126,102 @@ function ProfileDropdown({ name, role, initials, onClose }: {
   );
 }
 
+function relTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+const NOTIF_ICON: Record<string, React.ReactNode> = {
+  ACCOUNT:  <UserPlus size={12} />,
+  SECURITY: <KeyRound size={12} />,
+};
+
+function NotificationDropdown({ token, onClose }: { token: string; onClose: () => void }) {
+  const navigate = useNavigate();
+  const [items, setItems]     = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [marking, setMarking] = useState(false);
+
+  useEffect(() => {
+    notificationsApi.list(token, 0, 8)
+      .then(d => setItems(d.content))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  async function handleMarkAll() {
+    setMarking(true);
+    await notificationsApi.markAllRead(token);
+    setItems(prev => prev.map(n => ({ ...n, read: true })));
+    setMarking(false);
+  }
+
+  async function handleClick(n: NotificationItem) {
+    if (!n.read) {
+      await notificationsApi.markRead(token, n.id);
+      setItems(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+    }
+    onClose();
+    if (n.linkPath) navigate(n.linkPath);
+  }
+
+  const unread = items.filter(n => !n.read).length;
+
+  return (
+    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 340, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', borderBottom: '1px solid #2A2E37' }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#E8EAED' }}>Notifications {unread > 0 && <span style={{ color: '#e4373d' }}>({unread})</span>}</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {unread > 0 && (
+            <button onClick={handleMarkAll} disabled={marking} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#9BA1AC', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+              <CheckCheck size={11} /> {marking ? '…' : 'Mark all read'}
+            </button>
+          )}
+          <button onClick={() => { onClose(); navigate('/notifications'); }} style={{ fontSize: 11, color: '#9BA1AC', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+            View all
+          </button>
+        </div>
+      </div>
+      {loading ? (
+        <div style={{ padding: '20px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>Loading…</div>
+      ) : items.length === 0 ? (
+        <div style={{ padding: '28px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>No notifications yet.</div>
+      ) : (
+        items.map((n, i) => (
+          <button key={n.id} onClick={() => handleClick(n)}
+            style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 14px', background: n.read ? 'transparent' : 'rgba(177,17,22,.06)', border: 'none', borderBottom: i < items.length - 1 ? '1px solid rgba(42,46,55,.7)' : 'none', cursor: 'pointer', textAlign: 'left' }}>
+            <div style={{ width: 26, height: 26, borderRadius: '50%', flexShrink: 0, background: n.type === 'SECURITY' ? 'rgba(239,68,68,.12)' : 'rgba(177,17,22,.12)', color: n.type === 'SECURITY' ? '#ef4444' : '#e4373d', display: 'grid', placeItems: 'center', marginTop: 1 }}>
+              {NOTIF_ICON[n.type] ?? <Bell size={12} />}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 1 }}>
+                <span style={{ fontSize: 12.5, fontWeight: n.read ? 500 : 700, color: '#E8EAED', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{n.title}</span>
+                {!n.read && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#e4373d', flexShrink: 0 }} />}
+              </div>
+              <div style={{ fontSize: 11.5, color: '#9BA1AC', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{n.message}</div>
+              <div style={{ fontSize: 10.5, color: '#6B7280' }}>{relTime(n.createdAt)}</div>
+            </div>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
 export function Shell() {
   const storeUser  = useAuthStore((s) => s.user);
+  const token      = useAuthStore((s) => s.token) ?? '';
   const { theme, toggleTheme } = useTheme();
   const location   = useLocation();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen]   = useState(false);
+  const [bellOpen, setBellOpen]           = useState(false);
+  const [unreadCount, setUnreadCount]     = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const bellRef     = useRef<HTMLDivElement>(null);
 
   const role     = toShellRole(storeUser?.role);
   const name     = storeUser?.email || 'User';
@@ -126,17 +230,33 @@ export function Shell() {
   const navItems = NAV[role];
   const current  = navItems.find((n) => location.pathname.startsWith(n.path)) ?? navItems[0];
 
+  const refreshCount = useCallback(() => {
+    if (!token) return;
+    notificationsApi.unreadCount(token)
+      .then(d => setUnreadCount(d.count))
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    refreshCount();
+    const id = setInterval(refreshCount, 30000);
+    return () => clearInterval(id);
+  }, [refreshCount]);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
       }
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
+        setBellOpen(false);
+      }
     }
-    if (dropdownOpen) {
+    if (dropdownOpen || bellOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [dropdownOpen]);
+  }, [dropdownOpen, bellOpen]);
 
   return (
     <div style={{ display: 'flex', minHeight: '100dvh' }}>
@@ -236,9 +356,28 @@ export function Shell() {
             {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
 
-          <button aria-label="Notifications" className="nf-topbar-item" style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 7, borderRadius: 6 }}>
-            <Bell size={15} aria-hidden="true" />
-          </button>
+          <div ref={bellRef} style={{ position: 'relative' }}>
+            <button
+              aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+              aria-expanded={bellOpen}
+              onClick={() => { setBellOpen(v => !v); if (!bellOpen) refreshCount(); }}
+              className="nf-topbar-item"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 7, borderRadius: 6, position: 'relative' }}
+            >
+              <Bell size={15} aria-hidden="true" />
+              {unreadCount > 0 && (
+                <span style={{ position: 'absolute', top: 3, right: 3, minWidth: 14, height: 14, borderRadius: 7, background: '#e4373d', color: '#fff', fontSize: 9, fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 3px', lineHeight: 1 }}>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </button>
+            {bellOpen && (
+              <NotificationDropdown
+                token={token}
+                onClose={() => { setBellOpen(false); refreshCount(); }}
+              />
+            )}
+          </div>
 
           {/* Avatar-only button — name/role/sign-out live inside the dropdown */}
           <div ref={dropdownRef} style={{ position: 'relative' }}>

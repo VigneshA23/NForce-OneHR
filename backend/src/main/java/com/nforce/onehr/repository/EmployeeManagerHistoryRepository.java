@@ -16,6 +16,10 @@ public interface EmployeeManagerHistoryRepository extends JpaRepository<Employee
 
     Optional<EmployeeManagerHistory> findByEmployeeUserIdAndEffectiveToIsNull(UUID employeeUserId);
 
+    List<EmployeeManagerHistory> findByEffectiveToIsNull();
+
+    List<EmployeeManagerHistory> findByManagerUserIdAndEffectiveToIsNull(UUID managerUserId);
+
     // Current direct reports of a manager — effective_to IS NULL is the open row,
     // same convention as findByEmployeeUserIdAndEffectiveToIsNull above.
     @Query("SELECT h.employeeUserId FROM EmployeeManagerHistory h "

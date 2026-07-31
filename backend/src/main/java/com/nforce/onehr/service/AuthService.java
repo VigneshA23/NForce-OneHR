@@ -29,6 +29,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final EmailService emailService;
+    private final NotificationService notificationService;
 
     private static final String GENERIC_CRED_ERROR = "Invalid credentials";
 
@@ -129,6 +130,10 @@ public class AuthService {
 
                 emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
                 auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+                notificationService.send(user.getId(), "SECURITY",
+                        "Password Reset",
+                        "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
+                        "/change-password");
             }
         });
         return ForgotPasswordResponse.builder()

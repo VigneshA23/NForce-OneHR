@@ -41,7 +41,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         aria-atomic="false"
         style={{
           position: 'fixed',
-          top: '1rem',
+          top: '72px',
           right: '1rem',
           zIndex: 9999,
           display: 'flex',
@@ -62,9 +62,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               gap: '0.625rem',
               padding: '0.75rem 1rem',
               borderRadius: '0.5rem',
-              background: 'var(--raised)',
-              border: `1px solid ${toast.kind === 'success' ? 'rgba(47,182,124,.35)' : 'rgba(228,55,61,.35)'}`,
-              boxShadow: '0 4px 16px rgba(0,0,0,.45)',
+              background: 'var(--panel)',
+              border: `1px solid ${toast.kind === 'success' ? 'rgba(47,182,124,.45)' : 'rgba(228,55,61,.45)'}`,
+              boxShadow: '0 4px 20px rgba(0,0,0,.3), 0 0 0 1px var(--line)',
               pointerEvents: 'auto',
               animation: 'nf-toast-in 200ms ease-out',
             }}

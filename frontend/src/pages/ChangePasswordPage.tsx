@@ -119,8 +119,9 @@ function PasswordField({
 
 export default function ChangePasswordPage() {
   const navigate = useNavigate();
-  const { token, user, setAuth } = useAuthStore();
+  const { token, user, setAuth, clearAuth } = useAuthStore();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [showNew, setShowNew] = useState(false);
 
   const {
     register,
@@ -223,7 +224,7 @@ export default function ChangePasswordPage() {
             <div className="relative">
               <input
                 id="newPassword"
-                type="password"
+                type={showNew ? 'text' : 'password'}
                 autoComplete="new-password"
                 aria-describedby="newPassword-error newPassword-strength"
                 aria-invalid={!!errors.newPassword}
@@ -242,6 +243,17 @@ export default function ChangePasswordPage() {
                   if (!errors.newPassword) e.currentTarget.style.borderColor = '#2a2a2a';
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowNew(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
+                style={{ color: '#5a5a5a', background: 'none', border: 'none', padding: 0 }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#a0a0a0')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#5a5a5a')}
+                aria-label={showNew ? 'Hide password' : 'Show password'}
+              >
+                <EyeIcon open={showNew} />
+              </button>
             </div>
 
             {/* Strength bars */}
@@ -339,12 +351,25 @@ export default function ChangePasswordPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-xs text-center" style={{ color: '#3a3a3a' }}>
+        <p className="mt-5 text-xs text-center" style={{ color: '#3a3a3a' }}>
           Signed in as{' '}
           <span style={{ fontFamily: 'JetBrains Mono, monospace', color: '#5a5a5a' }}>
             {user?.email}
           </span>
         </p>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => { clearAuth(); navigate('/login', { replace: true }); }}
+            className="text-xs cursor-pointer"
+            style={{ background: 'none', border: 'none', color: '#5a5a5a', textDecoration: 'underline', textUnderlineOffset: '3px', padding: 0 }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#a0a0a0')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#5a5a5a')}
+          >
+            Forgot your temporary password? Back to Sign In
+          </button>
+        </div>
       </div>
     </div>
   );

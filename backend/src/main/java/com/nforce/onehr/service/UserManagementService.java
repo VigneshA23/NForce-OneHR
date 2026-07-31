@@ -31,6 +31,7 @@ public class UserManagementService {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final EmailService emailService;
+    private final NotificationService notificationService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -86,6 +87,10 @@ public class UserManagementService {
 
         auditService.log(actor.getId(), "USER_CREATED", newUser.getId());
         emailService.sendInviteEmail(newUser.getEmail(), req.getFullName().trim(), tempPassword);
+        notificationService.send(newUser.getId(), "ACCOUNT",
+                "Welcome to OneHR",
+                "Your account has been created. Please log in and change your temporary password.",
+                "/profile");
         return toResponse(emp, findCurrentManager(newUser.getId()), newUser, tempPassword);
     }
 
@@ -131,6 +136,10 @@ public class UserManagementService {
             target.getRoles().clear();
             target.getRoles().add(newRole);
             userRepository.save(target);
+            notificationService.send(target.getId(), "ACCOUNT",
+                    "Role Updated",
+                    "Your role has been updated to " + roleCode.replace("_", " ") + ".",
+                    "/profile");
         }
 
         // Manager change — effective-dating: close current, insert new
@@ -166,6 +175,10 @@ public class UserManagementService {
         userRepository.save(target);
 
         auditService.log(actor.getId(), "PASSWORD_RESET", userId);
+        notificationService.send(target.getId(), "SECURITY",
+                "Password Reset by Administrator",
+                "An administrator has reset your password. Please log in with your temporary password and change it immediately.",
+                "/change-password");
         return ResetPasswordResponse.builder()
                 .tempPassword(tempPassword)
                 .message("Password reset. User must change password on next login.")
