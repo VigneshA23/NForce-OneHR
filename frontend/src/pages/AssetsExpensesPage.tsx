@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, ChevronDown, ExternalLink, MoreVertical, Plus, X } from 'lucide-react';
+import { Check, ExternalLink, MoreVertical, Plus, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
 import { useToast } from '../context/ToastContext';
@@ -1071,13 +1071,6 @@ function HRView({ token }: { token: string }) {
   );
 }
 
-function ActionBtn({ label, color, textColor, onClick }: { label: string; color: string; textColor: string; onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{ background: color, border: 'none', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: textColor, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>
-      {label}
-    </button>
-  );
-}
 
 function KebabMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
   const [open, setOpen] = useState(false);
