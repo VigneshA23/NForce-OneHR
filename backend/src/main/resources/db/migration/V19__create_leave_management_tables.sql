@@ -7,7 +7,7 @@
 --   * Day count is calendar days inclusive (end - start + 1), 0.5 for a half-day.
 --   * Opening balance: 20 days per type per employee for the current year.
 
-CREATE TABLE leave_types (
+CREATE TABLE IF NOT EXISTS leave_types (
     id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     code        VARCHAR(20)  NOT NULL UNIQUE,
     name        VARCHAR(50)  NOT NULL,
@@ -17,9 +17,10 @@ CREATE TABLE leave_types (
 INSERT INTO leave_types (code, name) VALUES
     ('ANNUAL', 'Annual Leave'),
     ('SICK',   'Sick Leave'),
-    ('CASUAL', 'Casual Leave');
+    ('CASUAL', 'Casual Leave')
+ON CONFLICT (code) DO NOTHING;
 
-CREATE TABLE leave_balances (
+CREATE TABLE IF NOT EXISTS leave_balances (
     id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_user_id UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     leave_type_id    UUID        NOT NULL REFERENCES leave_types(id),
@@ -30,7 +31,7 @@ CREATE TABLE leave_balances (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (employee_user_id, leave_type_id, year)
 );
-CREATE INDEX idx_leave_balances_employee ON leave_balances(employee_user_id);
+CREATE INDEX IF NOT EXISTS idx_leave_balances_employee ON leave_balances(employee_user_id);
 
 -- Seed an opening balance for every existing employee, every leave type, current year.
 INSERT INTO leave_balances (employee_user_id, leave_type_id, year, total_days, used_days)
@@ -39,7 +40,7 @@ FROM employees e
 CROSS JOIN leave_types lt
 ON CONFLICT (employee_user_id, leave_type_id, year) DO NOTHING;
 
-CREATE TABLE leave_requests (
+CREATE TABLE IF NOT EXISTS leave_requests (
     id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_user_id UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     leave_type_id    UUID         NOT NULL REFERENCES leave_types(id),
@@ -55,5 +56,5 @@ CREATE TABLE leave_requests (
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_leave_requests_employee ON leave_requests(employee_user_id);
-CREATE INDEX idx_leave_requests_status   ON leave_requests(status);
+CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests(employee_user_id);
+CREATE INDEX IF NOT EXISTS idx_leave_requests_status   ON leave_requests(status);

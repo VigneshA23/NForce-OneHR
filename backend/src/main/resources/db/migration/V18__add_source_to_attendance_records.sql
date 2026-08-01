@@ -3,5 +3,5 @@
 -- approval (V17) can be distinguished from a normal check-in/check-out punch.
 
 ALTER TABLE attendance_records
-    ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'SYSTEM'
+    ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'SYSTEM'
         CHECK (source IN ('SYSTEM', 'REGULARIZATION'));
