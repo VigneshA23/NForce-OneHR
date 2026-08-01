@@ -394,7 +394,7 @@ export default function EmployeeMasterPage() {
                   <tr key={emp.userId}>
                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{emp.employeeCode}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{emp.fullName}</td>
-                    <td style={tdStyle}>{emp.email}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{emp.email}</td>
                     <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
                     <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
                     <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>

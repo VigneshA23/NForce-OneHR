@@ -565,7 +565,7 @@ export default function UserManagementPage() {
                   <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}>
                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{u.employeeCode}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{u.fullName}</td>
-                    <td style={tdStyle}>{u.email}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                     <td style={tdStyle}><RoleBadge role={u.role} /></td>
                     <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
                     <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
