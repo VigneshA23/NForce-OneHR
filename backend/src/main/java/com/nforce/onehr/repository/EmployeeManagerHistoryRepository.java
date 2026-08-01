@@ -20,6 +20,12 @@ public interface EmployeeManagerHistoryRepository extends JpaRepository<Employee
 
     List<EmployeeManagerHistory> findByManagerUserIdAndEffectiveToIsNull(UUID managerUserId);
 
+    // Current direct reports of a manager — effective_to IS NULL is the open row,
+    // same convention as findByEmployeeUserIdAndEffectiveToIsNull above.
+    @Query("SELECT h.employeeUserId FROM EmployeeManagerHistory h "
+         + "WHERE h.managerUserId = :managerId AND h.effectiveTo IS NULL")
+    List<UUID> findCurrentDirectReportIds(UUID managerId);
+
     @Modifying
     @Query("UPDATE EmployeeManagerHistory h SET h.effectiveTo = :now WHERE h.employeeUserId = :employeeId AND h.effectiveTo IS NULL")
     void closeCurrentEntry(UUID employeeId, LocalDateTime now);

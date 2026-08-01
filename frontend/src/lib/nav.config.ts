@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Bell, Shield,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Bell, Shield, Package,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -26,7 +26,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('attendance', 'My Attendance', Clock, 1),
     item('leave', 'Leave & Holidays', Calendar, 1),
     item('requests', 'My Requests', HelpCircle, 2),
-    item('assets', 'Assets & Expenses', FileText, 2),
+    item('assets', 'Assets & Expenses', Package, 1),
     item('performance', 'Performance & Growth', GitBranch, 2),
     item('documents', 'My Documents & Policies', FileText, 2),
     item('help', 'Help & Guidance', HelpCircle, 1),
@@ -40,7 +40,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('leave', 'Team Leave & Holidays', Calendar, 1),
     item('approvals', 'Approval Center', FileText, 1),
     item('performance', 'Team Performance', GitBranch, 2),
-    item('assets', 'Team Assets & Expenses', FileText, 2),
+    item('assets', 'Team Assets & Expenses', Package, 1),
     item('reports', 'Reports & Analytics', FileText, 2),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
@@ -53,11 +53,12 @@ export const NAV: Record<Role, NavItem[]> = {
     item('onboarding', 'Onboarding', Users, 2),
     item('attendance', 'Attendance Administration', Clock, 1),
     item('leave', 'Leave Administration', Calendar, 1),
+    item('approvals', 'Approval Center', FileText, 1),
     item('documents', 'Documents & Compliance', FileText, 2),
     item('policies', 'Policies & Announcements', FileText, 2),
     item('organization', 'Organization Structure', GitBranch, 1),
     item('performance', 'Performance & Engagement', GitBranch, 2),
-    item('assets', 'Assets & Expenses', FileText, 2),
+    item('assets', 'Assets & Expenses', Package, 1),
     item('requests', 'HR Service Requests', HelpCircle, 2),
     item('reports', 'Reports & Analytics', FileText, 2),
     item('audit', 'Audit History', Clock, 2),
@@ -69,6 +70,9 @@ export const NAV: Record<Role, NavItem[]> = {
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('access', 'User Management', Shield, 1),
+    item('attendance', 'Attendance Administration', Clock, 1),
+    item('approvals', 'Approval Center', FileText, 1),
+    item('assets', 'Assets & Expenses', Package, 1),
     item('workflows', 'Workflow Studio', GitBranch, 2),
     item('masters', 'Organization Masters', FileText, 1),
     item('templates', 'Templates & Notifications', Bell, 2),
@@ -79,6 +83,20 @@ export const NAV: Record<Role, NavItem[]> = {
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
 };
+
+/** Maps the raw DB role on the auth store to the UI role union. */
+export function toShellRole(dbRole: string | undefined): Role {
+  switch (dbRole) {
+    case 'SUPER_ADMIN':  return 'Super Admin';
+    case 'HR_ADMIN':     return 'HR Admin';
+    case 'MANAGER':      return 'Manager';
+    case 'EMPLOYEE':
+    case 'DELIVERY':
+    case 'FINANCE':
+    case 'LEADERSHIP':
+    default:             return 'Employee';
+  }
+}
 
 export const ROLE_LANDING: Record<Role, string> = {
   Employee: '/dashboard',

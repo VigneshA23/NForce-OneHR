@@ -1,0 +1,159 @@
+package com.nforce.onehr.controller;
+
+import com.nforce.onehr.dto.ApprovalItemDto;
+import com.nforce.onehr.dto.attendance.RegularizationResponse;
+import com.nforce.onehr.dto.asset.AssetRequestResponse;
+import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
+import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.service.AssetService;
+import com.nforce.onehr.service.ExpenseService;
+import com.nforce.onehr.service.LeaveService;
+import com.nforce.onehr.service.RegularizationService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.security.Principal;
+import java.time.ZoneId;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Unified Approval Center queue.
+ *
+ * HARD RULE: This is the ONLY endpoint family that issues approval/rejection
+ * decisions. No other controller/endpoint may approve or reject any request type.
+ * The individual service-level approve/reject endpoints (leave, expenses, assets,
+ * regularization) do the actual work; this controller aggregates the pending
+ * queue into a single unified view and delegates decisions to the appropriate
+ * service.
+ */
+@RestController
+@RequestMapping("/api/approvals")
+@RequiredArgsConstructor
+public class ApprovalCenterController {
+
+    private final LeaveService leaveService;
+    private final RegularizationService regularizationService;
+    private final ExpenseService expenseService;
+    private final AssetService assetService;
+    private final UserRepository userRepo;
+
+    /**
+     * Returns all pending approval items visible to the caller.
+     * - Manager: LEAVE (own reports), REGULARIZATION (own reports), EXPENSE at MANAGER stage (own reports), ASSET_REQUEST (own reports)
+     * - HR Admin / Super Admin: REGULARIZATION (all), EXPENSE at FINAL stage (all), ASSET_REQUEST (all)
+     */
+    @GetMapping
+    public List<ApprovalItemDto> pendingApprovals(Principal principal) {
+        String email = principal.getName();
+        User actor = userRepo.findByEmail(email)
+                .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
+        boolean isAdmin = roleCodes.contains("HR_ADMIN") || roleCodes.contains("SUPER_ADMIN");
+        boolean isManager = roleCodes.contains("MANAGER");
+
+        List<ApprovalItemDto> items = new ArrayList<>();
+
+        if (isManager) {
+            // Leave
+            leaveService.listPendingApprovals(email).stream()
+                    .map(this::leaveToApprovalItem).forEach(items::add);
+            // Regularization — managers see own reports' pending requests
+            regularizationService.listPendingForApprover(email).stream()
+                    .map(this::regularizationToApprovalItem).forEach(items::add);
+            // Expense — manager stage only
+            expenseService.pendingForManager(email).stream()
+                    .map(c -> expenseToApprovalItem(c, "MANAGER")).forEach(items::add);
+            // Asset requests
+            assetService.listPendingForApprover(email).stream()
+                    .map(this::assetRequestToApprovalItem).forEach(items::add);
+        }
+
+        if (isAdmin) {
+            // Regularization — HR/SA see all pending
+            regularizationService.listPendingForApprover(email).stream()
+                    .map(this::regularizationToApprovalItem).forEach(items::add);
+            // Expense — final stage only
+            expenseService.pendingForFinalApprover(email).stream()
+                    .map(c -> expenseToApprovalItem(c, "FINAL")).forEach(items::add);
+            // Asset requests — HR/SA approve PENDING only (APPROVED → fulfilled via HR Assets page)
+            assetService.listPendingForApprover(email).stream()
+                    .filter(r -> "PENDING".equals(r.getStatus()))
+                    .map(this::assetRequestToApprovalItem).forEach(items::add);
+        }
+
+        // De-duplicate by (id + requestType) in case manager and admin roles overlap
+        Map<String, ApprovalItemDto> seen = new LinkedHashMap<>();
+        for (ApprovalItemDto item : items) {
+            String key = item.getRequestType() + ":" + item.getId();
+            seen.putIfAbsent(key, item);
+        }
+        return new ArrayList<>(seen.values());
+    }
+
+    // ── Mappers ───────────────────────────────────────────
+
+    private ApprovalItemDto leaveToApprovalItem(LeaveRequestResponse r) {
+        return ApprovalItemDto.builder()
+                .id(r.getId().toString())
+                .requestType("LEAVE")
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .leaveTypeName(r.getLeaveTypeName())
+                .leaveStartDate(r.getStartDate())
+                .leaveEndDate(r.getEndDate())
+                .leaveTotalDays(r.getTotalDays())
+                .leaveHalfDay(r.isHalfDay())
+                .leaveReason(r.getEmployeeReason())
+                .build();
+    }
+
+    private ApprovalItemDto regularizationToApprovalItem(RegularizationResponse r) {
+        return ApprovalItemDto.builder()
+                .id(r.getId().toString())
+                .requestType("REGULARIZATION")
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .attendanceDate(r.getAttendanceDate())
+                .requestedCheckIn(r.getRequestedCheckIn())
+                .requestedCheckOut(r.getRequestedCheckOut())
+                .regularizationReason(r.getReason())
+                .build();
+    }
+
+    private ApprovalItemDto expenseToApprovalItem(ExpenseClaimResponse c, String stage) {
+        return ApprovalItemDto.builder()
+                .id(c.getId().toString())
+                .requestType("EXPENSE")
+                .employeeUserId(c.getEmployeeUserId())
+                .employeeName(c.getEmployeeName())
+                .createdAt(c.getCreatedAt())
+                .expenseCategoryName(c.getCategoryName())
+                .expenseAmount(c.getAmount())
+                .expenseDate(c.getExpenseDate())
+                .businessPurpose(c.getBusinessPurpose())
+                .receiptUrl(c.getReceiptUrl())
+                .approvalStage(stage)
+                .build();
+    }
+
+    private ApprovalItemDto assetRequestToApprovalItem(AssetRequestResponse r) {
+        return ApprovalItemDto.builder()
+                .id(r.getId().toString())
+                .requestType("ASSET_REQUEST")
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt())
+                .requestedCategoryName(r.getCategoryName())
+                .assetRequestReason(r.getReason())
+                .assetRequestStatus(r.getStatus())
+                .build();
+    }
+}
