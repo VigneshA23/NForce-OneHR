@@ -27,6 +27,9 @@ public class Location {
     @Column(length = 100)
     private String country;
 
+    @Column(name = "holiday_region", length = 100)
+    private String holidayRegion;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private boolean active = true;

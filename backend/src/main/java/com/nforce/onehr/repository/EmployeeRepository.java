@@ -3,6 +3,7 @@ package com.nforce.onehr.repository;
 import com.nforce.onehr.entity.Employee;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -24,4 +25,13 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     @Query("SELECT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH e.department LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.location WHERE u.deletedAt IS NULL AND u.active = true")
     List<Employee> findAllActiveWithDetails();
+
+    @Query("SELECT COUNT(e) FROM Employee e JOIN e.user u WHERE e.department.id = :id AND u.deletedAt IS NULL")
+    long countByDepartmentId(@Param("id") UUID id);
+
+    @Query("SELECT COUNT(e) FROM Employee e JOIN e.user u WHERE e.designation.id = :id AND u.deletedAt IS NULL")
+    long countByDesignationId(@Param("id") UUID id);
+
+    @Query("SELECT COUNT(e) FROM Employee e JOIN e.user u WHERE e.location.id = :id AND u.deletedAt IS NULL")
+    long countByLocationId(@Param("id") UUID id);
 }

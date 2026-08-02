@@ -11,10 +11,12 @@ public class DesignationResponse {
     UUID id;
     String title;
     String grade;
+    String level;
     boolean active;
+    long employeeCount;
     LocalDateTime createdAt;
 
-    public static DesignationResponse from(Designation d) {
-        return new DesignationResponse(d.getId(), d.getTitle(), d.getGrade(), d.isActive(), d.getCreatedAt());
+    public static DesignationResponse from(Designation d, long employeeCount) {
+        return new DesignationResponse(d.getId(), d.getTitle(), d.getGrade(), d.getLevel(), d.isActive(), employeeCount, d.getCreatedAt());
     }
 }

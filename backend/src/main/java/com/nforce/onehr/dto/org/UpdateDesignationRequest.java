@@ -5,13 +5,12 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
-public class CreateDesignationRequest {
-
-    @NotBlank(message = "Designation title is required")
-    @Size(max = 100, message = "Designation title must be 100 characters or fewer")
+public class UpdateDesignationRequest {
+    @NotBlank(message = "Title is required")
+    @Size(max = 100)
     private String title;
 
-    @Size(max = 50, message = "Grade must be 50 characters or fewer")
+    @Size(max = 50)
     private String grade;
 
     @Size(max = 20)
