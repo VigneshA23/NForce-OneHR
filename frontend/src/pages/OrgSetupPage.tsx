@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, MapPin, MoreVertical, Plus, Search, X } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, MoreVertical, Plus, Search, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { orgApi, type DepartmentRow, type DesignationRow, type LocationRow } from '../api/org';
+import {
+  listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
+  type DocumentType,
+} from '../api/documents';
 
-type OrgTab = 'departments' | 'designations' | 'locations';
+type OrgTab = 'departments' | 'designations' | 'locations' | 'doctypes';
 
 interface TabDef {
   label: string;
@@ -36,6 +40,12 @@ const TABS: Record<OrgTab, TabDef> = {
     columns: ['Name', 'City', 'State / Province', 'Country', 'Employees', 'Status'],
     addLabel: 'Add Location',
     emptyLine: 'No office locations configured yet. Add one to enable location-based features.',
+  },
+  doctypes: {
+    label: 'Document Types', icon: FileText,
+    columns: ['Name', 'Needs Verification', 'Needs Expiry', 'Employment Types', 'Locations', 'Usage', 'Status'],
+    addLabel: 'Add Document Type',
+    emptyLine: 'No document types configured yet. Add one to start collecting employee documents.',
   },
 };
 
@@ -452,6 +462,101 @@ interface ConfirmState {
   onConfirm: () => Promise<void>;
 }
 
+// ── DocTypeModal ───────────────────────────────────────────────────────────────
+
+interface DocTypeModalProps {
+  editRow?: DocumentType;
+  token: string;
+  onClose(): void;
+  onSaved(): void;
+}
+
+function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
+  const { showToast } = useToast();
+  const isEdit = !!editRow;
+  const [name, setName] = useState(editRow?.name ?? '');
+  const [reqVerify, setReqVerify] = useState(editRow?.requiresVerification ?? true);
+  const [reqExpiry, setReqExpiry] = useState(editRow?.requiresExpiryDate ?? false);
+  const [empTypes, setEmpTypes] = useState(editRow?.applicableEmploymentTypes ?? '');
+  const [locs, setLocs] = useState(editRow?.applicableLocations ?? '');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError('Name is required'); return; }
+    setError('');
+    setLoading(true);
+    try {
+      if (isEdit && editRow) {
+        await updateDocType(token, editRow.id, {
+          name: name.trim(),
+          requiresVerification: reqVerify,
+          requiresExpiryDate: reqExpiry,
+          applicableEmploymentTypes: empTypes.trim() || null,
+          applicableLocations: locs.trim() || null,
+        });
+      } else {
+        await createDocType(token, {
+          name: name.trim(),
+          requiresVerification: reqVerify,
+          requiresExpiryDate: reqExpiry,
+          applicableEmploymentTypes: empTypes.trim() || null,
+          applicableLocations: locs.trim() || null,
+        });
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
+  const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
+
+  return (
+    <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 460, maxWidth: '94vw' }}>
+        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Document Type' : 'Add Document Type'}</h2>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelS}>Name *</label>
+            <input style={inputS} value={name} onChange={e => setName(e.target.value)} required autoFocus />
+          </div>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={reqVerify} onChange={e => setReqVerify(e.target.checked)} style={{ width: 15, height: 15 }} />
+              Requires HR verification
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={reqExpiry} onChange={e => setReqExpiry(e.target.checked)} style={{ width: 15, height: 15 }} />
+              Requires expiry date
+            </label>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelS}>Applicable Employment Types <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(comma-separated, blank = all)</span></label>
+            <input style={inputS} value={empTypes} onChange={e => setEmpTypes(e.target.value)} placeholder="e.g. FULL_TIME,CONTRACT" />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelS}>Applicable Locations <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(comma-separated, blank = all)</span></label>
+            <input style={inputS} value={locs} onChange={e => setLocs(e.target.value)} placeholder="e.g. Chennai HQ,Bangalore Office" />
+          </div>
+          {error && <div style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading} style={{ padding: '7px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+              {loading ? 'Saving…' : isEdit ? 'Save Changes' : 'Add'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function OrgSetupPage() {
   const { pathname } = useLocation();
   const token = useAuthStore(s => s.token) ?? '';
@@ -462,6 +567,7 @@ export default function OrgSetupPage() {
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [designations, setDesignations] = useState<DesignationRow[]>([]);
   const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
@@ -470,6 +576,7 @@ export default function OrgSetupPage() {
     row?: DepartmentRow | DesignationRow | LocationRow;
     key: number;
   }>({ open: false, key: 0 });
+  const [docTypeModal, setDocTypeModal] = useState<{ open: boolean; row?: DocumentType; key: number }>({ open: false, key: 0 });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   const tab = TABS[activeTab];
@@ -478,14 +585,16 @@ export default function OrgSetupPage() {
   async function fetchAll() {
     setLoadError('');
     try {
-      const [deps, desigs, locs] = await Promise.all([
+      const [deps, desigs, locs, dts] = await Promise.all([
         orgApi.listDepartments(token),
         orgApi.listDesignations(token),
         orgApi.listLocations(token),
+        listAllDocTypes(token),
       ]);
       setDepartments(deps);
       setDesignations(desigs);
       setLocations(locs);
+      setDocTypes(dts);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load data');
     }
@@ -500,14 +609,22 @@ export default function OrgSetupPage() {
   const visibleLocs   = locations.filter(l =>
     l.name.toLowerCase().includes(q) || (l.city ?? '').toLowerCase().includes(q)
   );
+  const visibleDocTypes = docTypes.filter(d => d.name.toLowerCase().includes(q));
   const visibleRows =
     activeTab === 'departments' ? visibleDepts :
     activeTab === 'designations' ? visibleDesigs :
+    activeTab === 'doctypes' ? visibleDocTypes :
     visibleLocs;
 
-  function openAdd() { setAddEditModal(s => ({ open: true, key: s.key + 1 })); }
+  function openAdd() {
+    if (activeTab === 'doctypes') { setDocTypeModal(s => ({ open: true, key: s.key + 1 })); return; }
+    setAddEditModal(s => ({ open: true, key: s.key + 1 }));
+  }
   function openEdit(row: DepartmentRow | DesignationRow | LocationRow) {
     setAddEditModal(s => ({ open: true, row, key: s.key + 1 }));
+  }
+  function openEditDocType(dt: DocumentType) {
+    setDocTypeModal(s => ({ open: true, row: dt, key: s.key + 1 }));
   }
 
   function triggerToggleActive(row: DepartmentRow | DesignationRow | LocationRow, label: string) {
@@ -540,6 +657,45 @@ export default function OrgSetupPage() {
         else if (activeTab === 'designations') await orgApi.deleteDesignation(token, row.id);
         else await orgApi.deleteLocation(token, row.id);
         showToast('success', `"${label}" deleted`);
+        await fetchAll();
+      },
+    });
+  }
+
+  function triggerDocTypeToggle(dt: DocumentType) {
+    const wasActive = dt.active;
+    setConfirmState({
+      title: wasActive ? `Deactivate "${dt.name}"` : `Reactivate "${dt.name}"`,
+      body: wasActive ? `"${dt.name}" will no longer appear for employees to upload.` : `"${dt.name}" will become available again.`,
+      confirmLabel: wasActive ? 'Deactivate' : 'Reactivate',
+      danger: wasActive,
+      onConfirm: async () => {
+        await toggleDocTypeActive(token, dt.id);
+        showToast('success', `"${dt.name}" ${wasActive ? 'deactivated' : 'reactivated'}`);
+        await fetchAll();
+      },
+    });
+  }
+
+  function triggerDocTypeDelete(dt: DocumentType) {
+    if (dt.usageCount > 0) {
+      setConfirmState({
+        title: `Cannot Delete "${dt.name}"`,
+        body: `${dt.usageCount} employee document(s) use this type. Deactivate it instead.`,
+        confirmLabel: 'Got it',
+        danger: false,
+        onConfirm: async () => {},
+      });
+      return;
+    }
+    setConfirmState({
+      title: `Delete "${dt.name}"`,
+      body: `"${dt.name}" will be permanently deleted.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        await deleteDocType(token, dt.id);
+        showToast('success', `"${dt.name}" deleted`);
         await fetchAll();
       },
     });
@@ -586,6 +742,18 @@ export default function OrgSetupPage() {
           onSaved={() => {
             fetchAll();
             showToast('success', addEditModal.row ? 'Updated successfully' : 'Created successfully');
+          }}
+        />
+      )}
+      {docTypeModal.open && (
+        <DocTypeModal
+          key={docTypeModal.key}
+          editRow={docTypeModal.row}
+          token={token}
+          onClose={() => setDocTypeModal(s => ({ ...s, open: false }))}
+          onSaved={() => {
+            fetchAll();
+            showToast('success', docTypeModal.row ? 'Updated successfully' : 'Document type created');
           }}
         />
       )}
@@ -735,7 +903,7 @@ export default function OrgSetupPage() {
                     </td>
                   </tr>
                 ))
-              ) : (
+              ) : activeTab === 'locations' ? (
                 visibleLocs.map(l => (
                   <tr key={l.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{l.name}</td>
@@ -746,6 +914,25 @@ export default function OrgSetupPage() {
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={l.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                       <KebabMenu items={kebabItems(l, l.name)} />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                visibleDocTypes.map(dt => (
+                  <tr key={dt.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{dt.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes ?? 'All'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations ?? 'All'}</td>
+                    <td style={{ padding: '10px 16px' }}><CountBadge count={dt.usageCount} /></td>
+                    <td style={{ padding: '10px 16px' }}><StatusBadge active={dt.active} /></td>
+                    <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                      <KebabMenu items={[
+                        { label: 'Edit', onClick: () => openEditDocType(dt) },
+                        { label: dt.active ? 'Deactivate' : 'Reactivate', onClick: () => triggerDocTypeToggle(dt), dividerBefore: true },
+                        { label: 'Delete', danger: true, onClick: () => triggerDocTypeDelete(dt) },
+                      ]} />
                     </td>
                   </tr>
                 ))

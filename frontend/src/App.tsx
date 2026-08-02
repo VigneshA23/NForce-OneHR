@@ -16,6 +16,10 @@ import HierarchyPage from './pages/HierarchyPage';
 import LeavePage from './pages/LeavePage';
 import ApprovalsPage from './pages/ApprovalsPage';
 import AssetsExpensesPage from './pages/AssetsExpensesPage';
+import DocumentsPage from './pages/DocumentsPage';
+import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
+import PoliciesPage from './pages/PoliciesPage';
+import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
 
@@ -23,6 +27,14 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   if (!token) return <Navigate to="/login" replace />;
   return <>{children}</>;
+}
+
+function DocumentsRouter() {
+  const user = useAuthStore(s => s.user);
+  const role = toShellRole(user?.role);
+  return role === 'HR Admin' || role === 'Super Admin'
+    ? <DocumentsCompliancePage />
+    : <DocumentsPage />;
 }
 
 function RequirePasswordChanged({ children }: { children: React.ReactNode }) {
@@ -75,6 +87,8 @@ export default function App() {
           <Route path="/notifications"  element={<NotificationsPage />} />
           <Route path="/directory"      element={<DirectoryPage />} />
           <Route path="/hierarchy"      element={<HierarchyPage />} />
+          <Route path="/documents"      element={<DocumentsRouter />} />
+          <Route path="/policies"       element={<PoliciesPage />} />
         </Route>
 
         <Route path="/"  element={<Navigate to="/dashboard" replace />} />
