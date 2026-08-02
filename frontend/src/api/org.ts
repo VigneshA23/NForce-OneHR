@@ -6,13 +6,29 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+async function handleEmpty(res: Response): Promise<void> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
+  }
+}
+
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
-export interface DepartmentRow  { id: string; name: string; active: boolean; createdAt: string }
-export interface DesignationRow { id: string; title: string; grade: string | null; active: boolean; createdAt: string }
-export interface LocationRow    { id: string; name: string; city: string | null; state: string | null; country: string | null; active: boolean; createdAt: string }
+export interface DepartmentRow {
+  id: string; name: string; active: boolean; employeeCount: number; createdAt: string;
+}
+export interface DesignationRow {
+  id: string; title: string; grade: string | null; level: string | null;
+  active: boolean; employeeCount: number; createdAt: string;
+}
+export interface LocationRow {
+  id: string; name: string; city: string | null; state: string | null;
+  country: string | null; holidayRegion: string | null;
+  active: boolean; employeeCount: number; createdAt: string;
+}
 
 export const orgApi = {
   // Departments
@@ -20,31 +36,60 @@ export const orgApi = {
     fetch(`${BASE}/departments`, { headers: authHeaders(token) }).then(r => handle<DepartmentRow[]>(r)),
 
   createDepartment: (token: string, name: string) =>
-    fetch(`${BASE}/departments`, {
-      method: 'POST',
-      headers: authHeaders(token),
-      body: JSON.stringify({ name }),
-    }).then(r => handle<DepartmentRow>(r)),
+    fetch(`${BASE}/departments`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ name }) })
+      .then(r => handle<DepartmentRow>(r)),
+
+  updateDepartment: (token: string, id: string, name: string) =>
+    fetch(`${BASE}/departments/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ name }) })
+      .then(r => handle<DepartmentRow>(r)),
+
+  toggleDepartmentActive: (token: string, id: string) =>
+    fetch(`${BASE}/departments/${id}/toggle-active`, { method: 'PATCH', headers: authHeaders(token) })
+      .then(r => handle<DepartmentRow>(r)),
+
+  deleteDepartment: (token: string, id: string) =>
+    fetch(`${BASE}/departments/${id}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handleEmpty(r)),
 
   // Designations
   listDesignations: (token: string) =>
     fetch(`${BASE}/designations`, { headers: authHeaders(token) }).then(r => handle<DesignationRow[]>(r)),
 
-  createDesignation: (token: string, title: string, grade?: string) =>
+  createDesignation: (token: string, title: string, grade?: string, level?: string) =>
     fetch(`${BASE}/designations`, {
-      method: 'POST',
-      headers: authHeaders(token),
-      body: JSON.stringify({ title, grade: grade || undefined }),
+      method: 'POST', headers: authHeaders(token),
+      body: JSON.stringify({ title, grade: grade || undefined, level: level || undefined }),
     }).then(r => handle<DesignationRow>(r)),
+
+  updateDesignation: (token: string, id: string, payload: { title: string; grade?: string; level?: string }) =>
+    fetch(`${BASE}/designations/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(r => handle<DesignationRow>(r)),
+
+  toggleDesignationActive: (token: string, id: string) =>
+    fetch(`${BASE}/designations/${id}/toggle-active`, { method: 'PATCH', headers: authHeaders(token) })
+      .then(r => handle<DesignationRow>(r)),
+
+  deleteDesignation: (token: string, id: string) =>
+    fetch(`${BASE}/designations/${id}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handleEmpty(r)),
 
   // Locations
   listLocations: (token: string) =>
     fetch(`${BASE}/locations`, { headers: authHeaders(token) }).then(r => handle<LocationRow[]>(r)),
 
-  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string }) =>
-    fetch(`${BASE}/locations`, {
-      method: 'POST',
-      headers: authHeaders(token),
-      body: JSON.stringify(payload),
-    }).then(r => handle<LocationRow>(r)),
+  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string }) =>
+    fetch(`${BASE}/locations`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(r => handle<LocationRow>(r)),
+
+  updateLocation: (token: string, id: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string }) =>
+    fetch(`${BASE}/locations/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(r => handle<LocationRow>(r)),
+
+  toggleLocationActive: (token: string, id: string) =>
+    fetch(`${BASE}/locations/${id}/toggle-active`, { method: 'PATCH', headers: authHeaders(token) })
+      .then(r => handle<LocationRow>(r)),
+
+  deleteLocation: (token: string, id: string) =>
+    fetch(`${BASE}/locations/${id}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handleEmpty(r)),
 };
