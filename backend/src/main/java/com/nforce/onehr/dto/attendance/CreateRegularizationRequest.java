@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class CreateRegularizationRequest {
@@ -19,4 +20,7 @@ public class CreateRegularizationRequest {
 
     @NotBlank(message = "Reason is required")
     private String reason;
+
+    // Optional — if omitted, the employee's current manager (EmployeeManagerHistory) is used.
+    private UUID managerUserId;
 }

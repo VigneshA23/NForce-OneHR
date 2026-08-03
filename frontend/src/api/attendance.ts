@@ -41,20 +41,32 @@ export interface TodayAttendance {
 
 export type RegularizationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
+export interface ApprovalHistoryEntry {
+  actionType: 'APPROVED' | 'REJECTED';
+  actorName: string;
+  comments: string | null;
+  actionDate: string;
+}
+
 export interface RegularizationRecord {
   id: string;
   employeeUserId: string;
   employeeName: string;
   employeeEmail: string;
+  departmentName: string | null;
   attendanceDate: string;
   requestedCheckIn: string | null;
   requestedCheckOut: string | null;
   reason: string;
   status: RegularizationStatus;
+  assignedApproverId: string | null;
+  assignedApproverName: string | null;
+  totalMinutes: number | null;
   reviewedByName: string | null;
   reviewedAt: string | null;
   reviewComment: string | null;
   createdAt: string;
+  approvalHistory: ApprovalHistoryEntry[];
 }
 
 export interface SubmitRegularizationPayload {
@@ -62,6 +74,24 @@ export interface SubmitRegularizationPayload {
   requestedCheckIn?: string;
   requestedCheckOut?: string;
   reason: string;
+  managerUserId?: string;
+}
+
+export interface ApproverOption {
+  userId: string;
+  fullName: string;
+  email: string;
+  // Super Admin is excluded server-side — they have blanket review visibility already and
+  // aren't offered as an explicit "Assign To" target.
+  roleCode: 'MANAGER' | 'HR_ADMIN';
+}
+
+export interface RegularizationFilters {
+  employeeUserId?: string;
+  approverUserId?: string;
+  departmentId?: string;
+  month?: string; // 'yyyy-MM'
+  status?: RegularizationStatus;
 }
 
 export const attendanceApi = {
@@ -88,6 +118,11 @@ export const attendanceApi = {
   team: (date: string, token: string) =>
     fetch(`${BASE}/attendance/team?date=${date}`, { headers: authHeaders(token) })
       .then(handle<AttendanceRecord[]>),
+
+  /** Own punch for a single date, or null if the employee never punched that day. */
+  punchForDate: (date: string, token: string): Promise<AttendanceRecord | null> =>
+    fetch(`${BASE}/attendance/punch/${date}`, { headers: authHeaders(token) })
+      .then((res) => (res.status === 204 ? null : handle<AttendanceRecord>(res))),
 };
 
 export const regularizationApi = {
@@ -102,13 +137,37 @@ export const regularizationApi = {
   pending: (token: string) =>
     fetch(`${BASE}/attendance/regularization/pending`, { headers: authHeaders(token) }).then(r => handle<RegularizationRecord[]>(r)),
 
-  approve: (id: string, token: string) =>
+  approve: (id: string, token: string, comment?: string) =>
     fetch(`${BASE}/attendance/regularization/${id}/approve`, {
       method: 'PATCH', headers: authHeaders(token),
+      body: JSON.stringify({ comment: comment || undefined }),
     }).then(r => handle<RegularizationRecord>(r)),
 
   reject: (id: string, comment: string, token: string) =>
     fetch(`${BASE}/attendance/regularization/${id}/reject`, {
       method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ comment }),
     }).then(r => handle<RegularizationRecord>(r)),
+
+  // Only while the request is still PENDING and belongs to the caller (enforced server-side).
+  update: (id: string, payload: SubmitRegularizationPayload, token: string) =>
+    fetch(`${BASE}/attendance/regularization/${id}`, {
+      method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload),
+    }).then(r => handle<RegularizationRecord>(r)),
+
+  approvers: (token: string) =>
+    fetch(`${BASE}/attendance/regularization/approvers`, { headers: authHeaders(token) })
+      .then(r => handle<ApproverOption[]>(r)),
+
+  // Super Admin only — full history org-wide, with optional filters.
+  all: (filters: RegularizationFilters, token: string) => {
+    const params = new URLSearchParams();
+    if (filters.employeeUserId) params.set('employeeUserId', filters.employeeUserId);
+    if (filters.approverUserId) params.set('approverUserId', filters.approverUserId);
+    if (filters.departmentId) params.set('departmentId', filters.departmentId);
+    if (filters.month) params.set('month', filters.month);
+    if (filters.status) params.set('status', filters.status);
+    const qs = params.toString();
+    return fetch(`${BASE}/attendance/regularization/all${qs ? `?${qs}` : ''}`, { headers: authHeaders(token) })
+      .then(r => handle<RegularizationRecord[]>(r));
+  },
 };

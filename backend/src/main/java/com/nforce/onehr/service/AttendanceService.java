@@ -144,6 +144,20 @@ public class AttendanceService {
         return historyFor(employee, from, to);
     }
 
+    /**
+     * The caller's own punch for a single date, if any — backs the regularization request
+     * form's auto-fill (Attendance Regularization spec scenarios 1/2: prefill whichever side
+     * of the punch already exists so only the missing one needs to be entered). Null if the
+     * employee never punched that day.
+     */
+    @Transactional(readOnly = true)
+    public AttendanceResponse getPunchForDate(String actorEmail, LocalDate date) {
+        Employee employee = resolveEmployee(actorEmail);
+        return attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), date)
+                .map(record -> toResponse(record, employee))
+                .orElse(null);
+    }
+
     // ---------------------------------------------------------------- HR / Manager views
 
     /** Full day roster for HR — one row per active employee, punched or not. */

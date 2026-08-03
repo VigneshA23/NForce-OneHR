@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -7,6 +8,7 @@ import {
   type TodayAttendance,
   type RegularizationRecord,
   type SubmitRegularizationPayload,
+  type ApproverOption,
 } from '../api/attendance';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -59,6 +61,149 @@ function fmtDateTime(dt: string | null) {
   return dt.replace('T', ' ').slice(0, 16);
 }
 
+/** Minutes between two "YYYY-MM-DDTHH:mm" strings, or null if either is missing/out of order. */
+function minutesBetween(checkIn: string, checkOut: string): number | null {
+  if (!checkIn || !checkOut) return null;
+  const inMs = new Date(checkIn).getTime();
+  const outMs = new Date(checkOut).getTime();
+  if (!Number.isFinite(inMs) || !Number.isFinite(outMs) || outMs <= inMs) return null;
+  return Math.round((outMs - inMs) / 60000);
+}
+
+// ─── 12-hour time text input (Corrected Check-in / Check-out) ────────────────
+// A single free-text field — not separate hour/minute/AM-PM dropdowns. Keystrokes are
+// masked into "H:MM AM/PM" as the user types, and the result is validated against a
+// strict 12-hour pattern before it's allowed to become a server timestamp.
+
+type Period = 'AM' | 'PM';
+interface TimeValue { hour: string; minute: string; period: Period | ''; }
+const EMPTY_TIME: TimeValue = { hour: '', minute: '', period: '' };
+
+/** Server LocalDateTime string ("2026-07-29T09:30:00") -> 12-hour time parts. */
+function timeValueFromIso(iso: string | null | undefined): TimeValue {
+  if (!iso) return EMPTY_TIME;
+  const timePart = iso.slice(11, 16);
+  if (timePart.length < 5) return EMPTY_TIME;
+  const [h24, m] = timePart.split(':').map(Number);
+  if (!Number.isFinite(h24) || !Number.isFinite(m)) return EMPTY_TIME;
+  const period: Period = h24 < 12 ? 'AM' : 'PM';
+  const hour12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return { hour: String(hour12), minute: String(m).padStart(2, '0'), period };
+}
+
+/** True only when hour, minute, and AM/PM are all present. */
+function isTimeValueComplete(t: TimeValue): boolean {
+  return !!(t.hour && t.minute && t.period);
+}
+
+/** Combines a date (YYYY-MM-DD) with a complete 12-hour time into a server LocalDateTime string. */
+function isoFromTimeValue(dateStr: string, t: TimeValue): string | undefined {
+  if (!dateStr || !isTimeValueComplete(t)) return undefined;
+  let h24 = parseInt(t.hour, 10) % 12;
+  if (t.period === 'PM') h24 += 12;
+  return `${dateStr}T${String(h24).padStart(2, '0')}:${t.minute}`;
+}
+
+/** TimeValue -> display text, e.g. {hour:'9', minute:'30', period:'AM'} -> "9:30 AM". */
+function formatTimeValue(t: TimeValue): string {
+  return isTimeValueComplete(t) ? `${t.hour}:${t.minute} ${t.period}` : '';
+}
+
+// "9:30 AM", "09:30am", "5:45 PM" — 1-12 hour, exactly 2-digit minute, AM/PM
+// case-insensitive with or without a space before it.
+const TIME_TEXT_PATTERN = /^(0?[1-9]|1[0-2]):([0-5][0-9])\s?([AaPp][Mm])$/;
+
+/** Parses free-typed text into a TimeValue, or null if it isn't (yet) a complete valid time. */
+function parseTimeText(text: string): TimeValue | null {
+  const match = TIME_TEXT_PATTERN.exec(text.trim());
+  if (!match) return null;
+  return { hour: String(parseInt(match[1], 10)), minute: match[2], period: match[3].toUpperCase() as Period };
+}
+
+/**
+ * Masks raw keystrokes into "H:MM AM/PM" as the user types: auto-inserts the ':' once the
+ * typed hour is unambiguous, and completes a typed "A"/"P" to "AM"/"PM" — but only while
+ * characters are being added, so backspacing through the suffix still clears it.
+ */
+function maskTimeInput(raw: string, previous: string): string {
+  const deleting = raw.length < previous.length;
+  const upper = raw.toUpperCase();
+  const digits = upper.replace(/[^0-9]/g, '').slice(0, 4);
+  const letter = upper.match(/[AP]/)?.[0];
+
+  let hourPart = digits;
+  let minutePart = '';
+  if (digits.length > 1) {
+    const firstTwo = parseInt(digits.slice(0, 2), 10);
+    if (firstTwo >= 1 && firstTwo <= 12) {
+      hourPart = digits.slice(0, 2);
+      minutePart = digits.slice(2, 4);
+    } else {
+      hourPart = digits.slice(0, 1);
+      minutePart = digits.slice(1, 3);
+    }
+  }
+
+  let out = hourPart;
+  if (digits.length > hourPart.length) out += ':' + minutePart;
+  if (letter) out += (out ? ' ' : '') + (deleting ? letter : letter + 'M');
+  return out;
+}
+
+/** Single masked text field for a 12-hour time — replaces separate hour/minute/AM-PM dropdowns. */
+function TimeTextInput({ label, value, touched, onChange, onBlur }: {
+  label: string; value: string; touched: boolean; onChange: (text: string) => void; onBlur: () => void;
+}) {
+  const empty = value.trim() === '';
+  const invalidFormat = !empty && !parseTimeText(value);
+  const showError = touched && (empty || invalidFormat);
+  return (
+    <Field label={label}>
+      <input
+        type="text"
+        inputMode="text"
+        maxLength={8}
+        placeholder="e.g. 09:30 AM"
+        style={{ ...inputStyle, ...(showError ? { borderColor: 'var(--risk)' } : {}) }}
+        value={value}
+        onChange={e => onChange(maskTimeInput(e.target.value, value))}
+        onBlur={onBlur}
+      />
+      {showError && (
+        <div style={fieldErrorStyle}>
+          {empty ? 'This field is required.' : 'Enter a valid 12-hour time, e.g. 09:30 AM or 5:45 PM.'}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/** Groups rows by attendance-date month, newest month first, rows within a month newest first. */
+function groupByMonth<T extends { attendanceDate: string }>(rows: T[]): Array<[string, T[]]> {
+  const map = new Map<string, T[]>();
+  for (const r of rows) {
+    const key = r.attendanceDate.slice(0, 7); // yyyy-MM
+    (map.get(key) ?? map.set(key, []).get(key)!).push(r);
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, group]) => [key, [...group].sort((a, b) => b.attendanceDate.localeCompare(a.attendanceDate))]);
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+// Plain month names for the My Requests month selector — filters by calendar month across
+// all years, independent of the (year+month) grouping headings groupByMonth/monthLabel drive.
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const APPROVER_ROLE_LABELS: Record<string, string> = { MANAGER: 'Manager', HR_ADMIN: 'HR' };
+
 const STATUS_COLORS: Record<AttendanceStatus, string> = {
   PRESENT: '#2FB67C',
   LATE: '#E0A93B',
@@ -100,6 +245,7 @@ const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, backgro
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.5)' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
+const fieldErrorStyle: React.CSSProperties = { fontSize: 11, color: 'var(--risk)', marginTop: 4 };
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────
 
@@ -155,32 +301,109 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
   );
 }
 
-// ─── Request Regularization Modal ─────────────────────────────────────────────
-function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (r: RegularizationRecord) => void; token: string }) {
+// ─── Request Regularization Modal (create or edit-while-pending) ──────────────
+function RequestModal({ onClose, onSaved, token, editing }: {
+  onClose: () => void;
+  onSaved: (r: RegularizationRecord) => void;
+  token: string;
+  editing?: RegularizationRecord;
+}) {
   const { showToast } = useToast();
   const today = todayIsoDate();
-  const [attendanceDate, setAttendanceDate] = useState(today);
-  const [checkIn, setCheckIn] = useState('');
-  const [checkOut, setCheckOut] = useState('');
-  const [reason, setReason] = useState('');
+  const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? today);
+  const [checkInText, setCheckInText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckIn)));
+  const [checkOutText, setCheckOutText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckOut)));
+  const [checkInTouched, setCheckInTouched] = useState(false);
+  const [checkOutTouched, setCheckOutTouched] = useState(false);
+  const [reason, setReason] = useState(editing?.reason ?? '');
+  const [managerUserId, setManagerUserId] = useState(editing?.assignedApproverId ?? '');
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const [existingPunch, setExistingPunch] = useState<AttendanceRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty — Assign To is still required */ });
+  }, [token]);
+
+  // Punch auto-fill + field visibility (scenarios 1/2): look up what's already on file for
+  // the chosen date. Clearing to null immediately (not just when the date is blank) avoids a
+  // stale flash of the previous date's fields while the new lookup is in flight.
+  useEffect(() => {
+    setExistingPunch(null);
+    if (!attendanceDate) return;
+    let cancelled = false;
+    attendanceApi.punchForDate(attendanceDate, token)
+      .then((punch) => { if (!cancelled) setExistingPunch(punch); })
+      .catch(() => { if (!cancelled) setExistingPunch(null); });
+    return () => { cancelled = true; };
+  }, [attendanceDate, token]);
+
+  useEffect(() => {
+    if (!existingPunch) return;
+    setCheckInText((prev) => (prev.trim() ? prev : formatTimeValue(timeValueFromIso(existingPunch.checkInAt))));
+    setCheckOutText((prev) => (prev.trim() ? prev : formatTimeValue(timeValueFromIso(existingPunch.checkOutAt))));
+  }, [existingPunch]);
+
+  // Scenario 1 (missing check-out only) / Scenario 2 (missing both): a field is hidden only
+  // when we know for certain the OTHER side is already on file and this one specifically is
+  // what's missing. If neither side is on file, or both already are (correcting a wrong
+  // punch), both fields stay visible. Hidden fields are never rendered and never required.
+  const hasCheckIn = !!existingPunch?.checkInAt;
+  const hasCheckOut = !!existingPunch?.checkOutAt;
+  const onlyOneSideOnFile = hasCheckIn !== hasCheckOut;
+  const showCheckIn = !onlyOneSideOnFile || !hasCheckIn;
+  const showCheckOut = !onlyOneSideOnFile || !hasCheckOut;
+
+  // Only a fully-typed, valid 12-hour time converts to a server timestamp — invalid or
+  // partial text must block submit rather than silently being dropped.
+  const checkInValue = parseTimeText(checkInText);
+  const checkOutValue = parseTimeText(checkOutText);
+  const checkInIso = checkInValue ? isoFromTimeValue(attendanceDate, checkInValue) : undefined;
+  const checkOutIso = checkOutValue ? isoFromTimeValue(attendanceDate, checkOutValue) : undefined;
+  const totalHoursLabel = useMemo(
+    () => formatDuration(minutesBetween(checkInIso ?? '', checkOutIso ?? '')),
+    [checkInIso, checkOutIso],
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!attendanceDate || !reason.trim()) { setError('Date and reason are required.'); return; }
-    if (!checkIn && !checkOut) { setError('Provide a corrected check-in or check-out time.'); return; }
+    setSubmitAttempted(true);
+    setCheckInTouched(true);
+    setCheckOutTouched(true);
+
+    const dateMissing = !attendanceDate;
+    const reasonMissing = !reason.trim();
+    const managerMissing = !managerUserId;
+    // Hidden fields are never required — only a currently-visible field can block submit.
+    const checkInMissing = showCheckIn && checkInText.trim() === '';
+    const checkOutMissing = showCheckOut && checkOutText.trim() === '';
+    const checkInInvalid = showCheckIn && checkInText.trim() !== '' && !checkInValue;
+    const checkOutInvalid = showCheckOut && checkOutText.trim() !== '' && !checkOutValue;
+
+    if (dateMissing || reasonMissing || managerMissing || checkInMissing || checkOutMissing) {
+      setError('Fill in every required field shown above.');
+      return;
+    }
+    if (checkInInvalid || checkOutInvalid) {
+      setError('Enter valid 12-hour times, e.g. 09:30 AM or 5:45 PM.');
+      return;
+    }
     setSubmitting(true); setError(null);
     try {
       const payload: SubmitRegularizationPayload = {
         attendanceDate,
-        requestedCheckIn: checkIn || undefined,
-        requestedCheckOut: checkOut || undefined,
+        requestedCheckIn: showCheckIn ? checkInIso : undefined,
+        requestedCheckOut: showCheckOut ? checkOutIso : undefined,
         reason: reason.trim(),
+        managerUserId,
       };
-      const created = await regularizationApi.submit(payload, token);
-      onCreated(created);
-      showToast('success', 'Regularization request submitted');
+      const saved = editing
+        ? await regularizationApi.update(editing.id, payload, token)
+        : await regularizationApi.submit(payload, token);
+      onSaved(saved);
+      showToast('success', editing ? 'Regularization request updated' : 'Regularization request submitted');
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Submission failed';
@@ -192,17 +415,46 @@ function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCr
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
-        <ModalHeader title="Request Regularization" onClose={onClose} />
+        <ModalHeader title={editing ? 'Edit Regularization Request' : 'Request Regularization'} onClose={onClose} />
         <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <Field label="Attendance Date *">
-            <input type="date" style={inputStyle} value={attendanceDate} max={today} onChange={e => setAttendanceDate(e.target.value)} />
+            <input type="date" style={inputStyle} value={attendanceDate} max={today}
+              onChange={e => {
+                setAttendanceDate(e.target.value);
+                setCheckInText(''); setCheckOutText('');
+                setCheckInTouched(false); setCheckOutTouched(false);
+                setSubmitAttempted(false);
+              }} />
+            {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
           </Field>
-          <Field label="Corrected Check-In">
-            <input type="datetime-local" style={inputStyle} value={checkIn} onChange={e => setCheckIn(e.target.value)} />
-          </Field>
-          <Field label="Corrected Check-Out">
-            <input type="datetime-local" style={inputStyle} value={checkOut} onChange={e => setCheckOut(e.target.value)} />
+          {existingPunch && (existingPunch.checkInAt || existingPunch.checkOutAt) && (
+            <div style={{ fontSize: 12, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' }}>
+              On file for this date — Check-in: {formatTime(existingPunch.checkInAt) ?? 'not recorded'}, Check-out: {formatTime(existingPunch.checkOutAt) ?? 'not recorded'}.
+              {showCheckIn && showCheckOut
+                ? ' The missing side has been pre-filled below; adjust either as needed.'
+                : ' Only the missing side needs a correction below.'}
+            </div>
+          )}
+          {showCheckIn && (
+            <TimeTextInput label="Corrected Check-In *" value={checkInText} touched={checkInTouched}
+              onChange={setCheckInText} onBlur={() => setCheckInTouched(true)} />
+          )}
+          {showCheckOut && (
+            <TimeTextInput label="Corrected Check-Out *" value={checkOutText} touched={checkOutTouched}
+              onChange={setCheckOutText} onBlur={() => setCheckOutTouched(true)} />
+          )}
+          {totalHoursLabel && (
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Total Hours: <strong style={{ color: 'var(--txt)' }}>{totalHoursLabel}</strong></div>
+          )}
+          <Field label="Assign To *">
+            <select style={inputStyle} value={managerUserId} onChange={e => setManagerUserId(e.target.value)}>
+              <option value="" disabled>Select HR or Manager…</option>
+              {approvers.map(a => (
+                <option key={a.userId} value={a.userId}>{a.fullName} — {APPROVER_ROLE_LABELS[a.roleCode] ?? a.roleCode}</option>
+              ))}
+            </select>
+            {submitAttempted && !managerUserId && <div style={fieldErrorStyle}>Assign To is required — select an HR or Manager approver.</div>}
           </Field>
           <Field label="Reason *">
             <textarea
@@ -211,14 +463,64 @@ function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCr
               onChange={e => setReason(e.target.value)}
               placeholder="e.g. Forgot to punch out after client meeting"
             />
+            {submitAttempted && !reason.trim() && <div style={fieldErrorStyle}>Reason is required.</div>}
           </Field>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
-              {submitting ? 'Submitting…' : 'Submit Request'}
+              {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Submit Request'}
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Approve Confirmation Modal ────────────────────────────────────────────────
+function ConfirmApproveModal({ request, onClose, onApproved, token }: {
+  request: RegularizationRecord; onClose: () => void; onApproved: (r: RegularizationRecord) => void; token: string;
+}) {
+  const { showToast } = useToast();
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    try {
+      const updated = await regularizationApi.approve(request.id, token, comment.trim() || undefined);
+      onApproved(updated);
+      showToast('success', 'Request approved and attendance record updated');
+      onClose();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Approve failed');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 420 }}>
+        <ModalHeader title={`Approve — ${request.employeeName}`} onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
+            {formatDay(request.attendanceDate)} · {fmtDateTime(request.requestedCheckIn)} → {fmtDateTime(request.requestedCheckOut)}
+          </div>
+          <Field label="Comment (optional)">
+            <textarea
+              style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Optional note for the employee"
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleConfirm} disabled={submitting} style={{ background: '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? 'Approving…' : 'Confirm Approval'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -519,13 +821,41 @@ function MyAttendance() {
 
 // ─── Regularization (request + my requests + pending approvals) ───────────────
 
-function RegularizationSection({ token, canApprove }: { token: string; canApprove: boolean }) {
+/** Reviewer column: current approver while pending, who decided it once resolved. */
+function ReviewerCell({ r }: { r: RegularizationRecord }) {
+  if (r.status === 'PENDING') {
+    return (
+      <>
+        <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Current Approver</div>
+        {r.assignedApproverName ?? dash}
+      </>
+    );
+  }
+  return (
+    <>
+      <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.status === 'APPROVED' ? 'Approved By' : 'Rejected By'}</div>
+      {r.reviewedByName ?? dash}
+    </>
+  );
+}
+
+function MonthGroupHeading({ monthKey }: { monthKey: string }) {
+  return (
+    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-dim)', margin: '14px 0 6px', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+      {monthLabel(monthKey)}
+    </div>
+  );
+}
+
+function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: string; canApprove: boolean; isSuperAdmin: boolean }) {
   const { showToast } = useToast();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
   const [pending, setPending] = useState<RegularizationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRequest, setShowRequest] = useState(false);
+  const [editing, setEditing] = useState<RegularizationRecord | null>(null);
   const [rejecting, setRejecting] = useState<RegularizationRecord | null>(null);
+  const [approving, setApproving] = useState<RegularizationRecord | null>(null);
 
   const loadAll = useCallback(() => {
     const calls: Promise<unknown>[] = [regularizationApi.mine(token).then(setMyRequests)];
@@ -537,95 +867,152 @@ function RegularizationSection({ token, canApprove }: { token: string; canApprov
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  async function handleApprove(reqId: string) {
-    try {
-      await regularizationApi.approve(reqId, token);
-      showToast('success', 'Request approved and attendance record updated');
-      loadAll();
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Approve failed');
-    }
-  }
+  // My Requests defaults to the current calendar month; the selector below narrows it to any
+  // other month (any year). Scoped to this table only — Pending Approvals is unaffected.
+  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
+  const myRequestsForMonth = useMemo(
+    () => myRequests.filter(r => r.attendanceDate.slice(5, 7) === selectedMonth),
+    [myRequests, selectedMonth],
+  );
+  const myRequestMonths = useMemo(() => groupByMonth(myRequestsForMonth), [myRequestsForMonth]);
+  const pendingMonths = useMemo(() => groupByMonth(pending), [pending]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
-        <button onClick={() => setShowRequest(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <CalendarPlus size={14} /> Request Regularization
-        </button>
-      </div>
-
-      {/* My Regularization Requests */}
-      <div>
-        <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>My Requests</h3>
-        <div style={panelStyle}>
-          {loading ? (
-            <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
-          ) : myRequests.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests submitted yet.</div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Reason', 'Status', 'Reviewer Note'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {myRequests.map(r => (
-                    <tr key={r.id}>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
-                      <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
-                      <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
-                      <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
-                      <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                      <td style={tdStyle}>{r.reviewComment ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {isSuperAdmin && (
+            <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+              <ShieldCheck size={14} /> View All & Audit Trail
+            </Link>
           )}
+          <button onClick={() => setShowRequest(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <CalendarPlus size={14} /> Request Regularization
+          </button>
         </div>
       </div>
 
-      {/* Pending Approvals — Manager / HR Admin / Super Admin only */}
+      {/* My Regularization Requests — defaults to current month, grouped by month within that filter */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>My Requests</h3>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-dim)' }}>
+            Month
+            <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={dateInputStyle}>
+              {MONTH_NAMES.map((name, i) => (
+                <option key={name} value={String(i + 1).padStart(2, '0')}>{name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {loading ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
+        ) : myRequests.length === 0 ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests submitted yet.</div>
+        ) : myRequestsForMonth.length === 0 ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
+            No requests found for {MONTH_NAMES[parseInt(selectedMonth, 10) - 1]}.
+          </div>
+        ) : (
+          myRequestMonths.map(([monthKey, rows]) => (
+            <div key={monthKey}>
+              <MonthGroupHeading monthKey={monthKey} />
+              <div style={panelStyle}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.id}>
+                          <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
+                          <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
+                          <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
+                          <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                          <td style={{ ...tdStyle, maxWidth: 200 }}>{r.reason}</td>
+                          <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                          <td style={tdStyle}><ReviewerCell r={r} /></td>
+                          <td style={{ ...tdStyle, maxWidth: 180 }}>{r.reviewComment ?? dash}</td>
+                          <td style={tdStyle}>
+                            {r.status === 'PENDING' && (
+                              <button onClick={() => setEditing(r)} title="Edit" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                                <Pencil size={12} /> Edit
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Pending Approvals — Manager / HR Admin / Super Admin only, grouped by month */}
       {canApprove && (
         <div>
           <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Pending Approvals</h3>
-          <div style={panelStyle}>
-            {pending.length === 0 ? (
-              <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No pending requests.</div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Reason', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {pending.map(r => (
-                      <tr key={r.id}>
-                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                          {r.employeeName}
-                          <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
-                        </td>
-                        <td style={tdStyle}>{r.attendanceDate}</td>
-                        <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
-                        <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
-                        <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
-                        <td style={tdStyle}>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => handleApprove(r.id)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
-                            <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {pending.length === 0 ? (
+            <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No pending requests.</div>
+          ) : (
+            pendingMonths.map(([monthKey, rows]) => (
+              <div key={monthKey}>
+                <MonthGroupHeading monthKey={monthKey} />
+                <div style={panelStyle}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {rows.map(r => (
+                          <tr key={r.id}>
+                            <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                              {r.employeeName}
+                              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
+                            </td>
+                            <td style={tdStyle}>{r.attendanceDate}</td>
+                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
+                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
+                            <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                            <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
+                            <td style={tdStyle}>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
+                                <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+            ))
+          )}
         </div>
       )}
 
       {showRequest && (
-        <RequestModal token={token} onClose={() => setShowRequest(false)} onCreated={r => setMyRequests(prev => [r, ...prev])} />
+        <RequestModal token={token} onClose={() => setShowRequest(false)} onSaved={r => setMyRequests(prev => [r, ...prev])} />
+      )}
+      {editing && (
+        <RequestModal
+          token={token}
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onSaved={updated => setMyRequests(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
+        />
+      )}
+      {approving && (
+        <ConfirmApproveModal
+          request={approving}
+          token={token}
+          onClose={() => setApproving(null)}
+          onApproved={updated => setPending(prev => prev.filter(r => r.id !== updated.id))}
+        />
       )}
       {rejecting && (
         <RejectModal
@@ -715,7 +1102,7 @@ export default function AttendancePage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
         <MyAttendance />
-        <RegularizationSection token={token} canApprove={canApprove} />
+        <RegularizationSection token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} />
         {role === 'Manager' && <DayRoster scope="team" />}
         {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
       </div>

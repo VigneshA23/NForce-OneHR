@@ -4,6 +4,7 @@ import { Check, X, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { leaveApi } from '../api/leave';
+import { regularizationApi } from '../api/attendance';
 import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
 import { useToast } from '../context/ToastContext';
@@ -129,7 +130,7 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
       if (item.requestType === 'LEAVE') {
         await leaveApi.approve(item.id, token);
       } else if (item.requestType === 'REGULARIZATION') {
-        await fetch(`/api/attendance/regularization/${item.id}/approve`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).then(r => { if (!r.ok) throw new Error(); });
+        await regularizationApi.approve(item.id, token);
       } else if (item.requestType === 'EXPENSE') {
         if (item.approvalStage === 'MANAGER') {
           await expensesApi.managerApprove(item.id, token);
@@ -155,7 +156,7 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
       if (item.requestType === 'LEAVE') {
         await leaveApi.reject(item.id, rejectReason.trim(), token);
       } else if (item.requestType === 'REGULARIZATION') {
-        await fetch(`/api/attendance/regularization/${item.id}/reject`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ comment: rejectReason.trim() }) }).then(r => { if (!r.ok) throw new Error(); });
+        await regularizationApi.reject(item.id, rejectReason.trim(), token);
       } else if (item.requestType === 'EXPENSE') {
         if (item.approvalStage === 'MANAGER') {
           await expensesApi.managerReject(item.id, rejectReason.trim(), token);
