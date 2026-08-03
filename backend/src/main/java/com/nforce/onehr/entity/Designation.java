@@ -21,6 +21,9 @@ public class Designation {
     @Column(length = 50)
     private String grade;
 
+    @Column(length = 20)
+    private String level;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private boolean active = true;

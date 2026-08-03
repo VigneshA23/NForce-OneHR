@@ -1,24 +1,12 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings, CheckCheck, KeyRound, UserPlus } from 'lucide-react';
-import { NAV, type Role } from '../lib/nav.config';
+import { NAV, toShellRole, type Role } from '../lib/nav.config';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
-
-function toShellRole(dbRole: string | undefined): Role {
-  switch (dbRole) {
-    case 'SUPER_ADMIN':  return 'Super Admin';
-    case 'HR_ADMIN':     return 'HR Admin';
-    case 'MANAGER':      return 'Manager';
-    case 'EMPLOYEE':
-    case 'DELIVERY':
-    case 'FINANCE':
-    case 'LEADERSHIP':
-    default:             return 'Employee';
-  }
-}
+import { ComplianceBanner } from './ComplianceBanner';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -424,6 +412,7 @@ export function Shell() {
         </header>
 
         <main style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
+          <ComplianceBanner />
           {current.phase > 1 ? <ComingInPhase label={current.label} phase={current.phase} /> : <Outlet />}
         </main>
       </div>

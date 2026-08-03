@@ -1,7 +1,9 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.CreateEmployeeRequest;
+import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
+import com.nforce.onehr.dto.ManagerDashboardDto;
 import com.nforce.onehr.dto.UpdateEmployeeRequest;
 import com.nforce.onehr.service.EmployeeService;
 import jakarta.validation.Valid;
@@ -46,5 +48,17 @@ public class EmployeeController {
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
     public List<EmployeeResponse> potentialManagers() {
         return employeeService.listPotentialManagers();
+    }
+
+    /** Company directory — all authenticated users, work-info only. */
+    @GetMapping("/directory")
+    public List<DirectoryEntryDto> directory() {
+        return employeeService.listDirectory();
+    }
+
+    /** Manager dashboard — direct reports for the caller. */
+    @GetMapping("/my-reports")
+    public ManagerDashboardDto myReports(Principal principal) {
+        return employeeService.getManagerDashboard(principal.getName());
     }
 }

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -20,4 +21,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByEmail(String email);
 
     boolean existsByEmailAndDeletedAtIsNull(String email);
+
+    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code IN ('HR_ADMIN', 'SUPER_ADMIN') AND u.deletedAt IS NULL")
+    Set<UUID> findAdminUserIds();
 }

@@ -13,10 +13,13 @@ public class LocationResponse {
     String city;
     String state;
     String country;
+    String holidayRegion;
     boolean active;
+    long employeeCount;
     LocalDateTime createdAt;
 
-    public static LocationResponse from(Location l) {
-        return new LocationResponse(l.getId(), l.getName(), l.getCity(), l.getState(), l.getCountry(), l.isActive(), l.getCreatedAt());
+    public static LocationResponse from(Location l, long employeeCount) {
+        return new LocationResponse(l.getId(), l.getName(), l.getCity(), l.getState(), l.getCountry(),
+                l.getHolidayRegion(), l.isActive(), employeeCount, l.getCreatedAt());
     }
 }

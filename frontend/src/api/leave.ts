@@ -1,0 +1,76 @@
+const BASE = '/api/leave';
+
+function authHeaders(token: string) {
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
+
+async function handle<T>(res: Response): Promise<T> {
+  let body: { message?: string } = {};
+  try { body = await res.json(); } catch { /* non-json */ }
+  if (!res.ok) throw new Error((body as any).message ?? `Request failed (${res.status})`);
+  return body as T;
+}
+
+export interface LeaveType {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface LeaveBalance {
+  leaveTypeCode: string;
+  leaveTypeName: string;
+  year: number;
+  totalDays: number;
+  usedDays: number;
+  remainingDays: number;
+}
+
+export interface LeaveRequestRecord {
+  id: string;
+  employeeUserId: string;
+  employeeName: string;
+  leaveTypeCode: string;
+  leaveTypeName: string;
+  startDate: string;
+  endDate: string;
+  halfDay: boolean;
+  totalDays: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  employeeReason: string;
+  decisionReason: string | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface SubmitLeaveRequestPayload {
+  leaveTypeCode: string;
+  startDate: string;
+  endDate: string;
+  halfDay: boolean;
+  reason: string;
+}
+
+export const leaveApi = {
+  listTypes: (token: string) =>
+    fetch(`${BASE}/types`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
+
+  listBalances: (token: string) =>
+    fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
+
+  submit: (payload: SubmitLeaveRequestPayload, token: string) =>
+    fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
+
+  listMine: (token: string) =>
+    fetch(`${BASE}/requests/mine`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
+
+  listApprovals: (token: string) =>
+    fetch(`${BASE}/approvals`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
+
+  approve: (id: string, token: string) =>
+    fetch(`${BASE}/requests/${id}/approve`, { method: 'POST', headers: authHeaders(token) }).then(handle<LeaveRequestRecord>),
+
+  reject: (id: string, reason: string, token: string) =>
+    fetch(`${BASE}/requests/${id}/reject`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }) }).then(handle<LeaveRequestRecord>),
+};

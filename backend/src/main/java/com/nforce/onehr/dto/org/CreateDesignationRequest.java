@@ -13,4 +13,7 @@ public class CreateDesignationRequest {
 
     @Size(max = 50, message = "Grade must be 50 characters or fewer")
     private String grade;
+
+    @Size(max = 20)
+    private String level;
 }

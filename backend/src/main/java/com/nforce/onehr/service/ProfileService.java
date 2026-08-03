@@ -32,14 +32,16 @@ public class ProfileService {
     @Transactional(readOnly = true)
     public ProfileResponse getProfile(String email) {
         User user = requireUser(email);
-        Employee emp = requireEmployee(user.getId().toString());
-        return toResponse(user, emp);
+        return employeeRepository.findById(user.getId())
+                .map(emp -> toResponse(user, emp))
+                .orElse(toMinimalResponse(user));
     }
 
     @Transactional
     public ProfileResponse updateProfile(String email, UpdateProfileRequest req) {
         User user = requireUser(email);
-        Employee emp = requireEmployee(user.getId().toString());
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
 
         if (req.getPhone() != null)                   emp.setPhone(req.getPhone().trim());
         if (req.getDateOfBirth() != null)              emp.setDateOfBirth(req.getDateOfBirth());
@@ -67,10 +69,25 @@ public class ProfileService {
             throw new IllegalArgumentException("File must be an image");
 
         User user = requireUser(email);
-        Employee emp = requireEmployee(user.getId().toString());
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
         emp.setProfilePhoto(file.getBytes());
         employeeRepository.save(emp);
         return toResponse(user, emp);
+    }
+
+    private ProfileResponse toMinimalResponse(User user) {
+        String role = user.getRoles().stream().findFirst().map(Role::getCode).orElse("EMPLOYEE");
+        return ProfileResponse.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .fullName(user.getEmail().split("@")[0])
+                .role(role)
+                .workMode("ONSITE")
+                .employmentType("")
+                .active(user.isActive())
+                .hasEmployeeRecord(false)
+                .build();
     }
 
     private ProfileResponse toResponse(User user, Employee emp) {
@@ -99,6 +116,7 @@ public class ProfileService {
                 .email(user.getEmail())
                 .fullName(emp.getFullName())
                 .role(role)
+                .hasEmployeeRecord(true)
                 .photoDataUrl(photoDataUrl)
                 .phone(emp.getPhone())
                 .dateOfBirth(emp.getDateOfBirth())
@@ -123,10 +141,5 @@ public class ProfileService {
     private User requireUser(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-    }
-
-    private Employee requireEmployee(String userId) {
-        return employeeRepository.findById(java.util.UUID.fromString(userId))
-                .orElseThrow(() -> new IllegalStateException("Employee record not found"));
     }
 }

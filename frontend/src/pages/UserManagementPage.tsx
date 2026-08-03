@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, X, Edit2, RotateCcw, Power, ChevronDown, Trash2 } from 'lucide-react';
+import { UserPlus, X, Edit2, RotateCcw, Power, ChevronDown, Trash2, MoreVertical } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi } from '../api/org';
@@ -506,6 +506,56 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
   );
 }
 
+// ─── Kebab Menu ───────────────────────────────────────────────────────────────
+function KebabMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean; dividerBefore?: boolean }[] }) {
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        title="Actions"
+        aria-label="Actions"
+        style={{
+          background: 'transparent', border: '1px solid transparent', borderRadius: 6,
+          width: 30, height: 30, cursor: 'pointer', color: 'var(--txt-mut)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'background .15s, border-color .15s, color .15s',
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised2)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--line2)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt)'; }}
+        onMouseLeave={e => { if (!open) { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-mut)'; } }}
+      >
+        <MoreVertical size={14} />
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
+          <div style={{ position: 'absolute', right: 0, top: '110%', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 12px 32px rgba(0,0,0,.45)', zIndex: 99, minWidth: 168, overflow: 'hidden' }}>
+            {items.map((item, i) => (
+              <button
+                key={i}
+                onClick={e => { e.stopPropagation(); item.onClick(); setOpen(false); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '9px 14px', fontSize: 12.5, fontWeight: 500,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: item.danger ? '#E4373D' : 'var(--txt)',
+                  borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
+                  transition: 'background .1s',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function UserManagementPage() {
   const token = useAuthStore(s => s.token)!;
@@ -517,90 +567,208 @@ export default function UserManagementPage() {
   const [toggling, setToggling] = useState<EmployeeRecord | null>(null);
   const [deleting, setDeleting] = useState<EmployeeRecord | null>(null);
 
+  // Filters
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [deptFilter, setDeptFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
+
   useEffect(() => {
     usersApi.list(token).then(setUsers).finally(() => setLoading(false));
   }, [token]);
 
-  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-  const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+  // Derived filter options from real data
+  const departments = Array.from(new Set(users.map(u => u.departmentName).filter(Boolean))) as string[];
+  const roles = Array.from(new Set(users.map(u => u.role).filter(Boolean))) as string[];
 
-  const actionBtn = (label: string, icon: React.ReactNode, onClick: () => void, danger?: boolean) => (
-    <button onClick={onClick} title={label} style={{ display: 'flex', alignItems: 'center', gap: 4, background: danger ? 'rgba(228,55,61,.1)' : 'var(--raised2)', border: `1px solid ${danger ? 'rgba(228,55,61,.25)' : 'var(--line2)'}`, borderRadius: 5, padding: '4px 8px', fontSize: 11, color: danger ? '#E4373D' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-      {icon} {label}
-    </button>
-  );
+  // Stats
+  const total = users.length;
+  const active = users.filter(u => u.active).length;
+  const inactive = total - active;
+  const roleCounts: Record<string, number> = {};
+  users.forEach(u => { if (u.role) roleCounts[u.role] = (roleCounts[u.role] ?? 0) + 1; });
+
+  // Filter logic
+  const filtered = users.filter(u => {
+    const q = search.toLowerCase();
+    if (q && !u.fullName.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q) && !(u.employeeCode ?? '').toLowerCase().includes(q)) return false;
+    if (statusFilter === 'ACTIVE' && !u.active) return false;
+    if (statusFilter === 'INACTIVE' && u.active) return false;
+    if (deptFilter && u.departmentName !== deptFilter) return false;
+    if (roleFilter && u.role !== roleFilter) return false;
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [search, statusFilter, deptFilter, roleFilter]);
+
+  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+  const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', color: 'var(--txt-mut)', fontSize: 12, cursor: 'pointer', outline: 'none' };
+
+  const ROLE_LABEL: Record<string, string> = { EMPLOYEE: 'Employee', MANAGER: 'Manager', HR_ADMIN: 'HR Admin', SUPER_ADMIN: 'Super Admin' };
+
+  const tileStyle = (accent: string): React.CSSProperties => ({
+    background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
+    padding: '14px 18px', flex: '1 1 140px',
+    borderLeft: `3px solid ${accent}`,
+  });
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All users across all roles. Manage access, roles, and account status.</p>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage access, roles, and account status for all users.</p>
         </div>
         <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
           <UserPlus size={14} /> Add User
         </button>
       </div>
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
-        ) : users.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center' }}>
-            <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>No users yet</div>
-            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Click "Add User" to create the first account.</div>
+      {/* Stats tiles */}
+      {!loading && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+          <div style={tileStyle('#9BA1AC')}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{total}</div>
+            <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Total Users</div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>
+              {Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')}
+            </div>
           </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Manager', 'Status', 'Actions'].map(h => (
-                    <th key={h} style={thStyle}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(u => (
-                  <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}>
-                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{u.employeeCode}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{u.fullName}</td>
-                    <td style={tdStyle}>{u.email}</td>
-                    <td style={tdStyle}><RoleBadge role={u.role} /></td>
-                    <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={tdStyle}><StatusBadge active={u.active} /></td>
-                    <td style={{ ...tdStyle, padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
-                        {actionBtn('Edit', <Edit2 size={11} />, () => setEditing(u))}
-                        {actionBtn('Reset pwd', <RotateCcw size={11} />, () => setResetting(u))}
-                        {actionBtn(u.active ? 'Deactivate' : 'Activate', <Power size={11} />, () => setToggling(u), u.active)}
-                        {actionBtn('Delete', <Trash2 size={11} />, () => setDeleting(u), true)}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={tileStyle('#2FB67C')}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#2FB67C', fontFamily: '"Space Grotesk", sans-serif' }}>{active}</div>
+            <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Active</div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((active / total) * 100) : 0}% of total</div>
           </div>
+          <div style={tileStyle('#E4373D')}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#E4373D', fontFamily: '"Space Grotesk", sans-serif' }}>{inactive}</div>
+            <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Inactive</div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((inactive / total) * 100) : 0}% of total</div>
+          </div>
+        </div>
+      )}
+
+      {/* Search + Filters */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          placeholder="Search name, email, or employee ID…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
+        />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} style={filterSelect}>
+          <option value="ALL">All Status</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+        </select>
+        <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={filterSelect}>
+          <option value="">All Departments</option>
+          {departments.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={filterSelect}>
+          <option value="">All Roles</option>
+          {roles.map(r => <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>)}
+        </select>
+        {(search || statusFilter !== 'ALL' || deptFilter || roleFilter) && (
+          <button onClick={() => { setSearch(''); setStatusFilter('ALL'); setDeptFilter(''); setRoleFilter(''); }}
+            style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+            Clear
+          </button>
         )}
       </div>
 
-      {showAdd && (
-        <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />
-      )}
-      {editing && (
-        <EditModal user={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />
-      )}
-      {resetting && (
-        <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />
-      )}
-      {toggling && (
-        <StatusModal user={toggling} token={token} onClose={() => setToggling(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />
-      )}
-      {deleting && (
-        <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />
-      )}
+      {/* Table */}
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 48, textAlign: 'center' }}>
+            <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>{users.length === 0 ? 'No users yet' : 'No results'}</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
+              {users.length === 0 ? 'Click "Add User" to create the first account.' : 'Try adjusting the search or filters.'}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Manager', 'Status', ''].map(h => (
+                      <th key={h} style={thStyle}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.map(u => (
+                    <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}
+                      onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
+                      onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
+                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{u.employeeCode}</td>
+                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{u.fullName}</td>
+                      <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
+                      <td style={tdStyle}><RoleBadge role={u.role} /></td>
+                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                      <td style={tdStyle}><StatusBadge active={u.active} /></td>
+                      <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
+                        <KebabMenu items={[
+                          { label: 'Edit', onClick: () => setEditing(u) },
+                          { label: 'Reset Password', onClick: () => setResetting(u) },
+                          { label: u.active ? 'Deactivate' : 'Reactivate', onClick: () => setToggling(u) },
+                          { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
+                        ]} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--line)' }}>
+                <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
+                  {filtered.length} result{filtered.length !== 1 ? 's' : ''} · page {page} of {totalPages}
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                    style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === 1 ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>
+                    ← Prev
+                  </button>
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+                    const p = start + i;
+                    return p <= totalPages ? (
+                      <button key={p} onClick={() => setPage(p)}
+                        style={{ background: p === page ? 'var(--brand)' : 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: p === page ? '#fff' : 'var(--txt-mut)', cursor: 'pointer', minWidth: 32 }}>
+                        {p}
+                      </button>
+                    ) : null;
+                  })}
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                    style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === totalPages ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === totalPages ? 'not-allowed' : 'pointer' }}>
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {showAdd && <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
+      {editing && <EditModal user={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
+      {toggling && <StatusModal user={toggling} token={token} onClose={() => setToggling(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />}
     </div>
   );
 }
