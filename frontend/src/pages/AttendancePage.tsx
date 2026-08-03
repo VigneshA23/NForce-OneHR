@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -10,6 +10,8 @@ import {
   type SubmitRegularizationPayload,
   type ApproverOption,
 } from '../api/attendance';
+import { holidaysApi, type HolidayRow } from '../api/holidays';
+import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole } from '../lib/nav.config';
@@ -53,6 +55,45 @@ function wallClockMs(iso: string): number {
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+// ─── Month-calendar helpers ────────────────────────────────────────────────────
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function isoOf(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function calendarMonthLabel(year: number, month: number): string {
+  return new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+/** Sun-first grid of day numbers for a month, padded with nulls to full weeks. */
+function buildCalendarCells(year: number, month: number): (number | null)[] {
+  const firstDow = new Date(year, month, 1).getDay();
+  const total = daysInMonth(year, month);
+  const cells: (number | null)[] = Array(firstDow).fill(null);
+  for (let d = 1; d <= total; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+/** Expands an inclusive date range into individual ISO date strings. */
+function expandDateRange(startIso: string, endIso: string): string[] {
+  const dates: string[] = [];
+  let cur = new Date(`${startIso}T00:00:00`);
+  const end = new Date(`${endIso}T00:00:00`);
+  while (cur <= end) {
+    dates.push(isoOf(cur.getFullYear(), cur.getMonth(), cur.getDate()));
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+  }
+  return dates;
 }
 
 /** Regularization timestamps come back with an offset, so a plain slice is safe here. */
@@ -617,14 +658,129 @@ function RosterTable({ rows, loading, emptyMessage }: {
   );
 }
 
-// ─── My attendance (punch card + own history) ─────────────────────────────────
+// ─── Month summary tile ────────────────────────────────────────────────────────
+function MonthStatTile({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 6 }}>{hint}</div>
+    </div>
+  );
+}
+
+interface DayInfo {
+  iso: string;
+  day: number;
+  isFuture: boolean;
+  isToday: boolean;
+  isWeekend: boolean;
+  holidayName?: string;
+  leaveTypeName?: string;
+  regularizationStatus?: RegularizationRecord['status'];
+  record?: AttendanceRecord;
+}
+
+const DAY_TAG_STYLE: React.CSSProperties = {
+  display: 'inline-block', fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+  textTransform: 'uppercase', letterSpacing: '.03em', marginTop: 4, whiteSpace: 'nowrap',
+};
+
+/** Renders the small tag/status indicator inside a calendar day cell. */
+function DayCellBadge({ info }: { info: DayInfo }) {
+  if (info.holidayName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>Holiday</span>;
+  }
+  if (info.leaveTypeName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Leave</span>;
+  }
+  if (info.record) {
+    return <StatusPill status={info.record.status} />;
+  }
+  if (info.regularizationStatus) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.15)', color: '#E0A93B' }}>Regularization</span>;
+  }
+  return null;
+}
+
+function MonthCalendar({
+  year, month, dayInfo, selectedDate, onSelect, onPrev, onNext,
+}: {
+  year: number; month: number;
+  dayInfo: (day: number) => DayInfo;
+  selectedDate: string | null;
+  onSelect: (iso: string) => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const cells = useMemo(() => buildCalendarCells(year, month), [year, month]);
+
+  return (
+    <div style={panelStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          {calendarMonthLabel(year, month)}
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onPrev} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+            <ChevronLeft size={15} />
+          </button>
+          <button onClick={onNext} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 6 }}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', textAlign: 'center', letterSpacing: '.05em' }}>
+              {d}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+          {cells.map((day, i) => {
+            if (day == null) return <div key={i} />;
+            const info = dayInfo(day);
+            const selected = selectedDate === info.iso;
+            return (
+              <button
+                key={i}
+                onClick={() => !info.isFuture && onSelect(info.iso)}
+                disabled={info.isFuture}
+                style={{
+                  minHeight: 64, borderRadius: 7, padding: '6px 6px', textAlign: 'left',
+                  background: selected ? 'rgba(177,17,22,.10)' : 'var(--raised)',
+                  border: info.isToday ? '1.5px solid var(--brand)' : selected ? '1px solid var(--brand)' : '1px solid var(--line)',
+                  cursor: info.isFuture ? 'default' : 'pointer',
+                  opacity: info.isFuture ? 0.45 : 1,
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: info.isWeekend ? 'var(--txt-dim)' : 'var(--txt)' }}>
+                  {day}
+                </span>
+                <DayCellBadge info={info} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── My attendance (punch card + attendance calendar) ─────────────────────────
 
 function MyAttendance() {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
 
   const [today, setToday] = useState<TodayAttendance | null>(null);
-  const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -633,27 +789,130 @@ function MyAttendance() {
   const serverOffsetMs = useRef(0);
   const [tick, setTick] = useState(0);
 
-  const loadHistory = useCallback(() => {
-    const to = todayIsoDate();
-    const from = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-    return attendanceApi.myHistory(from, to, token);
+  // ── Calendar state ──
+  const now = useMemo(() => new Date(), []);
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
+  const [monthRecords, setMonthRecords] = useState<AttendanceRecord[]>([]);
+  const [monthLoading, setMonthLoading] = useState(true);
+  const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
+  const [regularizations, setRegularizations] = useState<RegularizationRecord[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayIsoDate());
+
+  // Holidays / leaves / regularizations are fetched once — the calendar filters them per month.
+  useEffect(() => {
+    Promise.all([
+      holidaysApi.listForMyLocation(token).catch(() => []),
+      leaveApi.listMine(token).catch(() => []),
+      regularizationApi.mine(token).catch(() => []),
+    ]).then(([h, l, r]) => { setHolidays(h); setLeaves(l); setRegularizations(r); });
   }, [token]);
+
+  const refreshMonth = useCallback(() => {
+    setMonthLoading(true);
+    const from = isoOf(viewYear, viewMonth, 1);
+    const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
+    return attendanceApi.myHistory(from, to, token)
+      .then((r) => setMonthRecords(r))
+      .catch(() => setMonthRecords([]))
+      .finally(() => setMonthLoading(false));
+  }, [viewYear, viewMonth, token]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([attendanceApi.today(token), loadHistory()])
-      .then(([t, h]) => {
+    setMonthLoading(true);
+    const from = isoOf(viewYear, viewMonth, 1);
+    const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
+    attendanceApi.myHistory(from, to, token)
+      .then((r) => { if (!cancelled) setMonthRecords(r); })
+      .catch(() => { if (!cancelled) setMonthRecords([]); })
+      .finally(() => { if (!cancelled) setMonthLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewYear, viewMonth, token]);
+
+  const recordByDate = useMemo(() => {
+    const map = new Map<string, AttendanceRecord>();
+    monthRecords.forEach((r) => map.set(r.workDate, r));
+    return map;
+  }, [monthRecords]);
+
+  const holidayByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    holidays.forEach((h) => { if (h.active) map.set(h.holidayDate, h.holidayName); });
+    return map;
+  }, [holidays]);
+
+  const leaveByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    leaves.filter((l) => l.status === 'APPROVED').forEach((l) => {
+      expandDateRange(l.startDate, l.endDate).forEach((iso) => map.set(iso, l.leaveTypeName));
+    });
+    return map;
+  }, [leaves]);
+
+  const regularizationByDate = useMemo(() => {
+    const map = new Map<string, RegularizationRecord['status']>();
+    regularizations.forEach((r) => map.set(r.attendanceDate, r.status));
+    return map;
+  }, [regularizations]);
+
+  const monthPrefix = `${viewYear}-${pad2(viewMonth + 1)}`;
+  const presentDaysCount = monthRecords.filter((r) => r.checkInAt).length;
+  const workedMinutesTotal = monthRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
+  const leaveHolidayCount = useMemo(() => {
+    let count = 0;
+    for (const iso of holidayByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
+    for (const iso of leaveByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
+    return count;
+  }, [holidayByDate, leaveByDate, monthPrefix]);
+
+  const getDayInfo = useCallback((day: number): DayInfo => {
+    const iso = isoOf(viewYear, viewMonth, day);
+    const dow = new Date(viewYear, viewMonth, day).getDay();
+    return {
+      iso,
+      day,
+      isFuture: iso > todayIsoDate(),
+      isToday: iso === todayIsoDate(),
+      isWeekend: dow === 0 || dow === 6,
+      holidayName: holidayByDate.get(iso),
+      leaveTypeName: leaveByDate.get(iso),
+      regularizationStatus: regularizationByDate.get(iso),
+      record: recordByDate.get(iso),
+    };
+  }, [viewYear, viewMonth, holidayByDate, leaveByDate, regularizationByDate, recordByDate]);
+
+  function goToPrevMonth() {
+    setSelectedDate(null);
+    if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); } else { setViewMonth((m) => m - 1); }
+  }
+  function goToNextMonth() {
+    setSelectedDate(null);
+    if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); } else { setViewMonth((m) => m + 1); }
+  }
+
+  const selectedInfo = useMemo(() => {
+    if (!selectedDate) return null;
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    if (y !== viewYear || m - 1 !== viewMonth) return null;
+    return getDayInfo(d);
+  }, [selectedDate, viewYear, viewMonth, getDayInfo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    attendanceApi.today(token)
+      .then((t) => {
         if (cancelled) return;
         serverOffsetMs.current = wallClockMs(t.serverNow) - Date.now();
         setToday(t);
-        setHistory(h);
       })
       .catch((err) => {
         if (!cancelled) showToast('error', err instanceof Error ? err.message : 'Failed to load attendance');
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, loadHistory, showToast]);
+  }, [token, showToast]);
 
   const openSince = today?.canCheckOut ? today.record?.checkInAt ?? null : null;
 
@@ -680,13 +939,12 @@ function MyAttendance() {
         : await attendanceApi.checkOut(token);
 
       // Re-read /today so canCheckIn/canCheckOut always come from the server, never inferred.
-      const [refreshed, refreshedHistory] = await Promise.all([
+      const [refreshed] = await Promise.all([
         attendanceApi.today(token),
-        loadHistory(),
+        refreshMonth(),
       ]);
       serverOffsetMs.current = wallClockMs(refreshed.serverNow) - Date.now();
       setToday(refreshed);
-      setHistory(refreshedHistory);
 
       const at = formatTime(kind === 'in' ? record.checkInAt : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
@@ -777,42 +1035,70 @@ function MyAttendance() {
         )}
       </div>
 
-      {/* Own history */}
+      {/* Monthly attendance calendar */}
       <div>
-        <SectionHeading title="My recent attendance" hint="Last 30 days" />
-        <div style={panelStyle}>
-          {loading ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
-          ) : history.length === 0 ? (
-            <div style={{ padding: 48, textAlign: 'center' }}>
-              <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>No attendance yet</div>
-              <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Your punches will appear here once you check in.</div>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    {['Date', 'Check In', 'Check Out', 'Hours', 'Status', 'Source'].map((h) => (
-                      <th key={h} style={thStyle}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((r) => (
-                    <tr key={r.workDate}>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
-                      <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
-                      <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
-                      <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
-                      <td style={tdStyle}><StatusPill status={r.status} /></td>
-                      <td style={tdStyle}><SourceTag source={r.source} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <SectionHeading title="My attendance calendar" hint="Present days, worked hours, and leave/holidays for the selected month." />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
+          <MonthStatTile label="Present Days" value={monthLoading ? '—' : String(presentDaysCount)} hint="Selected month" />
+          <MonthStatTile label="Worked Hours" value={monthLoading ? '—' : (formatDuration(workedMinutesTotal) ?? '0m')} hint="Selected month" />
+          <MonthStatTile label="Leave / Holidays" value={String(leaveHolidayCount)} hint="Selected month" />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
+          <MonthCalendar
+            year={viewYear}
+            month={viewMonth}
+            dayInfo={getDayInfo}
+            selectedDate={selectedDate}
+            onSelect={setSelectedDate}
+            onPrev={goToPrevMonth}
+            onNext={goToNextMonth}
+          />
+
+          <div style={{ ...panelStyle, padding: '18px 20px' }}>
+            {!selectedInfo ? (
+              <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Pick a day on the calendar to see its details.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
+                  {selectedInfo.isToday ? "Today's workday" : formatDay(selectedInfo.iso)}
+                </div>
+                {selectedInfo.holidayName ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Company holiday — {selectedInfo.holidayName}</div>
+                ) : selectedInfo.leaveTypeName ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>On leave — {selectedInfo.leaveTypeName}</div>
+                ) : selectedInfo.record ? (
+                  <>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Check In</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkInAt) ?? dash}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Check Out</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkOutAt) ?? dash}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Hours</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.record.workedMinutes) ?? dash}</div>
+                    </div>
+                    <StatusPill status={selectedInfo.record.status} />
+                    {selectedInfo.regularizationStatus && (
+                      <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Regularization: {selectedInfo.regularizationStatus}</div>
+                    )}
+                  </>
+                ) : selectedInfo.regularizationStatus ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Regularization request: {selectedInfo.regularizationStatus}</div>
+                ) : selectedInfo.isWeekend ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No attendance recorded for this day.</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
