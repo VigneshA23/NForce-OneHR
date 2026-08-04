@@ -24,7 +24,6 @@ public class AttendanceException {
     private LocalDate exceptionDate;
 
     // Plain string, not a JPA enum — matches the codebase convention (role codes, work mode).
-    // Only ExceptionType.LATE_ARRIVAL is written today; MISSING_PUNCH is a future additive value.
     @Column(name = "exception_type", nullable = false, length = 30)
     private String exceptionType;
 
@@ -43,7 +42,7 @@ public class AttendanceException {
 
     @Column(name = "source", nullable = false, length = 30)
     @Builder.Default
-    private String source = "PLACEHOLDER_SEED";
+    private String source = "SYSTEM";
 
     @Column(name = "detected_at", nullable = false)
     private LocalDateTime detectedAt;

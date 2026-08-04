@@ -9,9 +9,8 @@ public final class ExceptionType {
 
     public static final String LATE_ARRIVAL = "LATE_ARRIVAL";
 
-    // MISSING_PUNCH is intentionally not implemented yet — out of scope for this
-    // branch. Add it here (additive, no schema change) once FR-004 (Attendance
-    // Management) provides real check-out data to detect it against.
+    // A prior day's row with a check-in but no check-out.
+    public static final String MISSING_PUNCH = "MISSING_PUNCH";
 
     private ExceptionType() {}
 }

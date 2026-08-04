@@ -1,8 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.exceptions.ExceptionResponse;
-import com.nforce.onehr.dto.exceptions.PlaceholderCheckinRequest;
-import com.nforce.onehr.dto.exceptions.PlaceholderCheckinResponse;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -10,10 +9,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.ArrayList;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -31,8 +30,9 @@ public class ExceptionService {
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final AttendanceExceptionRepository attendanceExceptionRepository;
-    private final PlaceholderCheckinSeedRepository placeholderCheckinSeedRepository;
-    private final AuditService auditService;
+    private final AttendanceRepository attendanceRepository;
+    private final AttendanceProperties attendanceProperties;
+    private final EmailService emailService;
 
     /**
      * HR Admin + Super Admin see company-wide exceptions; Manager sees only current
@@ -57,7 +57,7 @@ public class ExceptionService {
             throw new AccessDeniedException("Not authorized to view exceptions");
         }
 
-        detectLateArrivals(scopeIds, from, to);
+        detectExceptions(scopeIds, from, to);
 
         List<AttendanceException> exceptions = scopeIds == null
                 ? attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to)
@@ -67,68 +67,77 @@ public class ExceptionService {
     }
 
     /**
-     * Reads placeholder_checkin_seed (temporary stand-in for real attendance data) and
-     * upserts LATE_ARRIVAL rows into attendance_exceptions. THIS is the one method to
-     * replace when FR-004 (Attendance Management) lands — swap the placeholder read for
-     * real check-in/shift data; entity, repository, controller, and DTOs stay unchanged.
+     * Reads real attendance_records for the scope/date range and upserts both exception
+     * types into attendance_exceptions:
+     *  - LATE_ARRIVAL: the check-in was already flagged late by AttendanceService against
+     *    the same shift-start/grace configuration — reused here rather than re-derived.
+     *  - MISSING_PUNCH: a past day (never today, which may still legitimately be open) has
+     *    a check-in but no check-out.
      */
-    private void detectLateArrivals(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
-        List<PlaceholderCheckinSeed> rows = scopeIds == null
-                ? placeholderCheckinSeedRepository.findByWorkDateBetween(from, to)
-                : placeholderCheckinSeedRepository.findByEmployeeUserIdInAndWorkDateBetween(new ArrayList<>(scopeIds), from, to);
+    private void detectExceptions(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
+        List<Attendance> records = scopeIds == null
+                ? attendanceRepository.findByWorkDateBetween(from, to)
+                : attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(new java.util.ArrayList<>(scopeIds), from, to);
 
-        for (PlaceholderCheckinSeed row : rows) {
-            LocalTime lateAfter = row.getShiftStartTime().plusMinutes(row.getLateThresholdMinutes());
-            if (!row.getCheckinTime().isAfter(lateAfter)) {
-                continue;
+        LocalDate today = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
+
+        for (Attendance record : records) {
+            if (record.getLateByMinutes() != null && record.getLateByMinutes() > 0) {
+                upsertException(record.getEmployeeUserId(), record.getWorkDate(), ExceptionType.LATE_ARRIVAL,
+                        attendanceProperties.getShiftStart(), record.getCheckInAt().toLocalTime(),
+                        record.getLateByMinutes());
             }
-            int minutesLate = (int) Duration.between(row.getShiftStartTime(), row.getCheckinTime()).toMinutes();
-            AttendanceException exception = attendanceExceptionRepository
-                    .findByEmployeeUserIdAndExceptionDateAndExceptionType(row.getEmployeeUserId(), row.getWorkDate(), ExceptionType.LATE_ARRIVAL)
-                    .orElseGet(() -> AttendanceException.builder()
-                            .employeeUserId(row.getEmployeeUserId())
-                            .exceptionDate(row.getWorkDate())
-                            .exceptionType(ExceptionType.LATE_ARRIVAL)
-                            .build());
-            exception.setExpectedTime(row.getShiftStartTime());
-            exception.setActualTime(row.getCheckinTime());
-            exception.setMinutesLate(minutesLate);
-            attendanceExceptionRepository.save(exception);
+            if (record.getCheckOutAt() == null && record.getWorkDate().isBefore(today)) {
+                upsertException(record.getEmployeeUserId(), record.getWorkDate(), ExceptionType.MISSING_PUNCH,
+                        null, record.getCheckInAt().toLocalTime(), null);
+            }
         }
     }
 
-    // TEMPORARY — delete with FR-004 (see PlaceholderCheckinSeed entity Javadoc).
-    @Transactional
-    public PlaceholderCheckinResponse seedPlaceholderCheckin(PlaceholderCheckinRequest req, String actorEmail) {
-        User actor = userRepository.findByEmail(actorEmail)
-                .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        if (!employeeRepository.existsById(req.getEmployeeUserId())) {
-            throw new IllegalArgumentException("Employee not found");
+    private void upsertException(UUID employeeUserId, LocalDate exceptionDate, String exceptionType,
+                                  LocalTime expectedTime, LocalTime actualTime, Integer minutesLate) {
+        Optional<AttendanceException> existing = attendanceExceptionRepository
+                .findByEmployeeUserIdAndExceptionDateAndExceptionType(employeeUserId, exceptionDate, exceptionType);
+        boolean isNew = existing.isEmpty();
+
+        AttendanceException exception = existing.orElseGet(() -> AttendanceException.builder()
+                .employeeUserId(employeeUserId)
+                .exceptionDate(exceptionDate)
+                .exceptionType(exceptionType)
+                .build());
+        exception.setExpectedTime(expectedTime);
+        exception.setActualTime(actualTime);
+        exception.setMinutesLate(minutesLate);
+        attendanceExceptionRepository.save(exception);
+
+        // Email once, the moment an exception is first detected — never on later
+        // re-detection of the same row (every dashboard load re-runs detectExceptions).
+        if (isNew) {
+            notifyEmployee(employeeUserId, exceptionType, exceptionDate, expectedTime, actualTime, minutesLate);
         }
-
-        PlaceholderCheckinSeed seed = placeholderCheckinSeedRepository
-                .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getWorkDate())
-                .orElseGet(() -> PlaceholderCheckinSeed.builder()
-                        .employeeUserId(req.getEmployeeUserId())
-                        .workDate(req.getWorkDate())
-                        .createdBy(actor.getId())
-                        .build());
-
-        seed.setCheckinTime(req.getCheckinTime());
-        if (req.getShiftStartTime() != null) seed.setShiftStartTime(req.getShiftStartTime());
-        if (req.getLateThresholdMinutes() != null) seed.setLateThresholdMinutes(req.getLateThresholdMinutes());
-
-        seed = placeholderCheckinSeedRepository.save(seed);
-        auditService.log(actor.getId(), "PLACEHOLDER_CHECKIN_SEEDED", seed.getEmployeeUserId());
-        return toResponse(seed);
     }
 
-    // TEMPORARY — delete with FR-004 (see PlaceholderCheckinSeed entity Javadoc).
-    @Transactional(readOnly = true)
-    public List<PlaceholderCheckinResponse> listPlaceholderCheckins(LocalDate from, LocalDate to) {
-        return placeholderCheckinSeedRepository.findByWorkDateBetween(from, to).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+    private void notifyEmployee(UUID employeeUserId, String exceptionType, LocalDate exceptionDate,
+                                 LocalTime expectedTime, LocalTime actualTime, Integer minutesLate) {
+        employeeRepository.findById(employeeUserId).ifPresent(employee -> {
+            String email = employee.getUser().getEmail();
+            String name = employee.getFullName();
+            String managerEmail = currentManagerEmail(employeeUserId);
+            if (ExceptionType.LATE_ARRIVAL.equals(exceptionType)) {
+                emailService.sendLateArrivalEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime, minutesLate);
+            } else if (ExceptionType.MISSING_PUNCH.equals(exceptionType)) {
+                emailService.sendMissingPunchEmail(email, managerEmail, name, exceptionDate, actualTime);
+            }
+        });
+    }
+
+    /** Null if the employee has no current manager on file — the email is simply sent without a cc. */
+    private String currentManagerEmail(UUID employeeUserId) {
+        return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeUserId)
+                .map(EmployeeManagerHistory::getManagerUserId)
+                .flatMap(userRepository::findById)
+                .map(User::getEmail)
+                .orElse(null);
     }
 
     private ExceptionResponse toResponse(AttendanceException exception) {
@@ -145,21 +154,6 @@ public class ExceptionService {
                 .minutesLate(exception.getMinutesLate())
                 .status(exception.getStatus())
                 .detectedAt(exception.getDetectedAt())
-                .build();
-    }
-
-    private PlaceholderCheckinResponse toResponse(PlaceholderCheckinSeed seed) {
-        String fullName = employeeRepository.findById(seed.getEmployeeUserId())
-                .map(Employee::getFullName).orElse(null);
-        return PlaceholderCheckinResponse.builder()
-                .id(seed.getId())
-                .employeeUserId(seed.getEmployeeUserId())
-                .employeeFullName(fullName)
-                .workDate(seed.getWorkDate())
-                .shiftStartTime(seed.getShiftStartTime())
-                .checkinTime(seed.getCheckinTime())
-                .lateThresholdMinutes(seed.getLateThresholdMinutes())
-                .createdAt(seed.getCreatedAt())
                 .build();
     }
 }
