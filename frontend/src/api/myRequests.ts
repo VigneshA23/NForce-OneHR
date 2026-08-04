@@ -11,7 +11,7 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type RequestType = 'LEAVE' | 'REGULARIZATION' | 'EXPENSE' | 'ASSET_REQUEST';
+export type RequestType = 'LEAVE' | 'REGULARIZATION';
 
 export interface MyRequestItem {
   id: string;
@@ -37,17 +37,6 @@ export interface MyRequestItem {
   requestedCheckIn?: string;
   requestedCheckOut?: string;
   regularizationReason?: string;
-
-  // Expense
-  expenseCategoryName?: string;
-  expenseAmount?: number;
-  expenseDate?: string;
-  businessPurpose?: string;
-  receiptUrl?: string;
-
-  // Asset Request
-  requestedCategoryName?: string;
-  assetRequestReason?: string;
 }
 
 export const myRequestsApi = {

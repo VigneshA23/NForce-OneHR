@@ -38,6 +38,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('attendance', 'Team Attendance', Clock, 1),
     item('leave', 'Team Leave & Holidays', Calendar, 1),
+    item('requests', 'My Requests', HelpCircle, 1),
     item('approvals', 'Approval Center', FileText, 1),
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('performance', 'Team Performance', GitBranch, 2),

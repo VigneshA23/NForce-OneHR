@@ -3,10 +3,6 @@ package com.nforce.onehr.controller;
 import com.nforce.onehr.dto.MyRequestItemDto;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
-import com.nforce.onehr.dto.asset.AssetRequestResponse;
-import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
-import com.nforce.onehr.service.AssetService;
-import com.nforce.onehr.service.ExpenseService;
 import com.nforce.onehr.service.LeaveService;
 import com.nforce.onehr.service.RegularizationService;
 import lombok.RequiredArgsConstructor;
@@ -20,9 +16,9 @@ import java.util.List;
 
 /**
  * Requester-side mirror of the Unified Approval Center: aggregates the caller's
- * own Leave, Attendance Regularization, Expense, and Asset Request submissions
- * into a single read-only tracking list. Issues no decisions — approve/reject
- * for every request type happens exclusively via Approval Center.
+ * own Leave and Attendance Regularization submissions into a single read-only
+ * tracking list. Issues no decisions — approve/reject for every request type
+ * happens exclusively via Approval Center.
  */
 @RestController
 @RequestMapping("/api/my-requests")
@@ -31,8 +27,6 @@ public class MyRequestsController {
 
     private final LeaveService leaveService;
     private final RegularizationService regularizationService;
-    private final ExpenseService expenseService;
-    private final AssetService assetService;
 
     @GetMapping
     public List<MyRequestItemDto> myRequests(Principal principal) {
@@ -41,8 +35,6 @@ public class MyRequestsController {
         List<MyRequestItemDto> items = new ArrayList<>();
         leaveService.listMyRequests(email).stream().map(this::leaveToItem).forEach(items::add);
         regularizationService.listMine(email).stream().map(this::regularizationToItem).forEach(items::add);
-        expenseService.myClaims(email).stream().map(this::expenseToItem).forEach(items::add);
-        assetService.myRequests(email).stream().map(this::assetToItem).forEach(items::add);
 
         items.sort(Comparator.comparing(MyRequestItemDto::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
         return items;
@@ -89,44 +81,6 @@ public class MyRequestsController {
                 .requestedCheckIn(r.getRequestedCheckIn())
                 .requestedCheckOut(r.getRequestedCheckOut())
                 .regularizationReason(r.getReason())
-                .build();
-    }
-
-    private MyRequestItemDto expenseToItem(ExpenseClaimResponse c) {
-        String decisionReason = c.getFinalRejectionReason() != null ? c.getFinalRejectionReason() : c.getManagerRejectionReason();
-        String decidedByName = c.getFinalDecidedByName() != null ? c.getFinalDecidedByName() : c.getManagerDecidedByName();
-        return MyRequestItemDto.builder()
-                .id(c.getId().toString())
-                .requestType("EXPENSE")
-                .employeeUserId(c.getEmployeeUserId())
-                .employeeName(c.getEmployeeName())
-                .createdAt(c.getCreatedAt())
-                .status(c.getStatus())
-                .decisionReason(decisionReason)
-                .decidedByName(decidedByName)
-                .decidedAt(c.getFinalDecidedAt() != null ? c.getFinalDecidedAt() : c.getManagerDecidedAt())
-                .expenseCategoryName(c.getCategoryName())
-                .expenseAmount(c.getAmount())
-                .expenseDate(c.getExpenseDate())
-                .businessPurpose(c.getBusinessPurpose())
-                .receiptUrl(c.getReceiptUrl())
-                .build();
-    }
-
-    private MyRequestItemDto assetToItem(AssetRequestResponse r) {
-        String decidedByName = r.getFulfilledByName() != null ? r.getFulfilledByName() : r.getManagerDecidedByName();
-        return MyRequestItemDto.builder()
-                .id(r.getId().toString())
-                .requestType("ASSET_REQUEST")
-                .employeeUserId(r.getEmployeeUserId())
-                .employeeName(r.getEmployeeName())
-                .createdAt(r.getCreatedAt())
-                .status(r.getStatus())
-                .decisionReason(r.getRejectionReason())
-                .decidedByName(decidedByName)
-                .decidedAt(r.getFulfilledAt() != null ? r.getFulfilledAt() : r.getManagerDecidedAt())
-                .requestedCategoryName(r.getCategoryName())
-                .assetRequestReason(r.getReason())
                 .build();
     }
 }
