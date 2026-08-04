@@ -170,6 +170,20 @@ class RegularizationServiceTest {
     }
 
     @Test
+    void submit_whenApprovedRequestAlreadyExistsForDate_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, today, "APPROVED"))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot badge"), employeeEmail));
+
+        assertEquals("Already raised regularization for this date.", ex.getMessage());
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
     void submit_bothTimesMissingWithNoExistingPunch_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         LocalDate today = LocalDate.now();
@@ -294,6 +308,27 @@ class RegularizationServiceTest {
     }
 
     @Test
+    void update_whenMovedToDateWithApprovedRequest_isRejected() {
+        LocalDate date = LocalDate.now();
+        LocalDate approvedDate = date.plusDays(1);
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Old reason").status("PENDING").build();
+
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, approvedDate, "APPROVED"))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> regularizationService.update(
+                pending.getId(), request(approvedDate, approvedDate.atTime(9, 15), approvedDate.atTime(18, 15), "Moved"), employeeEmail));
+
+        assertEquals("Already raised regularization for this date.", ex.getMessage());
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
     void update_afterAlreadyDecided_isRejected() {
         LocalDate date = LocalDate.now();
         RegularizationRequest decided = RegularizationRequest.builder().id(UUID.randomUUID())
@@ -338,6 +373,46 @@ class RegularizationServiceTest {
         List<RegularizationResponse> queue = regularizationService.listPendingForApprover(hrEmail);
 
         assertEquals(1, queue.size());
+    }
+
+    @Test
+    void listForApprover_managerSeesOnlyAssignedRequestsAcrossAllStatuses() {
+        RegularizationRequest assignedPending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .reason("x").status("PENDING").createdAt(LocalDateTime.now()).build();
+        RegularizationRequest assignedApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now().minusDays(1))
+                .reason("y").status("APPROVED").createdAt(LocalDateTime.now().minusDays(1)).build();
+        RegularizationRequest notAssignedRejected = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
+                .reason("z").status("REJECTED").createdAt(LocalDateTime.now()).build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(regularizationRepository.findAll()).thenReturn(List.of(assignedPending, assignedApproved, notAssignedRejected));
+
+        List<RegularizationResponse> all = regularizationService.listForApprover(managerEmail);
+
+        assertEquals(2, all.size());
+        assertTrue(all.stream().map(RegularizationResponse::getId)
+                .toList().containsAll(List.of(assignedPending.getId(), assignedApproved.getId())));
+    }
+
+    @Test
+    void listForApprover_hrAdminSeesEveryRequestRegardlessOfAssignee() {
+        RegularizationRequest assignedToManagerPending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .reason("x").status("PENDING").createdAt(LocalDateTime.now()).build();
+        RegularizationRequest assignedToManagerApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(strangerId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .reason("y").status("APPROVED").createdAt(LocalDateTime.now()).build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findAll())
+                .thenReturn(List.of(assignedToManagerPending, assignedToManagerApproved));
+
+        List<RegularizationResponse> all = regularizationService.listForApprover(hrEmail);
+
+        assertEquals(2, all.size());
     }
 
     @Test
