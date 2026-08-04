@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.AttendanceResponse;
+import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.dto.attendance.ApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.ApproverOptionDto;
@@ -67,6 +68,14 @@ public class AttendanceController {
             Principal principal) {
         AttendanceResponse punch = attendanceService.getPunchForDate(principal.getName(), date);
         return punch != null ? ResponseEntity.ok(punch) : ResponseEntity.noContent().build();
+    }
+
+    /** Every check-in/check-out session for a single day, e.g. to show a lunch-break gap. */
+    @GetMapping("/punches/{date}")
+    public List<PunchResponse> punchesForDate(
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            Principal principal) {
+        return attendanceService.getPunches(principal.getName(), date);
     }
 
     @GetMapping("/day")

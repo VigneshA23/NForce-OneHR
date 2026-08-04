@@ -2,9 +2,12 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.AttendanceResponse;
+import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.entity.Attendance;
+import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -45,6 +48,7 @@ public class AttendanceService {
     private static final int DEFAULT_HISTORY_DAYS = 30;
 
     private final AttendanceRepository attendanceRepository;
+    private final AttendancePunchRepository attendancePunchRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
     private final AuditService auditService;
@@ -97,6 +101,7 @@ public class AttendanceService {
             record.setSessionStartedAt(now);
             record.setCheckOutAt(null);
             Attendance saved = attendanceRepository.save(record);
+            openPunch(saved.getId(), now);
             auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", saved.getId());
             return toResponse(saved, employee);
         }
@@ -115,9 +120,17 @@ public class AttendanceService {
                 .status(lateByMinutes > 0 ? STATUS_LATE : STATUS_PRESENT)
                 .lateByMinutes(lateByMinutes)
                 .build());
+        openPunch(record.getId(), now);
 
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", record.getId());
         return toResponse(record, employee);
+    }
+
+    private void openPunch(UUID attendanceRecordId, LocalDateTime checkInAt) {
+        attendancePunchRepository.save(AttendancePunch.builder()
+                .attendanceRecordId(attendanceRecordId)
+                .checkInAt(checkInAt)
+                .build());
     }
 
     @Transactional
@@ -152,8 +165,29 @@ public class AttendanceService {
         }
 
         Attendance saved = attendanceRepository.save(record);
+        attendancePunchRepository.findByAttendanceRecordIdAndCheckOutAtIsNull(saved.getId())
+                .ifPresent(punch -> {
+                    punch.setCheckOutAt(now);
+                    attendancePunchRepository.save(punch);
+                });
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId());
         return toResponse(saved, employee);
+    }
+
+    /** Every check-in/check-out session for a single day — e.g. to show a lunch-break gap. */
+    @Transactional(readOnly = true)
+    public List<PunchResponse> getPunches(String actorEmail, LocalDate date) {
+        Employee employee = resolveEmployee(actorEmail);
+        return attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), date)
+                .map(record -> attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(record.getId())
+                        .stream()
+                        .map(p -> PunchResponse.builder()
+                                .id(p.getId())
+                                .checkInAt(p.getCheckInAt())
+                                .checkOutAt(p.getCheckOutAt())
+                                .build())
+                        .toList())
+                .orElse(List.of());
     }
 
     @Transactional(readOnly = true)

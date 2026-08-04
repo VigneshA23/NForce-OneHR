@@ -9,6 +9,7 @@ import {
   type RegularizationRecord,
   type SubmitRegularizationPayload,
   type ApproverOption,
+  type Punch,
 } from '../api/attendance';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
@@ -309,6 +310,41 @@ function RegularizationStatusPill({ status }: { status: string }) {
     <span style={{ fontSize: 11, fontWeight: 600, color: REGULARIZATION_STATUS_COLOR[status] ?? '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
       {status}
     </span>
+  );
+}
+
+/** Every check-in/check-out session for a single day — shows a lunch-break gap explicitly. */
+function PunchHistoryList({ date, token }: { date: string; token: string }) {
+  const [punches, setPunches] = useState<Punch[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPunches(null);
+    attendanceApi.punches(date, token)
+      .then((p) => { if (!cancelled) setPunches(p); })
+      .catch(() => { if (!cancelled) setPunches([]); });
+    return () => { cancelled = true; };
+  }, [date, token]);
+
+  if (punches === null) return null;
+  if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
+
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>
+        Punch History
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {punches.map((p, i) => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--txt-mut)' }}>
+            <span style={{ color: 'var(--txt-dim)', fontSize: 11 }}>{i + 1}.</span>
+            <span>{formatTime(p.checkInAt) ?? dash}</span>
+            <span style={{ color: 'var(--txt-dim)' }}>→</span>
+            <span>{formatTime(p.checkOutAt) ?? 'still open'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1088,6 +1124,7 @@ function MyAttendance() {
                     {selectedInfo.regularizationStatus && (
                       <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Regularization: {selectedInfo.regularizationStatus}</div>
                     )}
+                    <PunchHistoryList date={selectedInfo.iso} token={token} />
                   </>
                 ) : selectedInfo.regularizationStatus ? (
                   <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Regularization request: {selectedInfo.regularizationStatus}</div>
