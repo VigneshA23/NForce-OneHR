@@ -9,6 +9,13 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 const EXCEPTION_TYPE_LABELS: Record<string, string> = {
   LATE_ARRIVAL: 'Late Arrival',
   MISSING_PUNCH: 'Missing Punch',
+  LEAVE_ATTENDANCE_CONFLICT: 'Leave/Attendance Conflict',
+};
+
+const EXCEPTION_TYPE_STYLES: Record<string, { color: string; background: string; border: string }> = {
+  LATE_ARRIVAL: { color: '#E0A93B', background: 'rgba(224,169,59,.1)', border: 'rgba(224,169,59,.25)' },
+  MISSING_PUNCH: { color: 'var(--risk)', background: 'rgba(228,55,61,.1)', border: 'rgba(228,55,61,.25)' },
+  LEAVE_ATTENDANCE_CONFLICT: { color: '#8B5CF6', background: 'rgba(139,92,246,.1)', border: 'rgba(139,92,246,.25)' },
 };
 
 function todayIso(): string {
@@ -22,10 +29,9 @@ function daysAgoIso(n: number): string {
 }
 
 function ExceptionTypeBadge({ type }: { type: string }) {
-  const isLate = type === 'LATE_ARRIVAL';
-  const color = isLate ? '#E0A93B' : 'var(--risk)';
+  const s = EXCEPTION_TYPE_STYLES[type] ?? { color: 'var(--txt-mut)', background: 'var(--shell)', border: 'var(--line2)' };
   return (
-    <span style={{ fontSize: 11, fontWeight: 600, color, background: isLate ? 'rgba(224,169,59,.1)' : 'rgba(228,55,61,.1)', border: `1px solid ${isLate ? 'rgba(224,169,59,.25)' : 'rgba(228,55,61,.25)'}`, borderRadius: 4, padding: '2px 7px' }}>
+    <span style={{ fontSize: 11, fontWeight: 600, color: s.color, background: s.background, border: `1px solid ${s.border}`, borderRadius: 4, padding: '2px 7px' }}>
       {EXCEPTION_TYPE_LABELS[type] ?? type}
     </span>
   );
@@ -37,14 +43,14 @@ export default function ExceptionDashboardPage() {
   const { showToast } = useToast();
   const [from, setFrom] = useState(daysAgoIso(6));
   const [to, setTo] = useState(todayIso());
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'LATE_ARRIVAL' | 'MISSING_PUNCH'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'LATE_ARRIVAL' | 'MISSING_PUNCH' | 'LEAVE_ATTENDANCE_CONFLICT'>('ALL');
   const [exceptions, setExceptions] = useState<ExceptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   const isHrOrSuperAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
   const subtitle = isHrOrSuperAdmin
-    ? 'Company-wide attendance exceptions. Leave exceptions are coming in a later phase.'
-    : 'Your team’s attendance exceptions. Leave exceptions are coming in a later phase.';
+    ? 'Company-wide attendance exceptions.'
+    : 'Your team’s attendance exceptions.';
 
   function load() {
     setLoading(true);
@@ -89,6 +95,7 @@ export default function ExceptionDashboardPage() {
             <option value="ALL">All</option>
             <option value="LATE_ARRIVAL">Late Arrival</option>
             <option value="MISSING_PUNCH">Missing Punch</option>
+            <option value="LEAVE_ATTENDANCE_CONFLICT">Leave/Attendance Conflict</option>
           </select>
         </div>
       </div>

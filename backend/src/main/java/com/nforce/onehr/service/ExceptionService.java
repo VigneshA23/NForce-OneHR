@@ -31,6 +31,7 @@ public class ExceptionService {
     private final EmployeeManagerHistoryRepository historyRepository;
     private final AttendanceExceptionRepository attendanceExceptionRepository;
     private final AttendanceRepository attendanceRepository;
+    private final LeaveRequestRepository leaveRequestRepository;
     private final AttendanceProperties attendanceProperties;
     private final EmailService emailService;
 
@@ -67,12 +68,14 @@ public class ExceptionService {
     }
 
     /**
-     * Reads real attendance_records for the scope/date range and upserts both exception
+     * Reads real attendance_records for the scope/date range and upserts all exception
      * types into attendance_exceptions:
      *  - LATE_ARRIVAL: the check-in was already flagged late by AttendanceService against
      *    the same shift-start/grace configuration — reused here rather than re-derived.
      *  - MISSING_PUNCH: a past day (never today, which may still legitimately be open) has
      *    a check-in but no check-out.
+     *  - LEAVE_ATTENDANCE_CONFLICT: an approved leave request covers the same day a
+     *    check-in was also recorded.
      */
     private void detectExceptions(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
         List<Attendance> records = scopeIds == null
@@ -80,6 +83,16 @@ public class ExceptionService {
                 : attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(new java.util.ArrayList<>(scopeIds), from, to);
 
         LocalDate today = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
+
+        List<LeaveRequest> approvedLeave = scopeIds == null
+                ? leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from)
+                : leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        scopeIds, "APPROVED", to, from);
+
+        Set<String> leaveCoveredDays = approvedLeave.stream()
+                .flatMap(leave -> leave.getStartDate().datesUntil(leave.getEndDate().plusDays(1))
+                        .map(date -> leave.getEmployeeUserId() + "|" + date))
+                .collect(Collectors.toSet());
 
         for (Attendance record : records) {
             if (record.getLateByMinutes() != null && record.getLateByMinutes() > 0) {
@@ -89,6 +102,10 @@ public class ExceptionService {
             }
             if (record.getCheckOutAt() == null && record.getWorkDate().isBefore(today)) {
                 upsertException(record.getEmployeeUserId(), record.getWorkDate(), ExceptionType.MISSING_PUNCH,
+                        null, record.getCheckInAt().toLocalTime(), null);
+            }
+            if (leaveCoveredDays.contains(record.getEmployeeUserId() + "|" + record.getWorkDate())) {
+                upsertException(record.getEmployeeUserId(), record.getWorkDate(), ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
                         null, record.getCheckInAt().toLocalTime(), null);
             }
         }
@@ -127,6 +144,8 @@ public class ExceptionService {
                 emailService.sendLateArrivalEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime, minutesLate);
             } else if (ExceptionType.MISSING_PUNCH.equals(exceptionType)) {
                 emailService.sendMissingPunchEmail(email, managerEmail, name, exceptionDate, actualTime);
+            } else if (ExceptionType.LEAVE_ATTENDANCE_CONFLICT.equals(exceptionType)) {
+                emailService.sendLeaveAttendanceConflictEmail(email, managerEmail, name, exceptionDate, actualTime);
             }
         });
     }

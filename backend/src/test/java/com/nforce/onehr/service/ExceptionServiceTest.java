@@ -36,6 +36,7 @@ class ExceptionServiceTest {
     @Mock private EmployeeManagerHistoryRepository historyRepository;
     @Mock private AttendanceExceptionRepository attendanceExceptionRepository;
     @Mock private AttendanceRepository attendanceRepository;
+    @Mock private LeaveRequestRepository leaveRequestRepository;
     @Mock private AttendanceProperties attendanceProperties;
 
     @InjectMocks private ExceptionService exceptionService;
@@ -53,6 +54,10 @@ class ExceptionServiceTest {
     void setUp() {
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
+        lenient().when(leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                anyString(), any(), any())).thenReturn(List.of());
+        lenient().when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                any(), anyString(), any(), any())).thenReturn(List.of());
     }
 
     private User userWithRole(String email, String roleCode, UUID id) {
@@ -194,5 +199,85 @@ class ExceptionServiceTest {
 
         verify(attendanceExceptionRepository, times(1)).save(argThat(exc ->
                 exc.getId().equals(existing.getId()) && exc.getMinutesLate().equals(30)));
+    }
+
+    @Test
+    void leaveAttendanceConflict_isDetectedWhenApprovedLeaveOverlapsAnAttendanceRecord() {
+        User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
+
+        LocalDate conflictDate = LocalDate.now().minusDays(1);
+        Attendance recordOnLeaveDay = Attendance.builder()
+                .employeeUserId(employeeId)
+                .workDate(conflictDate)
+                .checkInAt(LocalDateTime.now().minusDays(1).withHour(9).withMinute(30))
+                .checkOutAt(LocalDateTime.now().minusDays(1).withHour(18).withMinute(0))
+                .lateByMinutes(0)
+                .build();
+        LeaveRequest approvedLeave = LeaveRequest.builder()
+                .employeeUserId(employeeId)
+                .startDate(conflictDate)
+                .endDate(conflictDate)
+                .status("APPROVED")
+                .build();
+
+        when(attendanceRepository.findByWorkDateBetween(from, to)).thenReturn(List.of(recordOnLeaveDay));
+        when(leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
+        when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
+                employeeId, conflictDate, ExceptionType.LEAVE_ATTENDANCE_CONFLICT)).thenReturn(Optional.empty());
+        when(attendanceExceptionRepository.save(any(AttendanceException.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
+                .thenReturn(List.of());
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+
+        verify(attendanceExceptionRepository).save(argThat(exc ->
+                exc.getExceptionType().equals(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)
+                        && exc.getExceptionDate().equals(conflictDate)));
+    }
+
+    @Test
+    void leaveAttendanceConflict_reDetection_emailsOnlyOnce() {
+        User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
+
+        LocalDate conflictDate = LocalDate.now().minusDays(1);
+        Attendance recordOnLeaveDay = Attendance.builder()
+                .employeeUserId(employeeId)
+                .workDate(conflictDate)
+                .checkInAt(LocalDateTime.now().minusDays(1).withHour(9).withMinute(30))
+                .checkOutAt(LocalDateTime.now().minusDays(1).withHour(18).withMinute(0))
+                .lateByMinutes(0)
+                .build();
+        LeaveRequest approvedLeave = LeaveRequest.builder()
+                .employeeUserId(employeeId)
+                .startDate(conflictDate)
+                .endDate(conflictDate)
+                .status("APPROVED")
+                .build();
+        AttendanceException existing = AttendanceException.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .exceptionDate(conflictDate)
+                .exceptionType(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)
+                .build();
+
+        when(attendanceRepository.findByWorkDateBetween(from, to)).thenReturn(List.of(recordOnLeaveDay));
+        when(leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
+        when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
+                employeeId, conflictDate, ExceptionType.LEAVE_ATTENDANCE_CONFLICT)).thenReturn(Optional.of(existing));
+        when(attendanceExceptionRepository.save(any(AttendanceException.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
+                .thenReturn(List.of());
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+
+        verify(attendanceExceptionRepository, times(2)).save(argThat(exc ->
+                exc.getExceptionType().equals(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)));
     }
 }
