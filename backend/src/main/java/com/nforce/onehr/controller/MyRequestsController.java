@@ -111,6 +111,9 @@ public class MyRequestsController {
                         ? r.getReviewedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
                 .attendanceDate(r.getWorkDate())
                 .requestedCheckIn(r.getRequestedCheckIn())
+                // Reused field: for WEB_CLOCK_IN this carries the actual check-out time
+                // (set via the no-approval Web Clock Out action), not a "requested" one.
+                .requestedCheckOut(r.getCheckedOutAt())
                 .regularizationReason(r.getReason())
                 .build();
     }

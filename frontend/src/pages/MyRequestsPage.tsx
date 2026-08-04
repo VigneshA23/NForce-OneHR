@@ -100,7 +100,8 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
   if (item.requestType === 'WEB_CLOCK_IN') {
     return (
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate} · Requested {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
+        {item.attendanceDate} · In {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
+        {item.status === 'APPROVED' && (item.requestedCheckOut ? ` · Out ${fmtTime(item.requestedCheckOut)}` : ' · still clocked in')}
       </div>
     );
   }
@@ -183,6 +184,9 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               <>
                 <Row label="Work Date" value={item.attendanceDate} />
                 <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
+                {item.status === 'APPROVED' && (
+                  <Row label="Checked Out" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not yet — still clocked in'} />
+                )}
                 <Row label="Reason" value={item.regularizationReason} />
               </>
             )}

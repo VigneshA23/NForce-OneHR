@@ -357,7 +357,8 @@ function PunchHistoryList({ date, token }: { date: string; token: string }) {
 
 function SourceTag({ source }: { source: string | null }) {
   if (!source) return dash;
-  return <span>{source === 'REGULARIZATION' ? 'Regularized' : 'System'}</span>;
+  const label = source === 'REGULARIZATION' ? 'Regularized' : source === 'WEB_REMOTE' ? 'Web Remote' : 'System';
+  return <span>{label}</span>;
 }
 
 function SectionHeading({ title, hint }: { title: string; hint?: string }) {
