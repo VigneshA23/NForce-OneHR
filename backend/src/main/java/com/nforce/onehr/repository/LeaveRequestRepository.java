@@ -4,6 +4,7 @@ import com.nforce.onehr.entity.LeaveRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -14,4 +15,10 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     List<LeaveRequest> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
 
     List<LeaveRequest> findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(Collection<UUID> employeeUserIds, String status);
+
+    List<LeaveRequest> findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+            String status, LocalDate to, LocalDate from);
+
+    List<LeaveRequest> findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+            Collection<UUID> employeeUserIds, String status, LocalDate to, LocalDate from);
 }

@@ -148,6 +148,11 @@ export const regularizationApi = {
   pending: (token: string) =>
     fetch(`${BASE}/attendance/regularization/pending`, { headers: authHeaders(token) }).then(r => handle<RegularizationRecord[]>(r)),
 
+  // Same reviewer scoping as `pending`, but every status — backs the Pending Approvals
+  // screen's All/Pending/Approved/Rejected status tabs (Manager/HR/Super Admin only).
+  forApprover: (token: string) =>
+    fetch(`${BASE}/attendance/regularization/for-approver`, { headers: authHeaders(token) }).then(r => handle<RegularizationRecord[]>(r)),
+
   approve: (id: string, token: string, comment?: string) =>
     fetch(`${BASE}/attendance/regularization/${id}/approve`, {
       method: 'PATCH', headers: authHeaders(token),

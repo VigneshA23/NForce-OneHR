@@ -15,11 +15,11 @@ spring:
       # fails on citext/timestamptz column types reported by Postgres metadata
       ddl-auto: none
   flyway:
-    # The shared dev database keeps gaining schema fixes applied directly by other
-    # developers, outside any committed migration file (versions 42/43, and now higher
-    # ones too) — Flyway's default validation refuses to start over these. "missing"
-    # covers versions below our local max with no file; "future" covers versions ahead
-    # of our local max (someone else's migration we haven't pulled/renumbered around yet).
+    # This is a shared dev database that multiple feature branches migrate against
+    # directly (see V40/V47 header comments), so a branch's local migration folder
+    # can lag behind versions another branch already applied ("missing"), or a branch
+    # can pull a migration file before the DB it's testing against has caught up
+    # ("future"). Neither is corruption — don't fail validation over either.
     ignore-migration-patterns: "*:missing,*:future"
 
 app:
@@ -48,6 +48,15 @@ resend:
 
 server:
   port: ${PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
 
 logging:
   level:
