@@ -14,6 +14,13 @@ spring:
       # Override validate — Flyway owns the schema; ddl-auto: validate
       # fails on citext/timestamptz column types reported by Postgres metadata
       ddl-auto: none
+  flyway:
+    # This is a shared dev database that multiple feature branches migrate against
+    # directly (see V40/V47 header comments). A branch's local migration folder can
+    # therefore lag behind versions another branch already applied — that's expected,
+    # not corruption, so don't fail validation over migrations we simply don't have
+    # the file for locally.
+    ignore-migration-patterns: "*:missing"
 
 app:
   jwt:
@@ -41,6 +48,15 @@ resend:
 
 server:
   port: ${PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
 
 logging:
   level:

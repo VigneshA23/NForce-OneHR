@@ -157,6 +157,17 @@ public class AttendanceController {
         return regularizationService.listPendingForApprover(principal.getName());
     }
 
+    /**
+     * Same reviewer scoping as /pending, but every status — backs the Pending Approvals
+     * screen's All/Pending/Approved/Rejected status tabs (status filtering itself happens
+     * client-side over this one list, same pattern as the My Requests month filter).
+     */
+    @GetMapping("/regularization/for-approver")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public List<RegularizationResponse> regularizationsForApprover(Principal principal) {
+        return regularizationService.listForApprover(principal.getName());
+    }
+
     @PatchMapping("/regularization/{id}/approve")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
     public RegularizationResponse approve(@PathVariable UUID id,

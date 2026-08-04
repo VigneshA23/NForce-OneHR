@@ -83,11 +83,7 @@ public class RegularizationService {
 
         ResolvedTimes times = resolveTimes(req, actor.getId());
         validateLookbackWindow(req.getAttendanceDate());
-
-        if (regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
-                actor.getId(), req.getAttendanceDate(), "PENDING")) {
-            throw new IllegalArgumentException("A pending regularization request already exists for this date");
-        }
+        assertNoDuplicateRequest(actor.getId(), req.getAttendanceDate());
 
         RegularizationRequest entity = RegularizationRequest.builder()
                 .employeeUserId(actor.getId())
@@ -122,11 +118,8 @@ public class RegularizationService {
 
         ResolvedTimes times = resolveTimes(req, actor.getId());
         validateLookbackWindow(req.getAttendanceDate());
-
-        if (!existing.getAttendanceDate().equals(req.getAttendanceDate())
-                && regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
-                        actor.getId(), req.getAttendanceDate(), "PENDING")) {
-            throw new IllegalArgumentException("A pending regularization request already exists for this date");
+        if (!existing.getAttendanceDate().equals(req.getAttendanceDate())) {
+            assertNoDuplicateRequest(actor.getId(), req.getAttendanceDate());
         }
 
         existing.setAttendanceDate(req.getAttendanceDate());
@@ -138,6 +131,22 @@ public class RegularizationService {
 
         auditService.log(actor.getId(), "REGULARIZATION_UPDATED", existing.getId());
         return toResponse(existing);
+    }
+
+    /**
+     * An APPROVED request for a date is a settled correction — resubmitting is blocked outright.
+     * A PENDING request is still awaiting a decision, so a second one for the same date is
+     * blocked too (rejected/approved dates may otherwise be freely resubmitted).
+     */
+    private void assertNoDuplicateRequest(UUID employeeId, LocalDate attendanceDate) {
+        if (regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
+                employeeId, attendanceDate, "APPROVED")) {
+            throw new IllegalArgumentException("Already raised regularization for this date.");
+        }
+        if (regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
+                employeeId, attendanceDate, "PENDING")) {
+            throw new IllegalArgumentException("A pending regularization request already exists for this date");
+        }
     }
 
     /** Validates the raw request, then fills any omitted side from the existing punch record. */
@@ -252,6 +261,30 @@ public class RegularizationService {
         }
         return pending.stream()
                 .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
+                .map(this::toResponse)
+                .toList();
+    }
+
+    /**
+     * Same scoping as {@link #listPendingForApprover}, but across every status — not just
+     * PENDING. Powers the Pending Approvals screen's All/Pending/Approved/Rejected status tabs
+     * for Manager/HR/Super Admin, since the review history for requests they've already
+     * decided is otherwise invisible to them (listPendingForApprover only ever returns PENDING).
+     */
+    @Transactional(readOnly = true)
+    public List<RegularizationResponse> listForApprover(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        List<RegularizationRequest> all = regularizationRepository.findAll();
+
+        if (hasOverrideRole(actor)) {
+            return all.stream()
+                    .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
+                    .map(this::toResponse)
+                    .toList();
+        }
+        return all.stream()
+                .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
+                .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
                 .map(this::toResponse)
                 .toList();
     }

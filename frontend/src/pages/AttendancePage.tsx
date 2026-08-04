@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
@@ -342,12 +343,97 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
   );
 }
 
+// ─── Tooltip (hover-only, portal-rendered) ─────────────────────────────────────
+// No tooltip component exists in this project and no UI library (MUI/Radix/Antd/etc.) is
+// installed, so this is a minimal from-scratch implementation matching the page's existing
+// inline-style conventions. Rendered through a portal so it always sits above any local
+// overflow/z-index context (table scroll containers, modals) rather than being clipped by them.
+function Tooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
+  const [coords, setCoords] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const TOOLTIP_MAX_WIDTH = 340;
+  const GAP = 8;
+
+  function show() {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    // Prefer above; fall back to below only when there isn't reasonably enough headroom —
+    // exact fit is re-checked after render isn't needed since the tooltip is capped/wrapped.
+    const placement: 'top' | 'bottom' = rect.top >= 120 + GAP ? 'top' : 'bottom';
+    const maxLeft = Math.max(GAP, window.innerWidth - GAP - TOOLTIP_MAX_WIDTH);
+    const left = Math.min(Math.max(rect.left, GAP), maxLeft);
+    setCoords({ top: placement === 'top' ? rect.top - GAP : rect.bottom + GAP, left, placement });
+  }
+  function hide() {
+    setCoords(null);
+  }
+
+  return (
+    <>
+      <span
+        ref={anchorRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        style={{ display: 'block', minWidth: 0, maxWidth: '100%' }}
+      >
+        {children}
+      </span>
+      {coords && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            top: coords.top,
+            left: coords.left,
+            transform: coords.placement === 'top' ? 'translateY(-100%)' : undefined,
+            maxWidth: TOOLTIP_MAX_WIDTH,
+            width: 'max-content',
+            background: 'var(--raised2)',
+            color: 'var(--txt)',
+            border: '1px solid var(--line2)',
+            borderRadius: 7,
+            padding: '8px 11px',
+            fontSize: 12,
+            lineHeight: 1.5,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+            boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+            zIndex: 1000,
+            pointerEvents: 'none',
+          }}
+        >
+          {content}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+/** Single-line, ellipsis-truncated text with a hover tooltip revealing the full content. */
+function TruncatedText({ text, style }: { text: string | null | undefined; style?: React.CSSProperties }) {
+  if (!text) return dash;
+  return (
+    <Tooltip content={text}>
+      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', ...style }}>
+        {text}
+      </span>
+    </Tooltip>
+  );
+}
+
 // ─── Request Regularization Modal (create or edit-while-pending) ──────────────
-function RequestModal({ onClose, onSaved, token, editing }: {
+function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
   onClose: () => void;
   onSaved: (r: RegularizationRecord) => void;
   token: string;
   editing?: RegularizationRecord;
+  /** Attendance dates that already have an APPROVED regularization — resubmission is blocked. */
+  approvedDates: Set<string>;
 }) {
   const { showToast } = useToast();
   const today = todayIsoDate();
@@ -408,6 +494,12 @@ function RequestModal({ onClose, onSaved, token, editing }: {
     [checkInIso, checkOutIso],
   );
 
+  // A date that already has an APPROVED regularization can't be re-requested — editing that
+  // same request (its own date, unchanged) is not a duplicate.
+  const dateAlreadyApproved = !!attendanceDate
+    && attendanceDate !== editing?.attendanceDate
+    && approvedDates.has(attendanceDate);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitAttempted(true);
@@ -425,6 +517,10 @@ function RequestModal({ onClose, onSaved, token, editing }: {
 
     if (dateMissing || reasonMissing || managerMissing || checkInMissing || checkOutMissing) {
       setError('Fill in every required field shown above.');
+      return;
+    }
+    if (dateAlreadyApproved) {
+      setError('Already raised regularization for this date.');
       return;
     }
     if (checkInInvalid || checkOutInvalid) {
@@ -468,6 +564,7 @@ function RequestModal({ onClose, onSaved, token, editing }: {
                 setSubmitAttempted(false);
               }} />
             {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
+            {dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
           </Field>
           {existingPunch && (existingPunch.checkInAt || existingPunch.checkOutAt) && (
             <div style={{ fontSize: 12, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' }}>
@@ -508,11 +605,67 @@ function RequestModal({ onClose, onSaved, token, editing }: {
           </Field>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+            <button type="submit" disabled={submitting || dateAlreadyApproved} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting || dateAlreadyApproved ? 'not-allowed' : 'pointer', opacity: submitting || dateAlreadyApproved ? 0.7 : 1 }}>
               {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Submit Request'}
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Request Details Modal (read-only — replaces the old Comments table column) ──────
+function RequestDetailsModal({ request, onClose }: { request: RegularizationRecord; onClose: () => void }) {
+  // Mirrors ReviewerCell's logic: the current assignee while pending, whoever decided it once resolved.
+  const approverLabel = request.status === 'PENDING' ? 'Current Approver' : request.status === 'APPROVED' ? 'Approved By' : 'Rejected By';
+  const approverName = request.status === 'PENDING' ? request.assignedApproverName : request.reviewedByName;
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 460, overflowX: 'hidden' }}>
+        <ModalHeader title="Regularization Request Details" onClose={onClose} />
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16, maxWidth: '100%', overflowX: 'hidden' }}>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={labelStyle}>Date</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatDay(request.attendanceDate)}</div>
+            </div>
+            <div>
+              <div style={labelStyle}>Status</div>
+              <RegularizationStatusPill status={request.status} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={labelStyle}>Requested In</div>
+              <div style={{ fontSize: 14, color: 'var(--txt)' }}>{formatTime(request.requestedCheckIn) ?? dash}</div>
+            </div>
+            <div>
+              <div style={labelStyle}>Requested Out</div>
+              <div style={{ fontSize: 14, color: 'var(--txt)' }}>{formatTime(request.requestedCheckOut) ?? dash}</div>
+            </div>
+            <div>
+              <div style={labelStyle}>Total Hours</div>
+              <div style={{ fontSize: 14, color: 'var(--txt)' }}>{formatDuration(request.totalMinutes) ?? dash}</div>
+            </div>
+          </div>
+          <div style={{ maxWidth: '100%', minWidth: 0 }}>
+            <div style={labelStyle}>Reason</div>
+            <TruncatedText text={request.reason} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
+          </div>
+          <div>
+            <div style={labelStyle}>{approverLabel}</div>
+            <div style={{ fontSize: 14, color: 'var(--txt)' }}>{approverName ?? dash}</div>
+          </div>
+          <div style={{ maxWidth: '100%', minWidth: 0 }}>
+            <div style={labelStyle}>Comments</div>
+            <TruncatedText text={request.reviewComment} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Close</button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -681,7 +834,8 @@ interface DayInfo {
   isWeekend: boolean;
   holidayName?: string;
   leaveTypeName?: string;
-  regularizationStatus?: RegularizationRecord['status'];
+  /** Only ever set when the request is APPROVED — pending/rejected requests get no calendar mark. */
+  regularization?: RegularizationRecord;
   record?: AttendanceRecord;
 }
 
@@ -698,11 +852,15 @@ function DayCellBadge({ info }: { info: DayInfo }) {
   if (info.leaveTypeName) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Leave</span>;
   }
+  // Checked before the attendance-record pill: an approved regularization normally upserts
+  // that same day's attendance record, so the pill would otherwise always shadow this tag.
+  // info.regularization is only ever populated for APPROVED requests (see regularizationByDate),
+  // so this tag is green — matching the APPROVED status color used elsewhere on the page.
+  if (info.regularization) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Regularization</span>;
+  }
   if (info.record) {
     return <StatusPill status={info.record.status} />;
-  }
-  if (info.regularizationStatus) {
-    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.15)', color: '#E0A93B' }}>Regularization</span>;
   }
   return null;
 }
@@ -851,9 +1009,11 @@ function MyAttendance() {
     return map;
   }, [leaves]);
 
+  // Calendar marks/details only ever reflect APPROVED requests — pending/rejected requests
+  // are not shown on the calendar at all.
   const regularizationByDate = useMemo(() => {
-    const map = new Map<string, RegularizationRecord['status']>();
-    regularizations.forEach((r) => map.set(r.attendanceDate, r.status));
+    const map = new Map<string, RegularizationRecord>();
+    regularizations.filter((r) => r.status === 'APPROVED').forEach((r) => map.set(r.attendanceDate, r));
     return map;
   }, [regularizations]);
 
@@ -878,7 +1038,7 @@ function MyAttendance() {
       isWeekend: dow === 0 || dow === 6,
       holidayName: holidayByDate.get(iso),
       leaveTypeName: leaveByDate.get(iso),
-      regularizationStatus: regularizationByDate.get(iso),
+      regularization: regularizationByDate.get(iso),
       record: recordByDate.get(iso),
     };
   }, [viewYear, viewMonth, holidayByDate, leaveByDate, regularizationByDate, recordByDate]);
@@ -1068,6 +1228,35 @@ function MyAttendance() {
                   <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Company holiday — {selectedInfo.holidayName}</div>
                 ) : selectedInfo.leaveTypeName ? (
                   <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>On leave — {selectedInfo.leaveTypeName}</div>
+                ) : selectedInfo.regularization ? (
+                  <>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested In</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.regularization.requestedCheckIn) ?? dash}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested Out</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.regularization.requestedCheckOut) ?? dash}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Total Hours</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.regularization.totalMinutes) ?? dash}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Status</div>
+                      <RegularizationStatusPill status={selectedInfo.regularization.status} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Approved By</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{selectedInfo.regularization.reviewedByName ?? dash}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Comments</div>
+                      <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>{selectedInfo.regularization.reviewComment ?? dash}</div>
+                    </div>
+                  </>
                 ) : selectedInfo.record ? (
                   <>
                     <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
@@ -1085,12 +1274,7 @@ function MyAttendance() {
                       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.record.workedMinutes) ?? dash}</div>
                     </div>
                     <StatusPill status={selectedInfo.record.status} />
-                    {selectedInfo.regularizationStatus && (
-                      <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Regularization: {selectedInfo.regularizationStatus}</div>
-                    )}
                   </>
-                ) : selectedInfo.regularizationStatus ? (
-                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Regularization request: {selectedInfo.regularizationStatus}</div>
                 ) : selectedInfo.isWeekend ? (
                   <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>
                 ) : (
@@ -1133,6 +1317,64 @@ function MonthGroupHeading({ monthKey }: { monthKey: string }) {
   );
 }
 
+// ─── Status tabs (reusable) ─────────────────────────────────────────────────────
+// Generic single-select tab strip. Used by Pending Approvals for its All/Pending/Approved/
+// Rejected status filter — deliberately generic (not hardcoded to status) so any future
+// single-select category filter elsewhere on this page can reuse it as-is.
+type StatusFilterValue = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+const STATUS_FILTER_TABS: { value: StatusFilterValue; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'REJECTED', label: 'Rejected' },
+];
+
+function FilterTabs<T extends string>({ value, options, onChange }: {
+  value: T; options: { value: T; label: string }[]; onChange: (next: T) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            style={{
+              background: active ? 'var(--brand)' : 'var(--raised)',
+              color: active ? '#fff' : 'var(--txt-mut)',
+              border: `1px solid ${active ? 'var(--brand)' : 'var(--line2)'}`,
+              borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── My Requests month filter ──────────────────────────────────────────────────
+// The only filter on My Requests (Employee, Manager, HR alike) — defaults to "All Months"
+// so every request is visible until the user narrows it down.
+const ALL_MONTHS_VALUE = 'ALL';
+
+function MonthFilter({ month, onChange }: { month: string; onChange: (v: string) => void }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-dim)' }}>
+      Month
+      <select value={month} onChange={(e) => onChange(e.target.value)} style={dateInputStyle}>
+        <option value={ALL_MONTHS_VALUE}>All Months</option>
+        {MONTH_NAMES.map((name, i) => (
+          <option key={name} value={String(i + 1).padStart(2, '0')}>{name}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: string; canApprove: boolean; isSuperAdmin: boolean }) {
   const { showToast } = useToast();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
@@ -1142,10 +1384,13 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
   const [editing, setEditing] = useState<RegularizationRecord | null>(null);
   const [rejecting, setRejecting] = useState<RegularizationRecord | null>(null);
   const [approving, setApproving] = useState<RegularizationRecord | null>(null);
+  const [viewing, setViewing] = useState<RegularizationRecord | null>(null);
 
   const loadAll = useCallback(() => {
     const calls: Promise<unknown>[] = [regularizationApi.mine(token).then(setMyRequests)];
-    if (canApprove) calls.push(regularizationApi.pending(token).then(setPending));
+    // Every status the reviewer can see (not just PENDING) — the All/Pending/Approved/Rejected
+    // tabs below filter this same list client-side, so Approved/Rejected history is visible too.
+    if (canApprove) calls.push(regularizationApi.forApprover(token).then(setPending));
     return Promise.all(calls)
       .catch((err) => showToast('error', err instanceof Error ? err.message : 'Failed to load regularization requests'))
       .finally(() => setLoading(false));
@@ -1153,15 +1398,30 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // My Requests defaults to the current calendar month; the selector below narrows it to any
-  // other month (any year). Scoped to this table only — Pending Approvals is unaffected.
-  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
-  const myRequestsForMonth = useMemo(
-    () => myRequests.filter(r => r.attendanceDate.slice(5, 7) === selectedMonth),
+  // My Requests: the only filter is Month, defaulting to "All Months" (every request visible
+  // until narrowed). No status tabs here — those live on Pending Approvals instead.
+  const [selectedMonth, setSelectedMonth] = useState(ALL_MONTHS_VALUE);
+  const filteredMyRequests = useMemo(
+    () => selectedMonth === ALL_MONTHS_VALUE
+      ? myRequests
+      : myRequests.filter((r) => r.attendanceDate.slice(5, 7) === selectedMonth),
     [myRequests, selectedMonth],
   );
-  const myRequestMonths = useMemo(() => groupByMonth(myRequestsForMonth), [myRequestsForMonth]);
-  const pendingMonths = useMemo(() => groupByMonth(pending), [pending]);
+  const myRequestMonths = useMemo(() => groupByMonth(filteredMyRequests), [filteredMyRequests]);
+
+  // Pending Approvals: status tabs (All/Pending/Approved/Rejected), defaulting to Pending to
+  // match the screen's pre-existing default view. Sourced from /for-approver (every status the
+  // reviewer can see), not /pending (PENDING-only) — see loadAll below.
+  const [approvalStatusFilter, setApprovalStatusFilter] = useState<StatusFilterValue>('PENDING');
+  const filteredPending = useMemo(
+    () => approvalStatusFilter === 'ALL' ? pending : pending.filter((r) => r.status === approvalStatusFilter),
+    [pending, approvalStatusFilter],
+  );
+  const pendingMonths = useMemo(() => groupByMonth(filteredPending), [filteredPending]);
+  const approvedDates = useMemo(
+    () => new Set(myRequests.filter((r) => r.status === 'APPROVED').map((r) => r.attendanceDate)),
+    [myRequests],
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -1179,24 +1439,17 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
         </div>
       </div>
 
-      {/* My Regularization Requests — defaults to current month, grouped by month within that filter */}
+      {/* My Regularization Requests — month filter only, grouped by month within that filter */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
           <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>My Requests</h3>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-dim)' }}>
-            Month
-            <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={dateInputStyle}>
-              {MONTH_NAMES.map((name, i) => (
-                <option key={name} value={String(i + 1).padStart(2, '0')}>{name}</option>
-              ))}
-            </select>
-          </label>
+          <MonthFilter month={selectedMonth} onChange={setSelectedMonth} />
         </div>
         {loading ? (
           <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
         ) : myRequests.length === 0 ? (
           <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests submitted yet.</div>
-        ) : myRequestsForMonth.length === 0 ? (
+        ) : filteredMyRequests.length === 0 ? (
           <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
             No requests found for {MONTH_NAMES[parseInt(selectedMonth, 10) - 1]}.
           </div>
@@ -1210,18 +1463,22 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
                     <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                     <tbody>
                       {rows.map(r => (
-                        <tr key={r.id}>
+                        <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
                           <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
                           <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
                           <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
                           <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
-                          <td style={{ ...tdStyle, maxWidth: 200 }}>{r.reason}</td>
+                          <td style={{ ...tdStyle, maxWidth: 200 }}><TruncatedText text={r.reason} /></td>
                           <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
                           <td style={tdStyle}><ReviewerCell r={r} /></td>
-                          <td style={{ ...tdStyle, maxWidth: 180 }}>{r.reviewComment ?? dash}</td>
+                          <td style={{ ...tdStyle, maxWidth: 180 }}><TruncatedText text={r.reviewComment} /></td>
                           <td style={tdStyle}>
                             {r.status === 'PENDING' && (
-                              <button onClick={() => setEditing(r)} title="Edit" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setEditing(r); }}
+                                title="Edit"
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}
+                              >
                                 <Pencil size={12} /> Edit
                               </button>
                             )}
@@ -1237,12 +1494,20 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
         )}
       </div>
 
-      {/* Pending Approvals — Manager / HR Admin / Super Admin only, grouped by month */}
+      {/* Pending Approvals — Manager / HR Admin / Super Admin only, grouped by month.
+          Status tabs filter across every status the reviewer can see (not just PENDING). */}
       {canApprove && (
         <div>
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Pending Approvals</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>Pending Approvals</h3>
+            <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} />
+          </div>
           {pending.length === 0 ? (
-            <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No pending requests.</div>
+            <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests to review yet.</div>
+          ) : filteredPending.length === 0 ? (
+            <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
+              No {STATUS_FILTER_TABS.find((t) => t.value === approvalStatusFilter)?.label.toLowerCase()} requests.
+            </div>
           ) : (
             pendingMonths.map(([monthKey, rows]) => (
               <div key={monthKey}>
@@ -1250,7 +1515,7 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
                 <div style={panelStyle}>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                       <tbody>
                         {rows.map(r => (
                           <tr key={r.id}>
@@ -1263,11 +1528,15 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
                             <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
                             <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
                             <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
+                            <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                            <td style={tdStyle}><ReviewerCell r={r} /></td>
                             <td style={tdStyle}>
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
-                                <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
-                              </div>
+                              {r.status === 'PENDING' ? (
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
+                                  <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
+                                </div>
+                              ) : dash}
                             </td>
                           </tr>
                         ))}
@@ -1282,12 +1551,13 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
       )}
 
       {showRequest && (
-        <RequestModal token={token} onClose={() => setShowRequest(false)} onSaved={r => setMyRequests(prev => [r, ...prev])} />
+        <RequestModal token={token} approvedDates={approvedDates} onClose={() => setShowRequest(false)} onSaved={r => setMyRequests(prev => [r, ...prev])} />
       )}
       {editing && (
         <RequestModal
           token={token}
           editing={editing}
+          approvedDates={approvedDates}
           onClose={() => setEditing(null)}
           onSaved={updated => setMyRequests(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
         />
@@ -1297,7 +1567,7 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
           request={approving}
           token={token}
           onClose={() => setApproving(null)}
-          onApproved={updated => setPending(prev => prev.filter(r => r.id !== updated.id))}
+          onApproved={updated => setPending(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
         />
       )}
       {rejecting && (
@@ -1305,8 +1575,11 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
           request={rejecting}
           token={token}
           onClose={() => setRejecting(null)}
-          onRejected={updated => setPending(prev => prev.filter(r => r.id !== updated.id))}
+          onRejected={updated => setPending(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
         />
+      )}
+      {viewing && (
+        <RequestDetailsModal request={viewing} onClose={() => setViewing(null)} />
       )}
     </div>
   );
