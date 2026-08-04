@@ -13,22 +13,16 @@ const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
-  EXPENSE: 'Expense',
-  ASSET_REQUEST: 'Asset Request',
 };
 
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
-  EXPENSE: 'rgba(16,185,129,.18)',
-  ASSET_REQUEST: 'rgba(139,92,246,.18)',
 };
 
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
-  EXPENSE: '#10B981',
-  ASSET_REQUEST: '#8B5CF6',
 };
 
 function TypeBadge({ type }: { type: RequestType }) {
@@ -41,15 +35,8 @@ function TypeBadge({ type }: { type: RequestType }) {
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   PENDING: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-  SUBMITTED: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-  MANAGER_APPROVED: { bg: 'rgba(99,102,241,.15)', color: '#818CF8' },
-  CLEARED_FOR_PAYROLL: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
   APPROVED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-  FULFILLED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-  PAID: { bg: 'rgba(47,182,124,.15)', color: '#2FB67C' },
   REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-  MANAGER_REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-  FINAL_REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -59,10 +46,6 @@ function StatusBadge({ status }: { status: string }) {
       {status.replace(/_/g, ' ')}
     </span>
   );
-}
-
-function fmtCurrency(n: number) {
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
 }
 
 function fmtDate(s?: string | null) {
@@ -94,35 +77,10 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       </div>
     );
   }
-  if (item.requestType === 'EXPENSE') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{item.expenseCategoryName}</span>
-        {' · '}
-        <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(item.expenseAmount ?? 0)}</span>
-      </div>
-    );
-  }
-  if (item.requestType === 'ASSET_REQUEST') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.requestedCategoryName}
-      </div>
-    );
-  }
   return null;
 }
 
 // ── Detail modal (read-only) ───────────────────────────────
-
-function ReceiptLightbox({ src, onClose }: { src: string; onClose: () => void }) {
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, cursor: 'zoom-out' }}>
-      <img src={src} alt="Receipt" onClick={e => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, boxShadow: '0 8px 48px rgba(0,0,0,.8)' }} />
-      <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,.1)', border: 'none', borderRadius: 6, padding: '6px 10px', color: '#fff', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>✕</button>
-    </div>
-  );
-}
 
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -134,8 +92,6 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 }
 
 function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: () => void }) {
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
@@ -169,37 +125,6 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               </>
             )}
 
-            {item.requestType === 'EXPENSE' && (
-              <>
-                <Row label="Category" value={item.expenseCategoryName} />
-                <Row label="Amount" value={fmtCurrency(item.expenseAmount ?? 0)} />
-                <Row label="Expense Date" value={fmtDate(item.expenseDate)} />
-                <Row label="Business Purpose" value={item.businessPurpose} />
-                {item.receiptUrl && (
-                  <div>
-                    <div style={labelStyle}>Receipt</div>
-                    {item.receiptUrl.startsWith('data:image') ? (
-                      <img
-                        src={item.receiptUrl}
-                        alt="Receipt"
-                        onClick={() => setLightboxSrc(item.receiptUrl!)}
-                        style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 6, border: '1px solid var(--line)', cursor: 'zoom-in', display: 'block' }}
-                      />
-                    ) : (
-                      <a href={item.receiptUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand)', fontSize: 13 }}>View receipt</a>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-
-            {item.requestType === 'ASSET_REQUEST' && (
-              <>
-                <Row label="Category Requested" value={item.requestedCategoryName} />
-                <Row label="Reason" value={item.assetRequestReason} />
-              </>
-            )}
-
             <div>
               <div style={labelStyle}>Status</div>
               <StatusBadge status={item.status} />
@@ -213,14 +138,13 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
           </div>
         </div>
       </div>
-      {lightboxSrc && <ReceiptLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </div>
   );
 }
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION'];
 
 export default function MyRequestsPage() {
   const token = useAuthStore(s => s.token)!;
@@ -248,7 +172,7 @@ export default function MyRequestsPage() {
     <div>
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
-        <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All your submitted leave, attendance, asset, and expense requests in one place.</p>
+        <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All your submitted leave and attendance requests in one place.</p>
       </div>
 
       {/* Type filter bar */}
@@ -274,7 +198,7 @@ export default function MyRequestsPage() {
               {items.length === 0 ? "You haven't submitted any requests yet." : 'No requests of this type.'}
             </div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
-              {typeFilter === 'ALL' ? 'Requests you submit for leave, attendance, assets, and expenses will show up here.' : `No ${TYPE_LABELS[typeFilter]} requests.`}
+              {typeFilter === 'ALL' ? 'Requests you submit for leave and attendance will show up here.' : `No ${TYPE_LABELS[typeFilter]} requests.`}
             </div>
           </div>
         ) : (
