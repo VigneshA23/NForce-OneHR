@@ -14,6 +14,12 @@ spring:
       # Override validate — Flyway owns the schema; ddl-auto: validate
       # fails on citext/timestamptz column types reported by Postgres metadata
       ddl-auto: none
+  flyway:
+    # The shared dev database has two schema fixes (versions 42/43) applied directly,
+    # outside any committed migration file — Flyway's default validation refuses to start
+    # over "applied migration not resolved locally". Tolerating "missing" migrations lets
+    # startup proceed without editing the database's own history bookkeeping.
+    ignore-migration-patterns: "*:missing"
 
 app:
   jwt:
