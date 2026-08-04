@@ -13,6 +13,7 @@ const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
+  WEB_CLOCK_IN: 'Web Clock-In',
   EXPENSE: 'Expense',
   ASSET_REQUEST: 'Asset Request',
 };
@@ -20,6 +21,7 @@ const TYPE_LABELS: Record<RequestType, string> = {
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
+  WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
   EXPENSE: 'rgba(16,185,129,.18)',
   ASSET_REQUEST: 'rgba(139,92,246,.18)',
 };
@@ -27,6 +29,7 @@ const TYPE_COLORS: Record<RequestType, string> = {
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
+  WEB_CLOCK_IN: '#4C8DD6',
   EXPENSE: '#10B981',
   ASSET_REQUEST: '#8B5CF6',
 };
@@ -91,6 +94,13 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
     return (
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
         {item.attendanceDate} · Missing: {missing}
+      </div>
+    );
+  }
+  if (item.requestType === 'WEB_CLOCK_IN') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate} · Requested {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
       </div>
     );
   }
@@ -169,6 +179,14 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               </>
             )}
 
+            {item.requestType === 'WEB_CLOCK_IN' && (
+              <>
+                <Row label="Work Date" value={item.attendanceDate} />
+                <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
+                <Row label="Reason" value={item.regularizationReason} />
+              </>
+            )}
+
             {item.requestType === 'EXPENSE' && (
               <>
                 <Row label="Category" value={item.expenseCategoryName} />
@@ -220,7 +238,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST'];
 
 export default function MyRequestsPage() {
   const token = useAuthStore(s => s.token)!;

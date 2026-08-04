@@ -14,14 +14,14 @@ import java.util.UUID;
  * Read-only tracking view — no approve/reject decisions happen here (those
  * belong exclusively to the Approval Center, see ApprovalItemDto).
  *
- * requestType discriminator: LEAVE | REGULARIZATION | EXPENSE | ASSET_REQUEST
+ * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST
  */
 @Data
 @Builder
 public class MyRequestItemDto {
 
     private String id;          // String to cover UUID (Leave/Regularization/Expense) and Long (AssetRequest)
-    private String requestType; // LEAVE | REGULARIZATION | EXPENSE | ASSET_REQUEST
+    private String requestType; // LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST
     private UUID employeeUserId;
     private String employeeName;
     private Instant createdAt;

@@ -14,14 +14,14 @@ import java.util.UUID;
  * All approve/reject decisions for EVERY request type happen ONLY via Approval Center —
  * no other page may issue approval decisions.
  *
- * requestType discriminator: LEAVE | REGULARIZATION | EXPENSE | ASSET_REQUEST
+ * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST
  */
 @Data
 @Builder
 public class ApprovalItemDto {
 
     private String id;          // String to cover UUID (Leave/Expense) and Long (Regularization/AssetRequest)
-    private String requestType; // LEAVE | REGULARIZATION | EXPENSE | ASSET_REQUEST
+    private String requestType; // LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST
     private UUID employeeUserId;
     private String employeeName;
     private Instant createdAt;
@@ -34,7 +34,9 @@ public class ApprovalItemDto {
     private Boolean leaveHalfDay;
     private String leaveReason;
 
-    // ── Attendance Regularization ─────────────────────────
+    // ── Attendance Regularization / Web Clock-In (shared fields — WEB_CLOCK_IN has no
+    //    requestedCheckOut; attendanceDate/requestedCheckIn/regularizationReason double
+    //    as workDate/requestedCheckIn/reason respectively) ──
     private LocalDate attendanceDate;
     private LocalDateTime requestedCheckIn;
     private LocalDateTime requestedCheckOut;

@@ -3,12 +3,14 @@ package com.nforce.onehr.controller;
 import com.nforce.onehr.dto.MyRequestItemDto;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
+import com.nforce.onehr.dto.attendance.WebClockInResponse;
 import com.nforce.onehr.dto.asset.AssetRequestResponse;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
 import com.nforce.onehr.service.AssetService;
 import com.nforce.onehr.service.ExpenseService;
 import com.nforce.onehr.service.LeaveService;
 import com.nforce.onehr.service.RegularizationService;
+import com.nforce.onehr.service.WebClockInService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,6 +33,7 @@ public class MyRequestsController {
 
     private final LeaveService leaveService;
     private final RegularizationService regularizationService;
+    private final WebClockInService webClockInService;
     private final ExpenseService expenseService;
     private final AssetService assetService;
 
@@ -41,6 +44,7 @@ public class MyRequestsController {
         List<MyRequestItemDto> items = new ArrayList<>();
         leaveService.listMyRequests(email).stream().map(this::leaveToItem).forEach(items::add);
         regularizationService.listMine(email).stream().map(this::regularizationToItem).forEach(items::add);
+        webClockInService.listMine(email).stream().map(this::webClockInToItem).forEach(items::add);
         expenseService.myClaims(email).stream().map(this::expenseToItem).forEach(items::add);
         assetService.myRequests(email).stream().map(this::assetToItem).forEach(items::add);
 
@@ -88,6 +92,25 @@ public class MyRequestsController {
                 .attendanceDate(r.getAttendanceDate())
                 .requestedCheckIn(r.getRequestedCheckIn())
                 .requestedCheckOut(r.getRequestedCheckOut())
+                .regularizationReason(r.getReason())
+                .build();
+    }
+
+    private MyRequestItemDto webClockInToItem(WebClockInResponse r) {
+        return MyRequestItemDto.builder()
+                .id(r.getId().toString())
+                .requestType("WEB_CLOCK_IN")
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .status(r.getStatus())
+                .decisionReason(r.getReviewComment())
+                .decidedByName(r.getReviewedByName())
+                .decidedAt(r.getReviewedAt() != null
+                        ? r.getReviewedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .attendanceDate(r.getWorkDate())
+                .requestedCheckIn(r.getRequestedCheckIn())
                 .regularizationReason(r.getReason())
                 .build();
     }

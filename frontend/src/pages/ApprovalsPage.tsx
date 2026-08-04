@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { leaveApi } from '../api/leave';
 import { regularizationApi } from '../api/attendance';
+import { webClockInApi } from '../api/webClockIn';
 import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
 import { useToast } from '../context/ToastContext';
@@ -19,6 +20,7 @@ const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
+  WEB_CLOCK_IN: 'Web Clock-In',
   EXPENSE: 'Expense',
   ASSET_REQUEST: 'Asset Request',
 };
@@ -26,6 +28,7 @@ const TYPE_LABELS: Record<RequestType, string> = {
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
+  WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
   EXPENSE: 'rgba(16,185,129,.18)',
   ASSET_REQUEST: 'rgba(139,92,246,.18)',
 };
@@ -33,6 +36,7 @@ const TYPE_COLORS: Record<RequestType, string> = {
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
+  WEB_CLOCK_IN: '#4C8DD6',
   EXPENSE: '#10B981',
   ASSET_REQUEST: '#8B5CF6',
 };
@@ -75,6 +79,13 @@ function ItemDetail({ item }: { item: ApprovalItem }) {
     return (
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
         {item.attendanceDate} · Missing: {missing}
+      </div>
+    );
+  }
+  if (item.requestType === 'WEB_CLOCK_IN') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate} · Requested {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
       </div>
     );
   }
@@ -131,6 +142,8 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
         await leaveApi.approve(item.id, token);
       } else if (item.requestType === 'REGULARIZATION') {
         await regularizationApi.approve(item.id, token);
+      } else if (item.requestType === 'WEB_CLOCK_IN') {
+        await webClockInApi.approve(item.id, token);
       } else if (item.requestType === 'EXPENSE') {
         if (item.approvalStage === 'MANAGER') {
           await expensesApi.managerApprove(item.id, token);
@@ -157,6 +170,8 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
         await leaveApi.reject(item.id, rejectReason.trim(), token);
       } else if (item.requestType === 'REGULARIZATION') {
         await regularizationApi.reject(item.id, rejectReason.trim(), token);
+      } else if (item.requestType === 'WEB_CLOCK_IN') {
+        await webClockInApi.reject(item.id, rejectReason.trim(), token);
       } else if (item.requestType === 'EXPENSE') {
         if (item.approvalStage === 'MANAGER') {
           await expensesApi.managerReject(item.id, rejectReason.trim(), token);
@@ -204,6 +219,14 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
               <Row label="Attendance Date" value={item.attendanceDate} />
               <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
               <Row label="Requested Check-out" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
+              <Row label="Reason" value={item.regularizationReason} />
+            </div>
+          )}
+
+          {item.requestType === 'WEB_CLOCK_IN' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              <Row label="Work Date" value={item.attendanceDate} />
+              <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
               <Row label="Reason" value={item.regularizationReason} />
             </div>
           )}
@@ -279,7 +302,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST'];
 
 export default function ApprovalsPage() {
   const token = useAuthStore(s => s.token)!;
