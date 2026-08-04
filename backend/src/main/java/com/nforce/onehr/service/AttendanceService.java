@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -61,7 +62,9 @@ public class AttendanceService {
                 .map(record -> TodayAttendanceResponse.builder()
                         .workDate(today)
                         .serverNow(now)
-                        .canCheckIn(false)
+                        // A day may have several check-in/check-out sessions (e.g. a lunch
+                        // break) — checkOutAt null means a session is currently open.
+                        .canCheckIn(record.getCheckOutAt() != null)
                         .canCheckOut(record.getCheckOutAt() == null)
                         .record(toResponse(record, employee))
                         .build())
@@ -82,12 +85,21 @@ public class AttendanceService {
         LocalDateTime now = now();
         LocalDate today = now.toLocalDate();
 
-        attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), today)
-                .ifPresent(existing -> {
-                    throw new IllegalArgumentException(existing.getCheckOutAt() == null
-                            ? "You have already checked in today"
-                            : "You have already completed your attendance for today");
-                });
+        Optional<Attendance> existing = attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), today);
+
+        if (existing.isPresent()) {
+            Attendance record = existing.get();
+            if (record.getCheckOutAt() == null) {
+                throw new IllegalArgumentException("You have already checked in today");
+            }
+            // Resuming after a break (e.g. lunch) — the day's original check-in time, late
+            // status, and worked-minutes-so-far all stay put; only a new session opens.
+            record.setSessionStartedAt(now);
+            record.setCheckOutAt(null);
+            Attendance saved = attendanceRepository.save(record);
+            auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", saved.getId());
+            return toResponse(saved, employee);
+        }
 
         // Minutes past the grace deadline (shift start + grace), not past shift start itself.
         LocalTime deadline = props.getShiftStart().plusMinutes(props.getLateGraceMinutes());
@@ -99,6 +111,7 @@ public class AttendanceService {
                 .employeeUserId(employee.getUserId())
                 .workDate(today)
                 .checkInAt(now)
+                .sessionStartedAt(now)
                 .status(lateByMinutes > 0 ? STATUS_LATE : STATUS_PRESENT)
                 .lateByMinutes(lateByMinutes)
                 .build());
@@ -122,7 +135,12 @@ public class AttendanceService {
             throw new IllegalArgumentException("You have already checked out today");
         }
 
-        int workedMinutes = (int) Duration.between(record.getCheckInAt(), now).toMinutes();
+        // Sessions accumulate: only this session's minutes are added to whatever was
+        // already worked earlier today, so a lunch break isn't counted as worked time.
+        LocalDateTime sessionStart = record.getSessionStartedAt() != null
+                ? record.getSessionStartedAt() : record.getCheckInAt();
+        int sessionMinutes = (int) Duration.between(sessionStart, now).toMinutes();
+        int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
         record.setCheckOutAt(now);
         record.setWorkedMinutes(workedMinutes);
 
