@@ -36,23 +36,31 @@ public class AttendanceController {
     private final AttendanceService attendanceService;
     private final RegularizationService regularizationService;
 
+    // Punching (and viewing your own punches) is an Employee-only action — Manager/HR Admin/
+    // Super Admin get oversight endpoints (/day, /team, /employee/{id}) instead, never a punch
+    // clock of their own.
+
     @GetMapping("/today")
+    @PreAuthorize("hasRole('EMPLOYEE')")
     public TodayAttendanceResponse today(Principal principal) {
         return attendanceService.getToday(principal.getName());
     }
 
     @PostMapping("/check-in")
+    @PreAuthorize("hasRole('EMPLOYEE')")
     @ResponseStatus(HttpStatus.CREATED)
     public AttendanceResponse checkIn(Principal principal) {
         return attendanceService.checkIn(principal.getName());
     }
 
     @PostMapping("/check-out")
+    @PreAuthorize("hasRole('EMPLOYEE')")
     public AttendanceResponse checkOut(Principal principal) {
         return attendanceService.checkOut(principal.getName());
     }
 
     @GetMapping("/me")
+    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<AttendanceResponse> myHistory(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -99,9 +107,10 @@ public class AttendanceController {
                 userId, from, to, authentication.getName(), !privileged);
     }
 
-    // ── Regularization: submit + view own requests (any authenticated user) ──────
+    // ── Regularization: submit + view own requests (Employee only — same reasoning as punching) ──
 
     @PostMapping("/regularization")
+    @PreAuthorize("hasRole('EMPLOYEE')")
     public ResponseEntity<RegularizationResponse> submitRegularization(
             @Valid @RequestBody CreateRegularizationRequest req, Principal principal) {
         RegularizationResponse created = regularizationService.submit(req, principal.getName());
@@ -109,6 +118,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/regularization/mine")
+    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<RegularizationResponse> myRegularizations(Principal principal) {
         return regularizationService.listMine(principal.getName());
     }

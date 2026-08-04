@@ -9,6 +9,7 @@ import SuperAdminRegularizationPage from './pages/SuperAdminRegularizationPage';
 import Phase1Stub from './pages/Phase1Stub';
 import OrgSetupPage from './pages/OrgSetupPage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
+import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
 import ProfilePage from './pages/ProfilePage';
 import NotificationsPage from './pages/NotificationsPage';
@@ -84,6 +85,8 @@ export default function App() {
           <Route path="/requests"     element={<MyRequestsPage />} />
           <Route path="/assets"       element={<AssetsExpensesPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
+          {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
+          <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
