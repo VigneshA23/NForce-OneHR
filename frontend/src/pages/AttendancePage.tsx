@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -7,7 +8,10 @@ import {
   type TodayAttendance,
   type RegularizationRecord,
   type SubmitRegularizationPayload,
+  type ApproverOption,
 } from '../api/attendance';
+import { holidaysApi, type HolidayRow } from '../api/holidays';
+import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole } from '../lib/nav.config';
@@ -53,11 +57,193 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ─── Month-calendar helpers ────────────────────────────────────────────────────
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function isoOf(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function calendarMonthLabel(year: number, month: number): string {
+  return new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+/** Sun-first grid of day numbers for a month, padded with nulls to full weeks. */
+function buildCalendarCells(year: number, month: number): (number | null)[] {
+  const firstDow = new Date(year, month, 1).getDay();
+  const total = daysInMonth(year, month);
+  const cells: (number | null)[] = Array(firstDow).fill(null);
+  for (let d = 1; d <= total; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+/** Expands an inclusive date range into individual ISO date strings. */
+function expandDateRange(startIso: string, endIso: string): string[] {
+  const dates: string[] = [];
+  let cur = new Date(`${startIso}T00:00:00`);
+  const end = new Date(`${endIso}T00:00:00`);
+  while (cur <= end) {
+    dates.push(isoOf(cur.getFullYear(), cur.getMonth(), cur.getDate()));
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+  }
+  return dates;
+}
+
 /** Regularization timestamps come back with an offset, so a plain slice is safe here. */
 function fmtDateTime(dt: string | null) {
   if (!dt) return '—';
   return dt.replace('T', ' ').slice(0, 16);
 }
+
+/** Minutes between two "YYYY-MM-DDTHH:mm" strings, or null if either is missing/out of order. */
+function minutesBetween(checkIn: string, checkOut: string): number | null {
+  if (!checkIn || !checkOut) return null;
+  const inMs = new Date(checkIn).getTime();
+  const outMs = new Date(checkOut).getTime();
+  if (!Number.isFinite(inMs) || !Number.isFinite(outMs) || outMs <= inMs) return null;
+  return Math.round((outMs - inMs) / 60000);
+}
+
+// ─── 12-hour time text input (Corrected Check-in / Check-out) ────────────────
+// A single free-text field — not separate hour/minute/AM-PM dropdowns. Keystrokes are
+// masked into "H:MM AM/PM" as the user types, and the result is validated against a
+// strict 12-hour pattern before it's allowed to become a server timestamp.
+
+type Period = 'AM' | 'PM';
+interface TimeValue { hour: string; minute: string; period: Period | ''; }
+const EMPTY_TIME: TimeValue = { hour: '', minute: '', period: '' };
+
+/** Server LocalDateTime string ("2026-07-29T09:30:00") -> 12-hour time parts. */
+function timeValueFromIso(iso: string | null | undefined): TimeValue {
+  if (!iso) return EMPTY_TIME;
+  const timePart = iso.slice(11, 16);
+  if (timePart.length < 5) return EMPTY_TIME;
+  const [h24, m] = timePart.split(':').map(Number);
+  if (!Number.isFinite(h24) || !Number.isFinite(m)) return EMPTY_TIME;
+  const period: Period = h24 < 12 ? 'AM' : 'PM';
+  const hour12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return { hour: String(hour12), minute: String(m).padStart(2, '0'), period };
+}
+
+/** True only when hour, minute, and AM/PM are all present. */
+function isTimeValueComplete(t: TimeValue): boolean {
+  return !!(t.hour && t.minute && t.period);
+}
+
+/** Combines a date (YYYY-MM-DD) with a complete 12-hour time into a server LocalDateTime string. */
+function isoFromTimeValue(dateStr: string, t: TimeValue): string | undefined {
+  if (!dateStr || !isTimeValueComplete(t)) return undefined;
+  let h24 = parseInt(t.hour, 10) % 12;
+  if (t.period === 'PM') h24 += 12;
+  return `${dateStr}T${String(h24).padStart(2, '0')}:${t.minute}`;
+}
+
+/** TimeValue -> display text, e.g. {hour:'9', minute:'30', period:'AM'} -> "9:30 AM". */
+function formatTimeValue(t: TimeValue): string {
+  return isTimeValueComplete(t) ? `${t.hour}:${t.minute} ${t.period}` : '';
+}
+
+// "9:30 AM", "09:30am", "5:45 PM" — 1-12 hour, exactly 2-digit minute, AM/PM
+// case-insensitive with or without a space before it.
+const TIME_TEXT_PATTERN = /^(0?[1-9]|1[0-2]):([0-5][0-9])\s?([AaPp][Mm])$/;
+
+/** Parses free-typed text into a TimeValue, or null if it isn't (yet) a complete valid time. */
+function parseTimeText(text: string): TimeValue | null {
+  const match = TIME_TEXT_PATTERN.exec(text.trim());
+  if (!match) return null;
+  return { hour: String(parseInt(match[1], 10)), minute: match[2], period: match[3].toUpperCase() as Period };
+}
+
+/**
+ * Masks raw keystrokes into "H:MM AM/PM" as the user types: auto-inserts the ':' once the
+ * typed hour is unambiguous, and completes a typed "A"/"P" to "AM"/"PM" — but only while
+ * characters are being added, so backspacing through the suffix still clears it.
+ */
+function maskTimeInput(raw: string, previous: string): string {
+  const deleting = raw.length < previous.length;
+  const upper = raw.toUpperCase();
+  const digits = upper.replace(/[^0-9]/g, '').slice(0, 4);
+  const letter = upper.match(/[AP]/)?.[0];
+
+  let hourPart = digits;
+  let minutePart = '';
+  if (digits.length > 1) {
+    const firstTwo = parseInt(digits.slice(0, 2), 10);
+    if (firstTwo >= 1 && firstTwo <= 12) {
+      hourPart = digits.slice(0, 2);
+      minutePart = digits.slice(2, 4);
+    } else {
+      hourPart = digits.slice(0, 1);
+      minutePart = digits.slice(1, 3);
+    }
+  }
+
+  let out = hourPart;
+  if (digits.length > hourPart.length) out += ':' + minutePart;
+  if (letter) out += (out ? ' ' : '') + (deleting ? letter : letter + 'M');
+  return out;
+}
+
+/** Single masked text field for a 12-hour time — replaces separate hour/minute/AM-PM dropdowns. */
+function TimeTextInput({ label, value, touched, onChange, onBlur }: {
+  label: string; value: string; touched: boolean; onChange: (text: string) => void; onBlur: () => void;
+}) {
+  const empty = value.trim() === '';
+  const invalidFormat = !empty && !parseTimeText(value);
+  const showError = touched && (empty || invalidFormat);
+  return (
+    <Field label={label}>
+      <input
+        type="text"
+        inputMode="text"
+        maxLength={8}
+        placeholder="e.g. 09:30 AM"
+        style={{ ...inputStyle, ...(showError ? { borderColor: 'var(--risk)' } : {}) }}
+        value={value}
+        onChange={e => onChange(maskTimeInput(e.target.value, value))}
+        onBlur={onBlur}
+      />
+      {showError && (
+        <div style={fieldErrorStyle}>
+          {empty ? 'This field is required.' : 'Enter a valid 12-hour time, e.g. 09:30 AM or 5:45 PM.'}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/** Groups rows by attendance-date month, newest month first, rows within a month newest first. */
+function groupByMonth<T extends { attendanceDate: string }>(rows: T[]): Array<[string, T[]]> {
+  const map = new Map<string, T[]>();
+  for (const r of rows) {
+    const key = r.attendanceDate.slice(0, 7); // yyyy-MM
+    (map.get(key) ?? map.set(key, []).get(key)!).push(r);
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, group]) => [key, [...group].sort((a, b) => b.attendanceDate.localeCompare(a.attendanceDate))]);
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+// Plain month names for the My Requests month selector — filters by calendar month across
+// all years, independent of the (year+month) grouping headings groupByMonth/monthLabel drive.
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const APPROVER_ROLE_LABELS: Record<string, string> = { MANAGER: 'Manager', HR_ADMIN: 'HR' };
 
 const STATUS_COLORS: Record<AttendanceStatus, string> = {
   PRESENT: '#2FB67C',
@@ -100,6 +286,7 @@ const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, backgro
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.5)' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
+const fieldErrorStyle: React.CSSProperties = { fontSize: 11, color: 'var(--risk)', marginTop: 4 };
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────
 
@@ -155,32 +342,109 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
   );
 }
 
-// ─── Request Regularization Modal ─────────────────────────────────────────────
-function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (r: RegularizationRecord) => void; token: string }) {
+// ─── Request Regularization Modal (create or edit-while-pending) ──────────────
+function RequestModal({ onClose, onSaved, token, editing }: {
+  onClose: () => void;
+  onSaved: (r: RegularizationRecord) => void;
+  token: string;
+  editing?: RegularizationRecord;
+}) {
   const { showToast } = useToast();
   const today = todayIsoDate();
-  const [attendanceDate, setAttendanceDate] = useState(today);
-  const [checkIn, setCheckIn] = useState('');
-  const [checkOut, setCheckOut] = useState('');
-  const [reason, setReason] = useState('');
+  const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? today);
+  const [checkInText, setCheckInText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckIn)));
+  const [checkOutText, setCheckOutText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckOut)));
+  const [checkInTouched, setCheckInTouched] = useState(false);
+  const [checkOutTouched, setCheckOutTouched] = useState(false);
+  const [reason, setReason] = useState(editing?.reason ?? '');
+  const [managerUserId, setManagerUserId] = useState(editing?.assignedApproverId ?? '');
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const [existingPunch, setExistingPunch] = useState<AttendanceRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty — Assign To is still required */ });
+  }, [token]);
+
+  // Punch auto-fill + field visibility (scenarios 1/2): look up what's already on file for
+  // the chosen date. Clearing to null immediately (not just when the date is blank) avoids a
+  // stale flash of the previous date's fields while the new lookup is in flight.
+  useEffect(() => {
+    setExistingPunch(null);
+    if (!attendanceDate) return;
+    let cancelled = false;
+    attendanceApi.punchForDate(attendanceDate, token)
+      .then((punch) => { if (!cancelled) setExistingPunch(punch); })
+      .catch(() => { if (!cancelled) setExistingPunch(null); });
+    return () => { cancelled = true; };
+  }, [attendanceDate, token]);
+
+  useEffect(() => {
+    if (!existingPunch) return;
+    setCheckInText((prev) => (prev.trim() ? prev : formatTimeValue(timeValueFromIso(existingPunch.checkInAt))));
+    setCheckOutText((prev) => (prev.trim() ? prev : formatTimeValue(timeValueFromIso(existingPunch.checkOutAt))));
+  }, [existingPunch]);
+
+  // Scenario 1 (missing check-out only) / Scenario 2 (missing both): a field is hidden only
+  // when we know for certain the OTHER side is already on file and this one specifically is
+  // what's missing. If neither side is on file, or both already are (correcting a wrong
+  // punch), both fields stay visible. Hidden fields are never rendered and never required.
+  const hasCheckIn = !!existingPunch?.checkInAt;
+  const hasCheckOut = !!existingPunch?.checkOutAt;
+  const onlyOneSideOnFile = hasCheckIn !== hasCheckOut;
+  const showCheckIn = !onlyOneSideOnFile || !hasCheckIn;
+  const showCheckOut = !onlyOneSideOnFile || !hasCheckOut;
+
+  // Only a fully-typed, valid 12-hour time converts to a server timestamp — invalid or
+  // partial text must block submit rather than silently being dropped.
+  const checkInValue = parseTimeText(checkInText);
+  const checkOutValue = parseTimeText(checkOutText);
+  const checkInIso = checkInValue ? isoFromTimeValue(attendanceDate, checkInValue) : undefined;
+  const checkOutIso = checkOutValue ? isoFromTimeValue(attendanceDate, checkOutValue) : undefined;
+  const totalHoursLabel = useMemo(
+    () => formatDuration(minutesBetween(checkInIso ?? '', checkOutIso ?? '')),
+    [checkInIso, checkOutIso],
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!attendanceDate || !reason.trim()) { setError('Date and reason are required.'); return; }
-    if (!checkIn && !checkOut) { setError('Provide a corrected check-in or check-out time.'); return; }
+    setSubmitAttempted(true);
+    setCheckInTouched(true);
+    setCheckOutTouched(true);
+
+    const dateMissing = !attendanceDate;
+    const reasonMissing = !reason.trim();
+    const managerMissing = !managerUserId;
+    // Hidden fields are never required — only a currently-visible field can block submit.
+    const checkInMissing = showCheckIn && checkInText.trim() === '';
+    const checkOutMissing = showCheckOut && checkOutText.trim() === '';
+    const checkInInvalid = showCheckIn && checkInText.trim() !== '' && !checkInValue;
+    const checkOutInvalid = showCheckOut && checkOutText.trim() !== '' && !checkOutValue;
+
+    if (dateMissing || reasonMissing || managerMissing || checkInMissing || checkOutMissing) {
+      setError('Fill in every required field shown above.');
+      return;
+    }
+    if (checkInInvalid || checkOutInvalid) {
+      setError('Enter valid 12-hour times, e.g. 09:30 AM or 5:45 PM.');
+      return;
+    }
     setSubmitting(true); setError(null);
     try {
       const payload: SubmitRegularizationPayload = {
         attendanceDate,
-        requestedCheckIn: checkIn || undefined,
-        requestedCheckOut: checkOut || undefined,
+        requestedCheckIn: showCheckIn ? checkInIso : undefined,
+        requestedCheckOut: showCheckOut ? checkOutIso : undefined,
         reason: reason.trim(),
+        managerUserId,
       };
-      const created = await regularizationApi.submit(payload, token);
-      onCreated(created);
-      showToast('success', 'Regularization request submitted');
+      const saved = editing
+        ? await regularizationApi.update(editing.id, payload, token)
+        : await regularizationApi.submit(payload, token);
+      onSaved(saved);
+      showToast('success', editing ? 'Regularization request updated' : 'Regularization request submitted');
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Submission failed';
@@ -192,17 +456,46 @@ function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCr
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
-        <ModalHeader title="Request Regularization" onClose={onClose} />
+        <ModalHeader title={editing ? 'Edit Regularization Request' : 'Request Regularization'} onClose={onClose} />
         <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <Field label="Attendance Date *">
-            <input type="date" style={inputStyle} value={attendanceDate} max={today} onChange={e => setAttendanceDate(e.target.value)} />
+            <input type="date" style={inputStyle} value={attendanceDate} max={today}
+              onChange={e => {
+                setAttendanceDate(e.target.value);
+                setCheckInText(''); setCheckOutText('');
+                setCheckInTouched(false); setCheckOutTouched(false);
+                setSubmitAttempted(false);
+              }} />
+            {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
           </Field>
-          <Field label="Corrected Check-In">
-            <input type="datetime-local" style={inputStyle} value={checkIn} onChange={e => setCheckIn(e.target.value)} />
-          </Field>
-          <Field label="Corrected Check-Out">
-            <input type="datetime-local" style={inputStyle} value={checkOut} onChange={e => setCheckOut(e.target.value)} />
+          {existingPunch && (existingPunch.checkInAt || existingPunch.checkOutAt) && (
+            <div style={{ fontSize: 12, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' }}>
+              On file for this date — Check-in: {formatTime(existingPunch.checkInAt) ?? 'not recorded'}, Check-out: {formatTime(existingPunch.checkOutAt) ?? 'not recorded'}.
+              {showCheckIn && showCheckOut
+                ? ' The missing side has been pre-filled below; adjust either as needed.'
+                : ' Only the missing side needs a correction below.'}
+            </div>
+          )}
+          {showCheckIn && (
+            <TimeTextInput label="Corrected Check-In *" value={checkInText} touched={checkInTouched}
+              onChange={setCheckInText} onBlur={() => setCheckInTouched(true)} />
+          )}
+          {showCheckOut && (
+            <TimeTextInput label="Corrected Check-Out *" value={checkOutText} touched={checkOutTouched}
+              onChange={setCheckOutText} onBlur={() => setCheckOutTouched(true)} />
+          )}
+          {totalHoursLabel && (
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Total Hours: <strong style={{ color: 'var(--txt)' }}>{totalHoursLabel}</strong></div>
+          )}
+          <Field label="Assign To *">
+            <select style={inputStyle} value={managerUserId} onChange={e => setManagerUserId(e.target.value)}>
+              <option value="" disabled>Select HR or Manager…</option>
+              {approvers.map(a => (
+                <option key={a.userId} value={a.userId}>{a.fullName} — {APPROVER_ROLE_LABELS[a.roleCode] ?? a.roleCode}</option>
+              ))}
+            </select>
+            {submitAttempted && !managerUserId && <div style={fieldErrorStyle}>Assign To is required — select an HR or Manager approver.</div>}
           </Field>
           <Field label="Reason *">
             <textarea
@@ -211,14 +504,64 @@ function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCr
               onChange={e => setReason(e.target.value)}
               placeholder="e.g. Forgot to punch out after client meeting"
             />
+            {submitAttempted && !reason.trim() && <div style={fieldErrorStyle}>Reason is required.</div>}
           </Field>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
-              {submitting ? 'Submitting…' : 'Submit Request'}
+              {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Submit Request'}
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Approve Confirmation Modal ────────────────────────────────────────────────
+function ConfirmApproveModal({ request, onClose, onApproved, token }: {
+  request: RegularizationRecord; onClose: () => void; onApproved: (r: RegularizationRecord) => void; token: string;
+}) {
+  const { showToast } = useToast();
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    try {
+      const updated = await regularizationApi.approve(request.id, token, comment.trim() || undefined);
+      onApproved(updated);
+      showToast('success', 'Request approved and attendance record updated');
+      onClose();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Approve failed');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 420 }}>
+        <ModalHeader title={`Approve — ${request.employeeName}`} onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
+            {formatDay(request.attendanceDate)} · {fmtDateTime(request.requestedCheckIn)} → {fmtDateTime(request.requestedCheckOut)}
+          </div>
+          <Field label="Comment (optional)">
+            <textarea
+              style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Optional note for the employee"
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleConfirm} disabled={submitting} style={{ background: '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? 'Approving…' : 'Confirm Approval'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -315,14 +658,129 @@ function RosterTable({ rows, loading, emptyMessage }: {
   );
 }
 
-// ─── My attendance (punch card + own history) ─────────────────────────────────
+// ─── Month summary tile ────────────────────────────────────────────────────────
+function MonthStatTile({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 6 }}>{hint}</div>
+    </div>
+  );
+}
+
+interface DayInfo {
+  iso: string;
+  day: number;
+  isFuture: boolean;
+  isToday: boolean;
+  isWeekend: boolean;
+  holidayName?: string;
+  leaveTypeName?: string;
+  regularizationStatus?: RegularizationRecord['status'];
+  record?: AttendanceRecord;
+}
+
+const DAY_TAG_STYLE: React.CSSProperties = {
+  display: 'inline-block', fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+  textTransform: 'uppercase', letterSpacing: '.03em', marginTop: 4, whiteSpace: 'nowrap',
+};
+
+/** Renders the small tag/status indicator inside a calendar day cell. */
+function DayCellBadge({ info }: { info: DayInfo }) {
+  if (info.holidayName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>Holiday</span>;
+  }
+  if (info.leaveTypeName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Leave</span>;
+  }
+  if (info.record) {
+    return <StatusPill status={info.record.status} />;
+  }
+  if (info.regularizationStatus) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.15)', color: '#E0A93B' }}>Regularization</span>;
+  }
+  return null;
+}
+
+function MonthCalendar({
+  year, month, dayInfo, selectedDate, onSelect, onPrev, onNext,
+}: {
+  year: number; month: number;
+  dayInfo: (day: number) => DayInfo;
+  selectedDate: string | null;
+  onSelect: (iso: string) => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const cells = useMemo(() => buildCalendarCells(year, month), [year, month]);
+
+  return (
+    <div style={panelStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          {calendarMonthLabel(year, month)}
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onPrev} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+            <ChevronLeft size={15} />
+          </button>
+          <button onClick={onNext} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 6 }}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', textAlign: 'center', letterSpacing: '.05em' }}>
+              {d}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+          {cells.map((day, i) => {
+            if (day == null) return <div key={i} />;
+            const info = dayInfo(day);
+            const selected = selectedDate === info.iso;
+            return (
+              <button
+                key={i}
+                onClick={() => !info.isFuture && onSelect(info.iso)}
+                disabled={info.isFuture}
+                style={{
+                  minHeight: 64, borderRadius: 7, padding: '6px 6px', textAlign: 'left',
+                  background: selected ? 'rgba(177,17,22,.10)' : 'var(--raised)',
+                  border: info.isToday ? '1.5px solid var(--brand)' : selected ? '1px solid var(--brand)' : '1px solid var(--line)',
+                  cursor: info.isFuture ? 'default' : 'pointer',
+                  opacity: info.isFuture ? 0.45 : 1,
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: info.isWeekend ? 'var(--txt-dim)' : 'var(--txt)' }}>
+                  {day}
+                </span>
+                <DayCellBadge info={info} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── My attendance (punch card + attendance calendar) ─────────────────────────
 
 function MyAttendance() {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
 
   const [today, setToday] = useState<TodayAttendance | null>(null);
-  const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -331,27 +789,130 @@ function MyAttendance() {
   const serverOffsetMs = useRef(0);
   const [tick, setTick] = useState(0);
 
-  const loadHistory = useCallback(() => {
-    const to = todayIsoDate();
-    const from = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-    return attendanceApi.myHistory(from, to, token);
+  // ── Calendar state ──
+  const now = useMemo(() => new Date(), []);
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
+  const [monthRecords, setMonthRecords] = useState<AttendanceRecord[]>([]);
+  const [monthLoading, setMonthLoading] = useState(true);
+  const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
+  const [regularizations, setRegularizations] = useState<RegularizationRecord[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayIsoDate());
+
+  // Holidays / leaves / regularizations are fetched once — the calendar filters them per month.
+  useEffect(() => {
+    Promise.all([
+      holidaysApi.listForMyLocation(token).catch(() => []),
+      leaveApi.listMine(token).catch(() => []),
+      regularizationApi.mine(token).catch(() => []),
+    ]).then(([h, l, r]) => { setHolidays(h); setLeaves(l); setRegularizations(r); });
   }, [token]);
+
+  const refreshMonth = useCallback(() => {
+    setMonthLoading(true);
+    const from = isoOf(viewYear, viewMonth, 1);
+    const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
+    return attendanceApi.myHistory(from, to, token)
+      .then((r) => setMonthRecords(r))
+      .catch(() => setMonthRecords([]))
+      .finally(() => setMonthLoading(false));
+  }, [viewYear, viewMonth, token]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([attendanceApi.today(token), loadHistory()])
-      .then(([t, h]) => {
+    setMonthLoading(true);
+    const from = isoOf(viewYear, viewMonth, 1);
+    const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
+    attendanceApi.myHistory(from, to, token)
+      .then((r) => { if (!cancelled) setMonthRecords(r); })
+      .catch(() => { if (!cancelled) setMonthRecords([]); })
+      .finally(() => { if (!cancelled) setMonthLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewYear, viewMonth, token]);
+
+  const recordByDate = useMemo(() => {
+    const map = new Map<string, AttendanceRecord>();
+    monthRecords.forEach((r) => map.set(r.workDate, r));
+    return map;
+  }, [monthRecords]);
+
+  const holidayByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    holidays.forEach((h) => { if (h.active) map.set(h.holidayDate, h.holidayName); });
+    return map;
+  }, [holidays]);
+
+  const leaveByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    leaves.filter((l) => l.status === 'APPROVED').forEach((l) => {
+      expandDateRange(l.startDate, l.endDate).forEach((iso) => map.set(iso, l.leaveTypeName));
+    });
+    return map;
+  }, [leaves]);
+
+  const regularizationByDate = useMemo(() => {
+    const map = new Map<string, RegularizationRecord['status']>();
+    regularizations.forEach((r) => map.set(r.attendanceDate, r.status));
+    return map;
+  }, [regularizations]);
+
+  const monthPrefix = `${viewYear}-${pad2(viewMonth + 1)}`;
+  const presentDaysCount = monthRecords.filter((r) => r.checkInAt).length;
+  const workedMinutesTotal = monthRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
+  const leaveHolidayCount = useMemo(() => {
+    let count = 0;
+    for (const iso of holidayByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
+    for (const iso of leaveByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
+    return count;
+  }, [holidayByDate, leaveByDate, monthPrefix]);
+
+  const getDayInfo = useCallback((day: number): DayInfo => {
+    const iso = isoOf(viewYear, viewMonth, day);
+    const dow = new Date(viewYear, viewMonth, day).getDay();
+    return {
+      iso,
+      day,
+      isFuture: iso > todayIsoDate(),
+      isToday: iso === todayIsoDate(),
+      isWeekend: dow === 0 || dow === 6,
+      holidayName: holidayByDate.get(iso),
+      leaveTypeName: leaveByDate.get(iso),
+      regularizationStatus: regularizationByDate.get(iso),
+      record: recordByDate.get(iso),
+    };
+  }, [viewYear, viewMonth, holidayByDate, leaveByDate, regularizationByDate, recordByDate]);
+
+  function goToPrevMonth() {
+    setSelectedDate(null);
+    if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); } else { setViewMonth((m) => m - 1); }
+  }
+  function goToNextMonth() {
+    setSelectedDate(null);
+    if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); } else { setViewMonth((m) => m + 1); }
+  }
+
+  const selectedInfo = useMemo(() => {
+    if (!selectedDate) return null;
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    if (y !== viewYear || m - 1 !== viewMonth) return null;
+    return getDayInfo(d);
+  }, [selectedDate, viewYear, viewMonth, getDayInfo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    attendanceApi.today(token)
+      .then((t) => {
         if (cancelled) return;
         serverOffsetMs.current = wallClockMs(t.serverNow) - Date.now();
         setToday(t);
-        setHistory(h);
       })
       .catch((err) => {
         if (!cancelled) showToast('error', err instanceof Error ? err.message : 'Failed to load attendance');
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, loadHistory, showToast]);
+  }, [token, showToast]);
 
   const openSince = today?.canCheckOut ? today.record?.checkInAt ?? null : null;
 
@@ -378,13 +939,12 @@ function MyAttendance() {
         : await attendanceApi.checkOut(token);
 
       // Re-read /today so canCheckIn/canCheckOut always come from the server, never inferred.
-      const [refreshed, refreshedHistory] = await Promise.all([
+      const [refreshed] = await Promise.all([
         attendanceApi.today(token),
-        loadHistory(),
+        refreshMonth(),
       ]);
       serverOffsetMs.current = wallClockMs(refreshed.serverNow) - Date.now();
       setToday(refreshed);
-      setHistory(refreshedHistory);
 
       const at = formatTime(kind === 'in' ? record.checkInAt : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
@@ -475,42 +1035,70 @@ function MyAttendance() {
         )}
       </div>
 
-      {/* Own history */}
+      {/* Monthly attendance calendar */}
       <div>
-        <SectionHeading title="My recent attendance" hint="Last 30 days" />
-        <div style={panelStyle}>
-          {loading ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
-          ) : history.length === 0 ? (
-            <div style={{ padding: 48, textAlign: 'center' }}>
-              <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>No attendance yet</div>
-              <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Your punches will appear here once you check in.</div>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    {['Date', 'Check In', 'Check Out', 'Hours', 'Status', 'Source'].map((h) => (
-                      <th key={h} style={thStyle}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((r) => (
-                    <tr key={r.workDate}>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
-                      <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
-                      <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
-                      <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
-                      <td style={tdStyle}><StatusPill status={r.status} /></td>
-                      <td style={tdStyle}><SourceTag source={r.source} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <SectionHeading title="My attendance calendar" hint="Present days, worked hours, and leave/holidays for the selected month." />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
+          <MonthStatTile label="Present Days" value={monthLoading ? '—' : String(presentDaysCount)} hint="Selected month" />
+          <MonthStatTile label="Worked Hours" value={monthLoading ? '—' : (formatDuration(workedMinutesTotal) ?? '0m')} hint="Selected month" />
+          <MonthStatTile label="Leave / Holidays" value={String(leaveHolidayCount)} hint="Selected month" />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
+          <MonthCalendar
+            year={viewYear}
+            month={viewMonth}
+            dayInfo={getDayInfo}
+            selectedDate={selectedDate}
+            onSelect={setSelectedDate}
+            onPrev={goToPrevMonth}
+            onNext={goToNextMonth}
+          />
+
+          <div style={{ ...panelStyle, padding: '18px 20px' }}>
+            {!selectedInfo ? (
+              <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Pick a day on the calendar to see its details.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
+                  {selectedInfo.isToday ? "Today's workday" : formatDay(selectedInfo.iso)}
+                </div>
+                {selectedInfo.holidayName ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Company holiday — {selectedInfo.holidayName}</div>
+                ) : selectedInfo.leaveTypeName ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>On leave — {selectedInfo.leaveTypeName}</div>
+                ) : selectedInfo.record ? (
+                  <>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Check In</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkInAt) ?? dash}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Check Out</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkOutAt) ?? dash}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Hours</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.record.workedMinutes) ?? dash}</div>
+                    </div>
+                    <StatusPill status={selectedInfo.record.status} />
+                    {selectedInfo.regularizationStatus && (
+                      <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Regularization: {selectedInfo.regularizationStatus}</div>
+                    )}
+                  </>
+                ) : selectedInfo.regularizationStatus ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Regularization request: {selectedInfo.regularizationStatus}</div>
+                ) : selectedInfo.isWeekend ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No attendance recorded for this day.</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -519,13 +1107,41 @@ function MyAttendance() {
 
 // ─── Regularization (request + my requests + pending approvals) ───────────────
 
-function RegularizationSection({ token, canApprove }: { token: string; canApprove: boolean }) {
+/** Reviewer column: current approver while pending, who decided it once resolved. */
+function ReviewerCell({ r }: { r: RegularizationRecord }) {
+  if (r.status === 'PENDING') {
+    return (
+      <>
+        <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Current Approver</div>
+        {r.assignedApproverName ?? dash}
+      </>
+    );
+  }
+  return (
+    <>
+      <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.status === 'APPROVED' ? 'Approved By' : 'Rejected By'}</div>
+      {r.reviewedByName ?? dash}
+    </>
+  );
+}
+
+function MonthGroupHeading({ monthKey }: { monthKey: string }) {
+  return (
+    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-dim)', margin: '14px 0 6px', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+      {monthLabel(monthKey)}
+    </div>
+  );
+}
+
+function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: string; canApprove: boolean; isSuperAdmin: boolean }) {
   const { showToast } = useToast();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
   const [pending, setPending] = useState<RegularizationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRequest, setShowRequest] = useState(false);
+  const [editing, setEditing] = useState<RegularizationRecord | null>(null);
   const [rejecting, setRejecting] = useState<RegularizationRecord | null>(null);
+  const [approving, setApproving] = useState<RegularizationRecord | null>(null);
 
   const loadAll = useCallback(() => {
     const calls: Promise<unknown>[] = [regularizationApi.mine(token).then(setMyRequests)];
@@ -537,95 +1153,152 @@ function RegularizationSection({ token, canApprove }: { token: string; canApprov
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  async function handleApprove(reqId: string) {
-    try {
-      await regularizationApi.approve(reqId, token);
-      showToast('success', 'Request approved and attendance record updated');
-      loadAll();
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Approve failed');
-    }
-  }
+  // My Requests defaults to the current calendar month; the selector below narrows it to any
+  // other month (any year). Scoped to this table only — Pending Approvals is unaffected.
+  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
+  const myRequestsForMonth = useMemo(
+    () => myRequests.filter(r => r.attendanceDate.slice(5, 7) === selectedMonth),
+    [myRequests, selectedMonth],
+  );
+  const myRequestMonths = useMemo(() => groupByMonth(myRequestsForMonth), [myRequestsForMonth]);
+  const pendingMonths = useMemo(() => groupByMonth(pending), [pending]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
-        <button onClick={() => setShowRequest(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <CalendarPlus size={14} /> Request Regularization
-        </button>
-      </div>
-
-      {/* My Regularization Requests */}
-      <div>
-        <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>My Requests</h3>
-        <div style={panelStyle}>
-          {loading ? (
-            <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
-          ) : myRequests.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests submitted yet.</div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Reason', 'Status', 'Reviewer Note'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {myRequests.map(r => (
-                    <tr key={r.id}>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
-                      <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
-                      <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
-                      <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
-                      <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                      <td style={tdStyle}>{r.reviewComment ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {isSuperAdmin && (
+            <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+              <ShieldCheck size={14} /> View All & Audit Trail
+            </Link>
           )}
+          <button onClick={() => setShowRequest(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <CalendarPlus size={14} /> Request Regularization
+          </button>
         </div>
       </div>
 
-      {/* Pending Approvals — Manager / HR Admin / Super Admin only */}
+      {/* My Regularization Requests — defaults to current month, grouped by month within that filter */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>My Requests</h3>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-dim)' }}>
+            Month
+            <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={dateInputStyle}>
+              {MONTH_NAMES.map((name, i) => (
+                <option key={name} value={String(i + 1).padStart(2, '0')}>{name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {loading ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
+        ) : myRequests.length === 0 ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests submitted yet.</div>
+        ) : myRequestsForMonth.length === 0 ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
+            No requests found for {MONTH_NAMES[parseInt(selectedMonth, 10) - 1]}.
+          </div>
+        ) : (
+          myRequestMonths.map(([monthKey, rows]) => (
+            <div key={monthKey}>
+              <MonthGroupHeading monthKey={monthKey} />
+              <div style={panelStyle}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.id}>
+                          <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
+                          <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
+                          <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
+                          <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                          <td style={{ ...tdStyle, maxWidth: 200 }}>{r.reason}</td>
+                          <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                          <td style={tdStyle}><ReviewerCell r={r} /></td>
+                          <td style={{ ...tdStyle, maxWidth: 180 }}>{r.reviewComment ?? dash}</td>
+                          <td style={tdStyle}>
+                            {r.status === 'PENDING' && (
+                              <button onClick={() => setEditing(r)} title="Edit" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                                <Pencil size={12} /> Edit
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Pending Approvals — Manager / HR Admin / Super Admin only, grouped by month */}
       {canApprove && (
         <div>
           <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Pending Approvals</h3>
-          <div style={panelStyle}>
-            {pending.length === 0 ? (
-              <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No pending requests.</div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Reason', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {pending.map(r => (
-                      <tr key={r.id}>
-                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                          {r.employeeName}
-                          <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
-                        </td>
-                        <td style={tdStyle}>{r.attendanceDate}</td>
-                        <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
-                        <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
-                        <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
-                        <td style={tdStyle}>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => handleApprove(r.id)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
-                            <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {pending.length === 0 ? (
+            <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No pending requests.</div>
+          ) : (
+            pendingMonths.map(([monthKey, rows]) => (
+              <div key={monthKey}>
+                <MonthGroupHeading monthKey={monthKey} />
+                <div style={panelStyle}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {rows.map(r => (
+                          <tr key={r.id}>
+                            <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                              {r.employeeName}
+                              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
+                            </td>
+                            <td style={tdStyle}>{r.attendanceDate}</td>
+                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
+                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
+                            <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                            <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
+                            <td style={tdStyle}>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
+                                <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+            ))
+          )}
         </div>
       )}
 
       {showRequest && (
-        <RequestModal token={token} onClose={() => setShowRequest(false)} onCreated={r => setMyRequests(prev => [r, ...prev])} />
+        <RequestModal token={token} onClose={() => setShowRequest(false)} onSaved={r => setMyRequests(prev => [r, ...prev])} />
+      )}
+      {editing && (
+        <RequestModal
+          token={token}
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onSaved={updated => setMyRequests(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
+        />
+      )}
+      {approving && (
+        <ConfirmApproveModal
+          request={approving}
+          token={token}
+          onClose={() => setApproving(null)}
+          onApproved={updated => setPending(prev => prev.filter(r => r.id !== updated.id))}
+        />
       )}
       {rejecting && (
         <RejectModal
@@ -715,7 +1388,7 @@ export default function AttendancePage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
         <MyAttendance />
-        <RegularizationSection token={token} canApprove={canApprove} />
+        <RegularizationSection token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} />
         {role === 'Manager' && <DayRoster scope="team" />}
         {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
       </div>

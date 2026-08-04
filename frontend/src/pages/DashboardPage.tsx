@@ -1,8 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Users, Clock, Calendar, TrendingUp, UserCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Users, Clock, Calendar, TrendingUp, UserCheck, LogIn, LogOut } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuthStore } from '../store/authStore';
+import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport, type ManagerDashboard } from '../api/dashboard';
+import { attendanceApi, type AttendanceRecord, type TodayAttendance } from '../api/attendance';
+
+function formatClockTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const time = iso.slice(11, 16);
+  if (time.length < 5) return null;
+  const [h, m] = time.split(':').map(Number);
+  const suffix = h < 12 ? 'AM' : 'PM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 /* ── Placeholder card for unbuilt modules ────────── */
 function PendingCard({ icon: Icon, title, note }: {
@@ -86,13 +103,115 @@ function JoinersChart({ reports: _reports }: { reports: DirectReport[] }) {
   );
 }
 
+/* ── Live Attendance card (own check-in status) ──── */
+function AttendanceStatusCard() {
+  const token = useAuthStore(s => s.token) ?? '';
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [today, setToday] = useState<TodayAttendance | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = () => attendanceApi.today(token).then(setToday);
+
+  useEffect(() => {
+    setError(null);
+    refresh()
+      .catch((err) => { setToday(null); setError(err instanceof Error ? err.message : 'Failed to load attendance'); })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  async function punch(kind: 'in' | 'out') {
+    setSubmitting(true);
+    try {
+      const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
+      await refresh();
+      const at = formatClockTime(kind === 'in' ? record.checkInAt : record.checkOutAt);
+      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const record = today?.record ?? null;
+  const checkedIn = formatClockTime(record?.checkInAt ?? null);
+  const checkedOut = formatClockTime(record?.checkOutAt ?? null);
+
+  const status = loading
+    ? 'Loading…'
+    : error
+      ? error
+      : checkedOut
+        ? `Checked out at ${checkedOut}`
+        : checkedIn
+          ? `Checked in at ${checkedIn}`
+          : 'Not checked in yet';
+
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <Clock size={14} style={{ color: 'var(--brand)' }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Attendance</span>
+      </div>
+      <p style={{ margin: 0, fontSize: 12, color: error ? 'var(--risk)' : 'var(--txt-mut)', lineHeight: 1.55 }}>{status}</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {today?.canCheckIn && (
+          <button
+            onClick={() => punch('in')}
+            disabled={submitting}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+          >
+            <LogIn size={13} /> {submitting ? 'Checking in…' : 'Check In'}
+          </button>
+        )}
+        {today?.canCheckOut && (
+          <button
+            onClick={() => punch('out')}
+            disabled={submitting}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+          >
+            <LogOut size={13} /> {submitting ? 'Checking out…' : 'Check Out'}
+          </button>
+        )}
+        <button
+          onClick={() => navigate('/attendance')}
+          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          View attendance →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Live team attendance summary (manager view) ─── */
+function useTeamAttendanceToday(token: string) {
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    attendanceApi.team(todayIsoDate(), token)
+      .then(setRecords)
+      .catch(() => setRecords([]))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  return { records, loading };
+}
+
 /* ── Manager dashboard ───────────────────────────── */
 function ManagerDashboardView() {
   const token = useAuthStore(s => s.token) ?? '';
   const user  = useAuthStore(s => s.user);
+  const navigate = useNavigate();
   const [data, setData]   = useState<ManagerDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState('');
+  const { records: teamToday, loading: teamLoading } = useTeamAttendanceToday(token);
 
   useEffect(() => {
     dashboardApi.managerDashboard(token)
@@ -102,6 +221,8 @@ function ManagerDashboardView() {
   }, [token]);
 
   const firstName = user?.firstName ?? user?.email?.split('@')[0] ?? 'Manager';
+  const presentCount = teamToday.filter(r => r.checkInAt).length;
+  const lateCount = teamToday.filter(r => r.status === 'LATE').length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -111,6 +232,9 @@ function ManagerDashboardView() {
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>Manager Dashboard</p>
       </div>
+
+      {/* Manager's own check-in/out — a Manager is an employee too */}
+      <AttendanceStatusCard />
 
       {/* KPI row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
@@ -136,12 +260,15 @@ function ManagerDashboardView() {
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>active in team</div>
         </div>
 
-        <div style={{ background: 'var(--panel)', border: '1px dashed var(--line2)', borderRadius: 10, padding: '18px 20px', opacity: .7 }}>
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Clock size={14} style={{ color: 'var(--txt-dim)' }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Present Today</span>
+            <Clock size={14} style={{ color: 'var(--brand)' }} />
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Present Today</span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--txt-dim)', lineHeight: 1.5 }}>Available once Attendance module is built</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+            {teamLoading ? '—' : `${presentCount}/${teamToday.length}`}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today</div>
         </div>
 
         <div style={{ background: 'var(--panel)', border: '1px dashed var(--line2)', borderRadius: 10, padding: '18px 20px', opacity: .7 }}>
@@ -207,11 +334,26 @@ function ManagerDashboardView() {
 
       {/* Honest pending cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
-        <PendingCard
-          icon={Clock}
-          title="Attendance Summary"
-          note="Will show daily team check-in/out status. Available once the Attendance module is built."
-        />
+        <div style={{
+          background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
+          padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Clock size={14} style={{ color: 'var(--brand)' }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Attendance Summary</span>
+          </div>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
+            {teamLoading
+              ? 'Loading team check-in status…'
+              : `${presentCount} of ${teamToday.length} checked in today${lateCount ? `, ${lateCount} late` : ''}.`}
+          </p>
+          <button
+            onClick={() => navigate('/attendance')}
+            style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            View team attendance →
+          </button>
+        </div>
         <PendingCard
           icon={Calendar}
           title="Pending Leave Requests"
@@ -248,11 +390,7 @@ function GenericDashboardView({ role }: { role: string }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        <PendingCard
-          icon={Clock}
-          title="Attendance"
-          note="Your attendance log and check-in status. Available once the Attendance module is built."
-        />
+        <AttendanceStatusCard />
         <PendingCard
           icon={Calendar}
           title="Leave & Holidays"

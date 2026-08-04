@@ -19,6 +19,12 @@ public class RegularizationRequest {
     @Column(name = "employee_user_id", nullable = false)
     private UUID employeeUserId;
 
+    // Resolved once at submission time: the employee-selected manager, else their current
+    // manager via EmployeeManagerHistory, else NULL (HR/Super Admin have blanket override
+    // visibility regardless — see RegularizationService.listPendingForApprover).
+    @Column(name = "assigned_approver_id")
+    private UUID assignedApproverId;
+
     @Column(name = "attendance_date", nullable = false)
     private LocalDate attendanceDate;
 
