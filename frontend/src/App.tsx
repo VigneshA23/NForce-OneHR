@@ -16,6 +16,7 @@ import DirectoryPage from './pages/DirectoryPage';
 import HierarchyPage from './pages/HierarchyPage';
 import LeavePage from './pages/LeavePage';
 import ApprovalsPage from './pages/ApprovalsPage';
+import MyRequestsPage from './pages/MyRequestsPage';
 import AssetsExpensesPage from './pages/AssetsExpensesPage';
 import DocumentsPage from './pages/DocumentsPage';
 import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="/leave"        element={<LeavePage />} />
           <Route path="/help"         element={<Phase1Stub />} />
           <Route path="/approvals"    element={<ApprovalsPage />} />
+          <Route path="/requests"     element={<MyRequestsPage />} />
           <Route path="/assets"       element={<AssetsExpensesPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
