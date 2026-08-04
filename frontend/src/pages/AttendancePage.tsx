@@ -316,17 +316,24 @@ function RegularizationStatusPill({ status }: { status: string }) {
 /** Every check-in/check-out session for a single day — shows a lunch-break gap explicitly. */
 function PunchHistoryList({ date, token }: { date: string; token: string }) {
   const [punches, setPunches] = useState<Punch[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setPunches(null);
+    setError(null);
     attendanceApi.punches(date, token)
       .then((p) => { if (!cancelled) setPunches(p); })
-      .catch(() => { if (!cancelled) setPunches([]); });
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load punch history'); });
     return () => { cancelled = true; };
   }, [date, token]);
 
-  if (punches === null) return null;
+  if (error) {
+    return <div style={{ fontSize: 12, color: 'var(--risk)' }}>Punch history: {error}</div>;
+  }
+  if (punches === null) {
+    return <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Loading punch history…</div>;
+  }
   if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
 
   return (
