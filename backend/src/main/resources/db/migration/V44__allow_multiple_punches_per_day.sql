@@ -1,4 +1,6 @@
--- NForce OneHR — Flyway Migration V42
+-- NForce OneHR — Flyway Migration V44
+-- (V42/V43 are already taken on the shared dev database by an out-of-band schema fix
+-- with no corresponding committed migration file — see AttendanceService history.)
 -- Policy change (supersedes the "strict one pair per day" note in V11): employees may
 -- now check in/out multiple times in a single work day (e.g. a lunch break) instead of
 -- exactly once. attendance_records stays one row per employee per day — check_in_at
