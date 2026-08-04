@@ -15,11 +15,12 @@ spring:
       # fails on citext/timestamptz column types reported by Postgres metadata
       ddl-auto: none
   flyway:
-    # The shared dev database has two schema fixes (versions 42/43) applied directly,
-    # outside any committed migration file — Flyway's default validation refuses to start
-    # over "applied migration not resolved locally". Tolerating "missing" migrations lets
-    # startup proceed without editing the database's own history bookkeeping.
-    ignore-migration-patterns: "*:missing"
+    # The shared dev database keeps gaining schema fixes applied directly by other
+    # developers, outside any committed migration file (versions 42/43, and now higher
+    # ones too) — Flyway's default validation refuses to start over these. "missing"
+    # covers versions below our local max with no file; "future" covers versions ahead
+    # of our local max (someone else's migration we haven't pulled/renumbered around yet).
+    ignore-migration-patterns: "*:missing,*:future"
 
 app:
   jwt:
