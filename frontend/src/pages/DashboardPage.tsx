@@ -133,8 +133,7 @@ function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void;
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-            Working remotely today? Submit a reason — your manager or HR needs to approve
-            this before it counts as attendance.
+            Adding comment is made mandatory by your HR Manager.
           </p>
           <div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' }}>
