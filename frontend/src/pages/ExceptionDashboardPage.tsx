@@ -28,6 +28,19 @@ function daysAgoIso(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function formatMinutesLate(minutes: number | null): string {
+  if (minutes == null) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// Times arrive as "HH:mm:ss" or "HH:mm:ss.ffffff" — drop seconds/fractional
+// precision, which is noise for a late-arrival table read at a glance.
+function formatTimeDisplay(time: string | null): string {
+  return time ? time.slice(0, 5) : '—';
+}
+
 function ExceptionTypeBadge({ type }: { type: string }) {
   const s = EXCEPTION_TYPE_STYLES[type] ?? { color: 'var(--txt-mut)', background: 'var(--shell)', border: 'var(--line2)' };
   return (
@@ -53,6 +66,12 @@ export default function ExceptionDashboardPage() {
     : 'Your team’s attendance exceptions.';
 
   function load() {
+    if (from > to) {
+      showToast('error', 'From date cannot be after To date');
+      setExceptions([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     exceptionsApi.list(token, from, to)
       .then(setExceptions)
@@ -72,6 +91,8 @@ export default function ExceptionDashboardPage() {
 
   const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
   const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+  const timeThStyle: React.CSSProperties = { ...thStyle, width: 88, textAlign: 'center' };
+  const timeTdStyle: React.CSSProperties = { ...tdStyle, width: 88, textAlign: 'center' };
 
   return (
     <div>
@@ -83,11 +104,11 @@ export default function ExceptionDashboardPage() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'end', marginBottom: 16 }}>
         <div>
           <label style={labelStyle}>From</label>
-          <input type="date" style={inputStyle} value={from} onChange={e => setFrom(e.target.value)} />
+          <input type="date" style={inputStyle} value={from} max={to} onChange={e => setFrom(e.target.value)} />
         </div>
         <div>
           <label style={labelStyle}>To</label>
-          <input type="date" style={inputStyle} value={to} onChange={e => setTo(e.target.value)} />
+          <input type="date" style={inputStyle} value={to} min={from} onChange={e => setTo(e.target.value)} />
         </div>
         <div>
           <label style={labelStyle}>Exception Type</label>
@@ -114,7 +135,7 @@ export default function ExceptionDashboardPage() {
               <thead>
                 <tr>
                   {['Employee', 'Type', 'Date', 'Expected', 'Actual', 'Minutes Late', 'Status'].map(h => (
-                    <th key={h} style={thStyle}>{h}</th>
+                    <th key={h} style={h === 'Expected' || h === 'Actual' ? timeThStyle : thStyle}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -124,9 +145,9 @@ export default function ExceptionDashboardPage() {
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{exc.employeeFullName ?? exc.employeeUserId}</td>
                     <td style={tdStyle}><ExceptionTypeBadge type={exc.exceptionType} /></td>
                     <td style={tdStyle}>{exc.exceptionDate}</td>
-                    <td style={tdStyle}>{exc.expectedTime ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={tdStyle}>{exc.actualTime ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={tdStyle}>{exc.minutesLate ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                    <td style={timeTdStyle}>{exc.expectedTime ? formatTimeDisplay(exc.expectedTime) : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                    <td style={timeTdStyle}>{exc.actualTime ? formatTimeDisplay(exc.actualTime) : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                    <td style={tdStyle}>{exc.minutesLate == null ? <span style={{ color: 'var(--txt-dim)' }}>—</span> : formatMinutesLate(exc.minutesLate)}</td>
                     <td style={tdStyle}>{exc.status}</td>
                   </tr>
                 ))}
