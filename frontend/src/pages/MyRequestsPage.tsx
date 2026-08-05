@@ -38,6 +38,8 @@ function TypeBadge({ type }: { type: RequestType }) {
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   PENDING: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
+  // Regularization-only: manager stage approved, awaiting HR/Super Admin final approval.
+  PARTIALLY_APPROVED: { bg: 'rgba(59,130,196,.15)', color: '#3B82C4' },
   APPROVED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
   REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
 };

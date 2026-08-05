@@ -19,7 +19,7 @@ const selectStyle: React.CSSProperties = { background: 'var(--raised)', color: '
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.5)' };
 
-const STATUS_COLOR: Record<string, string> = { PENDING: '#E0A93B', APPROVED: '#2FB67C', REJECTED: '#E4373D' };
+const STATUS_COLOR: Record<string, string> = { PENDING: '#E0A93B', PARTIALLY_APPROVED: '#3B82C4', APPROVED: '#2FB67C', REJECTED: '#E4373D' };
 
 function StatusPill({ status }: { status: string }) {
   return (
@@ -66,6 +66,24 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
             <div style={{ fontSize: 13, color: 'var(--txt)' }}>{request.reason}</div>
           </div>
 
+          {/* Two-stage approval summary — shown once each stage has actually happened. */}
+          {(request.approvedByName || request.finalApprovedByName) && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+              {request.approvedByName && (
+                <>
+                  <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Approved By (Manager)</div>{request.approvedByName}</div>
+                  <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Approved At</div>{fmtDateTime(request.approvedAt)}</div>
+                </>
+              )}
+              {request.finalApprovedByName && (
+                <>
+                  <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Final Approved By</div>{request.finalApprovedByName}</div>
+                  <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Final Approved At</div>{fmtDateTime(request.finalApprovedAt)}</div>
+                </>
+              )}
+            </div>
+          )}
+
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
               Approval / Rejection History
@@ -80,7 +98,9 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
                       <span style={{ fontWeight: 700, color: h.actionType === 'APPROVED' ? '#2FB67C' : '#E4373D' }}>{h.actionType}</span>
                       <span style={{ color: 'var(--txt-dim)' }}>{fmtDateTime(h.actionDate)}</span>
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 4 }}>{h.actorName}</div>
+                    <div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 4 }}>
+                      {h.actorName}{h.actorRole && <span style={{ color: 'var(--txt-dim)' }}> ({h.actorRole})</span>}
+                    </div>
                     {h.comments && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 4 }}>{h.comments}</div>}
                   </div>
                 ))}
@@ -93,7 +113,7 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
   );
 }
 
-const STATUSES: RegularizationStatus[] = ['PENDING', 'APPROVED', 'REJECTED'];
+const STATUSES: RegularizationStatus[] = ['PENDING', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED'];
 
 export default function SuperAdminRegularizationPage() {
   const token = useAuthStore(s => s.token)!;

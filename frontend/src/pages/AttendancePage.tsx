@@ -262,8 +262,14 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
 };
 
 const REGULARIZATION_STATUS_COLOR: Record<string, string> = {
-  PENDING: '#E0A93B', APPROVED: '#2FB67C', REJECTED: '#E4373D',
+  PENDING: '#E0A93B', PARTIALLY_APPROVED: '#3B82C4', APPROVED: '#2FB67C', REJECTED: '#E4373D',
 };
+
+/** A request still in flight (manager stage or awaiting final approval) — the only statuses
+ * approve/reject/bulk actions can act on; APPROVED/REJECTED are terminal. */
+function isActionableRequest(r: RegularizationRecord) {
+  return r.status === 'PENDING' || r.status === 'PARTIALLY_APPROVED';
+}
 
 const dash = <span style={{ color: 'var(--txt-dim)' }}>—</span>;
 
@@ -661,11 +667,31 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
   );
 }
 
+/**
+ * Full, unclamped text block — no ellipsis, no hover-tooltip dependency. Long text wraps
+ * naturally within the modal's width. Used for Reason/Comments in the details popup, where the
+ * complete content must always be visible (unlike the table cells, which still use
+ * TruncatedText — this component is deliberately separate from that one).
+ */
+function FullText({ text, style }: { text: string | null | undefined; style?: React.CSSProperties }) {
+  if (!text) return <>{dash}</>;
+  return (
+    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', ...style }}>
+      {text}
+    </div>
+  );
+}
+
 // ─── Request Details Modal (read-only — replaces the old Comments table column) ──────
 function RequestDetailsModal({ request, onClose }: { request: RegularizationRecord; onClose: () => void }) {
-  // Mirrors ReviewerCell's logic: the current assignee while pending, whoever decided it once resolved.
-  const approverLabel = request.status === 'PENDING' ? 'Current Approver' : request.status === 'APPROVED' ? 'Approved By' : 'Rejected By';
-  const approverName = request.status === 'PENDING' ? request.assignedApproverName : request.reviewedByName;
+  // Mirrors ReviewerCell's logic: who's responsible for the *next* action while still in
+  // flight (assigned manager while PENDING, whichever HR/Super Admin queue while
+  // PARTIALLY_APPROVED), or who made the final call once resolved.
+  const approverLabel = request.status === 'PENDING' ? 'Current Approver'
+    : request.status === 'PARTIALLY_APPROVED' ? 'Awaiting Final Approval From'
+    : request.status === 'APPROVED' ? 'Approved By' : 'Rejected By';
+  const approverName = request.status === 'PENDING' || request.status === 'PARTIALLY_APPROVED'
+    ? request.assignedApproverName : request.reviewedByName;
 
   return (
     <div style={overlayStyle}>
@@ -698,15 +724,41 @@ function RequestDetailsModal({ request, onClose }: { request: RegularizationReco
           </div>
           <div style={{ maxWidth: '100%', minWidth: 0 }}>
             <div style={labelStyle}>Reason</div>
-            <TruncatedText text={request.reason} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
+            <FullText text={request.reason} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
           </div>
           <div>
             <div style={labelStyle}>{approverLabel}</div>
             <div style={{ fontSize: 14, color: 'var(--txt)' }}>{approverName ?? dash}</div>
           </div>
+          {/* Two-stage audit trail — shown once each stage has actually happened, so a
+              still-PENDING request shows neither and a fully-APPROVED one shows both. */}
+          {request.approvedByName && (
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <div>
+                <div style={labelStyle}>Approved By (Manager)</div>
+                <div style={{ fontSize: 14, color: 'var(--txt)' }}>{request.approvedByName}</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Approved At</div>
+                <div style={{ fontSize: 14, color: 'var(--txt)' }}>{fmtDateTime(request.approvedAt)}</div>
+              </div>
+            </div>
+          )}
+          {request.finalApprovedByName && (
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <div>
+                <div style={labelStyle}>Final Approved By</div>
+                <div style={{ fontSize: 14, color: 'var(--txt)' }}>{request.finalApprovedByName}</div>
+              </div>
+              <div>
+                <div style={labelStyle}>Final Approved At</div>
+                <div style={{ fontSize: 14, color: 'var(--txt)' }}>{fmtDateTime(request.finalApprovedAt)}</div>
+              </div>
+            </div>
+          )}
           <div style={{ maxWidth: '100%', minWidth: 0 }}>
             <div style={labelStyle}>Comments</div>
-            <TruncatedText text={request.reviewComment} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
+            <FullText text={request.reviewComment} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Close</button>
@@ -806,6 +858,81 @@ function RejectModal({ request, onClose, onRejected, token }: { request: Regular
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleReject} disabled={submitting} style={{ background: '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
               {submitting ? 'Rejecting…' : 'Reject Request'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Bulk Approve / Bulk Reject Modal ──────────────────────────────────────────
+// Comment is optional for bulk-approve (mirrors ConfirmApproveModal) and required for
+// bulk-reject (mirrors RejectModal) — same validation split as the single-item actions.
+function BulkActionModal({ action, ids, token, onClose, onDone }: {
+  action: 'APPROVE' | 'REJECT';
+  ids: string[];
+  token: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { showToast } = useToast();
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleConfirm() {
+    if (action === 'REJECT' && !comment.trim()) {
+      setError('A comment is required when rejecting requests.');
+      return;
+    }
+    setSubmitting(true); setError(null);
+    try {
+      const result = action === 'APPROVE'
+        ? await regularizationApi.bulkApprove(ids, token, comment.trim() || undefined)
+        : await regularizationApi.bulkReject(ids, comment.trim(), token);
+      const verb = action === 'APPROVE' ? 'approved' : 'rejected';
+      if (result.succeededIds.length > 0) {
+        showToast('success', `${result.succeededIds.length} request${result.succeededIds.length === 1 ? '' : 's'} ${verb}`);
+      }
+      if (result.failed.length > 0) {
+        showToast('error', `${result.failed.length} failed — ${result.failed[0].reason}${result.failed.length > 1 ? ` (+${result.failed.length - 1} more)` : ''}`);
+      }
+      onDone();
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Bulk action failed';
+      setError(msg);
+      showToast('error', msg);
+    } finally { setSubmitting(false); }
+  }
+
+  const isReject = action === 'REJECT';
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 420 }}>
+        <ModalHeader title={`${isReject ? 'Reject' : 'Approve'} ${ids.length} Request${ids.length === 1 ? '' : 's'}`} onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          {error && <div style={{ color: 'var(--risk)', marginBottom: 14, fontSize: 13 }}>{error}</div>}
+          <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
+            This will {isReject ? 'reject' : 'approve'} {ids.length} selected request{ids.length === 1 ? '' : 's'}. Each is processed independently — one failure won't affect the others.
+          </div>
+          <Field label={isReject ? 'Reason for rejection *' : 'Comment (optional)'}>
+            <textarea
+              style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder={isReject ? 'Explain why these requests are being rejected' : 'Optional note applied to every selected request'}
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button
+              onClick={handleConfirm}
+              disabled={submitting}
+              style={{ background: isReject ? '#C0392B' : '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+            >
+              {submitting ? 'Processing…' : `Confirm Bulk ${isReject ? 'Reject' : 'Approve'}`}
             </button>
           </div>
         </div>
@@ -1354,6 +1481,14 @@ function ReviewerCell({ r }: { r: RegularizationRecord }) {
       </>
     );
   }
+  if (r.status === 'PARTIALLY_APPROVED') {
+    return (
+      <>
+        <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Manager Approved — Awaiting HR/Super Admin</div>
+        {r.approvedByName ?? dash}
+      </>
+    );
+  }
   return (
     <>
       <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.status === 'APPROVED' ? 'Approved By' : 'Rejected By'}</div>
@@ -1374,11 +1509,12 @@ function MonthGroupHeading({ monthKey }: { monthKey: string }) {
 // Generic single-select tab strip. Used by Pending Approvals for its All/Pending/Approved/
 // Rejected status filter — deliberately generic (not hardcoded to status) so any future
 // single-select category filter elsewhere on this page can reuse it as-is.
-type StatusFilterValue = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
+type StatusFilterValue = 'ALL' | 'PENDING' | 'PARTIALLY_APPROVED' | 'APPROVED' | 'REJECTED';
 
 const STATUS_FILTER_TABS: { value: StatusFilterValue; label: string }[] = [
   { value: 'ALL', label: 'All' },
   { value: 'PENDING', label: 'Pending' },
+  { value: 'PARTIALLY_APPROVED', label: 'Partially Approved' },
   { value: 'APPROVED', label: 'Approved' },
   { value: 'REJECTED', label: 'Rejected' },
 ];
@@ -1438,6 +1574,8 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
   const [rejecting, setRejecting] = useState<RegularizationRecord | null>(null);
   const [approving, setApproving] = useState<RegularizationRecord | null>(null);
   const [viewing, setViewing] = useState<RegularizationRecord | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState<'APPROVE' | 'REJECT' | null>(null);
 
   const loadAll = useCallback(() => {
     const calls: Promise<unknown>[] = [regularizationApi.mine(token).then(setMyRequests)];
@@ -1471,6 +1609,9 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
     [pending, approvalStatusFilter],
   );
   const pendingMonths = useMemo(() => groupByMonth(filteredPending), [filteredPending]);
+  // Selections don't carry across an unrelated filter change — avoids acting on a row the
+  // user can no longer see.
+  useEffect(() => { setSelectedIds(new Set()); }, [approvalStatusFilter]);
   const approvedDates = useMemo(
     () => new Set(myRequests.filter((r) => r.status === 'APPROVED').map((r) => r.attendanceDate)),
     [myRequests],
@@ -1555,6 +1696,14 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
             <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>Pending Approvals</h3>
             <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} />
           </div>
+          {selectedIds.size > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '8px 14px' }}>
+              <span style={{ fontSize: 13, color: 'var(--txt-mut)', fontWeight: 600 }}>{selectedIds.size} selected</span>
+              <button onClick={() => setBulkConfirm('APPROVE')} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#2FB67C', cursor: 'pointer' }}>Bulk Approve</button>
+              <button onClick={() => setBulkConfirm('REJECT')} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#E4373D', cursor: 'pointer' }}>Bulk Reject</button>
+              <button onClick={() => setSelectedIds(new Set())} style={{ background: 'none', border: 'none', color: 'var(--txt-dim)', fontSize: 12, cursor: 'pointer', marginLeft: 'auto' }}>Clear selection</button>
+            </div>
+          )}
           {pending.length === 0 ? (
             <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests to review yet.</div>
           ) : filteredPending.length === 0 ? (
@@ -1562,16 +1711,52 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
               No {STATUS_FILTER_TABS.find((t) => t.value === approvalStatusFilter)?.label.toLowerCase()} requests.
             </div>
           ) : (
-            pendingMonths.map(([monthKey, rows]) => (
+            pendingMonths.map(([monthKey, rows]) => {
+              const selectableIds = rows.filter(isActionableRequest).map(r => r.id);
+              const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedIds.has(id));
+              const someSelected = !allSelected && selectableIds.some(id => selectedIds.has(id));
+              return (
               <div key={monthKey}>
                 <MonthGroupHeading monthKey={monthKey} />
                 <div style={panelStyle}>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <thead>
+                        <tr>
+                          <th style={{ ...thStyle, width: 34 }}>
+                            {selectableIds.length > 0 && (
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                ref={el => { if (el) el.indeterminate = someSelected; }}
+                                onChange={() => setSelectedIds(prev => {
+                                  const next = new Set(prev);
+                                  if (allSelected) selectableIds.forEach(id => next.delete(id));
+                                  else selectableIds.forEach(id => next.add(id));
+                                  return next;
+                                })}
+                              />
+                            )}
+                          </th>
+                          {['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                        </tr>
+                      </thead>
                       <tbody>
                         {rows.map(r => (
-                          <tr key={r.id}>
+                          <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
+                            <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                              {isActionableRequest(r) && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.has(r.id)}
+                                  onChange={() => setSelectedIds(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
+                                    return next;
+                                  })}
+                                />
+                              )}
+                            </td>
                             <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                               {r.employeeName}
                               <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
@@ -1584,8 +1769,8 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
                             <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
                             <td style={tdStyle}><ReviewerCell r={r} /></td>
                             <td style={tdStyle}>
-                              {r.status === 'PENDING' ? (
-                                <div style={{ display: 'flex', gap: 6 }}>
+                              {isActionableRequest(r) ? (
+                                <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                                   <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
                                   <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
                                 </div>
@@ -1598,9 +1783,19 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
                   </div>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
+      )}
+      {bulkConfirm && (
+        <BulkActionModal
+          action={bulkConfirm}
+          ids={[...selectedIds]}
+          token={token}
+          onClose={() => setBulkConfirm(null)}
+          onDone={() => { setSelectedIds(new Set()); loadAll(); }}
+        />
       )}
 
       {showRequest && (
