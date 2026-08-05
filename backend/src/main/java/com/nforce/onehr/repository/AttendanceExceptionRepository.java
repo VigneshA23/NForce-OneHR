@@ -12,8 +12,6 @@ import java.util.UUID;
 @Repository
 public interface AttendanceExceptionRepository extends JpaRepository<AttendanceException, UUID> {
 
-    List<AttendanceException> findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(LocalDate from, LocalDate to);
-
     List<AttendanceException> findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
             List<UUID> employeeUserIds, LocalDate from, LocalDate to);
 

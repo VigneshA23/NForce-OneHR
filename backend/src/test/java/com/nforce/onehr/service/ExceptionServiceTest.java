@@ -54,10 +54,13 @@ class ExceptionServiceTest {
     void setUp() {
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
-        lenient().when(leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                anyString(), any(), any())).thenReturn(List.of());
+        // Default: employeeId is the only account holding the EMPLOYEE role — matches
+        // EmployeeService.listEmployees()'s own definition of who counts as an employee.
+        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId));
         lenient().when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                 any(), anyString(), any(), any())).thenReturn(List.of());
+        lenient().when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                any(), any(), any())).thenReturn(List.of());
     }
 
     private User userWithRole(String email, String roleCode, UUID id) {
@@ -66,17 +69,19 @@ class ExceptionServiceTest {
     }
 
     @Test
-    void hrAdmin_seesCompanyWideExceptions_unscoped() {
+    void hrAdmin_scopeIsExactlyEmployeeRoleAccounts() {
+        UUID otherEmployeeId = UUID.randomUUID();
         User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
-        when(attendanceRepository.findByWorkDateBetween(from, to)).thenReturn(List.of());
-        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
+        when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId, otherEmployeeId));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(anyList(), eq(from), eq(to)))
                 .thenReturn(List.of());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
-        verify(attendanceRepository).findByWorkDateBetween(from, to);
-        verify(attendanceRepository, never()).findByEmployeeUserIdInAndWorkDateBetween(any(), any(), any());
+        verify(attendanceRepository).findByEmployeeUserIdInAndWorkDateBetween(
+                argThat(ids -> ids.containsAll(List.of(employeeId, otherEmployeeId)) && ids.size() == 2),
+                eq(from), eq(to));
     }
 
     @Test
@@ -87,13 +92,29 @@ class ExceptionServiceTest {
                 .thenReturn(List.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
                 .thenReturn(List.of());
-        when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
-                List.of(employeeId), from, to)).thenReturn(List.of());
 
         exceptionService.getExceptionsForCaller(managerEmail, from, to);
 
         verify(attendanceRepository).findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to);
-        verify(attendanceRepository, never()).findByWorkDateBetween(any(), any());
+    }
+
+    @Test
+    void manager_excludesDirectReportWhoIsNotAnEmployeeRoleAccount() {
+        UUID managerDirectReportId = UUID.randomUUID(); // e.g. a matrixed sub-manager
+        User manager = userWithRole(managerEmail, "MANAGER", managerId);
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(manager));
+        // employeeRoleIds (from setUp) contains only employeeId, not managerDirectReportId
+        when(historyRepository.findByManagerUserIdAndEffectiveToIsNull(managerId)).thenReturn(List.of(
+                EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build(),
+                EmployeeManagerHistory.builder().employeeUserId(managerDirectReportId).managerUserId(managerId).build()));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of());
+
+        exceptionService.getExceptionsForCaller(managerEmail, from, to);
+
+        verify(attendanceRepository).findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to);
+        verify(attendanceRepository, never()).findByEmployeeUserIdInAndWorkDateBetween(
+                argThat(ids -> ids.contains(managerDirectReportId)), any(), any());
     }
 
     @Test
@@ -117,13 +138,12 @@ class ExceptionServiceTest {
                 .checkOutAt(LocalDateTime.now().minusDays(1).withHour(18).withMinute(0))
                 .lateByMinutes(15)
                 .build();
-        when(attendanceRepository.findByWorkDateBetween(from, to)).thenReturn(List.of(lateRecord));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(lateRecord));
         when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
                 employeeId, lateRecord.getWorkDate(), ExceptionType.LATE_ARRIVAL)).thenReturn(Optional.empty());
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
-                .thenReturn(List.of());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
@@ -151,14 +171,12 @@ class ExceptionServiceTest {
                 .checkOutAt(null)
                 .lateByMinutes(0)
                 .build();
-        when(attendanceRepository.findByWorkDateBetween(from, to))
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
                 .thenReturn(List.of(missingPunchYesterday, openToday));
         when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
                 employeeId, missingPunchYesterday.getWorkDate(), ExceptionType.MISSING_PUNCH)).thenReturn(Optional.empty());
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
-                .thenReturn(List.of());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
@@ -187,13 +205,12 @@ class ExceptionServiceTest {
                 .exceptionType(ExceptionType.LATE_ARRIVAL)
                 .minutesLate(10)
                 .build();
-        when(attendanceRepository.findByWorkDateBetween(from, to)).thenReturn(List.of(lateRecord));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(lateRecord));
         when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
                 employeeId, lateRecord.getWorkDate(), ExceptionType.LATE_ARRIVAL)).thenReturn(Optional.of(existing));
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
-                .thenReturn(List.of());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
@@ -221,21 +238,52 @@ class ExceptionServiceTest {
                 .status("APPROVED")
                 .build();
 
-        when(attendanceRepository.findByWorkDateBetween(from, to)).thenReturn(List.of(recordOnLeaveDay));
-        when(leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(recordOnLeaveDay));
+        when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                List.of(employeeId), "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
         when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
                 employeeId, conflictDate, ExceptionType.LEAVE_ATTENDANCE_CONFLICT)).thenReturn(Optional.empty());
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
-                .thenReturn(List.of());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
         verify(attendanceExceptionRepository).save(argThat(exc ->
                 exc.getExceptionType().equals(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)
                         && exc.getExceptionDate().equals(conflictDate)));
+    }
+
+    @Test
+    void leaveAttendanceConflict_notRaised_whenLeaveDoesNotCoverTheCheckInDay() {
+        User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
+
+        LocalDate checkInDate = LocalDate.now().minusDays(1);
+        LocalDate leaveDate = LocalDate.now().minusDays(3); // does not overlap checkInDate
+        Attendance recordOutsideLeave = Attendance.builder()
+                .employeeUserId(employeeId)
+                .workDate(checkInDate)
+                .checkInAt(LocalDateTime.now().minusDays(1).withHour(9).withMinute(30))
+                .checkOutAt(LocalDateTime.now().minusDays(1).withHour(18).withMinute(0))
+                .lateByMinutes(0)
+                .build();
+        LeaveRequest approvedLeave = LeaveRequest.builder()
+                .employeeUserId(employeeId)
+                .startDate(leaveDate)
+                .endDate(leaveDate)
+                .status("APPROVED")
+                .build();
+
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(recordOutsideLeave));
+        when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                List.of(employeeId), "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+
+        verify(attendanceExceptionRepository, never()).save(argThat(exc ->
+                exc.getExceptionType().equals(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)));
     }
 
     @Test
@@ -264,15 +312,14 @@ class ExceptionServiceTest {
                 .exceptionType(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)
                 .build();
 
-        when(attendanceRepository.findByWorkDateBetween(from, to)).thenReturn(List.of(recordOnLeaveDay));
-        when(leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(recordOnLeaveDay));
+        when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                List.of(employeeId), "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
         when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
                 employeeId, conflictDate, ExceptionType.LEAVE_ATTENDANCE_CONFLICT)).thenReturn(Optional.of(existing));
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to))
-                .thenReturn(List.of());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
         exceptionService.getExceptionsForCaller(hrEmail, from, to);

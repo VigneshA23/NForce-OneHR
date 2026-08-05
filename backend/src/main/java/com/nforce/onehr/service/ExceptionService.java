@@ -40,19 +40,27 @@ public class ExceptionService {
      * direct reports (via EmployeeManagerHistory). Scope is resolved from the caller's
      * roles only — never client-supplied. HR/Super Admin takes precedence over Manager
      * for any user holding both roles.
+     *
+     * This dashboard is an individual-contributor view only. "Employee" here means
+     * exactly what EmployeeService.listEmployees() (the Employee Master / Employees
+     * page) means: holds the EMPLOYEE role. Admin/HR/Manager-only accounts never appear
+     * as exception subjects, company-wide or as a direct report, even if their own
+     * attendance would otherwise qualify.
      */
     @Transactional
     public List<ExceptionResponse> getExceptionsForCaller(String actorEmail, LocalDate from, LocalDate to) {
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
+        Set<UUID> employeeRoleIds = userRepository.findEmployeeRoleUserIds();
 
-        List<UUID> scopeIds; // null = company-wide
+        List<UUID> scopeIds;
         if (roleCodes.stream().anyMatch(HR_ROLES::contains)) {
-            scopeIds = null;
+            scopeIds = new java.util.ArrayList<>(employeeRoleIds);
         } else if (roleCodes.contains("MANAGER")) {
             scopeIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
                     .map(EmployeeManagerHistory::getEmployeeUserId)
+                    .filter(employeeRoleIds::contains)
                     .collect(Collectors.toList());
         } else {
             throw new AccessDeniedException("Not authorized to view exceptions");
@@ -60,9 +68,8 @@ public class ExceptionService {
 
         detectExceptions(scopeIds, from, to);
 
-        List<AttendanceException> exceptions = scopeIds == null
-                ? attendanceExceptionRepository.findByExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(from, to)
-                : attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(scopeIds, from, to);
+        List<AttendanceException> exceptions = attendanceExceptionRepository
+                .findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(scopeIds, from, to);
 
         return exceptions.stream().map(this::toResponse).collect(Collectors.toList());
     }
@@ -78,16 +85,14 @@ public class ExceptionService {
      *    check-in was also recorded.
      */
     private void detectExceptions(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
-        List<Attendance> records = scopeIds == null
-                ? attendanceRepository.findByWorkDateBetween(from, to)
-                : attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(new java.util.ArrayList<>(scopeIds), from, to);
+        List<UUID> scopeIdList = new java.util.ArrayList<>(scopeIds);
+        List<Attendance> records = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(scopeIdList, from, to);
 
         LocalDate today = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
 
-        List<LeaveRequest> approvedLeave = scopeIds == null
-                ? leaveRequestRepository.findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from)
-                : leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        scopeIds, "APPROVED", to, from);
+        List<LeaveRequest> approvedLeave = leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        scopeIdList, "APPROVED", to, from);
 
         Set<String> leaveCoveredDays = approvedLeave.stream()
                 .flatMap(leave -> leave.getStartDate().datesUntil(leave.getEndDate().plusDays(1))
