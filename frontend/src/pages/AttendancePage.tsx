@@ -10,6 +10,7 @@ import {
   type RegularizationRecord,
   type SubmitRegularizationPayload,
   type ApproverOption,
+  type Punch,
 } from '../api/attendance';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
@@ -313,9 +314,54 @@ function RegularizationStatusPill({ status }: { status: string }) {
   );
 }
 
+/** Every check-in/check-out session for a single day — shows a lunch-break gap explicitly. */
+function PunchHistoryList({ date, token }: { date: string; token: string }) {
+  const [punches, setPunches] = useState<Punch[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPunches(null);
+    setError(null);
+    attendanceApi.punches(date, token)
+      .then((p) => { if (!cancelled) setPunches(p); })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load punch history'); });
+    return () => { cancelled = true; };
+  }, [date, token]);
+
+  if (error) {
+    return <div style={{ fontSize: 12, color: 'var(--risk)' }}>Punch history: {error}</div>;
+  }
+  if (punches === null) {
+    return <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Loading punch history…</div>;
+  }
+  if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>
+        <Clock size={11} /> Punch History
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {punches.map((p, i) => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--txt-mut)' }}>
+            <span style={{ color: 'var(--txt-dim)', fontSize: 11 }}>{i + 1}.</span>
+            <LogIn size={12} style={{ color: 'var(--txt-dim)' }} />
+            <span>{formatTime(p.checkInAt) ?? dash}</span>
+            <span style={{ color: 'var(--txt-dim)' }}>→</span>
+            <LogOut size={12} style={{ color: 'var(--txt-dim)' }} />
+            <span>{formatTime(p.checkOutAt) ?? 'still open'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SourceTag({ source }: { source: string | null }) {
   if (!source) return dash;
-  return <span>{source === 'REGULARIZATION' ? 'Regularized' : 'System'}</span>;
+  const label = source === 'REGULARIZATION' ? 'Regularized' : source === 'WEB_REMOTE' ? 'Web Remote' : 'System';
+  return <span>{label}</span>;
 }
 
 function SectionHeading({ title, hint }: { title: string; hint?: string }) {
@@ -1261,19 +1307,26 @@ function MyAttendance() {
                   <>
                     <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                       <div>
-                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Check In</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                          <LogIn size={11} /> Check In
+                        </div>
                         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkInAt) ?? dash}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Check Out</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                          <LogOut size={11} /> Check Out
+                        </div>
                         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkOutAt) ?? dash}</div>
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Hours</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                        <Clock size={11} /> Hours
+                      </div>
                       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.record.workedMinutes) ?? dash}</div>
                     </div>
                     <StatusPill status={selectedInfo.record.status} />
+                    <PunchHistoryList date={selectedInfo.iso} token={token} />
                   </>
                 ) : selectedInfo.isWeekend ? (
                   <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>

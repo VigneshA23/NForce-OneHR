@@ -140,36 +140,36 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 18, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <button
           onClick={() => setViewDate(new Date(year, month - 1, 1))}
           aria-label="Previous month"
-          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
         >
-          <ChevronLeft size={14} />
+          <ChevronLeft size={12} />
         </button>
-        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>
+        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 12, color: 'var(--txt)' }}>
           {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
         </span>
         <button
           onClick={() => setViewDate(new Date(year, month + 1, 1))}
           aria-label="Next month"
-          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
         >
-          <ChevronRight size={14} />
+          <ChevronRight size={12} />
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
         {WEEKDAY_LABELS.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.04em', padding: '4px 0' }}>
-            {d}
+          <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em', padding: '2px 0' }}>
+            {d[0]}
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
         {cells.map((c, i) => {
           if (!c) return <div key={i} />;
           const holiday = holidayByDate.get(c.iso);
@@ -179,22 +179,22 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               key={i}
               title={holiday?.holidayName}
               style={{
-                minHeight: 54,
-                borderRadius: 8,
-                padding: '5px 6px',
+                minHeight: 34,
+                borderRadius: 6,
+                padding: '3px 4px',
                 background: holiday ? 'color-mix(in srgb, var(--warn) 18%, transparent)' : 'var(--raised)',
                 border: isToday ? '1.5px solid var(--brand)' : holiday ? '1px solid var(--warn)' : '1px solid var(--line)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 2,
+                gap: 1,
               }}
             >
-              <span style={{ fontSize: 11.5, fontWeight: isToday ? 700 : 500, color: holiday ? 'var(--warn)' : 'var(--txt)' }}>
+              <span style={{ fontSize: 10, fontWeight: isToday ? 700 : 500, color: holiday ? 'var(--warn)' : 'var(--txt)' }}>
                 {c.day}
               </span>
               {holiday && (
                 <span style={{
-                  fontSize: 9.5, fontWeight: 600, color: 'var(--warn)', lineHeight: 1.2,
+                  fontSize: 8, fontWeight: 600, color: 'var(--warn)', lineHeight: 1.15,
                   overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
                   WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                 }}>
@@ -387,40 +387,42 @@ export default function LeavePage() {
           )}
         </div>
 
-        {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
-
         {holidayError && (
           <div role="alert" style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 8, padding: '10px 14px', color: 'var(--risk)', fontSize: 13, marginBottom: 14 }}>
             {holidayError}
           </div>
         )}
 
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-          {holidays.length === 0 ? (
-            <div style={{ padding: 48, textAlign: 'center' }}>
-              <CalendarDays size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
-              <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No holidays have been added for your location yet.</div>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    {['Holiday Name', 'Date', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {holidays.map(h => (
-                    <tr key={h.id}>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{h.holidayName}</td>
-                      <td style={tdStyle}>{formatHolidayDate(h.holidayDate)}</td>
-                      <td style={tdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
+        <div style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
+          {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
+
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+            {holidays.length === 0 ? (
+              <div style={{ padding: 48, textAlign: 'center' }}>
+                <CalendarDays size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
+                <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No holidays have been added for your location yet.</div>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      {['Holiday Name', 'Date', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {holidays.map(h => (
+                      <tr key={h.id}>
+                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{h.holidayName}</td>
+                        <td style={tdStyle}>{formatHolidayDate(h.holidayDate)}</td>
+                        <td style={tdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

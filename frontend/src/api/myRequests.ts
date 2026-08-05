@@ -11,7 +11,7 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type RequestType = 'LEAVE' | 'REGULARIZATION';
+export type RequestType = 'LEAVE' | 'REGULARIZATION' | 'WEB_CLOCK_IN';
 
 export interface MyRequestItem {
   id: string;

@@ -29,6 +29,12 @@ export interface AttendanceRecord {
   source: AttendanceSource | null;
 }
 
+export interface Punch {
+  id: string;
+  checkInAt: string;
+  checkOutAt: string | null;
+}
+
 export interface TodayAttendance {
   workDate: string;
   /** Current time in the server's business timezone — the clock elapsed time is measured against. */
@@ -123,6 +129,11 @@ export const attendanceApi = {
   punchForDate: (date: string, token: string): Promise<AttendanceRecord | null> =>
     fetch(`${BASE}/attendance/punch/${date}`, { headers: authHeaders(token) })
       .then((res) => (res.status === 204 ? null : handle<AttendanceRecord>(res))),
+
+  /** Every check-in/check-out session for a single day, e.g. to show a lunch-break gap. */
+  punches: (date: string, token: string) =>
+    fetch(`${BASE}/attendance/punches/${date}`, { headers: authHeaders(token) })
+      .then(handle<Punch[]>),
 };
 
 export const regularizationApi = {

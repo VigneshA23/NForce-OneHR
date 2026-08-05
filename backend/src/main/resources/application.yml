@@ -16,11 +16,11 @@ spring:
       ddl-auto: none
   flyway:
     # This is a shared dev database that multiple feature branches migrate against
-    # directly (see V40/V47 header comments). A branch's local migration folder can
-    # therefore lag behind versions another branch already applied — that's expected,
-    # not corruption, so don't fail validation over migrations we simply don't have
-    # the file for locally.
-    ignore-migration-patterns: "*:missing"
+    # directly (see V40/V47 header comments), so a branch's local migration folder
+    # can lag behind versions another branch already applied ("missing"), or a branch
+    # can pull a migration file before the DB it's testing against has caught up
+    # ("future"). Neither is corruption — don't fail validation over either.
+    ignore-migration-patterns: "*:missing,*:future"
 
 app:
   jwt:

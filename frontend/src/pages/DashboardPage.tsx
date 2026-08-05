@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport, type ManagerDashboard } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord, type TodayAttendance } from '../api/attendance';
+import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 
 function formatClockTime(iso: string | null): string | null {
   if (!iso) return null;
@@ -103,6 +104,141 @@ function JoinersChart({ reports: _reports }: { reports: DirectReport[] }) {
   );
 }
 
+/* ── Web Clock-In: separate, once-a-day, reason required, needs approval ── */
+function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void }) {
+  const token = useAuthStore(s => s.token) ?? '';
+  const { showToast } = useToast();
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit() {
+    if (!reason.trim()) return;
+    setSubmitting(true);
+    try {
+      const created = await webClockInApi.submit(reason.trim(), token);
+      showToast('success', 'Web clock-in request submitted for approval');
+      onSubmitted(created);
+      onClose();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to submit web clock-in');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          Web Clock-In
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
+            Adding comment is made mandatory by your HR Manager.
+          </p>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+              Reason *
+            </label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="e.g. Working from home today due to a family commitment"
+              autoFocus
+              style={{ width: '100%', minHeight: 80, resize: 'vertical', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button
+              onClick={handleSubmit}
+              disabled={!reason.trim() || submitting}
+              style={{ background: reason.trim() ? 'var(--brand)' : 'var(--raised2)', color: reason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: !reason.trim() || submitting ? 'not-allowed' : 'pointer' }}
+            >
+              {submitting ? 'Submitting…' : 'Submit for Approval'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WebClockInRow() {
+  const token = useAuthStore(s => s.token) ?? '';
+  const { showToast } = useToast();
+  const [today, setToday] = useState<WebClockInRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const refresh = () =>
+    webClockInApi.mine(token).then(list => {
+      setToday(list.find(r => r.workDate === todayIsoDate()) ?? null);
+    });
+
+  useEffect(() => {
+    refresh().catch(() => setToday(null)).finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  async function handleWebClockOut() {
+    setSubmitting(true);
+    try {
+      await webClockInApi.checkOut(token);
+      await refresh();
+      showToast('success', 'Web clocked out successfully');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) return null;
+
+  return (
+    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      {!today && (
+        <button
+          onClick={() => setShowModal(true)}
+          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          Working remotely? Web Clock In →
+        </button>
+      )}
+      {today?.status === 'PENDING' && (
+        <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Web clock-in pending approval.</span>
+      )}
+      {today?.status === 'REJECTED' && (
+        <>
+          <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{today.reviewComment ? `: ${today.reviewComment}` : '.'}</span>
+          <button
+            onClick={() => setShowModal(true)}
+            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            Resubmit →
+          </button>
+        </>
+      )}
+      {today?.status === 'APPROVED' && !today.checkedOutAt && (
+        <button
+          onClick={handleWebClockOut}
+          disabled={submitting}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+        >
+          {submitting ? 'Clocking out…' : 'Web Clock Out'}
+        </button>
+      )}
+      {today?.status === 'APPROVED' && today.checkedOutAt && (
+        <span style={{ fontSize: 12, color: 'var(--ok)' }}>Web clocked out at {formatClockTime(today.checkedOutAt)}.</span>
+      )}
+      {showModal && (
+        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={(r) => setToday(r)} />
+      )}
+    </div>
+  );
+}
+
 /* ── Live Attendance card (own check-in status) ──── */
 function AttendanceStatusCard() {
   const token = useAuthStore(s => s.token) ?? '';
@@ -184,6 +320,7 @@ function AttendanceStatusCard() {
           View attendance →
         </button>
       </div>
+      <WebClockInRow />
     </div>
   );
 }

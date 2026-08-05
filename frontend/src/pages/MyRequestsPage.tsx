@@ -13,16 +13,19 @@ const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
+  WEB_CLOCK_IN: 'Web Clock-In',
 };
 
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
+  WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
 };
 
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
+  WEB_CLOCK_IN: '#4C8DD6',
 };
 
 function TypeBadge({ type }: { type: RequestType }) {
@@ -77,6 +80,14 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       </div>
     );
   }
+  if (item.requestType === 'WEB_CLOCK_IN') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate} · In {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
+        {item.status === 'APPROVED' && (item.requestedCheckOut ? ` · Out ${fmtTime(item.requestedCheckOut)}` : ' · still clocked in')}
+      </div>
+    );
+  }
   return null;
 }
 
@@ -125,6 +136,17 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               </>
             )}
 
+            {item.requestType === 'WEB_CLOCK_IN' && (
+              <>
+                <Row label="Work Date" value={item.attendanceDate} />
+                <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
+                {item.status === 'APPROVED' && (
+                  <Row label="Checked Out" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not yet — still clocked in'} />
+                )}
+                <Row label="Reason" value={item.regularizationReason} />
+              </>
+            )}
+
             <div>
               <div style={labelStyle}>Status</div>
               <StatusBadge status={item.status} />
@@ -144,7 +166,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN'];
 
 export default function MyRequestsPage() {
   const token = useAuthStore(s => s.token)!;
