@@ -1,20 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, Divider, IconButton, Paper, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TextField, Typography,
-  ThemeProvider as MuiThemeProvider, createTheme, alpha,
-} from '@mui/material';
-import LoginIcon from '@mui/icons-material/Login';
-import LogoutIcon from '@mui/icons-material/Logout';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import CloseIcon from '@mui/icons-material/Close';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import AddIcon from '@mui/icons-material/Add';
-import EventBusyIcon from '@mui/icons-material/EventBusy';
-import InboxIcon from '@mui/icons-material/Inbox';
-import GroupsIcon from '@mui/icons-material/Groups';
-import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+import { createPortal } from 'react-dom';
+import { Link } from 'react-router-dom';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -22,13 +9,16 @@ import {
   type TodayAttendance,
   type RegularizationRecord,
   type SubmitRegularizationPayload,
+  type ApproverOption,
+  type Punch,
 } from '../api/attendance';
+import { holidaysApi, type HolidayRow } from '../api/holidays';
+import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole } from '../lib/nav.config';
-import { useTheme as useAppTheme } from '../lib/theme';
 
-// ─── Formatting helpers (unchanged) ────────────────────────────────────────────
+// ─── Formatting helpers ───────────────────────────────────────────────────────
 // Server timestamps are wall-clock strings in the business timezone (no offset), so they are
 // formatted by slicing rather than via `new Date()` — that would re-interpret them in the
 // browser's zone and shift the displayed time.
@@ -69,68 +59,200 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ─── Month-calendar helpers ────────────────────────────────────────────────────
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function isoOf(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function calendarMonthLabel(year: number, month: number): string {
+  return new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+/** Sun-first grid of day numbers for a month, padded with nulls to full weeks. */
+function buildCalendarCells(year: number, month: number): (number | null)[] {
+  const firstDow = new Date(year, month, 1).getDay();
+  const total = daysInMonth(year, month);
+  const cells: (number | null)[] = Array(firstDow).fill(null);
+  for (let d = 1; d <= total; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+/** Expands an inclusive date range into individual ISO date strings. */
+function expandDateRange(startIso: string, endIso: string): string[] {
+  const dates: string[] = [];
+  let cur = new Date(`${startIso}T00:00:00`);
+  const end = new Date(`${endIso}T00:00:00`);
+  while (cur <= end) {
+    dates.push(isoOf(cur.getFullYear(), cur.getMonth(), cur.getDate()));
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+  }
+  return dates;
+}
+
 /** Regularization timestamps come back with an offset, so a plain slice is safe here. */
 function fmtDateTime(dt: string | null) {
   if (!dt) return '—';
   return dt.replace('T', ' ').slice(0, 16);
 }
 
-// ─── MUI theme bridge ──────────────────────────────────────────────────────────
-// This page is styled with real MUI components, but the rest of the app uses hand-rolled
-// CSS variables (see src/index.css) that flip value under [data-theme="dark"/"light"] on
-// <html>. MUI's createTheme runs real color math (lighten/darken/alpha) on the
-// primary/error/warning/success/info palette slots to auto-derive hover/contrast shades —
-// that math requires an actually-parseable color, NOT a var(--x) reference, or createTheme
-// throws and takes the whole render down with it (no error boundary catches it → blank page).
-// text/background/divider ALSO turned out to be unsafe as var(--x) refs — MUI derives its
-// action.hover/selected/disabled opacity overlays from palette.text.primary via the same
-// color math, so every palette slot below must be a real, parseable color. This theme is
-// rebuilt (via useMemo keyed on the app's own dark/light toggle) whenever that toggle
-// flips, so it still stays in sync — just via a fresh literal-hex object instead of a live
-// CSS variable.
-const SWATCHES = {
-  dark: {
-    brand: '#B11116', brandDeep: '#7A0C10', risk: '#E4373D', warn: '#E0A93B', ok: '#2FB67C', info: '#4C8DD6',
-    shell: '#0E0F12', panel: '#16181D', line: '#2A2E37', txt: '#E8EAED', txtMut: '#9BA1AC',
-  },
-  light: {
-    brand: '#B11116', brandDeep: '#7A0C10', risk: '#C81A1F', warn: '#896010', ok: '#1A7A52', info: '#1A5FAA',
-    shell: '#F7F8FA', panel: '#FFFFFF', line: '#E3E6EA', txt: '#1A1D23', txtMut: '#5A616B',
-  },
-} as const;
-
-function buildMuiTheme(mode: 'light' | 'dark') {
-  const c = SWATCHES[mode];
-  return createTheme({
-    palette: {
-      mode,
-      primary: { main: c.brand, dark: c.brandDeep, contrastText: '#fff' },
-      error: { main: c.risk },
-      warning: { main: c.warn },
-      success: { main: c.ok },
-      info: { main: c.info },
-      background: { default: c.shell, paper: c.panel },
-      text: { primary: c.txt, secondary: c.txtMut },
-      divider: c.line,
-    },
-    shape: { borderRadius: 12 },
-    typography: {
-      fontFamily: "'Inter', system-ui, sans-serif",
-      h4: { fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700 },
-      h6: { fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700 },
-    },
-    components: {
-      MuiCard: { styleOverrides: { root: { border: '1px solid var(--line)', backgroundImage: 'none' } } },
-      MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
-      MuiTableCell: { styleOverrides: { root: { borderColor: 'var(--line)' } } },
-      MuiButton: { styleOverrides: { root: { textTransform: 'none', fontWeight: 600, borderRadius: 8 } } },
-      MuiChip: { styleOverrides: { root: { fontWeight: 600 } } },
-      MuiDialog: { styleOverrides: { paper: { border: '1px solid var(--line)' } } },
-    },
-  });
+/** Minutes between two "YYYY-MM-DDTHH:mm" strings, or null if either is missing/out of order. */
+function minutesBetween(checkIn: string, checkOut: string): number | null {
+  if (!checkIn || !checkOut) return null;
+  const inMs = new Date(checkIn).getTime();
+  const outMs = new Date(checkOut).getTime();
+  if (!Number.isFinite(inMs) || !Number.isFinite(outMs) || outMs <= inMs) return null;
+  return Math.round((outMs - inMs) / 60000);
 }
 
-// ─── Status chips ──────────────────────────────────────────────────────────────
+// ─── 12-hour time text input (Corrected Check-in / Check-out) ────────────────
+// A single free-text field — not separate hour/minute/AM-PM dropdowns. Keystrokes are
+// masked into "H:MM AM/PM" as the user types, and the result is validated against a
+// strict 12-hour pattern before it's allowed to become a server timestamp.
+
+type Period = 'AM' | 'PM';
+interface TimeValue { hour: string; minute: string; period: Period | ''; }
+const EMPTY_TIME: TimeValue = { hour: '', minute: '', period: '' };
+
+/** Server LocalDateTime string ("2026-07-29T09:30:00") -> 12-hour time parts. */
+function timeValueFromIso(iso: string | null | undefined): TimeValue {
+  if (!iso) return EMPTY_TIME;
+  const timePart = iso.slice(11, 16);
+  if (timePart.length < 5) return EMPTY_TIME;
+  const [h24, m] = timePart.split(':').map(Number);
+  if (!Number.isFinite(h24) || !Number.isFinite(m)) return EMPTY_TIME;
+  const period: Period = h24 < 12 ? 'AM' : 'PM';
+  const hour12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return { hour: String(hour12), minute: String(m).padStart(2, '0'), period };
+}
+
+/** True only when hour, minute, and AM/PM are all present. */
+function isTimeValueComplete(t: TimeValue): boolean {
+  return !!(t.hour && t.minute && t.period);
+}
+
+/** Combines a date (YYYY-MM-DD) with a complete 12-hour time into a server LocalDateTime string. */
+function isoFromTimeValue(dateStr: string, t: TimeValue): string | undefined {
+  if (!dateStr || !isTimeValueComplete(t)) return undefined;
+  let h24 = parseInt(t.hour, 10) % 12;
+  if (t.period === 'PM') h24 += 12;
+  return `${dateStr}T${String(h24).padStart(2, '0')}:${t.minute}`;
+}
+
+/** TimeValue -> display text, e.g. {hour:'9', minute:'30', period:'AM'} -> "9:30 AM". */
+function formatTimeValue(t: TimeValue): string {
+  return isTimeValueComplete(t) ? `${t.hour}:${t.minute} ${t.period}` : '';
+}
+
+// "9:30 AM", "09:30am", "5:45 PM" — 1-12 hour, exactly 2-digit minute, AM/PM
+// case-insensitive with or without a space before it.
+const TIME_TEXT_PATTERN = /^(0?[1-9]|1[0-2]):([0-5][0-9])\s?([AaPp][Mm])$/;
+
+/** Parses free-typed text into a TimeValue, or null if it isn't (yet) a complete valid time. */
+function parseTimeText(text: string): TimeValue | null {
+  const match = TIME_TEXT_PATTERN.exec(text.trim());
+  if (!match) return null;
+  return { hour: String(parseInt(match[1], 10)), minute: match[2], period: match[3].toUpperCase() as Period };
+}
+
+/**
+ * Masks raw keystrokes into "H:MM AM/PM" as the user types: auto-inserts the ':' once the
+ * typed hour is unambiguous, and completes a typed "A"/"P" to "AM"/"PM" — but only while
+ * characters are being added, so backspacing through the suffix still clears it.
+ */
+function maskTimeInput(raw: string, previous: string): string {
+  const deleting = raw.length < previous.length;
+  const upper = raw.toUpperCase();
+  const digits = upper.replace(/[^0-9]/g, '').slice(0, 4);
+  const letter = upper.match(/[AP]/)?.[0];
+
+  let hourPart = digits;
+  let minutePart = '';
+  if (digits.length > 1) {
+    const firstTwo = parseInt(digits.slice(0, 2), 10);
+    if (firstTwo >= 1 && firstTwo <= 12) {
+      hourPart = digits.slice(0, 2);
+      minutePart = digits.slice(2, 4);
+    } else {
+      hourPart = digits.slice(0, 1);
+      minutePart = digits.slice(1, 3);
+    }
+  }
+
+  let out = hourPart;
+  if (digits.length > hourPart.length) out += ':' + minutePart;
+  if (letter) out += (out ? ' ' : '') + (deleting ? letter : letter + 'M');
+  return out;
+}
+
+/** Single masked text field for a 12-hour time — replaces separate hour/minute/AM-PM dropdowns. */
+function TimeTextInput({ label, value, touched, onChange, onBlur }: {
+  label: string; value: string; touched: boolean; onChange: (text: string) => void; onBlur: () => void;
+}) {
+  const empty = value.trim() === '';
+  const invalidFormat = !empty && !parseTimeText(value);
+  const showError = touched && (empty || invalidFormat);
+  return (
+    <Field label={label}>
+      <input
+        type="text"
+        inputMode="text"
+        maxLength={8}
+        placeholder="e.g. 09:30 AM"
+        style={{ ...inputStyle, ...(showError ? { borderColor: 'var(--risk)' } : {}) }}
+        value={value}
+        onChange={e => onChange(maskTimeInput(e.target.value, value))}
+        onBlur={onBlur}
+      />
+      {showError && (
+        <div style={fieldErrorStyle}>
+          {empty ? 'This field is required.' : 'Enter a valid 12-hour time, e.g. 09:30 AM or 5:45 PM.'}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/** Groups rows by attendance-date month, newest month first, rows within a month newest first. */
+function groupByMonth<T extends { attendanceDate: string }>(rows: T[]): Array<[string, T[]]> {
+  const map = new Map<string, T[]>();
+  for (const r of rows) {
+    const key = r.attendanceDate.slice(0, 7); // yyyy-MM
+    (map.get(key) ?? map.set(key, []).get(key)!).push(r);
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, group]) => [key, [...group].sort((a, b) => b.attendanceDate.localeCompare(a.attendanceDate))]);
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+// Plain month names for the My Requests month selector — filters by calendar month across
+// all years, independent of the (year+month) grouping headings groupByMonth/monthLabel drive.
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const APPROVER_ROLE_LABELS: Record<string, string> = { MANAGER: 'Manager', HR_ADMIN: 'HR' };
+
+const STATUS_COLORS: Record<AttendanceStatus, string> = {
+  PRESENT: '#2FB67C',
+  LATE: '#E0A93B',
+  HALF_DAY: '#4C8DD6',
+  ABSENT: '#E4373D',
+};
 
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
   PRESENT: 'Present',
@@ -139,100 +261,332 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   ABSENT: 'Absent',
 };
 
-const STATUS_HEX: Record<AttendanceStatus, string> = {
-  PRESENT: '#2FB67C',
-  LATE: '#E0A93B',
-  HALF_DAY: '#4C8DD6',
-  ABSENT: '#E4373D',
-};
-
-const REGULARIZATION_HEX: Record<string, string> = {
+const REGULARIZATION_STATUS_COLOR: Record<string, string> = {
   PENDING: '#E0A93B', APPROVED: '#2FB67C', REJECTED: '#E4373D',
 };
 
-// NOTE: sx accepts a plain object of CSS-in-JS — alignItems/justifyContent/flexWrap/fontWeight/
-// display all go here rather than as direct component props, since this installed MUI version
-// (v9) dropped those shorthand props from Stack/Typography in favor of sx-only.
-function softChipSx(hex: string) {
-  return { color: hex, bgcolor: alpha(hex, 0.12), border: 1, borderColor: alpha(hex, 0.3) };
+const dash = <span style={{ color: 'var(--txt-dim)' }}>—</span>;
+
+const thStyle: React.CSSProperties = {
+  padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700,
+  color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em',
+  borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
+};
+const tdStyle: React.CSSProperties = {
+  padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)',
+  borderBottom: '1px solid var(--line)', verticalAlign: 'middle',
+};
+const panelStyle: React.CSSProperties = {
+  background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden',
+};
+const dateInputStyle: React.CSSProperties = {
+  background: 'var(--raised)', color: 'var(--txt)', border: '1px solid var(--line2)',
+  borderRadius: 7, padding: '7px 10px', fontSize: 13,
+};
+
+const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
+const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.5)' };
+const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
+const fieldErrorStyle: React.CSSProperties = { fontSize: 11, color: 'var(--risk)', marginTop: 4 };
+
+// ─── Shared bits ──────────────────────────────────────────────────────────────
+
+function StatusPill({ status }: { status: AttendanceStatus | null }) {
+  if (!status) return dash;
+  const color = STATUS_COLORS[status] ?? 'var(--txt-mut)';
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 600, color,
+      background: 'var(--raised)', border: '1px solid var(--line)',
+      borderRadius: 4, padding: '2px 7px', whiteSpace: 'nowrap',
+    }}>
+      {STATUS_LABELS[status] ?? status}
+    </span>
+  );
 }
 
-function StatusChip({ status }: { status: AttendanceStatus | null }) {
-  if (!status) return <Dash />;
-  const hex = STATUS_HEX[status] ?? '#9BA1AC';
-  return <Chip size="small" label={STATUS_LABELS[status] ?? status} sx={softChipSx(hex)} />;
+function RegularizationStatusPill({ status }: { status: string }) {
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, color: REGULARIZATION_STATUS_COLOR[status] ?? '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
+      {status}
+    </span>
+  );
 }
 
-function RegularizationStatusChip({ status }: { status: string }) {
-  const hex = REGULARIZATION_HEX[status] ?? '#9BA1AC';
-  return <Chip size="small" label={status} sx={softChipSx(hex)} />;
+/** Every check-in/check-out session for a single day — shows a lunch-break gap explicitly. */
+function PunchHistoryList({ date, token }: { date: string; token: string }) {
+  const [punches, setPunches] = useState<Punch[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPunches(null);
+    setError(null);
+    attendanceApi.punches(date, token)
+      .then((p) => { if (!cancelled) setPunches(p); })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load punch history'); });
+    return () => { cancelled = true; };
+  }, [date, token]);
+
+  if (error) {
+    return <div style={{ fontSize: 12, color: 'var(--risk)' }}>Punch history: {error}</div>;
+  }
+  if (punches === null) {
+    return <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Loading punch history…</div>;
+  }
+  if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>
+        <Clock size={11} /> Punch History
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {punches.map((p, i) => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--txt-mut)' }}>
+            <span style={{ color: 'var(--txt-dim)', fontSize: 11 }}>{i + 1}.</span>
+            <LogIn size={12} style={{ color: 'var(--txt-dim)' }} />
+            <span>{formatTime(p.checkInAt) ?? dash}</span>
+            <span style={{ color: 'var(--txt-dim)' }}>→</span>
+            <LogOut size={12} style={{ color: 'var(--txt-dim)' }} />
+            <span>{formatTime(p.checkOutAt) ?? 'still open'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function SourceTag({ source }: { source: string | null }) {
-  if (!source) return <Dash />;
-  return <Typography variant="body2" color="text.secondary">{source === 'REGULARIZATION' ? 'Regularized' : 'System'}</Typography>;
-}
-
-function Dash() {
-  return <Typography component="span" color="text.disabled">—</Typography>;
+  if (!source) return dash;
+  const label = source === 'REGULARIZATION' ? 'Regularized' : source === 'WEB_REMOTE' ? 'Web Remote' : 'System';
+  return <span>{label}</span>;
 }
 
 function SectionHeading({ title, hint }: { title: string; hint?: string }) {
   return (
-    <Box sx={{ mb: 1.5 }}>
-      <Typography variant="h6">{title}</Typography>
-      {hint && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.3 }}>{hint}</Typography>}
-    </Box>
+    <div style={{ marginBottom: 12 }}>
+      <h2 style={{
+        fontFamily: '"Space Grotesk", sans-serif', fontSize: 15, fontWeight: 700,
+        color: 'var(--txt)', margin: 0,
+      }}>{title}</h2>
+      {hint && <p style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 3 }}>{hint}</p>}
+    </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><label style={labelStyle}>{label}</label>{children}</div>;
+}
+
+function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
-    <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '.07em', display: 'block', mb: 0.5 }}>
-        {label}
-      </Typography>
-      <Typography variant="h6" sx={{ fontWeight: 600 }}>{value}</Typography>
-    </Box>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    </div>
   );
 }
 
-function EmptyState({ icon, title, message }: { icon: React.ReactNode; title: string; message: string }) {
+// ─── Tooltip (hover-only, portal-rendered) ─────────────────────────────────────
+// No tooltip component exists in this project and no UI library (MUI/Radix/Antd/etc.) is
+// installed, so this is a minimal from-scratch implementation matching the page's existing
+// inline-style conventions. Rendered through a portal so it always sits above any local
+// overflow/z-index context (table scroll containers, modals) rather than being clipped by them.
+function Tooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
+  const [coords, setCoords] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const TOOLTIP_MAX_WIDTH = 340;
+  const GAP = 8;
+
+  function show() {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    // Prefer above; fall back to below only when there isn't reasonably enough headroom —
+    // exact fit is re-checked after render isn't needed since the tooltip is capped/wrapped.
+    const placement: 'top' | 'bottom' = rect.top >= 120 + GAP ? 'top' : 'bottom';
+    const maxLeft = Math.max(GAP, window.innerWidth - GAP - TOOLTIP_MAX_WIDTH);
+    const left = Math.min(Math.max(rect.left, GAP), maxLeft);
+    setCoords({ top: placement === 'top' ? rect.top - GAP : rect.bottom + GAP, left, placement });
+  }
+  function hide() {
+    setCoords(null);
+  }
+
   return (
-    <Stack spacing={1} sx={{ py: 6, color: 'text.disabled', alignItems: 'center' }}>
-      {icon}
-      <Typography variant="body1" color="text.secondary">{title}</Typography>
-      <Typography variant="body2" color="text.disabled">{message}</Typography>
-    </Stack>
+    <>
+      <span
+        ref={anchorRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        style={{ display: 'block', minWidth: 0, maxWidth: '100%' }}
+      >
+        {children}
+      </span>
+      {coords && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            top: coords.top,
+            left: coords.left,
+            transform: coords.placement === 'top' ? 'translateY(-100%)' : undefined,
+            maxWidth: TOOLTIP_MAX_WIDTH,
+            width: 'max-content',
+            background: 'var(--raised2)',
+            color: 'var(--txt)',
+            border: '1px solid var(--line2)',
+            borderRadius: 7,
+            padding: '8px 11px',
+            fontSize: 12,
+            lineHeight: 1.5,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+            boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+            zIndex: 1000,
+            pointerEvents: 'none',
+          }}
+        >
+          {content}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
-// ─── Request Regularization Dialog ─────────────────────────────────────────────
-function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (r: RegularizationRecord) => void; token: string }) {
+/** Single-line, ellipsis-truncated text with a hover tooltip revealing the full content. */
+function TruncatedText({ text, style }: { text: string | null | undefined; style?: React.CSSProperties }) {
+  if (!text) return dash;
+  return (
+    <Tooltip content={text}>
+      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', ...style }}>
+        {text}
+      </span>
+    </Tooltip>
+  );
+}
+
+// ─── Request Regularization Modal (create or edit-while-pending) ──────────────
+function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
+  onClose: () => void;
+  onSaved: (r: RegularizationRecord) => void;
+  token: string;
+  editing?: RegularizationRecord;
+  /** Attendance dates that already have an APPROVED regularization — resubmission is blocked. */
+  approvedDates: Set<string>;
+}) {
   const { showToast } = useToast();
   const today = todayIsoDate();
-  const [attendanceDate, setAttendanceDate] = useState(today);
-  const [checkIn, setCheckIn] = useState('');
-  const [checkOut, setCheckOut] = useState('');
-  const [reason, setReason] = useState('');
+  const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? today);
+  const [checkInText, setCheckInText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckIn)));
+  const [checkOutText, setCheckOutText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckOut)));
+  const [checkInTouched, setCheckInTouched] = useState(false);
+  const [checkOutTouched, setCheckOutTouched] = useState(false);
+  const [reason, setReason] = useState(editing?.reason ?? '');
+  const [managerUserId, setManagerUserId] = useState(editing?.assignedApproverId ?? '');
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const [existingPunch, setExistingPunch] = useState<AttendanceRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty — Assign To is still required */ });
+  }, [token]);
+
+  // Punch auto-fill + field visibility (scenarios 1/2): look up what's already on file for
+  // the chosen date. Clearing to null immediately (not just when the date is blank) avoids a
+  // stale flash of the previous date's fields while the new lookup is in flight.
+  useEffect(() => {
+    setExistingPunch(null);
+    if (!attendanceDate) return;
+    let cancelled = false;
+    attendanceApi.punchForDate(attendanceDate, token)
+      .then((punch) => { if (!cancelled) setExistingPunch(punch); })
+      .catch(() => { if (!cancelled) setExistingPunch(null); });
+    return () => { cancelled = true; };
+  }, [attendanceDate, token]);
+
+  useEffect(() => {
+    if (!existingPunch) return;
+    setCheckInText((prev) => (prev.trim() ? prev : formatTimeValue(timeValueFromIso(existingPunch.checkInAt))));
+    setCheckOutText((prev) => (prev.trim() ? prev : formatTimeValue(timeValueFromIso(existingPunch.checkOutAt))));
+  }, [existingPunch]);
+
+  // Scenario 1 (missing check-out only) / Scenario 2 (missing both): a field is hidden only
+  // when we know for certain the OTHER side is already on file and this one specifically is
+  // what's missing. If neither side is on file, or both already are (correcting a wrong
+  // punch), both fields stay visible. Hidden fields are never rendered and never required.
+  const hasCheckIn = !!existingPunch?.checkInAt;
+  const hasCheckOut = !!existingPunch?.checkOutAt;
+  const onlyOneSideOnFile = hasCheckIn !== hasCheckOut;
+  const showCheckIn = !onlyOneSideOnFile || !hasCheckIn;
+  const showCheckOut = !onlyOneSideOnFile || !hasCheckOut;
+
+  // Only a fully-typed, valid 12-hour time converts to a server timestamp — invalid or
+  // partial text must block submit rather than silently being dropped.
+  const checkInValue = parseTimeText(checkInText);
+  const checkOutValue = parseTimeText(checkOutText);
+  const checkInIso = checkInValue ? isoFromTimeValue(attendanceDate, checkInValue) : undefined;
+  const checkOutIso = checkOutValue ? isoFromTimeValue(attendanceDate, checkOutValue) : undefined;
+  const totalHoursLabel = useMemo(
+    () => formatDuration(minutesBetween(checkInIso ?? '', checkOutIso ?? '')),
+    [checkInIso, checkOutIso],
+  );
+
+  // A date that already has an APPROVED regularization can't be re-requested — editing that
+  // same request (its own date, unchanged) is not a duplicate.
+  const dateAlreadyApproved = !!attendanceDate
+    && attendanceDate !== editing?.attendanceDate
+    && approvedDates.has(attendanceDate);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!attendanceDate || !reason.trim()) { setError('Date and reason are required.'); return; }
-    if (!checkIn && !checkOut) { setError('Provide a corrected check-in or check-out time.'); return; }
+    setSubmitAttempted(true);
+    setCheckInTouched(true);
+    setCheckOutTouched(true);
+
+    const dateMissing = !attendanceDate;
+    const reasonMissing = !reason.trim();
+    const managerMissing = !managerUserId;
+    // Hidden fields are never required — only a currently-visible field can block submit.
+    const checkInMissing = showCheckIn && checkInText.trim() === '';
+    const checkOutMissing = showCheckOut && checkOutText.trim() === '';
+    const checkInInvalid = showCheckIn && checkInText.trim() !== '' && !checkInValue;
+    const checkOutInvalid = showCheckOut && checkOutText.trim() !== '' && !checkOutValue;
+
+    if (dateMissing || reasonMissing || managerMissing || checkInMissing || checkOutMissing) {
+      setError('Fill in every required field shown above.');
+      return;
+    }
+    if (dateAlreadyApproved) {
+      setError('Already raised regularization for this date.');
+      return;
+    }
+    if (checkInInvalid || checkOutInvalid) {
+      setError('Enter valid 12-hour times, e.g. 09:30 AM or 5:45 PM.');
+      return;
+    }
     setSubmitting(true); setError(null);
     try {
       const payload: SubmitRegularizationPayload = {
         attendanceDate,
-        requestedCheckIn: checkIn || undefined,
-        requestedCheckOut: checkOut || undefined,
+        requestedCheckIn: showCheckIn ? checkInIso : undefined,
+        requestedCheckOut: showCheckOut ? checkOutIso : undefined,
         reason: reason.trim(),
+        managerUserId,
       };
-      const created = await regularizationApi.submit(payload, token);
-      onCreated(created);
-      showToast('success', 'Regularization request submitted');
+      const saved = editing
+        ? await regularizationApi.update(editing.id, payload, token)
+        : await regularizationApi.submit(payload, token);
+      onSaved(saved);
+      showToast('success', editing ? 'Regularization request updated' : 'Regularization request submitted');
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Submission failed';
@@ -242,49 +596,177 @@ function RequestModal({ onClose, onCreated, token }: { onClose: () => void; onCr
   }
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        Request Regularization
-        <IconButton size="small" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
-      </DialogTitle>
-      <Box component="form" onSubmit={handleSubmit}>
-        <DialogContent>
-          <Stack spacing={2.5}>
-            {error && <Alert severity="error" variant="outlined">{error}</Alert>}
-            <TextField
-              label="Attendance Date" type="date" required fullWidth size="small"
-              value={attendanceDate} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: today } }}
-              onChange={e => setAttendanceDate(e.target.value)}
-            />
-            <TextField
-              label="Corrected Check-In" type="datetime-local" fullWidth size="small"
-              value={checkIn} slotProps={{ inputLabel: { shrink: true } }}
-              onChange={e => setCheckIn(e.target.value)}
-            />
-            <TextField
-              label="Corrected Check-Out" type="datetime-local" fullWidth size="small"
-              value={checkOut} slotProps={{ inputLabel: { shrink: true } }}
-              onChange={e => setCheckOut(e.target.value)}
-            />
-            <TextField
-              label="Reason" required fullWidth multiline minRows={3} size="small"
-              value={reason} onChange={e => setReason(e.target.value)}
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <ModalHeader title={editing ? 'Edit Regularization Request' : 'Request Regularization'} onClose={onClose} />
+        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+          <Field label="Attendance Date *">
+            <input type="date" style={inputStyle} value={attendanceDate} max={today}
+              onChange={e => {
+                setAttendanceDate(e.target.value);
+                setCheckInText(''); setCheckOutText('');
+                setCheckInTouched(false); setCheckOutTouched(false);
+                setSubmitAttempted(false);
+              }} />
+            {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
+            {dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
+          </Field>
+          {existingPunch && (existingPunch.checkInAt || existingPunch.checkOutAt) && (
+            <div style={{ fontSize: 12, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' }}>
+              On file for this date — Check-in: {formatTime(existingPunch.checkInAt) ?? 'not recorded'}, Check-out: {formatTime(existingPunch.checkOutAt) ?? 'not recorded'}.
+              {showCheckIn && showCheckOut
+                ? ' The missing side has been pre-filled below; adjust either as needed.'
+                : ' Only the missing side needs a correction below.'}
+            </div>
+          )}
+          {showCheckIn && (
+            <TimeTextInput label="Corrected Check-In *" value={checkInText} touched={checkInTouched}
+              onChange={setCheckInText} onBlur={() => setCheckInTouched(true)} />
+          )}
+          {showCheckOut && (
+            <TimeTextInput label="Corrected Check-Out *" value={checkOutText} touched={checkOutTouched}
+              onChange={setCheckOutText} onBlur={() => setCheckOutTouched(true)} />
+          )}
+          {totalHoursLabel && (
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Total Hours: <strong style={{ color: 'var(--txt)' }}>{totalHoursLabel}</strong></div>
+          )}
+          <Field label="Assign To *">
+            <select style={inputStyle} value={managerUserId} onChange={e => setManagerUserId(e.target.value)}>
+              <option value="" disabled>Select HR or Manager…</option>
+              {approvers.map(a => (
+                <option key={a.userId} value={a.userId}>{a.fullName} — {APPROVER_ROLE_LABELS[a.roleCode] ?? a.roleCode}</option>
+              ))}
+            </select>
+            {submitAttempted && !managerUserId && <div style={fieldErrorStyle}>Assign To is required — select an HR or Manager approver.</div>}
+          </Field>
+          <Field label="Reason *">
+            <textarea
+              style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
+              value={reason}
+              onChange={e => setReason(e.target.value)}
               placeholder="e.g. Forgot to punch out after client meeting"
             />
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={onClose} color="inherit">Cancel</Button>
-          <Button type="submit" variant="contained" disabled={submitting} startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : undefined}>
-            {submitting ? 'Submitting…' : 'Submit Request'}
-          </Button>
-        </DialogActions>
-      </Box>
-    </Dialog>
+            {submitAttempted && !reason.trim() && <div style={fieldErrorStyle}>Reason is required.</div>}
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={submitting || dateAlreadyApproved} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting || dateAlreadyApproved ? 'not-allowed' : 'pointer', opacity: submitting || dateAlreadyApproved ? 0.7 : 1 }}>
+              {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Submit Request'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
-// ─── Reject Dialog ──────────────────────────────────────────────────────────────
+// ─── Request Details Modal (read-only — replaces the old Comments table column) ──────
+function RequestDetailsModal({ request, onClose }: { request: RegularizationRecord; onClose: () => void }) {
+  // Mirrors ReviewerCell's logic: the current assignee while pending, whoever decided it once resolved.
+  const approverLabel = request.status === 'PENDING' ? 'Current Approver' : request.status === 'APPROVED' ? 'Approved By' : 'Rejected By';
+  const approverName = request.status === 'PENDING' ? request.assignedApproverName : request.reviewedByName;
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 460, overflowX: 'hidden' }}>
+        <ModalHeader title="Regularization Request Details" onClose={onClose} />
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16, maxWidth: '100%', overflowX: 'hidden' }}>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={labelStyle}>Date</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatDay(request.attendanceDate)}</div>
+            </div>
+            <div>
+              <div style={labelStyle}>Status</div>
+              <RegularizationStatusPill status={request.status} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={labelStyle}>Requested In</div>
+              <div style={{ fontSize: 14, color: 'var(--txt)' }}>{formatTime(request.requestedCheckIn) ?? dash}</div>
+            </div>
+            <div>
+              <div style={labelStyle}>Requested Out</div>
+              <div style={{ fontSize: 14, color: 'var(--txt)' }}>{formatTime(request.requestedCheckOut) ?? dash}</div>
+            </div>
+            <div>
+              <div style={labelStyle}>Total Hours</div>
+              <div style={{ fontSize: 14, color: 'var(--txt)' }}>{formatDuration(request.totalMinutes) ?? dash}</div>
+            </div>
+          </div>
+          <div style={{ maxWidth: '100%', minWidth: 0 }}>
+            <div style={labelStyle}>Reason</div>
+            <TruncatedText text={request.reason} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
+          </div>
+          <div>
+            <div style={labelStyle}>{approverLabel}</div>
+            <div style={{ fontSize: 14, color: 'var(--txt)' }}>{approverName ?? dash}</div>
+          </div>
+          <div style={{ maxWidth: '100%', minWidth: 0 }}>
+            <div style={labelStyle}>Comments</div>
+            <TruncatedText text={request.reviewComment} style={{ fontSize: 13, color: 'var(--txt-mut)' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Approve Confirmation Modal ────────────────────────────────────────────────
+function ConfirmApproveModal({ request, onClose, onApproved, token }: {
+  request: RegularizationRecord; onClose: () => void; onApproved: (r: RegularizationRecord) => void; token: string;
+}) {
+  const { showToast } = useToast();
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    try {
+      const updated = await regularizationApi.approve(request.id, token, comment.trim() || undefined);
+      onApproved(updated);
+      showToast('success', 'Request approved and attendance record updated');
+      onClose();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Approve failed');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 420 }}>
+        <ModalHeader title={`Approve — ${request.employeeName}`} onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
+            {formatDay(request.attendanceDate)} · {fmtDateTime(request.requestedCheckIn)} → {fmtDateTime(request.requestedCheckOut)}
+          </div>
+          <Field label="Comment (optional)">
+            <textarea
+              style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Optional note for the employee"
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleConfirm} disabled={submitting} style={{ background: '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? 'Approving…' : 'Confirm Approval'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reject Modal ──────────────────────────────────────────────────────────────
 function RejectModal({ request, onClose, onRejected, token }: { request: RegularizationRecord; onClose: () => void; onRejected: (r: RegularizationRecord) => void; token: string }) {
   const { showToast } = useToast();
   const [comment, setComment] = useState('');
@@ -307,28 +789,28 @@ function RejectModal({ request, onClose, onRejected, token }: { request: Regular
   }
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        Reject — {request.employeeName}
-        <IconButton size="small" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
-      </DialogTitle>
-      <DialogContent>
-        <Stack spacing={2}>
-          {error && <Alert severity="error" variant="outlined">{error}</Alert>}
-          <TextField
-            label="Reason for rejection" required fullWidth multiline minRows={3} size="small"
-            value={comment} onChange={e => setComment(e.target.value)}
-            placeholder="Explain why this request is being rejected"
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5 }}>
-        <Button onClick={onClose} color="inherit">Cancel</Button>
-        <Button onClick={handleReject} variant="contained" color="error" disabled={submitting} startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : undefined}>
-          {submitting ? 'Rejecting…' : 'Reject Request'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 420 }}>
+        <ModalHeader title={`Reject — ${request.employeeName}`} onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          {error && <div style={{ color: 'var(--risk)', marginBottom: 14, fontSize: 13 }}>{error}</div>}
+          <Field label="Reason for rejection *">
+            <textarea
+              style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Explain why this request is being rejected"
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleReject} disabled={submitting} style={{ background: '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? 'Rejecting…' : 'Reject Request'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -337,49 +819,172 @@ function RosterTable({ rows, loading, emptyMessage }: {
   rows: AttendanceRecord[]; loading: boolean; emptyMessage: string;
 }) {
   return (
-    <Card variant="outlined">
+    <div style={panelStyle}>
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress size={28} /></Box>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
       ) : rows.length === 0 ? (
-        <EmptyState icon={<InboxIcon fontSize="large" />} title="Nothing to show" message={emptyMessage} />
+        <div style={{ padding: 48, textAlign: 'center' }}>
+          <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>Nothing to show</div>
+          <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{emptyMessage}</div>
+        </div>
       ) : (
-        <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
                 {['Employee ID', 'Name', 'Check In', 'Check Out', 'Hours', 'Status', 'Source'].map((h) => (
-                  <TableCell key={h} sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '.06em', color: 'text.secondary', whiteSpace: 'nowrap' }}>{h}</TableCell>
+                  <th key={h} style={thStyle}>{h}</th>
                 ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
+              </tr>
+            </thead>
+            <tbody>
               {rows.map((r) => (
-                <TableRow key={r.employeeUserId} hover>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{r.employeeCode}</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>{r.fullName}</TableCell>
-                  <TableCell>{formatTime(r.checkInAt) ?? <Dash />}</TableCell>
-                  <TableCell>{formatTime(r.checkOutAt) ?? <Dash />}</TableCell>
-                  <TableCell>{formatDuration(r.workedMinutes) ?? <Dash />}</TableCell>
-                  <TableCell><StatusChip status={r.status} /></TableCell>
-                  <TableCell><SourceTag source={r.source} /></TableCell>
-                </TableRow>
+                <tr key={r.employeeUserId}>
+                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{r.employeeCode}</td>
+                  <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
+                  <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
+                  <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
+                  <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
+                  <td style={tdStyle}><StatusPill status={r.status} /></td>
+                  <td style={tdStyle}><SourceTag source={r.source} /></td>
+                </tr>
               ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            </tbody>
+          </table>
+        </div>
       )}
-    </Card>
+    </div>
   );
 }
 
-// ─── My attendance (punch card + own history) ─────────────────────────────────
+// ─── Month summary tile ────────────────────────────────────────────────────────
+function MonthStatTile({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 6 }}>{hint}</div>
+    </div>
+  );
+}
+
+interface DayInfo {
+  iso: string;
+  day: number;
+  isFuture: boolean;
+  isToday: boolean;
+  isWeekend: boolean;
+  holidayName?: string;
+  leaveTypeName?: string;
+  /** Only ever set when the request is APPROVED — pending/rejected requests get no calendar mark. */
+  regularization?: RegularizationRecord;
+  record?: AttendanceRecord;
+}
+
+const DAY_TAG_STYLE: React.CSSProperties = {
+  display: 'inline-block', fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+  textTransform: 'uppercase', letterSpacing: '.03em', marginTop: 4, whiteSpace: 'nowrap',
+};
+
+/** Renders the small tag/status indicator inside a calendar day cell. */
+function DayCellBadge({ info }: { info: DayInfo }) {
+  if (info.holidayName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>Holiday</span>;
+  }
+  if (info.leaveTypeName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Leave</span>;
+  }
+  // Checked before the attendance-record pill: an approved regularization normally upserts
+  // that same day's attendance record, so the pill would otherwise always shadow this tag.
+  // info.regularization is only ever populated for APPROVED requests (see regularizationByDate),
+  // so this tag is green — matching the APPROVED status color used elsewhere on the page.
+  if (info.regularization) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Regularization</span>;
+  }
+  if (info.record) {
+    return <StatusPill status={info.record.status} />;
+  }
+  return null;
+}
+
+function MonthCalendar({
+  year, month, dayInfo, selectedDate, onSelect, onPrev, onNext,
+}: {
+  year: number; month: number;
+  dayInfo: (day: number) => DayInfo;
+  selectedDate: string | null;
+  onSelect: (iso: string) => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const cells = useMemo(() => buildCalendarCells(year, month), [year, month]);
+
+  return (
+    <div style={panelStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          {calendarMonthLabel(year, month)}
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onPrev} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+            <ChevronLeft size={15} />
+          </button>
+          <button onClick={onNext} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 6 }}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', textAlign: 'center', letterSpacing: '.05em' }}>
+              {d}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+          {cells.map((day, i) => {
+            if (day == null) return <div key={i} />;
+            const info = dayInfo(day);
+            const selected = selectedDate === info.iso;
+            return (
+              <button
+                key={i}
+                onClick={() => !info.isFuture && onSelect(info.iso)}
+                disabled={info.isFuture}
+                style={{
+                  minHeight: 64, borderRadius: 7, padding: '6px 6px', textAlign: 'left',
+                  background: selected ? 'rgba(177,17,22,.10)' : 'var(--raised)',
+                  border: info.isToday ? '1.5px solid var(--brand)' : selected ? '1px solid var(--brand)' : '1px solid var(--line)',
+                  cursor: info.isFuture ? 'default' : 'pointer',
+                  opacity: info.isFuture ? 0.45 : 1,
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: info.isWeekend ? 'var(--txt-dim)' : 'var(--txt)' }}>
+                  {day}
+                </span>
+                <DayCellBadge info={info} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── My attendance (punch card + attendance calendar) ─────────────────────────
 
 function MyAttendance() {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
 
   const [today, setToday] = useState<TodayAttendance | null>(null);
-  const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -388,27 +993,132 @@ function MyAttendance() {
   const serverOffsetMs = useRef(0);
   const [tick, setTick] = useState(0);
 
-  const loadHistory = useCallback(() => {
-    const to = todayIsoDate();
-    const from = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-    return attendanceApi.myHistory(from, to, token);
+  // ── Calendar state ──
+  const now = useMemo(() => new Date(), []);
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
+  const [monthRecords, setMonthRecords] = useState<AttendanceRecord[]>([]);
+  const [monthLoading, setMonthLoading] = useState(true);
+  const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
+  const [regularizations, setRegularizations] = useState<RegularizationRecord[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayIsoDate());
+
+  // Holidays / leaves / regularizations are fetched once — the calendar filters them per month.
+  useEffect(() => {
+    Promise.all([
+      holidaysApi.listForMyLocation(token).catch(() => []),
+      leaveApi.listMine(token).catch(() => []),
+      regularizationApi.mine(token).catch(() => []),
+    ]).then(([h, l, r]) => { setHolidays(h); setLeaves(l); setRegularizations(r); });
   }, [token]);
+
+  const refreshMonth = useCallback(() => {
+    setMonthLoading(true);
+    const from = isoOf(viewYear, viewMonth, 1);
+    const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
+    return attendanceApi.myHistory(from, to, token)
+      .then((r) => setMonthRecords(r))
+      .catch(() => setMonthRecords([]))
+      .finally(() => setMonthLoading(false));
+  }, [viewYear, viewMonth, token]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([attendanceApi.today(token), loadHistory()])
-      .then(([t, h]) => {
+    setMonthLoading(true);
+    const from = isoOf(viewYear, viewMonth, 1);
+    const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
+    attendanceApi.myHistory(from, to, token)
+      .then((r) => { if (!cancelled) setMonthRecords(r); })
+      .catch(() => { if (!cancelled) setMonthRecords([]); })
+      .finally(() => { if (!cancelled) setMonthLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewYear, viewMonth, token]);
+
+  const recordByDate = useMemo(() => {
+    const map = new Map<string, AttendanceRecord>();
+    monthRecords.forEach((r) => map.set(r.workDate, r));
+    return map;
+  }, [monthRecords]);
+
+  const holidayByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    holidays.forEach((h) => { if (h.active) map.set(h.holidayDate, h.holidayName); });
+    return map;
+  }, [holidays]);
+
+  const leaveByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    leaves.filter((l) => l.status === 'APPROVED').forEach((l) => {
+      expandDateRange(l.startDate, l.endDate).forEach((iso) => map.set(iso, l.leaveTypeName));
+    });
+    return map;
+  }, [leaves]);
+
+  // Calendar marks/details only ever reflect APPROVED requests — pending/rejected requests
+  // are not shown on the calendar at all.
+  const regularizationByDate = useMemo(() => {
+    const map = new Map<string, RegularizationRecord>();
+    regularizations.filter((r) => r.status === 'APPROVED').forEach((r) => map.set(r.attendanceDate, r));
+    return map;
+  }, [regularizations]);
+
+  const monthPrefix = `${viewYear}-${pad2(viewMonth + 1)}`;
+  const presentDaysCount = monthRecords.filter((r) => r.checkInAt).length;
+  const workedMinutesTotal = monthRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
+  const leaveHolidayCount = useMemo(() => {
+    let count = 0;
+    for (const iso of holidayByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
+    for (const iso of leaveByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
+    return count;
+  }, [holidayByDate, leaveByDate, monthPrefix]);
+
+  const getDayInfo = useCallback((day: number): DayInfo => {
+    const iso = isoOf(viewYear, viewMonth, day);
+    const dow = new Date(viewYear, viewMonth, day).getDay();
+    return {
+      iso,
+      day,
+      isFuture: iso > todayIsoDate(),
+      isToday: iso === todayIsoDate(),
+      isWeekend: dow === 0 || dow === 6,
+      holidayName: holidayByDate.get(iso),
+      leaveTypeName: leaveByDate.get(iso),
+      regularization: regularizationByDate.get(iso),
+      record: recordByDate.get(iso),
+    };
+  }, [viewYear, viewMonth, holidayByDate, leaveByDate, regularizationByDate, recordByDate]);
+
+  function goToPrevMonth() {
+    setSelectedDate(null);
+    if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); } else { setViewMonth((m) => m - 1); }
+  }
+  function goToNextMonth() {
+    setSelectedDate(null);
+    if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); } else { setViewMonth((m) => m + 1); }
+  }
+
+  const selectedInfo = useMemo(() => {
+    if (!selectedDate) return null;
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    if (y !== viewYear || m - 1 !== viewMonth) return null;
+    return getDayInfo(d);
+  }, [selectedDate, viewYear, viewMonth, getDayInfo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    attendanceApi.today(token)
+      .then((t) => {
         if (cancelled) return;
         serverOffsetMs.current = wallClockMs(t.serverNow) - Date.now();
         setToday(t);
-        setHistory(h);
       })
       .catch((err) => {
         if (!cancelled) showToast('error', err instanceof Error ? err.message : 'Failed to load attendance');
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, loadHistory, showToast]);
+  }, [token, showToast]);
 
   const openSince = today?.canCheckOut ? today.record?.checkInAt ?? null : null;
 
@@ -435,13 +1145,12 @@ function MyAttendance() {
         : await attendanceApi.checkOut(token);
 
       // Re-read /today so canCheckIn/canCheckOut always come from the server, never inferred.
-      const [refreshed, refreshedHistory] = await Promise.all([
+      const [refreshed] = await Promise.all([
         attendanceApi.today(token),
-        loadHistory(),
+        refreshMonth(),
       ]);
       serverOffsetMs.current = wallClockMs(refreshed.serverNow) - Date.now();
       setToday(refreshed);
-      setHistory(refreshedHistory);
 
       const at = formatTime(kind === 'in' ? record.checkInAt : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
@@ -452,248 +1161,480 @@ function MyAttendance() {
     }
   }
 
+  const primaryButtonStyle = (disabled: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 8,
+    background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8,
+    padding: '12px 22px', fontSize: 14, fontWeight: 600,
+    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.7 : 1,
+  });
+
   return (
-    <Stack spacing={3}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       {/* Punch card */}
-      <Card variant="outlined">
-        <CardContent sx={{ p: 3 }}>
-          {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
-          ) : !today ? (
-            <Typography color="text.secondary" variant="body2">Attendance unavailable right now.</Typography>
-          ) : (
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }} spacing={3}
-              sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
-            >
-              <Box sx={{ flex: 1 }}>
-                <Stack direction="row" spacing={0.8} sx={{ color: 'text.secondary', mb: 1.5, alignItems: 'center' }}>
-                  <AccessTimeIcon fontSize="small" />
-                  <Typography variant="body2">{formatDay(today.workDate)}</Typography>
-                </Stack>
+      <div style={{ ...panelStyle, padding: '22px 24px' }}>
+        {loading ? (
+          <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
+        ) : !today ? (
+          <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Attendance unavailable right now.</div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--txt-dim)', fontSize: 12, marginBottom: 8 }}>
+                <Clock size={13} /> {formatDay(today.workDate)}
+              </div>
 
-                <Stack
-                  direction="row" spacing={3} divider={<Divider orientation="vertical" flexItem />}
-                  sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-                >
-                  <Stat label="Check In" value={formatTime(today.record?.checkInAt ?? null) ?? <Dash />} />
-                  <Stat label="Check Out" value={formatTime(today.record?.checkOutAt ?? null) ?? <Dash />} />
-                  <Stat label="Total Hours" value={(today.canCheckOut ? elapsed : formatDuration(today.record?.workedMinutes ?? null)) ?? <Dash />} />
-                  {today.record?.status && <Stat label="Status" value={<StatusChip status={today.record.status} />} />}
-                </Stack>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4 }}>Check In</div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)' }}>
+                    {formatTime(today.record?.checkInAt ?? null) ?? dash}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4 }}>Check Out</div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)' }}>
+                    {formatTime(today.record?.checkOutAt ?? null) ?? dash}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4 }}>
+                    {today.canCheckOut ? 'Elapsed' : 'Hours'}
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)' }}>
+                    {(today.canCheckOut ? elapsed : formatDuration(today.record?.workedMinutes ?? null)) ?? dash}
+                  </div>
+                </div>
+                {today.record?.status && (
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>Status</div>
+                    <StatusPill status={today.record.status} />
+                  </div>
+                )}
+              </div>
 
-                {today.record?.status === 'LATE' && (today.record.lateByMinutes ?? 0) > 0 && (
-                  <Alert severity="warning" variant="outlined" sx={{ mt: 2, py: 0 }}>
-                    Checked in {formatDuration(today.record.lateByMinutes)} past the grace period.
-                  </Alert>
-                )}
-              </Box>
+              {today.record?.status === 'LATE' && (today.record.lateByMinutes ?? 0) > 0 && (
+                <div style={{ fontSize: 12, color: '#E0A93B', marginTop: 10 }}>
+                  Checked in {formatDuration(today.record.lateByMinutes)} past the grace period.
+                </div>
+              )}
+            </div>
 
-              {/* The button is driven only by the server's canCheckIn / canCheckOut flags. */}
-              <Box>
-                {today.canCheckIn && (
-                  <Button
-                    onClick={() => punch('in')} disabled={submitting} variant="contained" size="large"
-                    startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <LoginIcon />}
-                  >
-                    {submitting ? 'Checking in…' : 'Check In'}
-                  </Button>
-                )}
-                {today.canCheckOut && (
-                  <Button
-                    onClick={() => punch('out')} disabled={submitting} variant="contained" size="large" color="error"
-                    startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <LogoutIcon />}
-                  >
-                    {submitting ? 'Checking out…' : 'Check Out'}
-                  </Button>
-                )}
-                {!today.canCheckIn && !today.canCheckOut && (
-                  <Chip icon={<CheckCircleIcon />} label="Day complete" color="success" variant="outlined" />
-                )}
-              </Box>
-            </Stack>
-          )}
-        </CardContent>
-      </Card>
+            {/* The button is driven only by the server's canCheckIn / canCheckOut flags. */}
+            <div>
+              {today.canCheckIn && (
+                <button onClick={() => punch('in')} disabled={submitting} style={primaryButtonStyle(submitting)}>
+                  <LogIn size={15} /> {submitting ? 'Checking in…' : 'Check In'}
+                </button>
+              )}
+              {today.canCheckOut && (
+                <button onClick={() => punch('out')} disabled={submitting} style={primaryButtonStyle(submitting)}>
+                  <LogOut size={15} /> {submitting ? 'Checking out…' : 'Check Out'}
+                </button>
+              )}
+              {!today.canCheckIn && !today.canCheckOut && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ok)', fontSize: 13, fontWeight: 600 }}>
+                  <CheckCircle2 size={16} /> Day complete
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
-      {/* Own history */}
-      <Box>
-        <SectionHeading title="My recent attendance" hint="Last 30 days" />
-        <Card variant="outlined">
-          {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress size={28} /></Box>
-          ) : history.length === 0 ? (
-            <EmptyState icon={<EventBusyIcon fontSize="large" />} title="No attendance yet" message="Your punches will appear here once you check in." />
-          ) : (
-            <TableContainer sx={{ overflowX: 'auto' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    {['Date', 'Check In', 'Check Out', 'Hours', 'Status', 'Source'].map((h) => (
-                      <TableCell key={h} sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '.06em', color: 'text.secondary', whiteSpace: 'nowrap' }}>{h}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {history.map((r) => (
-                    <TableRow key={r.workDate} hover>
-                      <TableCell sx={{ fontWeight: 600 }}>{formatDay(r.workDate)}</TableCell>
-                      <TableCell>{formatTime(r.checkInAt) ?? <Dash />}</TableCell>
-                      <TableCell>{formatTime(r.checkOutAt) ?? <Dash />}</TableCell>
-                      <TableCell>{formatDuration(r.workedMinutes) ?? <Dash />}</TableCell>
-                      <TableCell><StatusChip status={r.status} /></TableCell>
-                      <TableCell><SourceTag source={r.source} /></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </Card>
-      </Box>
-    </Stack>
+      {/* Monthly attendance calendar */}
+      <div>
+        <SectionHeading title="My attendance calendar" hint="Present days, worked hours, and leave/holidays for the selected month." />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
+          <MonthStatTile label="Present Days" value={monthLoading ? '—' : String(presentDaysCount)} hint="Selected month" />
+          <MonthStatTile label="Worked Hours" value={monthLoading ? '—' : (formatDuration(workedMinutesTotal) ?? '0m')} hint="Selected month" />
+          <MonthStatTile label="Leave / Holidays" value={String(leaveHolidayCount)} hint="Selected month" />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
+          <MonthCalendar
+            year={viewYear}
+            month={viewMonth}
+            dayInfo={getDayInfo}
+            selectedDate={selectedDate}
+            onSelect={setSelectedDate}
+            onPrev={goToPrevMonth}
+            onNext={goToNextMonth}
+          />
+
+          <div style={{ ...panelStyle, padding: '18px 20px' }}>
+            {!selectedInfo ? (
+              <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Pick a day on the calendar to see its details.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
+                  {selectedInfo.isToday ? "Today's workday" : formatDay(selectedInfo.iso)}
+                </div>
+                {selectedInfo.holidayName ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Company holiday — {selectedInfo.holidayName}</div>
+                ) : selectedInfo.leaveTypeName ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>On leave — {selectedInfo.leaveTypeName}</div>
+                ) : selectedInfo.regularization ? (
+                  <>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested In</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.regularization.requestedCheckIn) ?? dash}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested Out</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.regularization.requestedCheckOut) ?? dash}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Total Hours</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.regularization.totalMinutes) ?? dash}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Status</div>
+                      <RegularizationStatusPill status={selectedInfo.regularization.status} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Approved By</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{selectedInfo.regularization.reviewedByName ?? dash}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Comments</div>
+                      <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>{selectedInfo.regularization.reviewComment ?? dash}</div>
+                    </div>
+                  </>
+                ) : selectedInfo.record ? (
+                  <>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                          <LogIn size={11} /> Check In
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkInAt) ?? dash}</div>
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                          <LogOut size={11} /> Check Out
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkOutAt) ?? dash}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                        <Clock size={11} /> Hours
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.record.workedMinutes) ?? dash}</div>
+                    </div>
+                    <StatusPill status={selectedInfo.record.status} />
+                    <PunchHistoryList date={selectedInfo.iso} token={token} />
+                  </>
+                ) : selectedInfo.isWeekend ? (
+                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No attendance recorded for this day.</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 // ─── Regularization (request + my requests + pending approvals) ───────────────
 
-function RegularizationSection({ token, canApprove, showOwnRequests }: { token: string; canApprove: boolean; showOwnRequests: boolean }) {
+/** Reviewer column: current approver while pending, who decided it once resolved. */
+function ReviewerCell({ r }: { r: RegularizationRecord }) {
+  if (r.status === 'PENDING') {
+    return (
+      <>
+        <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Current Approver</div>
+        {r.assignedApproverName ?? dash}
+      </>
+    );
+  }
+  return (
+    <>
+      <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.status === 'APPROVED' ? 'Approved By' : 'Rejected By'}</div>
+      {r.reviewedByName ?? dash}
+    </>
+  );
+}
+
+function MonthGroupHeading({ monthKey }: { monthKey: string }) {
+  return (
+    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-dim)', margin: '14px 0 6px', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+      {monthLabel(monthKey)}
+    </div>
+  );
+}
+
+// ─── Status tabs (reusable) ─────────────────────────────────────────────────────
+// Generic single-select tab strip. Used by Pending Approvals for its All/Pending/Approved/
+// Rejected status filter — deliberately generic (not hardcoded to status) so any future
+// single-select category filter elsewhere on this page can reuse it as-is.
+type StatusFilterValue = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+const STATUS_FILTER_TABS: { value: StatusFilterValue; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'REJECTED', label: 'Rejected' },
+];
+
+function FilterTabs<T extends string>({ value, options, onChange }: {
+  value: T; options: { value: T; label: string }[]; onChange: (next: T) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            style={{
+              background: active ? 'var(--brand)' : 'var(--raised)',
+              color: active ? '#fff' : 'var(--txt-mut)',
+              border: `1px solid ${active ? 'var(--brand)' : 'var(--line2)'}`,
+              borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── My Requests month filter ──────────────────────────────────────────────────
+// The only filter on My Requests (Employee, Manager, HR alike) — defaults to "All Months"
+// so every request is visible until the user narrows it down.
+const ALL_MONTHS_VALUE = 'ALL';
+
+function MonthFilter({ month, onChange }: { month: string; onChange: (v: string) => void }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-dim)' }}>
+      Month
+      <select value={month} onChange={(e) => onChange(e.target.value)} style={dateInputStyle}>
+        <option value={ALL_MONTHS_VALUE}>All Months</option>
+        {MONTH_NAMES.map((name, i) => (
+          <option key={name} value={String(i + 1).padStart(2, '0')}>{name}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: string; canApprove: boolean; isSuperAdmin: boolean }) {
   const { showToast } = useToast();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
   const [pending, setPending] = useState<RegularizationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRequest, setShowRequest] = useState(false);
+  const [editing, setEditing] = useState<RegularizationRecord | null>(null);
   const [rejecting, setRejecting] = useState<RegularizationRecord | null>(null);
+  const [approving, setApproving] = useState<RegularizationRecord | null>(null);
+  const [viewing, setViewing] = useState<RegularizationRecord | null>(null);
 
   const loadAll = useCallback(() => {
-    const calls: Promise<unknown>[] = [];
-    if (showOwnRequests) calls.push(regularizationApi.mine(token).then(setMyRequests));
-    if (canApprove) calls.push(regularizationApi.pending(token).then(setPending));
+    const calls: Promise<unknown>[] = [regularizationApi.mine(token).then(setMyRequests)];
+    // Every status the reviewer can see (not just PENDING) — the All/Pending/Approved/Rejected
+    // tabs below filter this same list client-side, so Approved/Rejected history is visible too.
+    if (canApprove) calls.push(regularizationApi.forApprover(token).then(setPending));
     return Promise.all(calls)
       .catch((err) => showToast('error', err instanceof Error ? err.message : 'Failed to load regularization requests'))
       .finally(() => setLoading(false));
-  }, [token, canApprove, showOwnRequests, showToast]);
+  }, [token, canApprove, showToast]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  async function handleApprove(reqId: string) {
-    try {
-      await regularizationApi.approve(reqId, token);
-      showToast('success', 'Request approved and attendance record updated');
-      loadAll();
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Approve failed');
-    }
-  }
+  // My Requests: the only filter is Month, defaulting to "All Months" (every request visible
+  // until narrowed). No status tabs here — those live on Pending Approvals instead.
+  const [selectedMonth, setSelectedMonth] = useState(ALL_MONTHS_VALUE);
+  const filteredMyRequests = useMemo(
+    () => selectedMonth === ALL_MONTHS_VALUE
+      ? myRequests
+      : myRequests.filter((r) => r.attendanceDate.slice(5, 7) === selectedMonth),
+    [myRequests, selectedMonth],
+  );
+  const myRequestMonths = useMemo(() => groupByMonth(filteredMyRequests), [filteredMyRequests]);
+
+  // Pending Approvals: status tabs (All/Pending/Approved/Rejected), defaulting to Pending to
+  // match the screen's pre-existing default view. Sourced from /for-approver (every status the
+  // reviewer can see), not /pending (PENDING-only) — see loadAll below.
+  const [approvalStatusFilter, setApprovalStatusFilter] = useState<StatusFilterValue>('PENDING');
+  const filteredPending = useMemo(
+    () => approvalStatusFilter === 'ALL' ? pending : pending.filter((r) => r.status === approvalStatusFilter),
+    [pending, approvalStatusFilter],
+  );
+  const pendingMonths = useMemo(() => groupByMonth(filteredPending), [filteredPending]);
+  const approvedDates = useMemo(
+    () => new Set(myRequests.filter((r) => r.status === 'APPROVED').map((r) => r.attendanceDate)),
+    [myRequests],
+  );
 
   return (
-    <Stack spacing={3}>
-      {showOwnRequests && (
-        <>
-          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
-            <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
-            <Button onClick={() => setShowRequest(true)} variant="contained" startIcon={<AddIcon />}>
-              Request Regularization
-            </Button>
-          </Stack>
-
-          {/* My Regularization Requests */}
-          <Box>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '.06em', mb: 1.2 }}>My Requests</Typography>
-            <Card variant="outlined">
-              {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}><CircularProgress size={24} /></Box>
-              ) : myRequests.length === 0 ? (
-                <Box sx={{ py: 4, textAlign: 'center' }}><Typography variant="body2" color="text.secondary">No requests submitted yet.</Typography></Box>
-              ) : (
-                <TableContainer sx={{ overflowX: 'auto' }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        {['Date', 'Requested In', 'Requested Out', 'Reason', 'Status', 'Reviewer Note'].map(h => (
-                          <TableCell key={h} sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '.06em', color: 'text.secondary', whiteSpace: 'nowrap' }}>{h}</TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {myRequests.map(r => (
-                        <TableRow key={r.id} hover>
-                          <TableCell sx={{ fontWeight: 600 }}>{r.attendanceDate}</TableCell>
-                          <TableCell>{fmtDateTime(r.requestedCheckIn)}</TableCell>
-                          <TableCell>{fmtDateTime(r.requestedCheckOut)}</TableCell>
-                          <TableCell sx={{ maxWidth: 220 }}>{r.reason}</TableCell>
-                          <TableCell><RegularizationStatusChip status={r.status} /></TableCell>
-                          <TableCell>{r.reviewComment ?? '—'}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </Card>
-          </Box>
-        </>
-      )}
-
-      {/* Pending Approvals — Manager / HR Admin / Super Admin only */}
-      {canApprove && (
-        <Box>
-          {!showOwnRequests && (
-            <SectionHeading title="Attendance Regularization" hint="Review corrections your team has requested for missed or incorrect punches." />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
+        <div style={{ display: 'flex', gap: 10 }}>
+          {isSuperAdmin && (
+            <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+              <ShieldCheck size={14} /> View All & Audit Trail
+            </Link>
           )}
-          <Typography variant="subtitle2" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '.06em', mb: 1.2 }}>Pending Approvals</Typography>
-          <Card variant="outlined">
-            {pending.length === 0 ? (
-              <Box sx={{ py: 4, textAlign: 'center' }}><Typography variant="body2" color="text.secondary">No pending requests.</Typography></Box>
-            ) : (
-              <TableContainer sx={{ overflowX: 'auto' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      {['Employee', 'Date', 'Requested In', 'Requested Out', 'Reason', 'Actions'].map(h => (
-                        <TableCell key={h} sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '.06em', color: 'text.secondary', whiteSpace: 'nowrap' }}>{h}</TableCell>
+          <button onClick={() => setShowRequest(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <CalendarPlus size={14} /> Request Regularization
+          </button>
+        </div>
+      </div>
+
+      {/* My Regularization Requests — month filter only, grouped by month within that filter */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>My Requests</h3>
+          <MonthFilter month={selectedMonth} onChange={setSelectedMonth} />
+        </div>
+        {loading ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
+        ) : myRequests.length === 0 ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests submitted yet.</div>
+        ) : filteredMyRequests.length === 0 ? (
+          <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
+            No requests found for {MONTH_NAMES[parseInt(selectedMonth, 10) - 1]}.
+          </div>
+        ) : (
+          myRequestMonths.map(([monthKey, rows]) => (
+            <div key={monthKey}>
+              <MonthGroupHeading monthKey={monthKey} />
+              <div style={panelStyle}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
+                          <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
+                          <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
+                          <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
+                          <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                          <td style={{ ...tdStyle, maxWidth: 200 }}><TruncatedText text={r.reason} /></td>
+                          <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                          <td style={tdStyle}><ReviewerCell r={r} /></td>
+                          <td style={{ ...tdStyle, maxWidth: 180 }}><TruncatedText text={r.reviewComment} /></td>
+                          <td style={tdStyle}>
+                            {r.status === 'PENDING' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setEditing(r); }}
+                                title="Edit"
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}
+                              >
+                                <Pencil size={12} /> Edit
+                              </button>
+                            )}
+                          </td>
+                        </tr>
                       ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {pending.map(r => (
-                      <TableRow key={r.id} hover>
-                        <TableCell sx={{ fontWeight: 600 }}>
-                          {r.employeeName}
-                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>{r.employeeEmail}</Typography>
-                        </TableCell>
-                        <TableCell>{r.attendanceDate}</TableCell>
-                        <TableCell>{fmtDateTime(r.requestedCheckIn)}</TableCell>
-                        <TableCell>{fmtDateTime(r.requestedCheckOut)}</TableCell>
-                        <TableCell sx={{ maxWidth: 220 }}>{r.reason}</TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={1}>
-                            <Button size="small" variant="outlined" color="success" onClick={() => handleApprove(r.id)}>Approve</Button>
-                            <Button size="small" variant="outlined" color="error" onClick={() => setRejecting(r)}>Reject</Button>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-          </Card>
-        </Box>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Pending Approvals — Manager / HR Admin / Super Admin only, grouped by month.
+          Status tabs filter across every status the reviewer can see (not just PENDING). */}
+      {canApprove && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>Pending Approvals</h3>
+            <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} />
+          </div>
+          {pending.length === 0 ? (
+            <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No requests to review yet.</div>
+          ) : filteredPending.length === 0 ? (
+            <div style={{ ...panelStyle, padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
+              No {STATUS_FILTER_TABS.find((t) => t.value === approvalStatusFilter)?.label.toLowerCase()} requests.
+            </div>
+          ) : (
+            pendingMonths.map(([monthKey, rows]) => (
+              <div key={monthKey}>
+                <MonthGroupHeading monthKey={monthKey} />
+                <div style={panelStyle}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>{['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {rows.map(r => (
+                          <tr key={r.id}>
+                            <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                              {r.employeeName}
+                              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
+                            </td>
+                            <td style={tdStyle}>{r.attendanceDate}</td>
+                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
+                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
+                            <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                            <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
+                            <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                            <td style={tdStyle}><ReviewerCell r={r} /></td>
+                            <td style={tdStyle}>
+                              {r.status === 'PENDING' ? (
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
+                                  <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
+                                </div>
+                              ) : dash}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       )}
 
       {showRequest && (
-        <RequestModal token={token} onClose={() => setShowRequest(false)} onCreated={r => setMyRequests(prev => [r, ...prev])} />
+        <RequestModal token={token} approvedDates={approvedDates} onClose={() => setShowRequest(false)} onSaved={r => setMyRequests(prev => [r, ...prev])} />
+      )}
+      {editing && (
+        <RequestModal
+          token={token}
+          editing={editing}
+          approvedDates={approvedDates}
+          onClose={() => setEditing(null)}
+          onSaved={updated => setMyRequests(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
+        />
+      )}
+      {approving && (
+        <ConfirmApproveModal
+          request={approving}
+          token={token}
+          onClose={() => setApproving(null)}
+          onApproved={updated => setPending(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
+        />
       )}
       {rejecting && (
         <RejectModal
           request={rejecting}
           token={token}
           onClose={() => setRejecting(null)}
-          onRejected={updated => setPending(prev => prev.filter(r => r.id !== updated.id))}
+          onRejected={updated => setPending(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
         />
       )}
-    </Stack>
+      {viewing && (
+        <RequestDetailsModal request={viewing} onClose={() => setViewing(null)} />
+      )}
+    </div>
   );
 }
 
@@ -723,23 +1664,19 @@ function DayRoster({ scope }: { scope: 'team' | 'all' }) {
   }, [scope, date, token, showToast]);
 
   return (
-    <Box>
-      <Stack direction="row" sx={{ alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: 1.5 }}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          {scope === 'team' ? <GroupsIcon color="action" /> : <CorporateFareIcon color="action" />}
-          <SectionHeading
-            title={scope === 'team' ? 'Team attendance' : 'Organization attendance'}
-            hint={scope === 'team'
-              ? 'Your current direct reports for the selected day.'
-              : 'All active employees for the selected day.'}
-          />
-        </Stack>
-        <TextField
-          label="Date" type="date" size="small" value={date}
-          slotProps={{ inputLabel: { shrink: true } }}
-          onChange={(e) => setDate(e.target.value)}
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <SectionHeading
+          title={scope === 'team' ? 'Team attendance' : 'Organization attendance'}
+          hint={scope === 'team'
+            ? 'Your current direct reports for the selected day.'
+            : 'All active employees for the selected day.'}
         />
-      </Stack>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-dim)', marginBottom: 12 }}>
+          Date
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={dateInputStyle} />
+        </label>
+      </div>
       <RosterTable
         rows={rows}
         loading={loading}
@@ -747,7 +1684,7 @@ function DayRoster({ scope }: { scope: 'team' | 'all' }) {
           ? 'No direct reports are assigned to you yet.'
           : 'No employee records for this date.'}
       />
-    </Box>
+    </div>
   );
 }
 
@@ -757,37 +1694,30 @@ export default function AttendancePage() {
   // The router has no role guard, so — like Shell — the page resolves the role itself.
   const token = useAuthStore((s) => s.token)!;
   const role = toShellRole(useAuthStore((s) => s.user?.role));
-  const isEmployee = role === 'Employee';
   const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
 
-  const { theme: appTheme } = useAppTheme();
-  const muiTheme = useMemo(() => buildMuiTheme(appTheme === 'light' ? 'light' : 'dark'), [appTheme]);
-
-  // Check In / Check Out is an Employee-only action — Manager/HR Admin/Super Admin get an
-  // oversight-only view (team/org roster + regularization approvals), never a punch card.
   const subtitle = role === 'Manager'
-    ? 'Review your team’s attendance for any day.'
+    ? 'Punch in and out, and review your team’s attendance for any day.'
     : role === 'HR Admin' || role === 'Super Admin'
-      ? 'Review attendance across the organization.'
+      ? 'Punch in and out, and review attendance across the organization.'
       : 'Punch in when you start your day and out when you finish.';
 
   return (
-    <MuiThemeProvider theme={muiTheme}>
-      <Box>
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="h4">Attendance</Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mt: 0.5 }}>{subtitle}</Typography>
-        </Box>
+    <div>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{
+          fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
+          color: 'var(--txt)', margin: 0,
+        }}>Attendance</h1>
+        <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
+      </div>
 
-        <Paper elevation={0} sx={{ bgcolor: 'transparent' }}>
-          <Stack spacing={4}>
-            {isEmployee && <MyAttendance />}
-            <RegularizationSection token={token} canApprove={canApprove} showOwnRequests={isEmployee} />
-            {role === 'Manager' && <DayRoster scope="team" />}
-            {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
-          </Stack>
-        </Paper>
-      </Box>
-    </MuiThemeProvider>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
+        <MyAttendance />
+        <RegularizationSection token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} />
+        {role === 'Manager' && <DayRoster scope="team" />}
+        {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
+      </div>
+    </div>
   );
 }

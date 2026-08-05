@@ -8,9 +8,9 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "regularization_requests")
+@Table(name = "web_clock_in_requests")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
-public class RegularizationRequest {
+public class WebClockInRequest {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -19,20 +19,17 @@ public class RegularizationRequest {
     @Column(name = "employee_user_id", nullable = false)
     private UUID employeeUserId;
 
-    // Resolved once at submission time: the employee-selected manager, else their current
-    // manager via EmployeeManagerHistory, else NULL (HR/Super Admin have blanket override
-    // visibility regardless — see RegularizationService.listPendingForApprover).
+    // Resolved once at submission time, same as RegularizationRequest: the employee's
+    // current manager via EmployeeManagerHistory, else NULL (HR/Super Admin have blanket
+    // override visibility regardless — see WebClockInService.listPendingForApprover).
     @Column(name = "assigned_approver_id")
     private UUID assignedApproverId;
 
-    @Column(name = "attendance_date", nullable = false)
-    private LocalDate attendanceDate;
+    @Column(name = "work_date", nullable = false)
+    private LocalDate workDate;
 
-    @Column(name = "requested_check_in")
+    @Column(name = "requested_check_in", nullable = false)
     private LocalDateTime requestedCheckIn;
-
-    @Column(name = "requested_check_out")
-    private LocalDateTime requestedCheckOut;
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String reason;
@@ -40,6 +37,10 @@ public class RegularizationRequest {
     @Column(nullable = false)
     @Builder.Default
     private String status = "PENDING";
+
+    // Set via the no-approval-needed "Web Clock Out" action, only once approved.
+    @Column(name = "checked_out_at")
+    private LocalDateTime checkedOutAt;
 
     @Column(name = "reviewed_by")
     private UUID reviewedBy;

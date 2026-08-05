@@ -5,6 +5,7 @@ import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import AttendancePage from './pages/AttendancePage';
+import SuperAdminRegularizationPage from './pages/SuperAdminRegularizationPage';
 import Phase1Stub from './pages/Phase1Stub';
 import OrgSetupPage from './pages/OrgSetupPage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
@@ -16,6 +17,7 @@ import DirectoryPage from './pages/DirectoryPage';
 import HierarchyPage from './pages/HierarchyPage';
 import LeavePage from './pages/LeavePage';
 import ApprovalsPage from './pages/ApprovalsPage';
+import MyRequestsPage from './pages/MyRequestsPage';
 import AssetsExpensesPage from './pages/AssetsExpensesPage';
 import DocumentsPage from './pages/DocumentsPage';
 import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
@@ -76,9 +78,11 @@ export default function App() {
           {/* Phase 1 — real pages (per-role Phase 2 items are caught by Shell → ComingInPhase) */}
           <Route path="/dashboard"    element={<DashboardPage />} />
           <Route path="/attendance"   element={<AttendancePage />} />
+          <Route path="/attendance/regularization/all" element={<SuperAdminRegularizationPage />} />
           <Route path="/leave"        element={<LeavePage />} />
           <Route path="/help"         element={<Phase1Stub />} />
           <Route path="/approvals"    element={<ApprovalsPage />} />
+          <Route path="/requests"     element={<MyRequestsPage />} />
           <Route path="/assets"       element={<AssetsExpensesPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}

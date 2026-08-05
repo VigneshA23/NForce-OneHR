@@ -1,7 +1,10 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.AttendanceResponse;
+import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
+import com.nforce.onehr.dto.attendance.ApproveRegularizationRequest;
+import com.nforce.onehr.dto.attendance.ApproverOptionDto;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.attendance.RejectRegularizationRequest;
@@ -66,6 +69,23 @@ public class AttendanceController {
         return attendanceService.getMyHistory(principal.getName(), from, to);
     }
 
+    /** Own punch for a single date, or 204 if none — backs the regularization form's auto-fill. */
+    @GetMapping("/punch/{date}")
+    public ResponseEntity<AttendanceResponse> punchForDate(
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            Principal principal) {
+        AttendanceResponse punch = attendanceService.getPunchForDate(principal.getName(), date);
+        return punch != null ? ResponseEntity.ok(punch) : ResponseEntity.noContent().build();
+    }
+
+    /** Every check-in/check-out session for a single day, e.g. to show a lunch-break gap. */
+    @GetMapping("/punches/{date}")
+    public List<PunchResponse> punchesForDate(
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            Principal principal) {
+        return attendanceService.getPunches(principal.getName(), date);
+    }
+
     @GetMapping("/day")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
     public List<AttendanceResponse> day(
@@ -112,7 +132,33 @@ public class AttendanceController {
         return regularizationService.listMine(principal.getName());
     }
 
-    // ── Regularization: review (Manager sees direct reports; HR/Super Admin see all) ──
+    /** Edit a still-pending request — owner only, PENDING only (enforced in the service). */
+    @PatchMapping("/regularization/{id}")
+    public RegularizationResponse updateRegularization(@PathVariable UUID id,
+                                                        @Valid @RequestBody CreateRegularizationRequest req,
+                                                        Principal principal) {
+        return regularizationService.update(id, req, principal.getName());
+    }
+
+    /** Selectable approvers for the "assign to manager" dropdown — any authenticated user. */
+    @GetMapping("/regularization/approvers")
+    public List<ApproverOptionDto> approvers() {
+        return regularizationService.listApprovers();
+    }
+
+    /** Super Admin: full history org-wide, with optional filters. */
+    @GetMapping("/regularization/all")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public List<RegularizationResponse> allRegularizations(
+            @RequestParam(required = false) UUID employeeUserId,
+            @RequestParam(required = false) UUID approverUserId,
+            @RequestParam(required = false) UUID departmentId,
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false) String status) {
+        return regularizationService.listAll(employeeUserId, approverUserId, departmentId, month, status);
+    }
+
+    // ── Regularization: review (Manager sees assigned requests; HR/Super Admin see all) ──
 
     @GetMapping("/regularization/pending")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
@@ -120,10 +166,24 @@ public class AttendanceController {
         return regularizationService.listPendingForApprover(principal.getName());
     }
 
+    /**
+     * Same reviewer scoping as /pending, but every status — backs the Pending Approvals
+     * screen's All/Pending/Approved/Rejected status tabs (status filtering itself happens
+     * client-side over this one list, same pattern as the My Requests month filter).
+     */
+    @GetMapping("/regularization/for-approver")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public List<RegularizationResponse> regularizationsForApprover(Principal principal) {
+        return regularizationService.listForApprover(principal.getName());
+    }
+
     @PatchMapping("/regularization/{id}/approve")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
-    public RegularizationResponse approve(@PathVariable UUID id, Principal principal) {
-        return regularizationService.approve(id, principal.getName());
+    public RegularizationResponse approve(@PathVariable UUID id,
+                                          @RequestBody(required = false) ApproveRegularizationRequest req,
+                                          Principal principal) {
+        String comment = req != null ? req.getComment() : null;
+        return regularizationService.approve(id, comment, principal.getName());
     }
 
     @PatchMapping("/regularization/{id}/reject")

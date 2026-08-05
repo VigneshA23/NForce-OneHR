@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
-import { CalendarPlus, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
+import { holidaysApi, type HolidayRow } from '../api/holidays';
+import { orgApi, type LocationRow } from '../api/org';
 import { useToast } from '../context/ToastContext';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
@@ -95,19 +97,209 @@ function RequestLeaveModal({ types, onClose, onCreated, token }: { types: LeaveT
   );
 }
 
+const HOLIDAY_STATUS_BADGE = (active: boolean) => (
+  <span style={{
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+    background: active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)',
+    color: active ? 'var(--ok)' : 'var(--txt-dim)',
+  }}>
+    {active ? 'Active' : 'Inactive'}
+  </span>
+);
+
+function formatHolidayDate(iso: string) {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function daysInMonth(year: number, month: number) {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function toISODate(year: number, month: number, day: number) {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
+  const today = new Date();
+  const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const totalDays = daysInMonth(year, month);
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const todayIso = toISODate(today.getFullYear(), today.getMonth(), today.getDate());
+  const holidayByDate = new Map(holidays.map(h => [h.holidayDate, h]));
+
+  const cells: Array<{ day: number; iso: string } | null> = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= totalDays; d++) cells.push({ day: d, iso: toISODate(year, month, d) });
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <button
+          onClick={() => setViewDate(new Date(year, month - 1, 1))}
+          aria-label="Previous month"
+          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+        >
+          <ChevronLeft size={12} />
+        </button>
+        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 12, color: 'var(--txt)' }}>
+          {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+        </span>
+        <button
+          onClick={() => setViewDate(new Date(year, month + 1, 1))}
+          aria-label="Next month"
+          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+        >
+          <ChevronRight size={12} />
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
+        {WEEKDAY_LABELS.map(d => (
+          <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em', padding: '2px 0' }}>
+            {d[0]}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+        {cells.map((c, i) => {
+          if (!c) return <div key={i} />;
+          const holiday = holidayByDate.get(c.iso);
+          const isToday = c.iso === todayIso;
+          return (
+            <div
+              key={i}
+              title={holiday?.holidayName}
+              style={{
+                minHeight: 34,
+                borderRadius: 6,
+                padding: '3px 4px',
+                background: holiday ? 'color-mix(in srgb, var(--warn) 18%, transparent)' : 'var(--raised)',
+                border: isToday ? '1.5px solid var(--brand)' : holiday ? '1px solid var(--warn)' : '1px solid var(--line)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+              }}
+            >
+              <span style={{ fontSize: 10, fontWeight: isToday ? 700 : 500, color: holiday ? 'var(--warn)' : 'var(--txt)' }}>
+                {c.day}
+              </span>
+              {holiday && (
+                <span style={{
+                  fontSize: 8, fontWeight: 600, color: 'var(--warn)', lineHeight: 1.15,
+                  overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                  WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                }}>
+                  {holiday.holidayName}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AddHolidayModal({ token, onClose, onCreated }: { token: string; onClose: () => void; onCreated: () => void }) {
+  const [holidayName, setHolidayName] = useState('');
+  const [holidayDate, setHolidayDate] = useState('');
+  const [locationId, setLocationId] = useState('');
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const firstRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    firstRef.current?.focus();
+    orgApi.listLocations(token).then(setLocations).catch(() => {});
+  }, [token]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    const name = holidayName.trim();
+    if (!name) { setError('Holiday name is required'); return; }
+    if (!holidayDate) { setError('Date is required'); return; }
+    if (!locationId) { setError('Location is required'); return; }
+
+    setLoading(true);
+    try {
+      await holidaysApi.createHoliday(token, { holidayName: name, holidayDate, locationId });
+      onCreated();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={modalStyle}>
+        <ModalHeader title="Add Holiday" onClose={onClose} />
+        {error && <div style={{ margin: '16px 20px 0', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+        <form onSubmit={submit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Field label="Holiday Name *">
+            <input ref={firstRef} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
+          </Field>
+          <Field label="Date *">
+            <input type="date" style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
+          </Field>
+          <Field label="Location *">
+            <select style={inputStyle} value={locationId} onChange={e => setLocationId(e.target.value)}>
+              <option value="">Select a location…</option>
+              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>{loading ? 'Saving…' : 'Save'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function LeavePage() {
   const token = useAuthStore(s => s.token)!;
+  const role = useAuthStore(s => s.user?.role);
+  const isAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRequest, setShowRequest] = useState(false);
+  const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  const [holidayError, setHolidayError] = useState('');
+  const [showAddHoliday, setShowAddHoliday] = useState(false);
 
   useEffect(() => {
     Promise.all([leaveApi.listTypes(token), leaveApi.listBalances(token), leaveApi.listMine(token)])
       .then(([t, b, r]) => { setTypes(t); setBalances(b); setRequests(r); })
       .finally(() => setLoading(false));
   }, [token]);
+
+  async function fetchHolidays() {
+    setHolidayError('');
+    try {
+      setHolidays(await holidaysApi.listForMyLocation(token));
+    } catch (e) {
+      setHolidayError(e instanceof Error ? e.message : 'Failed to load holidays');
+    }
+  }
+
+  useEffect(() => { if (token) fetchHolidays(); }, [token]);
 
   function handleCreated(r: LeaveRequestRecord) {
     setRequests(prev => [r, ...prev]);
@@ -178,6 +370,64 @@ export default function LeavePage() {
 
       {showRequest && (
         <RequestLeaveModal types={types} token={token} onClose={() => setShowRequest(false)} onCreated={handleCreated} />
+      )}
+
+      <div style={{ marginTop: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div>
+            <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+              Company Holidays{holidays[0]?.locationName ? ` — ${holidays[0].locationName}` : ''}
+            </h2>
+            <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4 }}>Holidays for your work location.</p>
+          </div>
+          {isAdmin && (
+            <button onClick={() => setShowAddHoliday(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <Plus size={13} /> Add Holiday
+            </button>
+          )}
+        </div>
+
+        {holidayError && (
+          <div role="alert" style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 8, padding: '10px 14px', color: 'var(--risk)', fontSize: 13, marginBottom: 14 }}>
+            {holidayError}
+          </div>
+        )}
+
+        <div style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
+          {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
+
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+            {holidays.length === 0 ? (
+              <div style={{ padding: 48, textAlign: 'center' }}>
+                <CalendarDays size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
+                <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No holidays have been added for your location yet.</div>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      {['Holiday Name', 'Date', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holidays.map(h => (
+                      <tr key={h.id}>
+                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{h.holidayName}</td>
+                        <td style={tdStyle}>{formatHolidayDate(h.holidayDate)}</td>
+                        <td style={tdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showAddHoliday && (
+        <AddHolidayModal token={token} onClose={() => setShowAddHoliday(false)} onCreated={fetchHolidays} />
       )}
     </div>
   );

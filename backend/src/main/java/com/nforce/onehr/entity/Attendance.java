@@ -32,6 +32,12 @@ public class Attendance {
     @Column(name = "worked_minutes")
     private Integer workedMinutes;
 
+    // When the currently-open session began — only meaningful while checkOutAt is null.
+    // Lets a later session in the same day (e.g. after a lunch break) compute its own
+    // duration without disturbing checkInAt, which stays the day's first check-in.
+    @Column(name = "session_started_at")
+    private LocalDateTime sessionStartedAt;
+
     @Column(name = "status", nullable = false)
     @Builder.Default
     private String status = "PRESENT";
