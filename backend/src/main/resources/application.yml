@@ -14,6 +14,14 @@ spring:
       # Override validate — Flyway owns the schema; ddl-auto: validate
       # fails on citext/timestamptz column types reported by Postgres metadata
       ddl-auto: none
+    properties:
+      hibernate:
+        # Pin JDBC TIME/TIMESTAMP conversion to a fixed zone. Without this, Hibernate
+        # uses the JVM default zone (IST locally) for java.sql.Time <-> LocalTime
+        # conversion, and historical Asia/Kolkata offset data can produce an
+        # out-of-range NanoOfSecond when reading TIME columns back out.
+        jdbc:
+          time_zone: UTC
 
 app:
   jwt:

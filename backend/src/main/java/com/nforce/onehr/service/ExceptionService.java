@@ -100,11 +100,11 @@ public class ExceptionService {
                         attendanceProperties.getShiftStart(), record.getCheckInAt().toLocalTime(),
                         record.getLateByMinutes());
             }
-            if (record.getCheckOutAt() == null && record.getWorkDate().isBefore(today)) {
+            if (record.getCheckInAt() != null && record.getCheckOutAt() == null && record.getWorkDate().isBefore(today)) {
                 upsertException(record.getEmployeeUserId(), record.getWorkDate(), ExceptionType.MISSING_PUNCH,
                         null, record.getCheckInAt().toLocalTime(), null);
             }
-            if (leaveCoveredDays.contains(record.getEmployeeUserId() + "|" + record.getWorkDate())) {
+            if (record.getCheckInAt() != null && leaveCoveredDays.contains(record.getEmployeeUserId() + "|" + record.getWorkDate())) {
                 upsertException(record.getEmployeeUserId(), record.getWorkDate(), ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
                         null, record.getCheckInAt().toLocalTime(), null);
             }
