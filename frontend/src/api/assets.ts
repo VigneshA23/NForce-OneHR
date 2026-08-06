@@ -1,4 +1,5 @@
-const BASE = '/api/assets';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/assets`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
