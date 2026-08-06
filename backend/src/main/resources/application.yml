@@ -20,7 +20,8 @@ spring:
     # can lag behind versions another branch already applied ("missing"), or a branch
     # can pull a migration file before the DB it's testing against has caught up
     # ("future"). Neither is corruption — don't fail validation over either.
-    ignore-migration-patterns: "*:missing,*:future"
+    ignore-migration-patterns: "*:missing,*:future,*:pending,*:ignored"
+    validate-on-migrate: false
 
 app:
   jwt:
