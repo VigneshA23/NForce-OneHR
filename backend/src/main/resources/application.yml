@@ -47,8 +47,10 @@ app:
     half-day-max-hours: 4
     full-day-min-hours: 8
     regularization:
-      # N-day lookback window for regularization requests submitted by anyone other than
-      # Super Admin (who is exempt entirely — see RegularizationService.submit/update).
+      # N-day lookback window (counting today itself) for regularization requests submitted by
+      # anyone other than Super Admin, who is exempt entirely — see
+      # RegularizationService.submit/update/validateLookbackWindow. E.g. 3 with today=6th
+      # allows the 6th/5th/4th and blocks the 3rd onward.
       employee-lookback-days: 3
       # Max regularization requests a non-Super-Admin employee may submit per calendar month
       # (counts every submission regardless of eventual status). Super Admin is exempt.

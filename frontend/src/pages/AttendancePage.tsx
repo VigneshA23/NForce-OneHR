@@ -59,6 +59,21 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Requirement 1 (date-window restriction): Employee/Manager/HR may only pick today or one of
+// the previous REGULARIZATION_LOOKBACK_DAYS-1 days (today counts as one of the allowed days —
+// e.g. 3 with today=6th allows 6th/5th/4th, blocks 3rd onward). Super Admin is exempt (no
+// restriction). This mirrors RegularizationService.validateLookbackWindow on the backend, which
+// is the source of truth and enforces the same rule server-side — this is a UX convenience only,
+// not the actual security boundary, since the API rejects out-of-window dates regardless.
+const REGULARIZATION_LOOKBACK_DAYS = 3;
+
+/** ISO date N days before today, in the browser's local calendar. */
+function isoDaysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return isoOf(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 // ─── Month-calendar helpers ────────────────────────────────────────────────────
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -265,10 +280,21 @@ const REGULARIZATION_STATUS_COLOR: Record<string, string> = {
   PENDING: '#E0A93B', PARTIALLY_APPROVED: '#3B82C4', APPROVED: '#2FB67C', REJECTED: '#E4373D',
 };
 
-/** A request still in flight (manager stage or awaiting final approval) — the only statuses
- * approve/reject/bulk actions can act on; APPROVED/REJECTED are terminal. */
-function isActionableRequest(r: RegularizationRecord) {
-  return r.status === 'PENDING' || r.status === 'PARTIALLY_APPROVED';
+/**
+ * A request still in flight AND actionable by the current viewer — the only combination
+ * approve/reject/bulk actions can act on; APPROVED/REJECTED are always terminal.
+ *
+ * PENDING is the manager stage — actionable by whoever it's assigned to (or the HR/Super Admin
+ * override). PARTIALLY_APPROVED is manager-stage-complete, awaiting HR/Super Admin final
+ * approval — a Manager's Approve/Reject on it would be rejected server-side (see
+ * RegularizationService.approve/reject, which only lets SUPER_ADMIN/HR_ADMIN act on
+ * PARTIALLY_APPROVED), so those buttons are hidden for Manager rather than shown-then-failing
+ * (Requirement 2.3). HR and Super Admin keep seeing them, unchanged.
+ */
+function isActionableRequest(r: RegularizationRecord, isManager: boolean) {
+  if (r.status === 'PENDING') return true;
+  if (r.status === 'PARTIALLY_APPROVED') return !isManager;
+  return false;
 }
 
 const dash = <span style={{ color: 'var(--txt-dim)' }}>—</span>;
@@ -479,16 +505,21 @@ function TruncatedText({ text, style }: { text: string | null | undefined; style
 }
 
 // ─── Request Regularization Modal (create or edit-while-pending) ──────────────
-function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
+function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuperAdmin }: {
   onClose: () => void;
   onSaved: (r: RegularizationRecord) => void;
   token: string;
   editing?: RegularizationRecord;
   /** Attendance dates that already have an APPROVED regularization — resubmission is blocked. */
   approvedDates: Set<string>;
+  /** Super Admin is exempt from the date-window restriction below (Requirement 1). */
+  isSuperAdmin: boolean;
 }) {
   const { showToast } = useToast();
   const today = todayIsoDate();
+  // Employee/Manager/HR: earliest attendance date selectable in the calendar picker. Super
+  // Admin has no lower bound — "any number of previous days" per Requirement 1.
+  const minDate = isSuperAdmin ? undefined : isoDaysAgo(REGULARIZATION_LOOKBACK_DAYS - 1);
   const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? today);
   const [checkInText, setCheckInText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckIn)));
   const [checkOutText, setCheckOutText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckOut)));
@@ -552,6 +583,14 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
     && attendanceDate !== editing?.attendanceDate
     && approvedDates.has(attendanceDate);
 
+  // Requirement 1: Employee/Manager/HR can only pick a date within the last
+  // REGULARIZATION_LOOKBACK_DAYS days (today counts as one). The `min` attribute on the date
+  // input below keeps this out of reach via the picker UI; this flag catches a typed/pasted
+  // value that slips past it (or an older date already set while editing). Super Admin never
+  // trips this check. The backend re-validates the same rule regardless — see
+  // RegularizationService.validateLookbackWindow.
+  const dateOutsideWindow = !isSuperAdmin && !!attendanceDate && !!minDate && attendanceDate < minDate;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitAttempted(true);
@@ -573,6 +612,10 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
     }
     if (dateAlreadyApproved) {
       setError('Already raised regularization for this date.');
+      return;
+    }
+    if (dateOutsideWindow) {
+      setError(`Regularization requests are only allowed within the last ${REGULARIZATION_LOOKBACK_DAYS} days (including today).`);
       return;
     }
     if (checkInInvalid || checkOutInvalid) {
@@ -608,7 +651,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
         <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <Field label="Attendance Date *">
-            <input type="date" style={inputStyle} value={attendanceDate} max={today}
+            <input type="date" style={inputStyle} value={attendanceDate} max={today} min={minDate}
               onChange={e => {
                 setAttendanceDate(e.target.value);
                 setCheckInText(''); setCheckOutText('');
@@ -617,6 +660,11 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
               }} />
             {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
             {dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
+            {dateOutsideWindow && (
+              <div style={fieldErrorStyle}>
+                Only the last {REGULARIZATION_LOOKBACK_DAYS} days (including today) are selectable.
+              </div>
+            )}
           </Field>
           {existingPunch && (existingPunch.checkInAt || existingPunch.checkOutAt) && (
             <div style={{ fontSize: 12, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' }}>
@@ -657,7 +705,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates }: {
           </Field>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || dateAlreadyApproved} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting || dateAlreadyApproved ? 'not-allowed' : 'pointer', opacity: submitting || dateAlreadyApproved ? 0.7 : 1 }}>
+            <button type="submit" disabled={submitting || dateAlreadyApproved || dateOutsideWindow} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting || dateAlreadyApproved || dateOutsideWindow ? 'not-allowed' : 'pointer', opacity: submitting || dateAlreadyApproved || dateOutsideWindow ? 0.7 : 1 }}>
               {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Submit Request'}
             </button>
           </div>
@@ -796,7 +844,7 @@ function ConfirmApproveModal({ request, onClose, onApproved, token }: {
         <ModalHeader title={`Approve — ${request.employeeName}`} onClose={onClose} />
         <div style={{ padding: 24 }}>
           <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-            {formatDay(request.attendanceDate)} · {fmtDateTime(request.requestedCheckIn)} → {fmtDateTime(request.requestedCheckOut)}
+            {formatDay(request.attendanceDate)} · {formatTime(request.requestedCheckIn) ?? dash} → {formatTime(request.requestedCheckOut) ?? dash}
           </div>
           <Field label="Comment (optional)">
             <textarea
@@ -1564,7 +1612,7 @@ function MonthFilter({ month, onChange }: { month: string; onChange: (v: string)
   );
 }
 
-function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: string; canApprove: boolean; isSuperAdmin: boolean }) {
+function RegularizationSection({ token, canApprove, isSuperAdmin, isManager }: { token: string; canApprove: boolean; isSuperAdmin: boolean; isManager: boolean }) {
   const { showToast } = useToast();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
   const [pending, setPending] = useState<RegularizationRecord[]>([]);
@@ -1712,7 +1760,7 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
             </div>
           ) : (
             pendingMonths.map(([monthKey, rows]) => {
-              const selectableIds = rows.filter(isActionableRequest).map(r => r.id);
+              const selectableIds = rows.filter(r => isActionableRequest(r, isManager)).map(r => r.id);
               const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedIds.has(id));
               const someSelected = !allSelected && selectableIds.some(id => selectedIds.has(id));
               return (
@@ -1745,7 +1793,7 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
                         {rows.map(r => (
                           <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
                             <td style={tdStyle} onClick={e => e.stopPropagation()}>
-                              {isActionableRequest(r) && (
+                              {isActionableRequest(r, isManager) && (
                                 <input
                                   type="checkbox"
                                   checked={selectedIds.has(r.id)}
@@ -1762,14 +1810,14 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
                               <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
                             </td>
                             <td style={tdStyle}>{r.attendanceDate}</td>
-                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckIn)}</td>
-                            <td style={tdStyle}>{fmtDateTime(r.requestedCheckOut)}</td>
+                            <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
+                            <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
                             <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
-                            <td style={{ ...tdStyle, maxWidth: 220 }}>{r.reason}</td>
+                            <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
                             <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
                             <td style={tdStyle}><ReviewerCell r={r} /></td>
                             <td style={tdStyle}>
-                              {isActionableRequest(r) ? (
+                              {isActionableRequest(r, isManager) ? (
                                 <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                                   <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
                                   <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
@@ -1799,13 +1847,14 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
       )}
 
       {showRequest && (
-        <RequestModal token={token} approvedDates={approvedDates} onClose={() => setShowRequest(false)} onSaved={r => setMyRequests(prev => [r, ...prev])} />
+        <RequestModal token={token} approvedDates={approvedDates} isSuperAdmin={isSuperAdmin} onClose={() => setShowRequest(false)} onSaved={r => setMyRequests(prev => [r, ...prev])} />
       )}
       {editing && (
         <RequestModal
           token={token}
           editing={editing}
           approvedDates={approvedDates}
+          isSuperAdmin={isSuperAdmin}
           onClose={() => setEditing(null)}
           onSaved={updated => setMyRequests(prev => prev.map(r => (r.id === updated.id ? updated : r)))}
         />
@@ -1909,7 +1958,7 @@ export default function AttendancePage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
         <MyAttendance />
-        <RegularizationSection token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} />
+        <RegularizationSection token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
         {role === 'Manager' && <DayRoster scope="team" />}
         {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
       </div>

@@ -235,6 +235,53 @@ class RegularizationServiceTest {
         verify(regularizationRepository, never()).save(any());
     }
 
+    /**
+     * windowDays counts today itself as one of the allowed days: with employeeLookbackDays=3,
+     * today/-1/-2 are allowed and -3 onward is blocked (Requirement 1's Case 1/2 date-window
+     * examples — today=6th allows 6th/5th/4th, blocks 3rd onward).
+     */
+    @Test
+    void submit_byNonSuperAdmin_atLookbackBoundary_isAllowed() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate boundary = LocalDate.now().minusDays(2); // last day still inside the 3-day window
+
+        RegularizationResponse resp = regularizationService.submit(
+                request(boundary, boundary.atTime(9, 0), boundary.atTime(18, 0), "Within window"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(regularizationRepository).save(any());
+    }
+
+    @Test
+    void submit_byNonSuperAdmin_justOutsideLookbackBoundary_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate justOutside = LocalDate.now().minusDays(3); // one day past the 3-day window
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), employeeEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_byManager_isBoundByLookbackWindow() {
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        LocalDate justOutside = LocalDate.now().minusDays(3);
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), managerEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_byHrAdmin_isBoundByLookbackWindow() {
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        LocalDate justOutside = LocalDate.now().minusDays(3);
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), hrEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
     @Test
     void submit_bySuperAdmin_bypassesLookbackWindow() {
         when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));

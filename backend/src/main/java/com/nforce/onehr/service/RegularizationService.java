@@ -478,6 +478,8 @@ public class RegularizationService {
             throw new IllegalArgumentException("Only pending or partially-approved requests can be rejected");
         }
 
+        String before = auditSnapshot.toJson(regularizationSnapshot(req));
+
         req.setStatus(STATUS_REJECTED);
         req.setReviewedBy(actor.getId());
         req.setReviewedAt(LocalDateTime.now());
@@ -525,15 +527,21 @@ public class RegularizationService {
     /**
      * Note: {@code update()} still requires strict PENDING (edit-while-pending only) — that
      * check is inlined there directly since it's a plain state check, not an authorization one.
+     *
+     * {@code windowDays} counts today itself as one of the allowed days — e.g. windowDays=3
+     * with today=6th allows the 6th/5th/4th and blocks the 3rd onward. Enforced server-side so
+     * it can't be bypassed by calling the API directly; the calendar UI mirrors the same rule
+     * (see RequestModal in AttendancePage.tsx) purely as a convenience.
      */
     private void validateLookbackWindow(LocalDate attendanceDate, int windowDays) {
         LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
         if (attendanceDate.isAfter(today)) {
             throw new IllegalArgumentException("Cannot request regularization for a future date");
         }
-        if (attendanceDate.isBefore(today.minusDays(windowDays))) {
+        LocalDate earliestAllowed = today.minusDays(Math.max(windowDays, 1) - 1);
+        if (attendanceDate.isBefore(earliestAllowed)) {
             throw new IllegalArgumentException(
-                    "Regularization requests are only allowed within the last " + windowDays + " days");
+                    "Regularization requests are only allowed within the last " + windowDays + " days (including today)");
         }
     }
 
