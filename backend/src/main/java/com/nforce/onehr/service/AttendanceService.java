@@ -52,6 +52,7 @@ public class AttendanceService {
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties props;
 
     // ---------------------------------------------------------------- self-service
@@ -154,6 +155,8 @@ public class AttendanceService {
                 ? record.getSessionStartedAt() : record.getCheckInAt();
         int sessionMinutes = (int) Duration.between(sessionStart, now).toMinutes();
         int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
+        String before = auditSnapshot.toJson(Map.of(
+                "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
         record.setCheckOutAt(now);
         record.setWorkedMinutes(workedMinutes);
 
@@ -170,7 +173,9 @@ public class AttendanceService {
                     punch.setCheckOutAt(now);
                     attendancePunchRepository.save(punch);
                 });
-        auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId());
+        String after = auditSnapshot.toJson(Map.of(
+                "checkOutAt", now.toString(), "workedMinutes", workedMinutes, "status", saved.getStatus()));
+        auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId(), before, after);
         return toResponse(saved, employee);
     }
 
