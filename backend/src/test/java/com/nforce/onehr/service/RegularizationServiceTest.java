@@ -35,6 +35,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -52,6 +53,7 @@ class RegularizationServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private AuditService auditService;
+    @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties attendanceProps;
 
     @InjectMocks private RegularizationService regularizationService;

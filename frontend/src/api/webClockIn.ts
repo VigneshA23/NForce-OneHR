@@ -1,4 +1,5 @@
-const BASE = '/api/attendance/web-clock-in';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/attendance/web-clock-in`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };

@@ -50,6 +50,7 @@ class LeaveServiceTest {
     @Mock private LeaveBalanceRepository leaveBalanceRepository;
     @Mock private LeaveRequestRepository leaveRequestRepository;
     @Mock private AuditService auditService;
+    @Mock private AuditSnapshotSerializer auditSnapshot;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -77,6 +78,7 @@ class LeaveServiceTest {
         lenient().when(employeeRepository.findById(any())).thenReturn(Optional.empty());
         lenient().when(userRepository.findById(employeeId)).thenReturn(Optional.of(employeeUser));
         lenient().when(userRepository.findById(managerId)).thenReturn(Optional.of(managerUser));
+        lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
     }
 
     private CreateLeaveRequestRequest request(LocalDate start, LocalDate end, boolean halfDay, String reason) {
@@ -175,7 +177,7 @@ class LeaveServiceTest {
         assertNotNull(approved.getDecidedAt());
         assertEquals(new BigDecimal("4"), balance.getUsedDays());
         verify(leaveBalanceRepository).save(balance);
-        verify(auditService).log(managerId, "LEAVE_REQUEST_APPROVED", pending.getId());
+        verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_APPROVED"), eq(pending.getId()), any(), any());
     }
 
     @Test
@@ -195,7 +197,7 @@ class LeaveServiceTest {
         assertEquals("REJECTED", rejected.getStatus());
         assertEquals("Team coverage conflict", rejected.getDecisionReason());
         verify(leaveBalanceRepository, never()).save(any());
-        verify(auditService).log(managerId, "LEAVE_REQUEST_REJECTED", pending.getId());
+        verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_REJECTED"), eq(pending.getId()), any(), any());
     }
 
     @Test

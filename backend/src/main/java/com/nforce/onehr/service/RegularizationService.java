@@ -76,6 +76,7 @@ public class RegularizationService {
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
 
     /** Resolved requested times after applying punch auto-fill from attendance history. */
@@ -152,6 +153,7 @@ public class RegularizationService {
             throw new IllegalStateException("Only pending requests can be edited");
         }
 
+        String before = auditSnapshot.toJson(regularizationSnapshot(existing));
         ResolvedTimes times = resolveTimes(req, actor.getId());
         if (!hasRole(actor, "SUPER_ADMIN")) {
             validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
@@ -167,8 +169,20 @@ public class RegularizationService {
         existing.setAssignedApproverId(resolveAssignedApprover(actor.getId(), req.getManagerUserId()));
         existing = regularizationRepository.save(existing);
 
-        auditService.log(actor.getId(), "REGULARIZATION_UPDATED", existing.getId());
+        String after = auditSnapshot.toJson(regularizationSnapshot(existing));
+        auditService.log(actor.getId(), "REGULARIZATION_UPDATED", existing.getId(), before, after);
         return toResponse(existing);
+    }
+
+    private Map<String, Object> regularizationSnapshot(RegularizationRequest r) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("attendanceDate", r.getAttendanceDate());
+        snapshot.put("requestedCheckIn", r.getRequestedCheckIn());
+        snapshot.put("requestedCheckOut", r.getRequestedCheckOut());
+        snapshot.put("reason", r.getReason());
+        snapshot.put("assignedApproverId", r.getAssignedApproverId());
+        snapshot.put("status", r.getStatus());
+        return snapshot;
     }
 
     /**
@@ -471,7 +485,8 @@ public class RegularizationService {
         regularizationRepository.save(req);
         recordApproval(req.getId(), actor.getId(), "REJECTED", comment, actingRole);
 
-        auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId(), before, after);
         // TODO(notifications): notify req.getEmployeeUserId() of rejection — owned by another workstream.
         return toResponse(req);
     }
