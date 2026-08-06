@@ -189,6 +189,7 @@ public class AuditQueryService {
                 .actionGroup(AuditActionGroup.of(log.getAction()).name())
                 .targetId(log.getTargetId())
                 .targetLabel(targetResolver.resolve(log.getAction(), log.getTargetId()))
+                .targetEmployeeCode(targetResolver.resolveEmployeeCode(log.getAction(), log.getTargetId()))
                 .beforeState(log.getBeforeState())
                 .afterState(log.getAfterState())
                 .occurredAt(log.getOccurredAt())
