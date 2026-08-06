@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -22,5 +23,10 @@ public interface RegularizationRequestRepository extends JpaRepository<Regulariz
 
     List<RegularizationRequest> findByStatus(String status);
 
+    List<RegularizationRequest> findByStatusIn(Collection<String> statuses);
+
     boolean existsByEmployeeUserIdAndAttendanceDateAndStatus(UUID employeeUserId, LocalDate attendanceDate, String status);
+
+    /** Backs the monthly submission-limit check — counts every request regardless of status. */
+    long countByEmployeeUserIdAndCreatedAtBetween(UUID employeeUserId, LocalDateTime start, LocalDateTime end);
 }

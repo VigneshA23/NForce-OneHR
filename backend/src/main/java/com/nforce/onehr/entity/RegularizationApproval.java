@@ -29,6 +29,12 @@ public class RegularizationApproval {
     @Column(name = "action_type", nullable = false)
     private String actionType;
 
+    // The authority actually exercised for this action (MANAGER | HR_ADMIN | SUPER_ADMIN) —
+    // not necessarily every role the actor holds, e.g. a Super Admin bypass always records
+    // SUPER_ADMIN even if that user also holds EMPLOYEE/MANAGER.
+    @Column(name = "actor_role")
+    private String actorRole;
+
     @Column(columnDefinition = "TEXT")
     private String comments;
 

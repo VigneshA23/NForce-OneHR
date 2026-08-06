@@ -35,6 +35,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -61,31 +62,40 @@ class RegularizationServiceTest {
     private final UUID managerId = UUID.randomUUID();
     private final UUID hrId = UUID.randomUUID();
     private final UUID strangerId = UUID.randomUUID();
+    private final UUID superAdminId = UUID.randomUUID();
     private final String employeeEmail = "employee@test.com";
     private final String managerEmail = "manager@test.com";
     private final String hrEmail = "hr@test.com";
     private final String strangerEmail = "stranger@test.com";
+    private final String superAdminEmail = "superadmin@test.com";
 
     private User employeeUser;
     private User managerUser;
     private User hrUser;
     private User strangerUser;
+    private User superAdminUser;
 
     @BeforeEach
     void setUp() throws Exception {
         Role managerRole = Role.builder().id(1).code("MANAGER").displayName("Manager").build();
         Role hrRole = Role.builder().id(2).code("HR_ADMIN").displayName("HR Admin").build();
         Role employeeRole = Role.builder().id(3).code("EMPLOYEE").displayName("Employee").build();
+        Role superAdminRole = Role.builder().id(4).code("SUPER_ADMIN").displayName("Super Admin").build();
 
         employeeUser = User.builder().id(employeeId).email(employeeEmail).roles(Set.of(employeeRole)).build();
         managerUser = User.builder().id(managerId).email(managerEmail).roles(Set.of(managerRole)).build();
         hrUser = User.builder().id(hrId).email(hrEmail).roles(Set.of(hrRole)).build();
         strangerUser = User.builder().id(strangerId).email(strangerEmail).roles(Set.of(employeeRole)).build();
+        // Per this org's setup, Super Admin accounts also hold EMPLOYEE, so they can submit
+        // their own regularization requests (the submit endpoint is gated on hasRole('EMPLOYEE')).
+        superAdminUser = User.builder().id(superAdminId).email(superAdminEmail)
+                .roles(Set.of(superAdminRole, employeeRole)).build();
 
         lenient().when(userRepository.findById(employeeId)).thenReturn(Optional.of(employeeUser));
         lenient().when(userRepository.findById(managerId)).thenReturn(Optional.of(managerUser));
         lenient().when(userRepository.findById(hrId)).thenReturn(Optional.of(hrUser));
         lenient().when(userRepository.findById(strangerId)).thenReturn(Optional.of(strangerUser));
+        lenient().when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
         lenient().when(employeeRepository.findById(any())).thenReturn(Optional.empty());
         lenient().when(regularizationApprovalRepository.findByRequestIdOrderByActionDateDesc(any()))
                 .thenReturn(List.of());
@@ -98,12 +108,23 @@ class RegularizationServiceTest {
         lenient().when(attendanceProps.getShiftStart()).thenReturn(LocalTime.of(9, 30));
         lenient().when(attendanceProps.getLateGraceMinutes()).thenReturn(15);
         lenient().when(attendanceProps.getHalfDayMaxHours()).thenReturn(4);
-        lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
+        // Matches the system default zone so LocalDate.now(ZoneId.of(...)) in the service
+        // agrees with the plain LocalDate.now() used throughout these tests.
+        lenient().when(attendanceProps.getZone()).thenReturn(java.time.ZoneId.systemDefault().getId());
 
-        // @Value-injected field — never populated outside a Spring container.
-        Field lookback = RegularizationService.class.getDeclaredField("lookbackDays");
-        lookback.setAccessible(true);
-        lookback.set(regularizationService, 30);
+        // @Value-injected fields — never populated outside a Spring container.
+        Field employeeLookback = RegularizationService.class.getDeclaredField("employeeLookbackDays");
+        employeeLookback.setAccessible(true);
+        employeeLookback.set(regularizationService, 3);
+
+        Field monthlyLimit = RegularizationService.class.getDeclaredField("monthlyLimit");
+        monthlyLimit.setAccessible(true);
+        monthlyLimit.set(regularizationService, 3);
+
+        // Default for existing tests that don't care about the monthly cap — most submit()
+        // tests use today's date and don't stub this, so let it resolve to a lenient 0.
+        lenient().when(regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any()))
+                .thenReturn(0L);
     }
 
     private CreateRegularizationRequest request(LocalDate date, LocalDateTime checkIn, LocalDateTime checkOut, String reason) {
@@ -116,7 +137,9 @@ class RegularizationServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
                 .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
-        when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, LocalDate.now(), "PENDING"))
+        // assertNoDuplicateRequest checks APPROVED, then PARTIALLY_APPROVED, then PENDING —
+        // all three need stubbing under strict-stub mode, not just the one this test cares about.
+        lenient().when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, LocalDate.now(), "PENDING"))
                 .thenReturn(false);
 
         LocalDate today = LocalDate.now();
@@ -187,10 +210,138 @@ class RegularizationServiceTest {
     }
 
     @Test
+    void submit_whenPartiallyApprovedRequestAlreadyExistsForDate_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        // The APPROVED check runs first (and is unstubbed here — returns false by default);
+        // only the PARTIALLY_APPROVED check this test targets needs a real stub.
+        lenient().when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, today, "APPROVED"))
+                .thenReturn(false);
+        when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, today, "PARTIALLY_APPROVED"))
+                .thenReturn(true);
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot badge"), employeeEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_byNonSuperAdmin_beyond3DayWindow_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate tooOld = LocalDate.now().minusDays(4); // employeeLookbackDays is 3 in setUp()
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), employeeEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    /**
+     * windowDays counts today itself as one of the allowed days: with employeeLookbackDays=3,
+     * today/-1/-2 are allowed and -3 onward is blocked (Requirement 1's Case 1/2 date-window
+     * examples — today=6th allows 6th/5th/4th, blocks 3rd onward).
+     */
+    @Test
+    void submit_byNonSuperAdmin_atLookbackBoundary_isAllowed() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate boundary = LocalDate.now().minusDays(2); // last day still inside the 3-day window
+
+        RegularizationResponse resp = regularizationService.submit(
+                request(boundary, boundary.atTime(9, 0), boundary.atTime(18, 0), "Within window"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(regularizationRepository).save(any());
+    }
+
+    @Test
+    void submit_byNonSuperAdmin_justOutsideLookbackBoundary_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate justOutside = LocalDate.now().minusDays(3); // one day past the 3-day window
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), employeeEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_byManager_isBoundByLookbackWindow() {
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        LocalDate justOutside = LocalDate.now().minusDays(3);
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), managerEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_byHrAdmin_isBoundByLookbackWindow() {
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        LocalDate justOutside = LocalDate.now().minusDays(3);
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), hrEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_bySuperAdmin_bypassesLookbackWindow() {
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        LocalDate tooOld = LocalDate.now().minusDays(10);
+
+        RegularizationResponse resp = regularizationService.submit(
+                request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), superAdminEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submit_byNonSuperAdmin_atMonthlyLimit_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        when(regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(eq(employeeId), any(), any()))
+                .thenReturn(3L); // monthlyLimit is 3 in setUp()
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(today, today.atTime(9, 0), today.atTime(18, 0), "Another one"), employeeEmail));
+
+        assertTrue(ex.getMessage().contains("maximum"));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_bySuperAdmin_exemptFromMonthlyLimit() {
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        LocalDate today = LocalDate.now();
+
+        RegularizationResponse resp = regularizationService.submit(
+                request(today, today.atTime(9, 0), today.atTime(18, 0), "Yet another"), superAdminEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(regularizationRepository, never()).countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any());
+    }
+
+    @Test
+    void update_doesNotConsumeMonthlyLimitSlot() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Old reason").status("PENDING").build();
+
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        regularizationService.update(pending.getId(),
+                request(date, date.atTime(9, 15), date.atTime(18, 15), "Updated reason"), employeeEmail);
+
+        verify(regularizationRepository, never()).countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any());
+    }
+
+    @Test
     void submit_bothTimesMissingWithNoExistingPunch_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         LocalDate today = LocalDate.now();
-        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today)).thenReturn(Optional.empty());
+        // resolveTimes() rejects a both-null request before ever consulting attendanceRepository,
+        // so no stub is needed for it here.
 
         assertThrows(IllegalArgumentException.class,
                 () -> regularizationService.submit(request(today, null, null, "Nothing on file"), employeeEmail));
@@ -198,7 +349,7 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void approve_byAssignedManager_recordsAuditRow() {
+    void approve_byAssignedManager_transitionsToPartiallyApproved() {
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -207,16 +358,20 @@ class RegularizationServiceTest {
 
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
-        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
-        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
 
         RegularizationResponse resp = regularizationService.approve(pending.getId(), null, managerEmail);
 
-        assertEquals("APPROVED", resp.getStatus());
+        assertEquals("PARTIALLY_APPROVED", resp.getStatus());
         assertEquals(managerId, pending.getReviewedBy());
+        assertEquals(managerId, pending.getApprovedBy());
+        assertNotNull(pending.getApprovedAt());
+        assertNull(pending.getFinalApprovedBy());
+        // Manager stage never touches the attendance record — only final approval does.
+        verify(attendanceRepository, never()).save(any());
         verify(regularizationApprovalRepository).save(argThat(a ->
-                a.getRequestId().equals(pending.getId()) && a.getActionType().equals("APPROVED") && a.getActionBy().equals(managerId)));
-        verify(auditService).log(eq(managerId), eq("REGULARIZATION_APPROVED"), eq(employeeId), any(), any());
+                a.getRequestId().equals(pending.getId()) && a.getActionType().equals("APPROVED")
+                        && a.getActionBy().equals(managerId) && "MANAGER".equals(a.getActorRole())));
+        verify(auditService).log(managerId, "REGULARIZATION_PARTIALLY_APPROVED", employeeId);
     }
 
     @Test
@@ -229,7 +384,8 @@ class RegularizationServiceTest {
 
         when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(strangerUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
-        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.empty());
+        // strangerUser holds only EMPLOYEE — approve()'s status-first branching denies it before
+        // ever reaching assertCanReview's historyRepository fallback, so no stub needed there.
 
         assertThrows(AccessDeniedException.class, () -> regularizationService.approve(pending.getId(), null, strangerEmail));
         verify(regularizationRepository, never()).save(any());
@@ -237,7 +393,8 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void approve_byHrAdmin_overridesAssignment() {
+    void approve_byHrAdmin_onPending_isDenied() {
+        // HR_ADMIN is a final-stage-only approver — must wait for the manager stage first.
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -246,12 +403,57 @@ class RegularizationServiceTest {
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        // HR_ADMIN isn't a recognized actor for the PENDING stage (only MANAGER/SUPER_ADMIN are) —
+        // denied the same way an unrelated stranger would be.
+        assertThrows(AccessDeniedException.class, () -> regularizationService.approve(pending.getId(), null, hrEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void approve_byHrAdmin_onPartiallyApproved_transitionsToApproved() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PARTIALLY_APPROVED")
+                .approvedBy(managerId).approvedAt(LocalDateTime.now()).build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(partiallyApproved.getId())).thenReturn(Optional.of(partiallyApproved));
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
         when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        RegularizationResponse resp = regularizationService.approve(pending.getId(), null, hrEmail);
+        RegularizationResponse resp = regularizationService.approve(partiallyApproved.getId(), null, hrEmail);
 
         assertEquals("APPROVED", resp.getStatus());
+        assertEquals(hrId, partiallyApproved.getFinalApprovedBy());
+        assertNotNull(partiallyApproved.getFinalApprovedAt());
+        // Stage 1 fields set earlier must survive the stage-2 transition untouched.
+        assertEquals(managerId, partiallyApproved.getApprovedBy());
+        verify(regularizationApprovalRepository).save(argThat(a -> "HR_ADMIN".equals(a.getActorRole())));
+        verify(auditService).log(hrId, "REGULARIZATION_APPROVED", employeeId);
+    }
+
+    @Test
+    void approve_bySuperAdmin_bypassesFromPending_directlyToApproved() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        RegularizationResponse resp = regularizationService.approve(pending.getId(), null, superAdminEmail);
+
+        assertEquals("APPROVED", resp.getStatus());
+        assertNull(pending.getApprovedBy()); // bypass skips the manager stage entirely
+        assertEquals(superAdminId, pending.getFinalApprovedBy());
+        verify(regularizationApprovalRepository).save(argThat(a -> "SUPER_ADMIN".equals(a.getActorRole())));
     }
 
     @Test
@@ -270,7 +472,40 @@ class RegularizationServiceTest {
         assertEquals("REJECTED", resp.getStatus());
         assertEquals("Not a valid correction", resp.getReviewComment());
         verify(regularizationApprovalRepository).save(argThat(a ->
-                a.getActionType().equals("REJECTED") && "Not a valid correction".equals(a.getComments())));
+                a.getActionType().equals("REJECTED") && "Not a valid correction".equals(a.getComments())
+                        && "MANAGER".equals(a.getActorRole())));
+    }
+
+    @Test
+    void reject_byHrAdmin_onPending_isDenied() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(pending.getId(), "No", hrEmail));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void reject_byHrAdmin_onPartiallyApproved_succeeds() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PARTIALLY_APPROVED").build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(partiallyApproved.getId())).thenReturn(Optional.of(partiallyApproved));
+
+        RegularizationResponse resp = regularizationService.reject(partiallyApproved.getId(), "Insufficient evidence", hrEmail);
+
+        assertEquals("REJECTED", resp.getStatus());
+        verify(regularizationApprovalRepository).save(argThat(a -> "HR_ADMIN".equals(a.getActorRole())));
     }
 
     @Test
@@ -313,7 +548,9 @@ class RegularizationServiceTest {
     @Test
     void update_whenMovedToDateWithApprovedRequest_isRejected() {
         LocalDate date = LocalDate.now();
-        LocalDate approvedDate = date.plusDays(1);
+        // Must stay within the 3-day lookback window and not be in the future — otherwise
+        // validateLookbackWindow rejects it before the duplicate-date check this test targets.
+        LocalDate approvedDate = date.minusDays(1);
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -365,17 +602,45 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void listPendingForApprover_hrAdminSeesAllPending() {
-        RegularizationRequest assignedToManager = RegularizationRequest.builder().id(UUID.randomUUID())
+    void listPendingForApprover_hrAdminSeesOnlyPartiallyApproved() {
+        // HR is a final-stage-only approver — their queue is PARTIALLY_APPROVED, not PENDING.
+        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
-                .reason("x").status("PENDING").build();
+                .reason("x").status("PARTIALLY_APPROVED").build();
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
-        when(regularizationRepository.findByStatus("PENDING")).thenReturn(List.of(assignedToManager));
+        when(regularizationRepository.findByStatus("PARTIALLY_APPROVED")).thenReturn(List.of(partiallyApproved));
 
         List<RegularizationResponse> queue = regularizationService.listPendingForApprover(hrEmail);
 
         assertEquals(1, queue.size());
+        assertEquals(partiallyApproved.getId(), queue.get(0).getId());
+        verify(regularizationRepository, never()).findByStatus("PENDING");
+    }
+
+    @Test
+    void listPendingForApprover_dualRoleManagerAndHrAdmin_seesBothQueues() {
+        RegularizationRequest assignedPending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .reason("x").status("PENDING").build();
+        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
+                .reason("y").status("PARTIALLY_APPROVED").build();
+        User dualRoleUser = User.builder().id(managerId).email(managerEmail)
+                .roles(Set.of(
+                        Role.builder().id(1).code("MANAGER").displayName("Manager").build(),
+                        Role.builder().id(2).code("HR_ADMIN").displayName("HR Admin").build()))
+                .build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(dualRoleUser));
+        when(regularizationRepository.findByStatus("PENDING")).thenReturn(List.of(assignedPending));
+        when(regularizationRepository.findByStatus("PARTIALLY_APPROVED")).thenReturn(List.of(partiallyApproved));
+
+        List<RegularizationResponse> queue = regularizationService.listPendingForApprover(managerEmail);
+
+        assertEquals(2, queue.size());
+        assertTrue(queue.stream().map(RegularizationResponse::getId)
+                .toList().containsAll(List.of(assignedPending.getId(), partiallyApproved.getId())));
     }
 
     @Test
