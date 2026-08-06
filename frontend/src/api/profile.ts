@@ -1,4 +1,5 @@
-const BASE = '/api/profile';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/profile`;
 
 export interface ProfileData {
   userId: string;

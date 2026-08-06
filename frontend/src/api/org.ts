@@ -1,4 +1,5 @@
-const BASE = '/api/org';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/org`;
 
 async function handle<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));

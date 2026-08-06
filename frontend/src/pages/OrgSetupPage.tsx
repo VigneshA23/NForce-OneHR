@@ -472,7 +472,6 @@ interface DocTypeModalProps {
 }
 
 function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
-  const { showToast } = useToast();
   const isEdit = !!editRow;
   const [name, setName] = useState(editRow?.name ?? '');
   const [reqVerify, setReqVerify] = useState(editRow?.requiresVerification ?? true);

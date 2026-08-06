@@ -129,7 +129,7 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{policy.title}</h3>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--txt-dim)' }}>Version {policy.version} · Scope: {policy.scope} · Published {new Date(policy.publishedAt).toLocaleDateString()}</p>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--txt-dim)' }}>Version {policy.version} · Audience: {policy.audience} · Published {new Date(policy.publishedAt).toLocaleDateString()}</p>
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
           {policy.description}
         </div>
@@ -157,7 +157,7 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
 
 // ── File View helper ──────────────────────────────────────
 
-function ViewButton({ docId, fileName }: { docId: string; fileName: string }) {
+function ViewButton({ docId }: { docId: string }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -240,7 +240,7 @@ export default function DocumentsPage() {
   });
 
   const secStyle = (s: typeof section): React.CSSProperties => ({
-    padding: '6px 16px', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 12,
+    padding: '6px 16px', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 12,
     background: section === s ? 'var(--txt)' : 'var(--shell)',
     color: section === s ? 'var(--panel)' : 'var(--txt-dim)',
     border: '1px solid var(--line)',
@@ -354,7 +354,7 @@ export default function DocumentsPage() {
                             style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A01418', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                             <Upload size={12} /> {doc ? 'Re-upload' : 'Upload'}
                           </button>
-                          {doc && <ViewButton docId={doc.id} fileName={doc.fileName} />}
+                          {doc && <ViewButton docId={doc.id} />}
                         </div>
                       </td>
                     </tr>
@@ -399,7 +399,7 @@ export default function DocumentsPage() {
                   </div>
                   <p style={{ fontSize: 12, color: 'var(--txt-dim)', margin: '0 0 10px', lineHeight: 1.6 }}>{p.description}</p>
                   <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
-                    Published {new Date(p.publishedAt).toLocaleDateString()} · Scope: {p.scope}
+                    Published {new Date(p.publishedAt).toLocaleDateString()} · Audience: {p.audience}
                     {p.acknowledgedAt && <span style={{ marginLeft: 12, color: '#22c55e' }}>✓ Acknowledged {new Date(p.acknowledgedAt).toLocaleDateString()}</span>}
                   </div>
                 </div>

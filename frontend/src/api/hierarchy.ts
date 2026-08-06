@@ -1,5 +1,6 @@
-const BASE = '/api/org/hierarchy';
-const CTX_BASE = '/api/org-hierarchy';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/org/hierarchy`;
+const CTX_BASE = `${API_ORIGIN}/api/org-hierarchy`;
 
 export interface HierarchyNode {
   userId: string;

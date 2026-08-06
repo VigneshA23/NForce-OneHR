@@ -1,5 +1,6 @@
-const BASE_DOCS = '/api/documents';
-const BASE_TYPES = '/api/doc-types';
+import { API_ORIGIN } from './config';
+const BASE_DOCS = `${API_ORIGIN}/api/documents`;
+const BASE_TYPES = `${API_ORIGIN}/api/doc-types`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
