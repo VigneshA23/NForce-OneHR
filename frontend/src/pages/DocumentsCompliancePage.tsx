@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, Clock, XCircle, Eye, MoreVertical, Search, Users, Bell } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Eye, MoreVertical, Search, Users } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -297,7 +297,6 @@ export default function DocumentsCompliancePage() {
   const [verified, setVerified] = useState<EmployeeDocument[]>([]);
   const [missing, setMissing] = useState<MissingDocument[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [detailDoc, setDetailDoc] = useState<EmployeeDocument | null>(null);
 
   useEffect(() => {
@@ -317,7 +316,6 @@ export default function DocumentsCompliancePage() {
   }, [token]);
 
   async function doVerify(doc: EmployeeDocument) {
-    setActionLoading(doc.id);
     try {
       const updated = await verifyDocument(token, doc.id, 'VERIFY');
       setPending(p => p.filter(d => d.id !== doc.id));
@@ -327,13 +325,10 @@ export default function DocumentsCompliancePage() {
       showToast('success', 'Document verified');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Verify failed');
-    } finally {
-      setActionLoading(null);
     }
   }
 
   async function doReject(doc: EmployeeDocument, reason: string) {
-    setActionLoading(doc.id);
     try {
       await verifyDocument(token, doc.id, 'REJECT', reason);
       setPending(p => p.filter(d => d.id !== doc.id));
@@ -342,8 +337,6 @@ export default function DocumentsCompliancePage() {
       showToast('success', 'Document rejected');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
-    } finally {
-      setActionLoading(null);
     }
   }
 

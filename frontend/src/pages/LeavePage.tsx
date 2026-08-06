@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, MapPin, PartyPopper, Plus, X } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -112,19 +111,6 @@ const HOLIDAY_STATUS_BADGE = (active: boolean) => (
 function formatHolidayDate(iso: string) {
   const d = new Date(iso + 'T00:00:00');
   return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-function StatTile({ icon: Icon, label, value, sub }: { icon: LucideIcon; label: string; value: React.ReactNode; sub?: string }) {
-  return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <Icon size={13} style={{ color: 'var(--txt-dim)' }} />
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 3 }}>{sub}</div>}
-    </div>
-  );
 }
 
 function daysInMonth(year: number, month: number) {

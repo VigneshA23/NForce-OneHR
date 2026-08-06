@@ -25,6 +25,7 @@ public class ExpenseService {
     private final UserRepository userRepo;
     private final EmployeeRepository employeeRepo;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
 
     // ── Categories ────────────────────────────────────────
@@ -150,11 +151,13 @@ public class ExpenseService {
         ExpenseClaim claim = requireClaimInStatus(claimId, "SUBMITTED");
         requireCurrentManagerOf(actor, claim.getEmployeeUserId());
 
+        String before = auditSnapshot.toJson(Map.of("status", "SUBMITTED"));
         claim.setStatus("MANAGER_APPROVED");
         claim.setManagerDecidedBy(actor.getId());
         claim.setManagerDecidedAt(Instant.now());
         claimRepo.save(claim);
-        auditService.log(actor.getId(), "EXPENSE_MANAGER_APPROVED", claimId);
+        String after = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED", "managerDecidedBy", actor.getId().toString()));
+        auditService.log(actor.getId(), "EXPENSE_MANAGER_APPROVED", claimId, before, after);
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
                 "Expense Claim Approved",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was approved by your manager.",
@@ -168,12 +171,14 @@ public class ExpenseService {
         ExpenseClaim claim = requireClaimInStatus(claimId, "SUBMITTED");
         requireCurrentManagerOf(actor, claim.getEmployeeUserId());
 
+        String before = auditSnapshot.toJson(Map.of("status", "SUBMITTED"));
         claim.setStatus("MANAGER_REJECTED");
         claim.setManagerDecidedBy(actor.getId());
         claim.setManagerDecidedAt(Instant.now());
         claim.setManagerRejectionReason(reason.trim());
         claimRepo.save(claim);
-        auditService.log(actor.getId(), "EXPENSE_MANAGER_REJECTED", claimId);
+        String after = auditSnapshot.toJson(Map.of("status", "MANAGER_REJECTED", "managerRejectionReason", claim.getManagerRejectionReason()));
+        auditService.log(actor.getId(), "EXPENSE_MANAGER_REJECTED", claimId, before, after);
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected. Reason: " + reason.trim(),
@@ -197,11 +202,13 @@ public class ExpenseService {
         requireFinalApproverRole(actor);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
 
+        String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED"));
         claim.setStatus("CLEARED_FOR_PAYROLL");
         claim.setFinalDecidedBy(actor.getId());
         claim.setFinalDecidedAt(Instant.now());
         claimRepo.save(claim);
-        auditService.log(actor.getId(), "EXPENSE_FINAL_APPROVED", claimId);
+        String after = auditSnapshot.toJson(Map.of("status", "CLEARED_FOR_PAYROLL", "finalDecidedBy", actor.getId().toString()));
+        auditService.log(actor.getId(), "EXPENSE_FINAL_APPROVED", claimId, before, after);
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_APPROVED",
                 "Expense Cleared for Payroll",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been cleared for payroll.",
@@ -215,12 +222,14 @@ public class ExpenseService {
         requireFinalApproverRole(actor);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
 
+        String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED"));
         claim.setStatus("FINAL_REJECTED");
         claim.setFinalDecidedBy(actor.getId());
         claim.setFinalDecidedAt(Instant.now());
         claim.setFinalRejectionReason(reason.trim());
         claimRepo.save(claim);
-        auditService.log(actor.getId(), "EXPENSE_FINAL_REJECTED", claimId);
+        String after = auditSnapshot.toJson(Map.of("status", "FINAL_REJECTED", "finalRejectionReason", claim.getFinalRejectionReason()));
+        auditService.log(actor.getId(), "EXPENSE_FINAL_REJECTED", claimId, before, after);
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected by HR. Reason: " + reason.trim(),
@@ -244,10 +253,12 @@ public class ExpenseService {
         requireFinalApproverRole(actor);
         ExpenseClaim claim = requireClaimInStatus(claimId, "CLEARED_FOR_PAYROLL");
 
+        String before = auditSnapshot.toJson(Map.of("status", "CLEARED_FOR_PAYROLL"));
         claim.setStatus("PAID");
         claim.setPaidAt(Instant.now());
         claimRepo.save(claim);
-        auditService.log(actor.getId(), "EXPENSE_MARKED_PAID", claimId);
+        String after = auditSnapshot.toJson(Map.of("status", "PAID", "paidAt", claim.getPaidAt().toString()));
+        auditService.log(actor.getId(), "EXPENSE_MARKED_PAID", claimId, before, after);
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_PAID",
                 "Expense Paid",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been paid.",

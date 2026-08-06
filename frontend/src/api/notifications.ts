@@ -1,4 +1,5 @@
-const BASE = '/api/notifications';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/notifications`;
 
 export interface NotificationItem {
   id: number;

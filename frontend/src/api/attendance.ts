@@ -1,4 +1,5 @@
-const BASE = '/api';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -45,11 +46,14 @@ export interface TodayAttendance {
   record: AttendanceRecord | null;
 }
 
-export type RegularizationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+// PARTIALLY_APPROVED: the Manager stage has approved, awaiting HR/Super Admin final approval.
+export type RegularizationStatus = 'PENDING' | 'PARTIALLY_APPROVED' | 'APPROVED' | 'REJECTED';
 
 export interface ApprovalHistoryEntry {
   actionType: 'APPROVED' | 'REJECTED';
   actorName: string;
+  /** Authority actually exercised for this action — not necessarily every role the actor holds. */
+  actorRole: 'MANAGER' | 'HR_ADMIN' | 'SUPER_ADMIN' | null;
   comments: string | null;
   actionDate: string;
 }
@@ -71,8 +75,20 @@ export interface RegularizationRecord {
   reviewedByName: string | null;
   reviewedAt: string | null;
   reviewComment: string | null;
+  // Stage 1 (manager approval) — null until a MANAGER approves, and null on a Super Admin
+  // bypass straight from PENDING to APPROVED.
+  approvedByName: string | null;
+  approvedAt: string | null;
+  // Stage 2 (final approval) — set once the request reaches the terminal APPROVED status.
+  finalApprovedByName: string | null;
+  finalApprovedAt: string | null;
   createdAt: string;
   approvalHistory: ApprovalHistoryEntry[];
+}
+
+export interface BulkActionResult {
+  succeededIds: string[];
+  failed: { id: string; reason: string }[];
 }
 
 export interface SubmitRegularizationPayload {
@@ -163,6 +179,17 @@ export const regularizationApi = {
     fetch(`${BASE}/attendance/regularization/${id}/reject`, {
       method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ comment }),
     }).then(r => handle<RegularizationRecord>(r)),
+
+  // Each id is processed independently server-side — one failure doesn't affect the rest.
+  bulkApprove: (ids: string[], token: string, comment?: string) =>
+    fetch(`${BASE}/attendance/regularization/bulk-approve`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ ids, comment: comment || undefined }),
+    }).then(r => handle<BulkActionResult>(r)),
+
+  bulkReject: (ids: string[], comment: string, token: string) =>
+    fetch(`${BASE}/attendance/regularization/bulk-reject`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ ids, comment }),
+    }).then(r => handle<BulkActionResult>(r)),
 
   // Only while the request is still PENDING and belongs to the caller (enforced server-side).
   update: (id: string, payload: SubmitRegularizationPayload, token: string) =>

@@ -4,5 +4,12 @@
       "source": "/api/:path*",
       "destination": "https://nforce-onehr-production.up.railway.app/api/:path*"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "dev": true
+    }
+  }
 }

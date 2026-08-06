@@ -23,6 +23,8 @@ import DocumentsPage from './pages/DocumentsPage';
 import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
 import PoliciesPage from './pages/PoliciesPage';
 import OnboardingPage from './pages/OnboardingPage';
+import AuditHistoryPage from './pages/AuditHistoryPage';
+import AuditSecurityPage from './pages/AuditSecurityPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -39,6 +41,14 @@ function DocumentsRouter() {
   return role === 'HR Admin' || role === 'Super Admin'
     ? <DocumentsCompliancePage />
     : <DocumentsPage />;
+}
+
+// HR Admin and Super Admin share the same /audit path with different components — only these
+// two roles have an 'audit' nav entry at all (see nav.config.ts), so the ternary is exhaustive.
+function AuditRouter() {
+  const user = useAuthStore(s => s.user);
+  const role = toShellRole(user?.role);
+  return role === 'Super Admin' ? <AuditSecurityPage /> : <AuditHistoryPage />;
 }
 
 function RequirePasswordChanged({ children }: { children: React.ReactNode }) {
@@ -98,6 +108,7 @@ export default function App() {
           <Route path="/documents"      element={<DocumentsRouter />} />
           <Route path="/policies"       element={<PoliciesPage />} />
           <Route path="/onboarding"     element={<OnboardingPage />} />
+          <Route path="/audit"          element={<AuditRouter />} />
         </Route>
 
         <Route path="/"  element={<Navigate to="/dashboard" replace />} />

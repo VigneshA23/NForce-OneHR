@@ -64,7 +64,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('assets', 'Assets & Expenses', Package, 1),
     item('requests', 'HR Service Requests', HelpCircle, 2),
     item('reports', 'Reports & Analytics', FileText, 2),
-    item('audit', 'Audit History', Clock, 2),
+    item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   'Super Admin': [
@@ -80,7 +80,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('masters', 'Organization Masters', FileText, 1),
     item('templates', 'Templates & Notifications', Bell, 2),
     item('integrations', 'Integrations', FileText, 2),
-    item('audit', 'Audit & Security', Clock, 2),
+    item('audit', 'Audit & Security', Clock, 1),
     item('featurelab', 'Future Feature Lab', HelpCircle, 2),
     item('reports', 'Reports & Analytics', FileText, 2),
     item('help', 'Help & Guidance', HelpCircle, 1),

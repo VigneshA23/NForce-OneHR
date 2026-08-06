@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -52,6 +53,7 @@ public class WebClockInService {
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
 
     @Transactional
@@ -125,13 +127,15 @@ public class WebClockInService {
         recomputeDerivedFields(record);
         attendanceRepository.save(record);
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("APPROVED");
         req.setReviewedBy(actor.getId());
         req.setReviewedAt(LocalDateTime.now());
         req.setReviewComment(comment);
         webClockInRepository.save(req);
 
-        auditService.log(actor.getId(), "WEB_CLOCK_IN_APPROVED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "WEB_CLOCK_IN_APPROVED", req.getEmployeeUserId(), before, after);
         return toResponse(req);
     }
 
@@ -141,13 +145,15 @@ public class WebClockInService {
         WebClockInRequest req = requirePending(requestId);
         assertCanReview(req, actor);
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("REJECTED");
         req.setReviewedBy(actor.getId());
         req.setReviewedAt(LocalDateTime.now());
         req.setReviewComment(comment);
         webClockInRepository.save(req);
 
-        auditService.log(actor.getId(), "WEB_CLOCK_IN_REJECTED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "WEB_CLOCK_IN_REJECTED", req.getEmployeeUserId(), before, after);
         return toResponse(req);
     }
 
@@ -172,6 +178,7 @@ public class WebClockInService {
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
 
         LocalDateTime now = now();
+        String before = auditSnapshot.toJson(Map.of("checkedOutAt", "null"));
         req.setCheckedOutAt(now);
         webClockInRepository.save(req);
 
@@ -183,7 +190,8 @@ public class WebClockInService {
                 : (record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT));
         attendanceRepository.save(record);
 
-        auditService.log(actor.getId(), "WEB_CLOCK_OUT", req.getId());
+        String after = auditSnapshot.toJson(Map.of("checkedOutAt", now.toString(), "workedMinutes", workedMinutes));
+        auditService.log(actor.getId(), "WEB_CLOCK_OUT", req.getId(), before, after);
         return toResponse(req);
     }
 

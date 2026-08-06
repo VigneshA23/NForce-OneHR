@@ -1,4 +1,5 @@
-const BASE = '/api/employees/my-reports';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/employees/my-reports`;
 
 export interface DirectReport {
   userId: string;

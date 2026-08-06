@@ -29,6 +29,7 @@ public class AssetService {
     private final EmployeeRepository employeeRepo;
     private final LocationRepository locationRepo;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
 
     // ── Categories ────────────────────────────────────────
@@ -138,11 +139,13 @@ public class AssetService {
         AssetRequest req = requirePendingRequest(requestId);
         assertCanDecideRequest(actor, req.getEmployeeUserId());
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("APPROVED");
         req.setManagerDecidedBy(actor.getId());
         req.setManagerDecidedAt(Instant.now());
         requestRepo.save(req);
-        auditService.log(actor.getId(), "ASSET_REQUEST_APPROVED", actor.getId());
+        String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "managerDecidedBy", actor.getId().toString()));
+        auditService.log(actor.getId(), "ASSET_REQUEST_APPROVED", actor.getId(), before, after);
         notificationService.send(req.getEmployeeUserId(), "ASSET_REQUEST_APPROVED",
                 "Asset Request Approved",
                 "Your " + categoryName(req.getCategoryId()) + " request was approved. HR will fulfill it shortly.",
@@ -156,12 +159,15 @@ public class AssetService {
         AssetRequest req = requirePendingRequest(requestId);
         assertCanDecideRequest(actor, req.getEmployeeUserId());
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("REJECTED");
         req.setManagerDecidedBy(actor.getId());
         req.setManagerDecidedAt(Instant.now());
         req.setRejectionReason(reason != null ? reason.trim() : null);
         requestRepo.save(req);
-        auditService.log(actor.getId(), "ASSET_REQUEST_REJECTED", actor.getId());
+        String after = auditSnapshot.toJson(Map.of(
+                "status", "REJECTED", "rejectionReason", req.getRejectionReason() != null ? req.getRejectionReason() : ""));
+        auditService.log(actor.getId(), "ASSET_REQUEST_REJECTED", actor.getId(), before, after);
         notificationService.send(req.getEmployeeUserId(), "ASSET_REQUEST_REJECTED",
                 "Asset Request Rejected",
                 "Your " + categoryName(req.getCategoryId()) + " request was rejected." + (reason != null && !reason.isBlank() ? " Reason: " + reason.trim() : ""),
@@ -226,9 +232,11 @@ public class AssetService {
                 .build();
         assignmentRepo.save(assignment);
 
+        String before = auditSnapshot.toJson(Map.of("status", "AVAILABLE"));
         asset.setStatus("ASSIGNED");
         assetRepo.save(asset);
-        auditService.log(actor.getId(), "ASSET_ASSIGNED", actor.getId());
+        String after = auditSnapshot.toJson(Map.of("status", "ASSIGNED", "assignedTo", req.getEmployeeUserId().toString()));
+        auditService.log(actor.getId(), "ASSET_ASSIGNED", actor.getId(), before, after);
         notificationService.send(req.getEmployeeUserId(), "ASSET_ASSIGNED",
                 "Asset Assigned",
                 asset.getAssetTag() + " (" + asset.getCategory().getName() + ") has been assigned to you.",
@@ -248,6 +256,7 @@ public class AssetService {
         // Close current assignment (effective_to = now) — never update employee_user_id in place
         AssetAssignment current = assignmentRepo.findByAssetIdAndEffectiveToIsNull(assetId)
                 .orElseThrow(() -> new IllegalStateException("No open assignment found for this asset"));
+        String before = auditSnapshot.toJson(Map.of("assignedTo", current.getEmployeeUserId().toString()));
         current.setEffectiveTo(Instant.now());
         assignmentRepo.saveAndFlush(current); // flush UPDATE before INSERT to satisfy partial unique index
 
@@ -260,7 +269,8 @@ public class AssetService {
                 .build();
         assignmentRepo.save(next);
 
-        auditService.log(actor.getId(), "ASSET_REASSIGNED", actor.getId());
+        String after = auditSnapshot.toJson(Map.of("assignedTo", req.getEmployeeUserId().toString()));
+        auditService.log(actor.getId(), "ASSET_REASSIGNED", actor.getId(), before, after);
         return toAssetResponse(asset);
     }
 
@@ -275,6 +285,7 @@ public class AssetService {
 
         AssetAssignment current = assignmentRepo.findByAssetIdAndEffectiveToIsNull(assetId)
                 .orElseThrow(() -> new IllegalStateException("No open assignment found"));
+        String before = auditSnapshot.toJson(Map.of("status", "ASSIGNED", "assignedTo", current.getEmployeeUserId().toString()));
         current.setEffectiveTo(Instant.now());
         current.setReturnCondition(req.getReturnCondition());
         assignmentRepo.save(current);
@@ -284,7 +295,8 @@ public class AssetService {
         asset.setStatus(newStatus);
         asset.setCondition(req.getReturnCondition());
         assetRepo.save(asset);
-        auditService.log(actor.getId(), "ASSET_RETURNED", actor.getId());
+        String after = auditSnapshot.toJson(Map.of("status", newStatus, "condition", req.getReturnCondition() != null ? req.getReturnCondition() : ""));
+        auditService.log(actor.getId(), "ASSET_RETURNED", actor.getId(), before, after);
         return toAssetResponse(asset);
     }
 
@@ -293,9 +305,11 @@ public class AssetService {
         requireAdmin(actorEmail);
         User actor = requireActor(actorEmail);
         Asset asset = requireAsset(assetId);
+        String before = auditSnapshot.toJson(Map.of("status", asset.getStatus()));
         asset.setStatus("RETIRED");
         assetRepo.save(asset);
-        auditService.log(actor.getId(), "ASSET_RETIRED", actor.getId());
+        String after = auditSnapshot.toJson(Map.of("status", "RETIRED"));
+        auditService.log(actor.getId(), "ASSET_RETIRED", actor.getId(), before, after);
         return toAssetResponse(asset);
     }
 
@@ -328,12 +342,14 @@ public class AssetService {
         asset.setStatus("ASSIGNED");
         assetRepo.save(asset);
 
+        String before = auditSnapshot.toJson(Map.of("status", "APPROVED"));
         assetReq.setStatus("FULFILLED");
         assetReq.setFulfilledBy(actor.getId());
         assetReq.setFulfilledAt(Instant.now());
         requestRepo.save(assetReq);
 
-        auditService.log(actor.getId(), "ASSET_REQUEST_FULFILLED", actor.getId());
+        String after = auditSnapshot.toJson(Map.of("status", "FULFILLED", "assetTag", asset.getAssetTag()));
+        auditService.log(actor.getId(), "ASSET_REQUEST_FULFILLED", actor.getId(), before, after);
         notificationService.send(assetReq.getEmployeeUserId(), "ASSET_REQUEST_FULFILLED",
                 "Asset Request Fulfilled",
                 "Your " + categoryName(assetReq.getCategoryId()) + " request has been fulfilled. " + asset.getAssetTag() + " is now assigned to you.",

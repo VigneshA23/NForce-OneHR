@@ -7,13 +7,19 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
 public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID> {
 
     List<ExpenseClaim> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
+
+    // Backs audit-log target search — resolves which expense claims belong to a set of employees.
+    @Query("SELECT c.id FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds")
+    Set<UUID> findIdsByEmployeeUserIdIn(Collection<UUID> employeeUserIds);
 
     List<ExpenseClaim> findByEmployeeUserIdInAndStatus(List<UUID> employeeUserIds, String status);
 

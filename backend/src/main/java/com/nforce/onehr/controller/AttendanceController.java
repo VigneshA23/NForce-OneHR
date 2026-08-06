@@ -5,6 +5,9 @@ import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.dto.attendance.ApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.ApproverOptionDto;
+import com.nforce.onehr.dto.attendance.BulkApproveRegularizationRequest;
+import com.nforce.onehr.dto.attendance.BulkRegularizationResultResponse;
+import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.attendance.RejectRegularizationRequest;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -192,5 +196,47 @@ public class AttendanceController {
                                          @Valid @RequestBody RejectRegularizationRequest req,
                                          Principal principal) {
         return regularizationService.reject(id, req.getComment(), principal.getName());
+    }
+
+    /**
+     * Bulk approve — each id is processed independently via the same {@link RegularizationService#approve}
+     * used by the single-item endpoint, so one item's failure (e.g. already decided by another
+     * approver, or not at a stage this actor can act on) doesn't block the rest of the batch.
+     */
+    @PostMapping("/regularization/bulk-approve")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public BulkRegularizationResultResponse bulkApprove(@Valid @RequestBody BulkApproveRegularizationRequest req,
+                                                         Principal principal) {
+        List<UUID> succeeded = new ArrayList<>();
+        List<BulkRegularizationResultResponse.BulkFailureDto> failed = new ArrayList<>();
+        for (UUID id : req.getIds()) {
+            try {
+                regularizationService.approve(id, req.getComment(), principal.getName());
+                succeeded.add(id);
+            } catch (Exception e) {
+                failed.add(BulkRegularizationResultResponse.BulkFailureDto.builder()
+                        .id(id).reason(e.getMessage()).build());
+            }
+        }
+        return BulkRegularizationResultResponse.builder().succeededIds(succeeded).failed(failed).build();
+    }
+
+    /** Bulk reject — same per-item independence as {@link #bulkApprove}. */
+    @PostMapping("/regularization/bulk-reject")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public BulkRegularizationResultResponse bulkReject(@Valid @RequestBody BulkRejectRegularizationRequest req,
+                                                        Principal principal) {
+        List<UUID> succeeded = new ArrayList<>();
+        List<BulkRegularizationResultResponse.BulkFailureDto> failed = new ArrayList<>();
+        for (UUID id : req.getIds()) {
+            try {
+                regularizationService.reject(id, req.getComment(), principal.getName());
+                succeeded.add(id);
+            } catch (Exception e) {
+                failed.add(BulkRegularizationResultResponse.BulkFailureDto.builder()
+                        .id(id).reason(e.getMessage()).build());
+            }
+        }
+        return BulkRegularizationResultResponse.builder().succeededIds(succeeded).failed(failed).build();
     }
 }
