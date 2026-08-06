@@ -30,7 +30,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -65,6 +67,7 @@ public class RegularizationService {
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
 
     /** Resolved requested times after applying punch auto-fill from attendance history. */
@@ -116,6 +119,7 @@ public class RegularizationService {
             throw new IllegalStateException("Only pending requests can be edited");
         }
 
+        String before = auditSnapshot.toJson(regularizationSnapshot(existing));
         ResolvedTimes times = resolveTimes(req, actor.getId());
         validateLookbackWindow(req.getAttendanceDate());
         if (!existing.getAttendanceDate().equals(req.getAttendanceDate())) {
@@ -129,8 +133,20 @@ public class RegularizationService {
         existing.setAssignedApproverId(resolveAssignedApprover(actor.getId(), req.getManagerUserId()));
         existing = regularizationRepository.save(existing);
 
-        auditService.log(actor.getId(), "REGULARIZATION_UPDATED", existing.getId());
+        String after = auditSnapshot.toJson(regularizationSnapshot(existing));
+        auditService.log(actor.getId(), "REGULARIZATION_UPDATED", existing.getId(), before, after);
         return toResponse(existing);
+    }
+
+    private Map<String, Object> regularizationSnapshot(RegularizationRequest r) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("attendanceDate", r.getAttendanceDate());
+        snapshot.put("requestedCheckIn", r.getRequestedCheckIn());
+        snapshot.put("requestedCheckOut", r.getRequestedCheckOut());
+        snapshot.put("reason", r.getReason());
+        snapshot.put("assignedApproverId", r.getAssignedApproverId());
+        snapshot.put("status", r.getStatus());
+        return snapshot;
     }
 
     /**
@@ -317,6 +333,7 @@ public class RegularizationService {
         recomputeDerivedFields(record);
         attendanceRepository.save(record);
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("APPROVED");
         req.setReviewedBy(actor.getId());
         req.setReviewedAt(LocalDateTime.now());
@@ -324,7 +341,8 @@ public class RegularizationService {
         regularizationRepository.save(req);
         recordApproval(req.getId(), actor.getId(), "APPROVED", comment);
 
-        auditService.log(actor.getId(), "REGULARIZATION_APPROVED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "REGULARIZATION_APPROVED", req.getEmployeeUserId(), before, after);
         // TODO(notifications): notify req.getEmployeeUserId() of approval — owned by another workstream.
         return toResponse(req);
     }
@@ -335,6 +353,7 @@ public class RegularizationService {
         RegularizationRequest req = requirePending(requestId);
         assertCanReview(req, actor);
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("REJECTED");
         req.setReviewedBy(actor.getId());
         req.setReviewedAt(LocalDateTime.now());
@@ -342,7 +361,8 @@ public class RegularizationService {
         regularizationRepository.save(req);
         recordApproval(req.getId(), actor.getId(), "REJECTED", comment);
 
-        auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId(), before, after);
         // TODO(notifications): notify req.getEmployeeUserId() of rejection — owned by another workstream.
         return toResponse(req);
     }

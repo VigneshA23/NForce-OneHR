@@ -34,6 +34,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -51,6 +52,7 @@ class RegularizationServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private AuditService auditService;
+    @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties attendanceProps;
 
     @InjectMocks private RegularizationService regularizationService;
@@ -96,6 +98,7 @@ class RegularizationServiceTest {
         lenient().when(attendanceProps.getShiftStart()).thenReturn(LocalTime.of(9, 30));
         lenient().when(attendanceProps.getLateGraceMinutes()).thenReturn(15);
         lenient().when(attendanceProps.getHalfDayMaxHours()).thenReturn(4);
+        lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
 
         // @Value-injected field — never populated outside a Spring container.
         Field lookback = RegularizationService.class.getDeclaredField("lookbackDays");
@@ -213,7 +216,7 @@ class RegularizationServiceTest {
         assertEquals(managerId, pending.getReviewedBy());
         verify(regularizationApprovalRepository).save(argThat(a ->
                 a.getRequestId().equals(pending.getId()) && a.getActionType().equals("APPROVED") && a.getActionBy().equals(managerId)));
-        verify(auditService).log(managerId, "REGULARIZATION_APPROVED", employeeId);
+        verify(auditService).log(eq(managerId), eq("REGULARIZATION_APPROVED"), eq(employeeId), any(), any());
     }
 
     @Test

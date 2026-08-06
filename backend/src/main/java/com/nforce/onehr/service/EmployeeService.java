@@ -30,6 +30,7 @@ public class EmployeeService {
     private final LocationRepository locationRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -116,6 +117,7 @@ public class EmployeeService {
                 .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        String before = auditSnapshot.toJson(employeeSnapshot(emp));
 
         if (req.getFullName() != null && !req.getFullName().isBlank())
             emp.setFullName(req.getFullName().trim());
@@ -131,8 +133,20 @@ public class EmployeeService {
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
 
         emp = employeeRepository.save(emp);
-        auditService.log(actor.getId(), "EMPLOYEE_UPDATED", userId);
+        String after = auditSnapshot.toJson(employeeSnapshot(emp));
+        auditService.log(actor.getId(), "EMPLOYEE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), emp.getUser(), null);
+    }
+
+    private Map<String, Object> employeeSnapshot(Employee emp) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("fullName", emp.getFullName());
+        snapshot.put("employmentType", emp.getEmploymentType());
+        snapshot.put("workMode", emp.getWorkMode());
+        snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
+        snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
+        snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
+        return snapshot;
     }
 
     /**

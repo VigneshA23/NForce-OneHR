@@ -30,6 +30,7 @@ public class UserManagementService {
     private final LocationRepository locationRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
     private final NotificationService notificationService;
 
@@ -112,6 +113,7 @@ public class UserManagementService {
         Employee emp = employeeRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
+        String before = auditSnapshot.toJson(userSnapshot(emp, target));
 
         if (req.getFullName() != null && !req.getFullName().isBlank())
             emp.setFullName(req.getFullName().trim());
@@ -158,8 +160,24 @@ public class UserManagementService {
         }
 
         emp = employeeRepository.save(emp);
-        auditService.log(actor.getId(), "USER_UPDATED", userId);
+        String after = auditSnapshot.toJson(userSnapshot(emp, target));
+        auditService.log(actor.getId(), "USER_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /** Role and manager are the two fields most worth diffing here — everything else mirrors EmployeeService. */
+    private Map<String, Object> userSnapshot(Employee emp, User user) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("fullName", emp.getFullName());
+        snapshot.put("employmentType", emp.getEmploymentType());
+        snapshot.put("workMode", emp.getWorkMode());
+        snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
+        snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
+        snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
+        snapshot.put("role", user.getRoles().stream().findFirst().map(Role::getCode).orElse(null));
+        snapshot.put("managerId", historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
+                .map(EmployeeManagerHistory::getManagerUserId).orElse(null));
+        return snapshot;
     }
 
     /** Super Admin: generate new temp password, set must_change_password = true. */
@@ -169,12 +187,16 @@ public class UserManagementService {
         User target = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
+        // Snapshot deliberately excludes the password hash — never log credential material,
+        // only the safe, hash-free "must change password" flag flip.
+        String before = auditSnapshot.toJson(Map.of("mustChangePassword", target.isMustChangePassword()));
         String tempPassword = generateTempPassword();
         target.setPasswordHash(passwordEncoder.encode(tempPassword));
         target.setMustChangePassword(true);
         userRepository.save(target);
+        String after = auditSnapshot.toJson(Map.of("mustChangePassword", true));
 
-        auditService.log(actor.getId(), "PASSWORD_RESET", userId);
+        auditService.log(actor.getId(), "PASSWORD_RESET", userId, before, after);
         notificationService.send(target.getId(), "SECURITY",
                 "Password Reset by Administrator",
                 "An administrator has reset your password. Please log in with your temporary password and change it immediately.",
@@ -192,9 +214,11 @@ public class UserManagementService {
         Employee emp = employeeRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
+        String before = auditSnapshot.toJson(Map.of("active", target.isActive()));
         target.setActive(active);
         userRepository.save(target);
-        auditService.log(actor.getId(), active ? "USER_ACTIVATED" : "USER_DEACTIVATED", userId);
+        String after = auditSnapshot.toJson(Map.of("active", active));
+        auditService.log(actor.getId(), active ? "USER_ACTIVATED" : "USER_DEACTIVATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 
@@ -206,10 +230,12 @@ public class UserManagementService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         if (target.getDeletedAt() != null)
             throw new IllegalArgumentException("User is already deleted");
+        String before = auditSnapshot.toJson(Map.of("deletedAt", "null", "active", target.isActive()));
         target.setDeletedAt(Instant.now());
         target.setActive(false);
         userRepository.save(target);
-        auditService.log(actor.getId(), "USER_SOFT_DELETED", userId);
+        String after = auditSnapshot.toJson(Map.of("deletedAt", target.getDeletedAt().toString(), "active", false));
+        auditService.log(actor.getId(), "USER_SOFT_DELETED", userId, before, after);
     }
 
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {

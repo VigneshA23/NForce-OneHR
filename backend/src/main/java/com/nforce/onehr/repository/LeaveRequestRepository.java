@@ -2,17 +2,23 @@ package com.nforce.onehr.repository;
 
 import com.nforce.onehr.entity.LeaveRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
 public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID> {
 
     List<LeaveRequest> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
+
+    // Backs audit-log target search — resolves which leave requests belong to a set of employees.
+    @Query("SELECT r.id FROM LeaveRequest r WHERE r.employeeUserId IN :employeeUserIds")
+    Set<UUID> findIdsByEmployeeUserIdIn(Collection<UUID> employeeUserIds);
 
     List<LeaveRequest> findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(Collection<UUID> employeeUserIds, String status);
 
