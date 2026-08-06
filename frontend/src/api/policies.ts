@@ -1,5 +1,6 @@
-const BASE_POLICIES = '/api/policies';
-const BASE_ANNOUN = '/api/announcements';
+import { API_ORIGIN } from './config';
+const BASE_POLICIES = `${API_ORIGIN}/api/policies`;
+const BASE_ANNOUN = `${API_ORIGIN}/api/announcements`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };

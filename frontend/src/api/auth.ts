@@ -1,4 +1,5 @@
-const BASE = '/api';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api`;
 
 export interface LoginResponse {
   token: string;

@@ -34,7 +34,7 @@ function initials(name: string) {
 
 /* ── Avatar ────────────────────────────────────────────────────────────── */
 function Avatar({ card, size = 42, isFocus = false }: { card: PersonCard; size?: number; isFocus?: boolean }) {
-  const c = isFocus ? { bg: 'rgba(177,17,22,.25)', fg: '#fff' } : deptColor(card.department);
+  const c = isFocus ? { bg: 'rgba(177,17,22,.25)', fg: '#fff', border: '' } : deptColor(card.department);
   return (
     <div style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0,

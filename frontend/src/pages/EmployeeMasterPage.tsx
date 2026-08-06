@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, X, Edit2, ChevronDown, MoreVertical } from 'lucide-react';
+import { UserPlus, X, ChevronDown, MoreVertical } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord, type CreateEmployeePayload, type UpdateEmployeePayload } from '../api/employees';
 import { orgApi } from '../api/org';
