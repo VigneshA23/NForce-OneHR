@@ -16,7 +16,7 @@ public class Holiday {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "holiday_name", nullable = false)
+    @Column(name = "holiday_name", nullable = false, columnDefinition = "citext")
     private String holidayName;
 
     @Column(name = "holiday_date", nullable = false)

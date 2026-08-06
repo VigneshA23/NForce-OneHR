@@ -60,6 +60,18 @@ public class HolidayService {
     }
 
     /**
+     * HR Admin + Super Admin. Returns active holidays across every location,
+     * date-ascending. Used when no specific locationId is requested — an HR
+     * Admin's own Employee.location (if any) should not limit what they can see.
+     */
+    @Transactional(readOnly = true)
+    public List<HolidayResponse> listAllHolidays() {
+        return holidayRepository.findByActiveTrueOrderByHolidayDateAsc().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Any authenticated employee. Resolves the caller's own location from their
      * Employee record and returns only that location's active holidays.
      */
