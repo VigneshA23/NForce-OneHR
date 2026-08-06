@@ -24,7 +24,6 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
 
-  const [actorSearch, setActorSearch] = useState('');
   const [targetSearch, setTargetSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -37,12 +36,11 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const [exporting, setExporting] = useState(false);
 
   const filters: AuditLogFilters = useMemo(() => ({
-    actorSearch: actorSearch.trim() || undefined,
     targetSearch: targetSearch.trim() || undefined,
     group: activeGroup === 'ALL' ? undefined : activeGroup,
     from: from || undefined,
     to: to || undefined,
-  }), [actorSearch, targetSearch, activeGroup, from, to]);
+  }), [targetSearch, activeGroup, from, to]);
 
   useEffect(() => {
     setLoading(true);
@@ -65,7 +63,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   }
 
   function clearFilters() {
-    setActorSearch(''); setTargetSearch(''); setFrom(''); setTo(''); setActiveGroup('ALL'); setPage(0);
+    setTargetSearch(''); setFrom(''); setTo(''); setActiveGroup('ALL'); setPage(0);
   }
 
   async function handleExport() {
@@ -110,7 +108,6 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
 
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16 }}>
         <AuditFilterBar
-          actorSearch={actorSearch} onActorSearchChange={withPageReset(setActorSearch)}
           targetSearch={targetSearch} onTargetSearchChange={withPageReset(setTargetSearch)}
           from={from} onFromChange={withPageReset(setFrom)}
           to={to} onToChange={withPageReset(setTo)}

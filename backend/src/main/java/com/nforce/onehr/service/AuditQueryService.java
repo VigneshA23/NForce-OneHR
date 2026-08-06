@@ -48,12 +48,12 @@ public class AuditQueryService {
     private final AuditTargetResolver targetResolver;
 
     @Transactional(readOnly = true)
-    public Page<AuditLogEntryDto> search(String actorSearch, String targetSearch, String action,
+    public Page<AuditLogEntryDto> search(String targetSearch, String action,
             AuditActionGroup group, LocalDateTime from, LocalDateTime to,
             int page, int size, boolean isSuperAdmin, String callerEmail) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "occurredAt"));
         Optional<Specification<AuditLog>> spec =
-                buildSpec(actorSearch, targetSearch, action, group, from, to, isSuperAdmin, callerEmail);
+                buildSpec(targetSearch, action, group, from, to, isSuperAdmin, callerEmail);
         if (spec.isEmpty()) return Page.empty(pageable);
 
         Page<AuditLog> rows = auditLogRepository.findAll(spec.get(), pageable);
@@ -62,10 +62,10 @@ public class AuditQueryService {
 
     /** Unpaginated fetch of every row matching the current filters — backs the Excel export. */
     @Transactional(readOnly = true)
-    public List<AuditLogEntryDto> searchAll(String actorSearch, String targetSearch, String action,
+    public List<AuditLogEntryDto> searchAll(String targetSearch, String action,
             AuditActionGroup group, LocalDateTime from, LocalDateTime to, boolean isSuperAdmin, String callerEmail) {
         Optional<Specification<AuditLog>> spec =
-                buildSpec(actorSearch, targetSearch, action, group, from, to, isSuperAdmin, callerEmail);
+                buildSpec(targetSearch, action, group, from, to, isSuperAdmin, callerEmail);
         if (spec.isEmpty()) return List.of();
 
         List<AuditLog> rows = auditLogRepository.findAll(spec.get(), Sort.by(Sort.Direction.DESC, "occurredAt"));
@@ -74,13 +74,13 @@ public class AuditQueryService {
     }
 
     @Transactional(readOnly = true)
-    public AuditLogStatsDto stats(String actorSearch, String targetSearch, String action,
+    public AuditLogStatsDto stats(String targetSearch, String action,
             LocalDateTime from, LocalDateTime to, boolean isSuperAdmin, String callerEmail) {
         // Group is intentionally excluded from the stats spec: the stat cards/chip counts always
-        // reflect the whole role-scoped, actor/target/date-filtered corpus so a user can use them
+        // reflect the whole role-scoped, target/date-filtered corpus so a user can use them
         // to navigate between chips, not just describe whichever chip happens to be active.
         Optional<Specification<AuditLog>> baseSpec =
-                buildSpec(actorSearch, targetSearch, action, null, from, to, isSuperAdmin, callerEmail);
+                buildSpec(targetSearch, action, null, from, to, isSuperAdmin, callerEmail);
         if (baseSpec.isEmpty()) {
             Map<String, Long> zeroed = new LinkedHashMap<>();
             for (AuditActionGroup g : AuditActionGroup.values()) {
@@ -104,19 +104,20 @@ public class AuditQueryService {
     }
 
     /**
-     * Returns empty when the filters can prove ahead of time that nothing will match (an
-     * actor/target search with zero hits, or an action/group outside what this caller is allowed
+     * Returns empty when the filters can prove ahead of time that nothing will match (a
+     * target search with zero hits, or an action/group outside what this caller is allowed
      * to see) — callers use this to skip querying {@code audit_log} entirely rather than issuing
      * a query with an empty {@code IN ()} clause.
      *
      * <p>{@code callerId} is unconditionally ANDed in — this feature shows a personal activity
      * history, not a system-wide trail, so every query is scoped to rows the caller themselves
-     * generated regardless of what {@code actorSearch} additionally narrows to. This is layered
-     * on top of, not instead of, the existing category boundary from
+     * generated. There is no actor-search filter: since every row is already the caller's own,
+     * a free-text "who performed this" search would be redundant by construction. This self-scope
+     * is layered on top of, not instead of, the existing category boundary from
      * {@link #resolveAllowedActions}: HR Admin is still structurally incapable of matching an
      * ACCESS_CONTROL action, self-scope just narrows further to "only rows I created."
      */
-    private Optional<Specification<AuditLog>> buildSpec(String actorSearch, String targetSearch, String action,
+    private Optional<Specification<AuditLog>> buildSpec(String targetSearch, String action,
             AuditActionGroup group, LocalDateTime from, LocalDateTime to, boolean isSuperAdmin, String callerEmail) {
         Set<String> allowedActions = resolveAllowedActions(action, group, isSuperAdmin);
         if (allowedActions.isEmpty()) return Optional.empty();
@@ -126,11 +127,6 @@ public class AuditQueryService {
                 .and(actorIdIn(Set.of(callerId)));
         if (from != null || to != null) {
             spec = spec.and(occurredBetween(from, to));
-        }
-        if (actorSearch != null && !actorSearch.isBlank()) {
-            Set<UUID> actorIds = userRepository.findUserIdsByEmailOrFullNameContaining(actorSearch);
-            if (actorIds.isEmpty()) return Optional.empty();
-            spec = spec.and(actorIdIn(actorIds));
         }
         if (targetSearch != null && !targetSearch.isBlank()) {
             Set<UUID> targetIds = targetResolver.resolveTargetIdsMatching(targetSearch);

@@ -45,7 +45,6 @@ export interface AuditLogStats {
 }
 
 export interface AuditLogFilters {
-  actorSearch?: string;
   targetSearch?: string;
   action?: string;
   group?: ActionGroup;
@@ -55,7 +54,6 @@ export interface AuditLogFilters {
 
 function buildQuery(filters: AuditLogFilters, extra?: Record<string, string | number>): string {
   const params = new URLSearchParams();
-  if (filters.actorSearch)  params.set('actorSearch', filters.actorSearch);
   if (filters.targetSearch) params.set('targetSearch', filters.targetSearch);
   if (filters.action)       params.set('action', filters.action);
   if (filters.group)        params.set('group', filters.group);

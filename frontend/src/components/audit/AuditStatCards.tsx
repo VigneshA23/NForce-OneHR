@@ -28,9 +28,9 @@ export function AuditStatCards({ stats, showAccess }: Props) {
   const cards: CardDef[] = [
     { key: 'today', label: "Today's Actions", value: stats.todayCount, icon: Calendar, color: 'var(--brand-bright)' },
     { key: 'total', label: 'Total Actions', value: stats.totalCount, icon: Hash, color: 'var(--txt-mut)' },
-    { key: 'employee', label: 'Employee Management', value: stats.byGroup.EMPLOYEE ?? 0, icon: Users, color: 'var(--info)' },
-    { key: 'leave', label: 'Leave Approvals', value: stats.byGroup.LEAVE ?? 0, icon: CalendarCheck, color: 'var(--ok)' },
-    { key: 'attendance', label: 'Attendance Approvals', value: stats.byGroup.ATTENDANCE ?? 0, icon: Clock, color: 'var(--warn)' },
+    { key: 'employee', label: 'Employee Management Actions', value: stats.byGroup.EMPLOYEE ?? 0, icon: Users, color: 'var(--info)' },
+    { key: 'leave', label: 'Leave Management Actions', value: stats.byGroup.LEAVE ?? 0, icon: CalendarCheck, color: 'var(--ok)' },
+    { key: 'attendance', label: 'Attendance Management Actions', value: stats.byGroup.ATTENDANCE ?? 0, icon: Clock, color: 'var(--warn)' },
     { key: 'assetExpense', label: 'Asset & Expense Actions', value: assetAndExpense, icon: Package, color: 'var(--brand)' },
     ...(showAccess ? [{ key: 'access', label: 'User & Access Management', value: stats.byGroup.ACCESS ?? 0, icon: Shield, color: 'var(--risk)' }] : []),
   ];

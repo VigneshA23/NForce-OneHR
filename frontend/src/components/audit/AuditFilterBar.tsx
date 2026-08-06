@@ -4,8 +4,6 @@ const inputStyle: React.CSSProperties = { background: 'var(--shell)', border: '1
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 
 interface Props {
-  actorSearch: string;
-  onActorSearchChange: (v: string) => void;
   targetSearch: string;
   onTargetSearchChange: (v: string) => void;
   from: string;
@@ -18,21 +16,16 @@ interface Props {
 }
 
 export function AuditFilterBar({
-  actorSearch, onActorSearchChange, targetSearch, onTargetSearchChange,
+  targetSearch, onTargetSearchChange,
   from, onFromChange, to, onToChange, onClear, onExport, exporting,
 }: Props) {
-  const hasFilters = Boolean(actorSearch || targetSearch || from || to);
+  const hasFilters = Boolean(targetSearch || from || to);
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'end' }}>
       <div style={{ minWidth: 200 }}>
-        <label style={labelStyle}>Search Performed By</label>
-        <input style={{ ...inputStyle, width: '100%' }} placeholder="Name or email"
-          value={actorSearch} onChange={e => onActorSearchChange(e.target.value)} />
-      </div>
-      <div style={{ minWidth: 200 }}>
         <label style={labelStyle}>Search Affected User</label>
-        <input style={{ ...inputStyle, width: '100%' }} placeholder="Employee, doc, policy…"
+        <input style={{ ...inputStyle, width: '100%' }} placeholder="Employee name"
           value={targetSearch} onChange={e => onTargetSearchChange(e.target.value)} />
       </div>
       <div>

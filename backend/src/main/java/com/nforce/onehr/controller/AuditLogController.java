@@ -35,7 +35,6 @@ public class AuditLogController {
 
     @GetMapping
     public Page<AuditLogEntryDto> list(
-            @RequestParam(required = false) String actorSearch,
             @RequestParam(required = false) String targetSearch,
             @RequestParam(required = false) String action,
             @RequestParam(required = false) AuditActionGroup group,
@@ -44,33 +43,31 @@ public class AuditLogController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication authentication) {
-        return auditQueryService.search(actorSearch, targetSearch, action, group, from, to,
+        return auditQueryService.search(targetSearch, action, group, from, to,
                 page, size, isSuperAdmin(authentication), authentication.getName());
     }
 
     @GetMapping("/stats")
     public AuditLogStatsDto stats(
-            @RequestParam(required = false) String actorSearch,
             @RequestParam(required = false) String targetSearch,
             @RequestParam(required = false) String action,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
             Authentication authentication) {
-        return auditQueryService.stats(actorSearch, targetSearch, action, from, to,
+        return auditQueryService.stats(targetSearch, action, from, to,
                 isSuperAdmin(authentication), authentication.getName());
     }
 
     /** Unpaginated — backs the frontend's "export matches current filters exactly" requirement. */
     @GetMapping("/export")
     public List<AuditLogEntryDto> exportAll(
-            @RequestParam(required = false) String actorSearch,
             @RequestParam(required = false) String targetSearch,
             @RequestParam(required = false) String action,
             @RequestParam(required = false) AuditActionGroup group,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
             Authentication authentication) {
-        return auditQueryService.searchAll(actorSearch, targetSearch, action, group, from, to,
+        return auditQueryService.searchAll(targetSearch, action, group, from, to,
                 isSuperAdmin(authentication), authentication.getName());
     }
 

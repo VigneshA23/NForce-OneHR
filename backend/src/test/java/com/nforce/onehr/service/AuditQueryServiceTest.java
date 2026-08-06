@@ -107,7 +107,7 @@ class AuditQueryServiceTest {
         when(userRepository.findByEmail("ghost@test.com")).thenReturn(Optional.empty());
 
         assertThrows(IllegalStateException.class, () ->
-                auditQueryService.search(null, null, null, null, null, null, 0, 20, true, "ghost@test.com"));
+                auditQueryService.search(null, null, null, null, null, 0, 20, true, "ghost@test.com"));
     }
 
     @Test
@@ -116,20 +116,20 @@ class AuditQueryServiceTest {
                 any(org.springframework.data.domain.Pageable.class)))
                 .thenReturn(org.springframework.data.domain.Page.empty());
 
-        auditQueryService.search(null, null, null, null, null, null, 0, 20, true, CALLER_EMAIL);
+        auditQueryService.search(null, null, null, null, null, 0, 20, true, CALLER_EMAIL);
 
-        // Confirms the mandatory self-scope resolution actually runs on every call, not just
-        // when actorSearch happens to be supplied.
+        // Confirms the mandatory self-scope resolution actually runs on every call — there is no
+        // actor-search filter to opt into it; every row is already the caller's own by construction.
         verify(userRepository).findByEmail(CALLER_EMAIL);
     }
 
-    // ── Short-circuit behavior ──
+    // ── Short-circuit behavior (target search — the only remaining free-text filter) ──
 
     @Test
-    void search_actorSearchWithNoMatches_returnsEmptyPageWithoutQueryingAuditLog() {
-        when(userRepository.findUserIdsByEmailOrFullNameContaining("nobody")).thenReturn(Set.of());
+    void search_targetSearchWithNoMatches_returnsEmptyPageWithoutQueryingAuditLog() {
+        when(targetResolver.resolveTargetIdsMatching("nobody")).thenReturn(Set.of());
 
-        var page = auditQueryService.search("nobody", null, null, null, null, null, 0, 20, true, CALLER_EMAIL);
+        var page = auditQueryService.search("nobody", null, null, null, null, 0, 20, true, CALLER_EMAIL);
 
         assertEquals(0, page.getTotalElements());
         verify(auditLogRepository, never()).findAll(any(org.springframework.data.jpa.domain.Specification.class),
@@ -137,14 +137,14 @@ class AuditQueryServiceTest {
     }
 
     @Test
-    void search_actorSearchWithMatches_queriesAuditLog() {
-        UUID matchedUser = UUID.randomUUID();
-        when(userRepository.findUserIdsByEmailOrFullNameContaining("vikram")).thenReturn(Set.of(matchedUser));
+    void search_targetSearchWithMatches_queriesAuditLog() {
+        UUID matchedTarget = UUID.randomUUID();
+        when(targetResolver.resolveTargetIdsMatching("vikram")).thenReturn(Set.of(matchedTarget));
         when(auditLogRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class),
                 any(org.springframework.data.domain.Pageable.class)))
                 .thenReturn(org.springframework.data.domain.Page.empty());
 
-        auditQueryService.search("vikram", null, null, null, null, null, 0, 20, true, CALLER_EMAIL);
+        auditQueryService.search("vikram", null, null, null, null, 0, 20, true, CALLER_EMAIL);
 
         verify(auditLogRepository).findAll(any(org.springframework.data.jpa.domain.Specification.class),
                 any(org.springframework.data.domain.Pageable.class));
@@ -154,7 +154,7 @@ class AuditQueryServiceTest {
     void stats_hrAdmin_omitsAccessGroupEntirely() {
         when(auditLogRepository.count(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(0L);
 
-        AuditLogStatsDto stats = auditQueryService.stats(null, null, null, null, null, false, CALLER_EMAIL);
+        AuditLogStatsDto stats = auditQueryService.stats(null, null, null, null, false, CALLER_EMAIL);
 
         assertFalse(stats.getByGroup().containsKey("ACCESS"));
     }
@@ -163,7 +163,7 @@ class AuditQueryServiceTest {
     void stats_superAdmin_includesAccessGroup() {
         when(auditLogRepository.count(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(0L);
 
-        AuditLogStatsDto stats = auditQueryService.stats(null, null, null, null, null, true, CALLER_EMAIL);
+        AuditLogStatsDto stats = auditQueryService.stats(null, null, null, null, true, CALLER_EMAIL);
 
         assertTrue(stats.getByGroup().containsKey("ACCESS"));
     }

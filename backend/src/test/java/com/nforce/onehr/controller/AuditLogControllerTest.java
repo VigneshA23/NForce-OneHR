@@ -38,38 +38,38 @@ class AuditLogControllerTest {
 
     @Test
     void list_hrAdminRole_passesIsSuperAdminFalse() {
-        when(auditQueryService.search(any(), any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com")))
+        when(auditQueryService.search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com")))
                 .thenReturn(Page.empty());
 
-        controller.list(null, null, null, null, null, null, 0, 20, authWithRole("ROLE_HR_ADMIN"));
+        controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_HR_ADMIN"));
 
-        verify(auditQueryService).search(any(), any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com"));
+        verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com"));
     }
 
     @Test
     void list_superAdminRole_passesIsSuperAdminTrue() {
-        when(auditQueryService.search(any(), any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com")))
+        when(auditQueryService.search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com")))
                 .thenReturn(Page.empty());
 
-        controller.list(null, null, null, null, null, null, 0, 20, authWithRole("ROLE_SUPER_ADMIN"));
+        controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_SUPER_ADMIN"));
 
-        verify(auditQueryService).search(any(), any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com"));
+        verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com"));
     }
 
     @Test
     void stats_hrAdminRole_passesIsSuperAdminFalse() {
-        controller.stats(null, null, null, null, null, authWithRole("ROLE_HR_ADMIN"));
+        controller.stats(null, null, null, null, authWithRole("ROLE_HR_ADMIN"));
 
-        verify(auditQueryService).stats(any(), any(), any(), any(), any(), eq(false), eq("user@test.com"));
+        verify(auditQueryService).stats(any(), any(), any(), any(), eq(false), eq("user@test.com"));
     }
 
     @Test
     void exportAll_superAdminRole_passesIsSuperAdminTrue() {
-        when(auditQueryService.searchAll(any(), any(), any(), any(), any(), any(), eq(true), eq("user@test.com")))
+        when(auditQueryService.searchAll(any(), any(), any(), any(), any(), eq(true), eq("user@test.com")))
                 .thenReturn(List.of());
 
-        controller.exportAll(null, null, null, AuditActionGroup.ACCESS, null, null, authWithRole("ROLE_SUPER_ADMIN"));
+        controller.exportAll(null, null, AuditActionGroup.ACCESS, null, null, authWithRole("ROLE_SUPER_ADMIN"));
 
-        verify(auditQueryService).searchAll(any(), any(), any(), eq(AuditActionGroup.ACCESS), any(), any(), eq(true), eq("user@test.com"));
+        verify(auditQueryService).searchAll(any(), any(), eq(AuditActionGroup.ACCESS), any(), any(), eq(true), eq("user@test.com"));
     }
 }
