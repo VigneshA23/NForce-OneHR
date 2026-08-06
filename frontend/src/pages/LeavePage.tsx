@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
+import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, MapPin, PartyPopper, Plus, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -113,6 +114,19 @@ function formatHolidayDate(iso: string) {
   return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function StatTile({ icon: Icon, label, value, sub }: { icon: LucideIcon; label: string; value: React.ReactNode; sub?: string }) {
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <Icon size={13} style={{ color: 'var(--txt-dim)' }} />
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
+      </div>
+      <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+      {sub && <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+}
+
 function daysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
 }
@@ -179,14 +193,15 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               key={i}
               title={holiday?.holidayName}
               style={{
-                minHeight: 34,
-                borderRadius: 6,
-                padding: '3px 4px',
-                background: holiday ? 'color-mix(in srgb, var(--warn) 18%, transparent)' : 'var(--raised)',
+                minHeight: 42,
+                borderRadius: 7,
+                padding: '4px 4px',
+                background: holiday ? 'color-mix(in srgb, var(--warn) 14%, transparent)' : 'var(--raised)',
                 border: isToday ? '1.5px solid var(--brand)' : holiday ? '1px solid var(--warn)' : '1px solid var(--line)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 1,
+                alignItems: 'flex-start',
+                gap: 3,
               }}
             >
               <span style={{ fontSize: 10, fontWeight: isToday ? 700 : 500, color: holiday ? 'var(--warn)' : 'var(--txt)' }}>
@@ -194,9 +209,9 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               </span>
               {holiday && (
                 <span style={{
-                  fontSize: 8, fontWeight: 600, color: 'var(--warn)', lineHeight: 1.15,
-                  overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
-                  WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                  fontSize: 7, fontWeight: 700, color: '#fff', background: 'var(--warn)',
+                  borderRadius: 4, padding: '1px 4px', lineHeight: 1.4,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
                 }}>
                   {holiday.holidayName}
                 </span>
