@@ -35,4 +35,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                    OR LOWER(e.fullName) LIKE LOWER(CONCAT('%', :q, '%')))
             """)
     Set<UUID> findUserIdsByEmailOrFullNameContaining(@Param("q") String q);
+
+    // Mirrors EmployeeService.listEmployees()'s own definition of "employee" — holds the
+    // EMPLOYEE role — so any dashboard filtering by this stays consistent with the
+    // Employee Master page rather than re-deriving its own notion of who counts.
+    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL")
+    Set<UUID> findEmployeeRoleUserIds();
 }
