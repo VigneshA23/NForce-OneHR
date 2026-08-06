@@ -22,6 +22,7 @@ import AssetsExpensesPage from './pages/AssetsExpensesPage';
 import DocumentsPage from './pages/DocumentsPage';
 import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
 import PoliciesPage from './pages/PoliciesPage';
+import OnboardingPage from './pages/OnboardingPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="/hierarchy"      element={<HierarchyPage />} />
           <Route path="/documents"      element={<DocumentsRouter />} />
           <Route path="/policies"       element={<PoliciesPage />} />
+          <Route path="/onboarding"     element={<OnboardingPage />} />
         </Route>
 
         <Route path="/"  element={<Navigate to="/dashboard" replace />} />

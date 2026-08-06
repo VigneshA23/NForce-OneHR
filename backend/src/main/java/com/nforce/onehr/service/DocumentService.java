@@ -47,7 +47,17 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public List<RequiredDocumentDto> myRequiredDocuments(String actorEmail) {
         UUID actorId = requireUser(actorEmail).getId();
-        Employee emp = employeeRepo.findById(actorId).orElse(null);
+        return requiredDocumentsFor(actorId);
+    }
+
+    /**
+     * Same computation as myRequiredDocuments, keyed by an arbitrary employee
+     * rather than the caller — for other services (e.g. Onboarding) to reuse
+     * without duplicating the required-document logic.
+     */
+    @Transactional(readOnly = true)
+    public List<RequiredDocumentDto> requiredDocumentsFor(UUID employeeUserId) {
+        Employee emp = employeeRepo.findById(employeeUserId).orElse(null);
 
         List<DocumentType> allActive = docTypeRepo.findByActiveTrueOrderByNameAsc();
         List<DocumentType> applicable = allActive.stream()
@@ -55,7 +65,7 @@ public class DocumentService {
                 .collect(Collectors.toList());
 
         Map<Integer, EmployeeDocument> uploaded = docRepo
-                .findByEmployeeUserIdOrderByUploadedAtDesc(actorId).stream()
+                .findByEmployeeUserIdOrderByUploadedAtDesc(employeeUserId).stream()
                 .collect(Collectors.toMap(d -> d.getDocumentType().getId(), d -> d, (a, b) -> a));
 
         return applicable.stream().map(dt -> {

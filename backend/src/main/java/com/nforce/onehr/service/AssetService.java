@@ -45,7 +45,18 @@ public class AssetService {
     @Transactional(readOnly = true)
     public List<AssetAssignmentResponse> myAssignments(String actorEmail) {
         UUID actorId = requireActor(actorEmail).getId();
-        return assignmentRepo.findByEmployeeUserIdAndEffectiveToIsNull(actorId).stream()
+        return currentAssignmentsForEmployee(actorId);
+    }
+
+    /**
+     * Same lookup as myAssignments, keyed by an arbitrary employee rather than
+     * the caller — for other services (e.g. Onboarding) to reuse without
+     * duplicating the current-assignment lookup. No actor/role check: callers
+     * are trusted internal services that have already authorized the request.
+     */
+    @Transactional(readOnly = true)
+    public List<AssetAssignmentResponse> currentAssignmentsForEmployee(UUID employeeUserId) {
+        return assignmentRepo.findByEmployeeUserIdAndEffectiveToIsNull(employeeUserId).stream()
                 .map(a -> toAssignmentResponse(a, true))
                 .collect(Collectors.toList());
     }

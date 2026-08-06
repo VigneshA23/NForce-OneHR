@@ -52,7 +52,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('employees', 'Employee Master', Users, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
-    item('onboarding', 'Onboarding', Users, 2),
+    item('onboarding', 'Onboarding', Users, 1),
     item('attendance', 'Attendance Administration', Clock, 1),
     item('leave', 'Leave Administration', Calendar, 1),
     item('approvals', 'Approval Center', FileText, 1),

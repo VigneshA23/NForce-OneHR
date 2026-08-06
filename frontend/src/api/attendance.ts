@@ -12,7 +12,7 @@ async function handle<T>(res: Response): Promise<T> {
 }
 
 export type AttendanceStatus = 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT';
-export type AttendanceSource = 'SYSTEM' | 'REGULARIZATION';
+export type AttendanceSource = 'SYSTEM' | 'REGULARIZATION' | 'WEB_REMOTE';
 
 export interface AttendanceRecord {
   id: string | null;

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -980,7 +981,11 @@ function MonthCalendar({
 
 // ─── My attendance (punch card + attendance calendar) ─────────────────────────
 
-function MyAttendance() {
+export interface MyAttendanceHandle {
+  exportMonth: () => void;
+}
+
+const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props, ref) {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
 
@@ -1022,6 +1027,25 @@ function MyAttendance() {
       .catch(() => setMonthRecords([]))
       .finally(() => setMonthLoading(false));
   }, [viewYear, viewMonth, token]);
+
+  // Exposed to the page header's "Export selected month" button — same XLSX pattern
+  // already used by DirectoryPage.tsx, reusing the month's already-fetched records.
+  useImperativeHandle(ref, () => ({
+    exportMonth: () => {
+      const rows = monthRecords.map((r) => ({
+        Date: r.workDate,
+        'Check In': formatTime(r.checkInAt) ?? '',
+        'Check Out': formatTime(r.checkOutAt) ?? '',
+        Worked: formatDuration(r.workedMinutes) ?? '',
+        Mode: r.source === 'WEB_REMOTE' ? 'Remote' : 'Office',
+        Status: r.status ?? '',
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+      XLSX.writeFile(wb, `attendance-${viewYear}-${pad2(viewMonth + 1)}.xlsx`);
+    },
+  }), [monthRecords, viewYear, viewMonth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1170,77 +1194,6 @@ function MyAttendance() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      {/* Punch card */}
-      <div style={{ ...panelStyle, padding: '22px 24px' }}>
-        {loading ? (
-          <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
-        ) : !today ? (
-          <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Attendance unavailable right now.</div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--txt-dim)', fontSize: 12, marginBottom: 8 }}>
-                <Clock size={13} /> {formatDay(today.workDate)}
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4 }}>Check In</div>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)' }}>
-                    {formatTime(today.record?.checkInAt ?? null) ?? dash}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4 }}>Check Out</div>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)' }}>
-                    {formatTime(today.record?.checkOutAt ?? null) ?? dash}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4 }}>
-                    {today.canCheckOut ? 'Elapsed' : 'Hours'}
-                  </div>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt)' }}>
-                    {(today.canCheckOut ? elapsed : formatDuration(today.record?.workedMinutes ?? null)) ?? dash}
-                  </div>
-                </div>
-                {today.record?.status && (
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>Status</div>
-                    <StatusPill status={today.record.status} />
-                  </div>
-                )}
-              </div>
-
-              {today.record?.status === 'LATE' && (today.record.lateByMinutes ?? 0) > 0 && (
-                <div style={{ fontSize: 12, color: '#E0A93B', marginTop: 10 }}>
-                  Checked in {formatDuration(today.record.lateByMinutes)} past the grace period.
-                </div>
-              )}
-            </div>
-
-            {/* The button is driven only by the server's canCheckIn / canCheckOut flags. */}
-            <div>
-              {today.canCheckIn && (
-                <button onClick={() => punch('in')} disabled={submitting} style={primaryButtonStyle(submitting)}>
-                  <LogIn size={15} /> {submitting ? 'Checking in…' : 'Check In'}
-                </button>
-              )}
-              {today.canCheckOut && (
-                <button onClick={() => punch('out')} disabled={submitting} style={primaryButtonStyle(submitting)}>
-                  <LogOut size={15} /> {submitting ? 'Checking out…' : 'Check Out'}
-                </button>
-              )}
-              {!today.canCheckIn && !today.canCheckOut && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ok)', fontSize: 13, fontWeight: 600 }}>
-                  <CheckCircle2 size={16} /> Day complete
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Monthly attendance calendar */}
       <div>
         <SectionHeading title="My attendance calendar" hint="Present days, worked hours, and leave/holidays for the selected month." />
@@ -1265,11 +1218,70 @@ function MyAttendance() {
           <div style={{ ...panelStyle, padding: '18px 20px' }}>
             {!selectedInfo ? (
               <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Pick a day on the calendar to see its details.</div>
+            ) : selectedInfo.isToday ? (
+              // Today's workday — merged from the old standalone punch card, now living
+              // in the calendar's side panel with the exact same today/punch() state.
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Today's workday</div>
+                {loading ? (
+                  <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
+                ) : !today ? (
+                  <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Attendance unavailable right now.</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                          <LogIn size={11} /> Check In
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(today.record?.checkInAt ?? null) ?? dash}</div>
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                          <LogOut size={11} /> Check Out
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(today.record?.checkOutAt ?? null) ?? dash}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                        <Clock size={11} /> {today.canCheckOut ? 'Elapsed' : 'Worked Today'}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>
+                        {(today.canCheckOut ? elapsed : formatDuration(today.record?.workedMinutes ?? null)) ?? dash}
+                      </div>
+                    </div>
+                    {today.record?.status && <StatusPill status={today.record.status} />}
+                    {today.record?.status === 'LATE' && (today.record.lateByMinutes ?? 0) > 0 && (
+                      <div style={{ fontSize: 12, color: '#E0A93B' }}>
+                        Checked in {formatDuration(today.record.lateByMinutes)} past the grace period.
+                      </div>
+                    )}
+                    {/* The button is driven only by the server's canCheckIn / canCheckOut flags. */}
+                    <div>
+                      {today.canCheckIn && (
+                        <button onClick={() => punch('in')} disabled={submitting} style={primaryButtonStyle(submitting)}>
+                          <LogIn size={15} /> {submitting ? 'Checking in…' : 'Check In'}
+                        </button>
+                      )}
+                      {today.canCheckOut && (
+                        <button onClick={() => punch('out')} disabled={submitting} style={primaryButtonStyle(submitting)}>
+                          <LogOut size={15} /> {submitting ? 'Checking out…' : 'Check Out'}
+                        </button>
+                      )}
+                      {!today.canCheckIn && !today.canCheckOut && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ok)', fontSize: 13, fontWeight: 600 }}>
+                          <CheckCircle2 size={16} /> Day complete
+                        </div>
+                      )}
+                    </div>
+                    <PunchHistoryList date={selectedInfo.iso} token={token} />
+                  </>
+                )}
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
-                  {selectedInfo.isToday ? "Today's workday" : formatDay(selectedInfo.iso)}
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{formatDay(selectedInfo.iso)}</div>
                 {selectedInfo.holidayName ? (
                   <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Company holiday — {selectedInfo.holidayName}</div>
                 ) : selectedInfo.leaveTypeName ? (
@@ -1337,10 +1349,52 @@ function MyAttendance() {
             )}
           </div>
         </div>
+
+        {/* Daily records — flat table for the selected month, reusing the same monthRecords
+            already fetched for the calendar/stat tiles above. Mode is derived client-side from
+            the existing `source` field (WEB_REMOTE → Remote, else → Office); no new API calls. */}
+        <div style={{ marginTop: 16 }}>
+          <SectionHeading title={`Daily records — ${calendarMonthLabel(viewYear, viewMonth)}`} />
+          <div style={panelStyle}>
+            {monthLoading ? (
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
+            ) : monthRecords.length === 0 ? (
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No attendance records for this month.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>{['Date', 'Check In', 'Check Out', 'Worked', 'Mode', 'Status', 'Details'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {monthRecords.map((r) => (
+                      <tr key={r.workDate}>
+                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
+                        <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
+                        <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
+                        <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
+                        <td style={tdStyle}>{r.source === 'WEB_REMOTE' ? 'Remote' : 'Office'}</td>
+                        <td style={tdStyle}><StatusPill status={r.status} /></td>
+                        <td style={tdStyle}>
+                          <button
+                            onClick={() => setSelectedDate(r.workDate)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            <Eye size={11} /> View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
-}
+});
 
 // ─── Regularization (request + my requests + pending approvals) ───────────────
 
@@ -1428,7 +1482,12 @@ function MonthFilter({ month, onChange }: { month: string; onChange: (v: string)
   );
 }
 
-function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: string; canApprove: boolean; isSuperAdmin: boolean }) {
+export interface RegularizationSectionHandle {
+  openNewRequest: () => void;
+}
+
+const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean }>(
+  function RegularizationSection({ token, canApprove, isSuperAdmin }, ref) {
   const { showToast } = useToast();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
   const [pending, setPending] = useState<RegularizationRecord[]>([]);
@@ -1476,20 +1535,21 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
     [myRequests],
   );
 
+  // Exposed to the page header's "Request Regularization" button — opens the exact same
+  // create-mode modal the section's own flow uses.
+  useImperativeHandle(ref, () => ({
+    openNewRequest: () => { setEditing(null); setShowRequest(true); },
+  }), []);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
-        <div style={{ display: 'flex', gap: 10 }}>
-          {isSuperAdmin && (
-            <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-              <ShieldCheck size={14} /> View All & Audit Trail
-            </Link>
-          )}
-          <button onClick={() => setShowRequest(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <CalendarPlus size={14} /> Request Regularization
-          </button>
-        </div>
+        {isSuperAdmin && (
+          <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+            <ShieldCheck size={14} /> View All & Audit Trail
+          </Link>
+        )}
       </div>
 
       {/* My Regularization Requests — month filter only, grouped by month within that filter */}
@@ -1636,7 +1696,7 @@ function RegularizationSection({ token, canApprove, isSuperAdmin }: { token: str
       )}
     </div>
   );
-}
+});
 
 // ─── Roster view (Manager team / HR org-wide) ─────────────────────────────────
 
@@ -1697,24 +1757,43 @@ export default function AttendancePage() {
   const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
 
   const subtitle = role === 'Manager'
-    ? 'Punch in and out, and review your team’s attendance for any day.'
+    ? 'Review daily attendance for the selected month, and your team’s attendance for any day.'
     : role === 'HR Admin' || role === 'Super Admin'
-      ? 'Punch in and out, and review attendance across the organization.'
-      : 'Punch in when you start your day and out when you finish.';
+      ? 'Review daily attendance for the selected month, and attendance across the organization.'
+      : 'Review daily attendance for the selected month.';
+
+  const myAttendanceRef = useRef<MyAttendanceHandle>(null);
+  const regularizationRef = useRef<RegularizationSectionHandle>(null);
 
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{
-          fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
-          color: 'var(--txt)', margin: 0,
-        }}>Attendance</h1>
-        <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div>
+          <h1 style={{
+            fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
+            color: 'var(--txt)', margin: 0,
+          }}>My Attendance</h1>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => myAttendanceRef.current?.exportMonth()}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <Download size={14} /> Export selected month
+          </button>
+          <button
+            onClick={() => regularizationRef.current?.openNewRequest()}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <CalendarPlus size={14} /> Request Regularization
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
-        <MyAttendance />
-        <RegularizationSection token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} />
+        <MyAttendance ref={myAttendanceRef} />
+        <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} />
         {role === 'Manager' && <DayRoster scope="team" />}
         {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
       </div>
