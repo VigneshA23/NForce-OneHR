@@ -101,6 +101,15 @@ public class AttendanceController {
         return attendanceService.getDayForMyTeam(principal.getName(), date);
     }
 
+    @GetMapping("/team-month")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public List<AttendanceResponse> teamMonth(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceService.getMonthForMyTeam(principal.getName(), from, to);
+    }
+
     @GetMapping("/employee/{userId}")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
     public List<AttendanceResponse> employeeHistory(

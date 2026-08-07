@@ -68,6 +68,10 @@ export const leaveApi = {
   listApprovals: (token: string) =>
     fetch(`${BASE}/approvals`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
 
+  /** Approved leave for the manager's direct reports overlapping [from, to]. */
+  team: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/team?from=${from}&to=${to}`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
+
   approve: (id: string, token: string) =>
     fetch(`${BASE}/requests/${id}/approve`, { method: 'POST', headers: authHeaders(token) }).then(handle<LeaveRequestRecord>),
 

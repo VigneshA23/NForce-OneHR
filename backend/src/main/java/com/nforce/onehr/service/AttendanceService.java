@@ -240,6 +240,26 @@ public class AttendanceService {
     }
 
     /**
+     * Attendance rows for the caller's current direct reports across a date range — backs the
+     * My Team calendar. Unlike {@link #getDayForMyTeam}, this returns only rows that actually
+     * exist (no synthetic per-day placeholders for a whole team/range); the caller infers a
+     * "missing attendance" day from the absence of a row on a working day.
+     */
+    @Transactional(readOnly = true)
+    public List<AttendanceResponse> getMonthForMyTeam(String managerEmail, LocalDate from, LocalDate to) {
+        Employee manager = resolveEmployee(managerEmail);
+        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+        if (reportIds.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, Employee> byId = employeeRepository.findAllById(reportIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, Function.identity()));
+        return attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(reportIds, from, to).stream()
+                .map(r -> toResponse(r, byId.get(r.getEmployeeUserId())))
+                .toList();
+    }
+
+    /**
      * Drill-down history for a single employee. HR and Super Admin may view anyone; a Manager
      * may only view their own current direct reports.
      */
@@ -303,6 +323,7 @@ public class AttendanceService {
                             .employeeCode(employee.getEmployeeCode())
                             .fullName(employee.getFullName())
                             .workDate(day)
+                            .workMode(employee.getWorkMode())
                             .build());
         }
         rows.sort(Comparator.comparing(AttendanceResponse::getFullName,
@@ -325,6 +346,7 @@ public class AttendanceService {
                 .lateByMinutes(record.getLateByMinutes())
                 .fullDay(worked == null ? null : worked >= props.getFullDayMinHours() * 60)
                 .source(record.getSource())
+                .workMode(employee.getWorkMode())
                 .build();
     }
 }
