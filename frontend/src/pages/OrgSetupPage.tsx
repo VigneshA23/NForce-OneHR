@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, MoreVertical, Plus, Search, X } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, Plus, Search, X } from 'lucide-react';
+import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -93,99 +94,6 @@ function CountBadge({ count }: { count: number }) {
   );
 }
 
-// ── KebabMenu ──────────────────────────────────────────────────────────────────
-
-interface KebabItem {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  dividerBefore?: boolean;
-}
-
-interface DropdownPos { top?: number; bottom?: number; right: number; }
-
-function KebabMenu({ items }: { items: KebabItem[] }) {
-  const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [pos, setPos] = useState<DropdownPos>({ top: 0, right: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
-
-  function toggle(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - r.bottom;
-      const right = window.innerWidth - r.right;
-      if (spaceBelow < 140) {
-        setPos({ bottom: window.innerHeight - r.top + 4, right });
-      } else {
-        setPos({ top: r.bottom + 4, right });
-      }
-    }
-    setOpen(o => !o);
-  }
-
-  const lit = open || hovered;
-
-  if (items.length === 0) return null;
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={toggle}
-        aria-label="Actions"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          background: lit ? 'var(--raised2)' : 'transparent',
-          border: `1px solid ${lit ? 'var(--line2)' : 'transparent'}`,
-          borderRadius: 6, width: 30, height: 30, cursor: 'pointer',
-          color: lit ? 'var(--txt)' : 'var(--txt-mut)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background .15s, border-color .15s, color .15s',
-        }}
-      >
-        <MoreVertical size={14} />
-      </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
-          <div style={{
-            position: 'fixed',
-            top: pos.top,
-            bottom: pos.bottom,
-            right: pos.right,
-            background: 'var(--panel)', border: '1px solid var(--line)',
-            borderRadius: 8, boxShadow: '0 12px 32px rgba(0,0,0,.55)',
-            zIndex: 999, minWidth: 168, overflow: 'hidden',
-          }}>
-            {items.map((item, i) => (
-              <button
-                key={i}
-                onClick={e => { e.stopPropagation(); item.onClick(); setOpen(false); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left',
-                  padding: '9px 14px', fontSize: 12.5, fontWeight: 500,
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: item.danger ? 'var(--risk)' : 'var(--txt)',
-                  borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
-                  transition: 'background .1s',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLButtonElement).style.background =
-                    item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)';
-                }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </>
-  );
-}
 
 // ── ConfirmModal ───────────────────────────────────────────────────────────────
 
@@ -302,6 +210,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
     setError('');
     const trimmed = name.trim();
     if (!trimmed) { setError(`${primaryLabel} is required`); return; }
+    if (/\d/.test(trimmed)) { setError(`${primaryLabel} cannot contain numbers`); return; }
     setLoading(true);
     try {
       if (isEdit && editRow) {

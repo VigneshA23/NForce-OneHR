@@ -95,6 +95,19 @@ export default function ProfilePage() {
   }
 
   async function handleSave() {
+    if (form.personalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.personalEmail)) {
+      showToast('error', 'Personal email format is invalid.');
+      return;
+    }
+    const digitsOnly = (v: string) => v.replace(/\D/g, '');
+    if (form.phone && digitsOnly(form.phone).length !== 10) {
+      showToast('error', 'Phone number must be exactly 10 digits.');
+      return;
+    }
+    if (form.emergencyContactPhone && digitsOnly(form.emergencyContactPhone).length !== 10) {
+      showToast('error', 'Contact phone must be exactly 10 digits.');
+      return;
+    }
     setSaving(true);
     try {
       const cleaned: UpdateProfilePayload = {};

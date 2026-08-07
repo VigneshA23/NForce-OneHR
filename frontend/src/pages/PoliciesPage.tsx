@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Megaphone, CheckCircle, Clock, Search, MoreVertical } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search } from 'lucide-react';
+import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -35,46 +36,6 @@ function parseAudienceToArr(raw: string): string[] {
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
 
-// ── KebabMenu ────────────────────────────────────────────
-
-function KebabMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-  if (items.length === 0) return null;
-  return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
-      <button onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        style={{ background: open ? 'var(--raised2)' : 'transparent', border: '1px solid transparent', borderRadius: 6, width: 30, height: 30, cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised2)'; }}
-        onMouseLeave={e => { if (!open) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
-        <MoreVertical size={14} />
-      </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
-          <div style={{ position: 'absolute', right: 0, top: '110%', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 12px 32px rgba(0,0,0,.45)', zIndex: 99, minWidth: 160, overflow: 'hidden' }}>
-            {items.map((item, i) => (
-              <button key={i} onClick={e => { e.stopPropagation(); item.onClick(); setOpen(false); }}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', fontSize: 12.5, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', color: item.danger ? '#E4373D' : 'var(--txt)', borderBottom: i < items.length - 1 ? '1px solid var(--line2)' : 'none' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // ── Multi-select Audience Picker ──────────────────────────
 

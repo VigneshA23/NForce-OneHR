@@ -26,6 +26,7 @@ const itemVariants = {
 export default function Login() {
   const navigate   = useNavigate();
   const setAuth    = useAuthStore((s) => s.setAuth);
+  const clearAuth  = useAuthStore((s) => s.clearAuth);
   const reduced    = useReducedMotion();
   const emailId    = useId();
   const passId     = useId();
@@ -41,9 +42,18 @@ export default function Login() {
   async function handleCredentialSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const trimmedEmail = email.trim();
+    if (/\s/.test(trimmedEmail)) {
+      setError('Email cannot contain whitespace characters.');
+      return;
+    }
+    if (/\s/.test(password)) {
+      setError('Password cannot contain whitespace characters.');
+      return;
+    }
     setSubmitting(true);
     try {
-      const data = await authApi.login(email, password);
+      const data = await authApi.login(trimmedEmail, password);
       setAuth(data.token, {
         email: data.email,
         mustChangePassword: data.mustChangePassword,
@@ -55,6 +65,7 @@ export default function Login() {
         navigate('/dashboard', { replace: true });
       }
     } catch (err) {
+      clearAuth();
       setError(err instanceof Error ? err.message : 'Invalid email or password.');
       emailRef.current?.focus();
     } finally {
