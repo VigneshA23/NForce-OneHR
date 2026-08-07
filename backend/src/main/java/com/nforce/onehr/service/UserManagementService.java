@@ -54,7 +54,7 @@ public class UserManagementService {
                 .passwordHash(passwordEncoder.encode(tempPassword))
                 .mustChangePassword(true)
                 .active(true)
-                .roles(new HashSet<>(Set.of(role)))
+                .roles(rolesFor(role))
                 .build();
         newUser = userRepository.save(newUser);
 
@@ -93,6 +93,21 @@ public class UserManagementService {
                 "Your account has been created. Please log in and change your temporary password.",
                 "/profile");
         return toResponse(emp, findCurrentManager(newUser.getId()), newUser, tempPassword);
+    }
+
+    /**
+     * Employee/Manager/HR Admin are all staff first — they get the base EMPLOYEE role
+     * alongside whatever admin role they're assigned, so self-service features (attendance
+     * punch, leave, etc.) work for them too. Super Admin is the one deliberate exception:
+     * see AttendanceController's "never a punch clock of their own" comment.
+     */
+    private Set<Role> rolesFor(Role assignedRole) {
+        Set<Role> roles = new HashSet<>();
+        roles.add(assignedRole);
+        if (!"SUPER_ADMIN".equals(assignedRole.getCode()) && !"EMPLOYEE".equals(assignedRole.getCode())) {
+            roleRepository.findByCode("EMPLOYEE").ifPresent(roles::add);
+        }
+        return roles;
     }
 
     /** Super Admin: list all users across all roles. */
@@ -136,7 +151,7 @@ public class UserManagementService {
             Role newRole = roleRepository.findByCode(roleCode)
                     .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
             target.getRoles().clear();
-            target.getRoles().add(newRole);
+            target.getRoles().addAll(rolesFor(newRole));
             userRepository.save(target);
             notificationService.send(target.getId(), "ACCOUNT",
                     "Role Updated",

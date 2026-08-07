@@ -22,7 +22,12 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     @Query(value = "SELECT employee_code FROM employees WHERE employee_code ~ '^NF-[0-9]+$' ORDER BY CAST(SUBSTRING(employee_code FROM 4) AS INTEGER) DESC LIMIT 1", nativeQuery = true)
     Optional<String> findMaxNumericEmployeeCode();
 
-    Optional<Employee> findByUser_Email(String email);
+    // Scoped to a non-deleted user: several test emails in this dataset have been
+    // re-registered after a soft delete (same email, new user row), and an unscoped
+    // lookup here matches every row for that email — Spring Data throws
+    // IncorrectResultSizeDataAccessException the moment there's more than one.
+    @Query("SELECT e FROM Employee e JOIN FETCH e.user u WHERE u.email = :email AND u.deletedAt IS NULL")
+    Optional<Employee> findByUser_Email(@Param("email") String email);
 
     @Query("SELECT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH e.department LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.location WHERE u.deletedAt IS NULL AND u.active = true")
     List<Employee> findAllActiveWithDetails();
