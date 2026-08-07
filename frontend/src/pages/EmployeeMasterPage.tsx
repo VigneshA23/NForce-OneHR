@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, X, ChevronDown, MoreVertical } from 'lucide-react';
+import { UserPlus, X, ChevronDown } from 'lucide-react';
+import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord, type CreateEmployeePayload, type UpdateEmployeePayload } from '../api/employees';
 import { orgApi } from '../api/org';
@@ -148,6 +149,7 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.fullName.trim() || !form.email.trim() || !form.joiningDate) { setError('Name, email, and joining date are required.'); return; }
+    if (!/[a-zA-Z]/.test(form.fullName.trim())) { setError('Full name must contain at least one letter.'); return; }
     setSubmitting(true); setError(null);
     try {
       const emp = await employeesApi.create(form, token);
@@ -344,55 +346,6 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
   );
 }
 
-// ─── Kebab Menu ───────────────────────────────────────────────────────────────
-function KebabMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean; dividerBefore?: boolean }[] }) {
-  const [open, setOpen] = useState(false);
-  if (items.length === 0) return null;
-  return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <button
-        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        title="Actions"
-        aria-label="Actions"
-        style={{
-          background: 'transparent', border: '1px solid transparent', borderRadius: 6,
-          width: 30, height: 30, cursor: 'pointer', color: 'var(--txt-mut)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background .15s, border-color .15s, color .15s',
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised2)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--line2)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt)'; }}
-        onMouseLeave={e => { if (!open) { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-mut)'; } }}
-      >
-        <MoreVertical size={14} />
-      </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
-          <div style={{ position: 'absolute', right: 0, top: '110%', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 12px 32px rgba(0,0,0,.45)', zIndex: 99, minWidth: 148, overflow: 'hidden' }}>
-            {items.map((item, i) => (
-              <button
-                key={i}
-                onClick={e => { e.stopPropagation(); item.onClick(); setOpen(false); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left',
-                  padding: '9px 14px', fontSize: 12.5, fontWeight: 500,
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: item.danger ? '#E4373D' : 'var(--txt)',
-                  borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
-                  transition: 'background .1s',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function EmployeeMasterPage() {

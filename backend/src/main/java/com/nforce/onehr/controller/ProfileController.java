@@ -3,6 +3,7 @@ package com.nforce.onehr.controller;
 import com.nforce.onehr.dto.ProfileResponse;
 import com.nforce.onehr.dto.UpdateProfileRequest;
 import com.nforce.onehr.service.ProfileService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -25,7 +26,7 @@ public class ProfileController {
 
     @PatchMapping
     public ResponseEntity<ProfileResponse> updateProfile(
-            @RequestBody UpdateProfileRequest req,
+            @Valid @RequestBody UpdateProfileRequest req,
             Authentication auth) {
         return ResponseEntity.ok(profileService.updateProfile(auth.getName(), req));
     }

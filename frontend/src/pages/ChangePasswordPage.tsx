@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
@@ -16,26 +14,15 @@ const CRITERIA = [
 
 function strengthScore(password: string) {
   if (!password) return 0;
-  return CRITERIA.filter((c) => c.test(password)).length;
+  const classScore = CRITERIA.filter((c) => c.test(password)).length;
+  return password.length < 8 ? Math.min(classScore, 2) : classScore;
 }
 
-const schema = z
-  .object({
-    currentPassword: z.string().min(1, 'Current password is required'),
-    newPassword: z
-      .string()
-      .min(8, 'Must be at least 8 characters')
-      .refine((p) => strengthScore(p) >= 3, {
-        message: 'Must include at least 3 of: uppercase, lowercase, number, special character',
-      }),
-    confirmPassword: z.string().min(1, 'Please confirm your new password'),
-  })
-  .refine((data) => data.newPassword === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
-
-type FormValues = z.infer<typeof schema>;
+type FormValues = {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+};
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -93,6 +80,7 @@ function PasswordField({
             if (!error) e.currentTarget.style.borderColor = '#b11116';
           }}
           onBlur={(e) => {
+            registration.onBlur(e);
             if (!error) e.currentTarget.style.borderColor = '#2a2a2a';
           }}
         />
@@ -123,29 +111,66 @@ export default function ChangePasswordPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
 
+  const [loading, setLoading] = useState(false);
+
   const {
     register,
     handleSubmit,
     watch,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema), mode: 'onBlur' });
+    setError,
+    clearErrors,
+    formState: { errors },
+  } = useForm<FormValues>({ mode: 'onSubmit' });
 
   const newPasswordValue = watch('newPassword', '');
   const score = strengthScore(newPasswordValue);
 
   async function onSubmit(data: FormValues) {
+    clearErrors();
     setServerError(null);
+
     if (!token) {
       navigate('/login', { replace: true });
       return;
     }
+
+    let invalid = false;
+
+    if (!data.currentPassword) {
+      setError('currentPassword', { message: 'Current password is required' });
+      invalid = true;
+    }
+    if (data.newPassword.length < 8) {
+      setError('newPassword', { message: 'Must be at least 8 characters' });
+      invalid = true;
+    } else if (strengthScore(data.newPassword) < 3) {
+      setError('newPassword', {
+        message: 'Must include at least 3 of: uppercase, lowercase, number, special character',
+      });
+      invalid = true;
+    }
+    if (!data.confirmPassword) {
+      setError('confirmPassword', { message: 'Please confirm your new password' });
+      invalid = true;
+    } else if (data.newPassword !== data.confirmPassword) {
+      setError('confirmPassword', { message: 'Passwords do not match' });
+      invalid = true;
+    }
+
+    if (invalid) return;
+
+    setLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 13000);
     try {
       const res = await authApi.changePassword(
         data.currentPassword,
         data.newPassword,
         data.confirmPassword,
-        token
+        token,
+        controller.signal
       );
+      clearTimeout(timeoutId);
       setAuth(res.token, {
         email: user!.email,
         firstName: user?.firstName,
@@ -155,8 +180,16 @@ export default function ChangePasswordPage() {
       });
       navigate('/dashboard', { replace: true });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Something went wrong';
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof Error && err.name === 'AbortError';
+      const msg = isAbort
+        ? 'Request timed out. Check your connection and try again.'
+        : err instanceof Error
+        ? err.message
+        : 'Something went wrong';
       setServerError(msg);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -240,6 +273,7 @@ export default function ChangePasswordPage() {
                   if (!errors.newPassword) e.currentTarget.style.borderColor = '#b11116';
                 }}
                 onBlur={(e) => {
+                  register('newPassword').onBlur(e);
                   if (!errors.newPassword) e.currentTarget.style.borderColor = '#2a2a2a';
                 }}
               />
@@ -270,7 +304,7 @@ export default function ChangePasswordPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
-                    {CRITERIA.map((c) => (
+                    {[{ label: 'At least 8 characters', test: (p: string) => p.length >= 8 }, ...CRITERIA].map((c) => (
                       <span
                         key={c.label}
                         className="text-[11px] flex items-center gap-1"
@@ -314,23 +348,23 @@ export default function ChangePasswordPage() {
 
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={loading}
             className="w-full py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-all mt-2"
             style={{
-              background: isSubmitting ? '#7a0b0f' : '#b11116',
+              background: loading ? '#7a0b0f' : '#b11116',
               color: '#ffffff',
               border: 'none',
               fontFamily: 'Inter, system-ui',
-              opacity: isSubmitting ? 0.8 : 1,
+              opacity: loading ? 0.8 : 1,
             }}
             onMouseEnter={(e) => {
-              if (!isSubmitting) e.currentTarget.style.background = '#e4373d';
+              if (!loading) e.currentTarget.style.background = '#e4373d';
             }}
             onMouseLeave={(e) => {
-              if (!isSubmitting) e.currentTarget.style.background = '#b11116';
+              if (!loading) e.currentTarget.style.background = '#b11116';
             }}
           >
-            {isSubmitting ? (
+            {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <svg
                   className="animate-spin"
@@ -358,16 +392,16 @@ export default function ChangePasswordPage() {
           </span>
         </p>
 
-        <div className="mt-4 text-center">
+        <div className="mt-6 text-center">
           <button
             type="button"
             onClick={() => { clearAuth(); navigate('/login', { replace: true }); }}
-            className="text-xs cursor-pointer"
-            style={{ background: 'none', border: 'none', color: '#5a5a5a', textDecoration: 'underline', textUnderlineOffset: '3px', padding: 0 }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = '#a0a0a0')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = '#5a5a5a')}
+            className="text-sm cursor-pointer"
+            style={{ background: 'none', border: 'none', color: '#8a8a8a', textDecoration: 'underline', textUnderlineOffset: '3px', padding: 0 }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#d0d0d0')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#8a8a8a')}
           >
-            Forgot your temporary password? Back to Sign In
+            Back to Sign In
           </button>
         </div>
       </div>
