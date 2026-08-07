@@ -23,4 +23,6 @@ public class AttendanceResponse {
     private Boolean fullDay;
     /** SYSTEM for a normal punch, REGULARIZATION if this row came from an approved correction. */
     private String source;
+    /** The employee's configured work mode (ONSITE/REMOTE/HYBRID) at the time of the query. */
+    private String workMode;
 }

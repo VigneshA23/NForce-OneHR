@@ -16,6 +16,7 @@ import NotificationsPage from './pages/NotificationsPage';
 import DirectoryPage from './pages/DirectoryPage';
 import HierarchyPage from './pages/HierarchyPage';
 import LeavePage from './pages/LeavePage';
+import MyTeamPage from './pages/MyTeamPage';
 import ApprovalsPage from './pages/ApprovalsPage';
 import MyRequestsPage from './pages/MyRequestsPage';
 import AssetsExpensesPage from './pages/AssetsExpensesPage';
@@ -91,6 +92,7 @@ export default function App() {
           <Route path="/attendance"   element={<AttendancePage />} />
           <Route path="/attendance/regularization/all" element={<SuperAdminRegularizationPage />} />
           <Route path="/leave"        element={<LeavePage />} />
+          <Route path="/my-team"      element={<MyTeamPage />} />
           <Route path="/help"         element={<Phase1Stub />} />
           <Route path="/approvals"    element={<ApprovalsPage />} />
           <Route path="/requests"     element={<MyRequestsPage />} />
