@@ -22,9 +22,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,7 @@ public class LeaveService {
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final LeaveRequestRepository leaveRequestRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
@@ -122,6 +125,26 @@ public class LeaveService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Approved leave for the caller's current direct reports overlapping [from, to] — backs
+     * My Team's "who's on leave today," "out this week," and calendar leave-coloring.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveRequestResponse> listTeamLeave(String actorEmail, LocalDate from, LocalDate to) {
+        User actor = requireActor(actorEmail);
+        List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
+                .map(EmployeeManagerHistory::getEmployeeUserId)
+                .collect(Collectors.toList());
+        if (reportIds.isEmpty()) {
+            return List.of();
+        }
+        return leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from)
+                .stream()
+                .map(this::toRequestResponse)
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public LeaveRequestResponse approve(UUID requestId, String actorEmail) {
         User actor = requireActor(actorEmail);
@@ -143,12 +166,14 @@ public class LeaveService {
         balance.setUsedDays(balance.getUsedDays().add(request.getTotalDays()));
         leaveBalanceRepository.save(balance);
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("APPROVED");
         request.setDecidedBy(actor.getId());
         request.setDecidedAt(LocalDateTime.now());
         request = leaveRequestRepository.save(request);
 
-        auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId());
+        String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "decidedBy", actor.getId().toString()));
+        auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId(), before, after);
         return toRequestResponse(request);
     }
 
@@ -162,13 +187,15 @@ public class LeaveService {
             throw new IllegalStateException("Leave request has already been decided");
         }
 
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("REJECTED");
         request.setDecisionReason(reason.trim());
         request.setDecidedBy(actor.getId());
         request.setDecidedAt(LocalDateTime.now());
         request = leaveRequestRepository.save(request);
 
-        auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId());
+        String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
+        auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId(), before, after);
         return toRequestResponse(request);
     }
 

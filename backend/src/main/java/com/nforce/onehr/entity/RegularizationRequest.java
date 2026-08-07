@@ -19,6 +19,12 @@ public class RegularizationRequest {
     @Column(name = "employee_user_id", nullable = false)
     private UUID employeeUserId;
 
+    // Resolved once at submission time: the employee-selected manager, else their current
+    // manager via EmployeeManagerHistory, else NULL (HR/Super Admin have blanket override
+    // visibility regardless — see RegularizationService.listPendingForApprover).
+    @Column(name = "assigned_approver_id")
+    private UUID assignedApproverId;
+
     @Column(name = "attendance_date", nullable = false)
     private LocalDate attendanceDate;
 
@@ -43,6 +49,23 @@ public class RegularizationRequest {
 
     @Column(name = "review_comment", columnDefinition = "TEXT")
     private String reviewComment;
+
+    // Stage 1 (manager approval) — set only when a MANAGER approves a PENDING request,
+    // transitioning it to PARTIALLY_APPROVED. Never set by a Super Admin bypass approval.
+    @Column(name = "approved_by")
+    private UUID approvedBy;
+
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
+    // Stage 2 (final approval) — set when HR_ADMIN or SUPER_ADMIN approves, transitioning the
+    // request to the terminal APPROVED status, whether from PARTIALLY_APPROVED or (Super Admin
+    // bypass) directly from PENDING.
+    @Column(name = "final_approved_by")
+    private UUID finalApprovedBy;
+
+    @Column(name = "final_approved_at")
+    private LocalDateTime finalApprovedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

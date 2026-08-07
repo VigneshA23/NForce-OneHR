@@ -8,10 +8,12 @@ import com.nforce.onehr.dto.RejectLeaveRequestRequest;
 import com.nforce.onehr.service.LeaveService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -46,6 +48,14 @@ public class LeaveController {
     @GetMapping("/approvals")
     public List<LeaveRequestResponse> pendingApprovals(Principal principal) {
         return leaveService.listPendingApprovals(principal.getName());
+    }
+
+    @GetMapping("/team")
+    public List<LeaveRequestResponse> team(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return leaveService.listTeamLeave(principal.getName(), from, to);
     }
 
     @PostMapping("/requests/{id}/approve")

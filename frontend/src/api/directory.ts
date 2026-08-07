@@ -1,4 +1,5 @@
-const BASE = '/api/employees/directory';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/employees/directory`;
 
 export interface DirectoryEntry {
   userId: string;

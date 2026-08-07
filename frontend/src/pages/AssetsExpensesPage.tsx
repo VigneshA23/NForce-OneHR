@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, MoreVertical, Plus, X } from 'lucide-react';
+import { Check, ExternalLink, Paperclip, Plus, X } from 'lucide-react';
+import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
 import { useToast } from '../context/ToastContext';
@@ -573,7 +574,11 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Receipt {receiptRequired ? '(required)' : '(optional)'}</label>
-        <input type="file" accept="image/*,application/pdf" onChange={e => setReceiptFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12, color: 'var(--txt-mut)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Paperclip size={14} color="var(--txt-dim)" aria-hidden />
+          <input type="file" accept="image/*,application/pdf" onChange={e => setReceiptFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12, color: 'var(--txt-mut)' }} />
+        </div>
+        {receiptFile && <div style={{ fontSize: 11, color: 'var(--ok)', marginTop: 4 }}>{receiptFile.name}</div>}
         {receiptRequired && !receiptFile && <div style={{ fontSize: 11, color: '#E4373D', marginTop: 4 }}>A receipt image is required for this amount.</div>}
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -1072,57 +1077,6 @@ function HRView({ token }: { token: string }) {
 }
 
 
-function KebabMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
-  const [open, setOpen] = useState(false);
-  if (items.length === 0) return null;
-  return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <button
-        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        title="Actions"
-        style={{
-          background: open ? 'var(--raised2)' : 'transparent',
-          border: '1px solid transparent',
-          borderRadius: 6,
-          width: 30, height: 30,
-          cursor: 'pointer',
-          color: 'var(--txt-mut)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background .1s, border-color .1s, color .1s',
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised2)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--line2)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt)'; }}
-        onMouseLeave={e => { if (!open) { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-mut)'; } }}
-      >
-        <MoreVertical size={14} />
-      </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
-          <div style={{ position: 'absolute', right: 0, top: '110%', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 12px 32px rgba(0,0,0,.45)', zIndex: 99, minWidth: 156, overflow: 'hidden' }}>
-            {items.map((item, i) => (
-              <button
-                key={i}
-                onClick={e => { e.stopPropagation(); item.onClick(); setOpen(false); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left',
-                  padding: '9px 14px', fontSize: 12.5, fontWeight: 500,
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: item.danger ? '#E4373D' : 'var(--txt)',
-                  borderBottom: i < items.length - 1 ? '1px solid var(--line2)' : 'none',
-                  transition: 'background .1s',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // ── HR Modals ─────────────────────────────────────────────
 

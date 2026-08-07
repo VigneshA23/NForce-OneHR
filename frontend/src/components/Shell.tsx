@@ -6,6 +6,7 @@ import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
+import { ComplianceBanner } from './ComplianceBanner';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -411,6 +412,7 @@ export function Shell() {
         </header>
 
         <main style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
+          <ComplianceBanner />
           {current.phase > 1 ? <ComingInPhase label={current.label} phase={current.phase} /> : <Outlet />}
         </main>
       </div>

@@ -11,9 +11,10 @@ public class DepartmentResponse {
     UUID id;
     String name;
     boolean active;
+    long employeeCount;
     LocalDateTime createdAt;
 
-    public static DepartmentResponse from(Department d) {
-        return new DepartmentResponse(d.getId(), d.getName(), d.isActive(), d.getCreatedAt());
+    public static DepartmentResponse from(Department d, long employeeCount) {
+        return new DepartmentResponse(d.getId(), d.getName(), d.isActive(), employeeCount, d.getCreatedAt());
     }
 }

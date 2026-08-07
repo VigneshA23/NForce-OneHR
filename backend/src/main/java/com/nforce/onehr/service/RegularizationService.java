@@ -1,19 +1,25 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.dto.attendance.ApprovalHistoryEntryDto;
+import com.nforce.onehr.dto.attendance.ApproverOptionDto;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
+import com.nforce.onehr.entity.RegularizationApproval;
 import com.nforce.onehr.entity.RegularizationRequest;
+import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.RegularizationApprovalRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -23,7 +29,11 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -39,33 +49,165 @@ import java.util.UUID;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RegularizationService {
 
     private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Super Admin deliberately excluded — they already have blanket review visibility via
+    // APPROVER_OVERRIDE_ROLES above, so they're not offered as an explicit "Assign To" target.
+    private static final Set<String> ELIGIBLE_APPROVER_ROLES = Set.of("MANAGER", "HR_ADMIN");
     private static final String STATUS_PRESENT = "PRESENT";
     private static final String STATUS_LATE = "LATE";
     private static final String STATUS_HALF_DAY = "HALF_DAY";
     private static final String SOURCE_REGULARIZATION = "REGULARIZATION";
 
+    // Two-stage regularization approval: Manager first (PENDING -> PARTIALLY_APPROVED), then
+    // HR Admin or Super Admin final (-> APPROVED). Super Admin may also bypass straight from
+    // PENDING to APPROVED. See approve()/reject() for the status-first authorization logic.
+    private static final String STATUS_PENDING = "PENDING";
+    private static final String STATUS_PARTIALLY_APPROVED = "PARTIALLY_APPROVED";
+    private static final String STATUS_APPROVED = "APPROVED";
+    private static final String STATUS_REJECTED = "REJECTED";
+
     private final RegularizationRequestRepository regularizationRepository;
+    private final RegularizationApprovalRepository regularizationApprovalRepository;
     private final AttendanceRepository attendanceRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
 
-    // Lookback window (N days): how far back an employee may request a correction.
-    // OPEN QUESTION FOR PRODUCT OWNER — is 30 days the right default, and should it
-    // vary by role/department? Kept configurable (app.attendance.regularization.lookback-days)
-    // rather than hardcoded, pending that decision.
-    @Value("${app.attendance.regularization.lookback-days:30}")
-    private int lookbackDays;
+    /** Resolved requested times after applying punch auto-fill from attendance history. */
+    private record ResolvedTimes(LocalDateTime checkIn, LocalDateTime checkOut) {}
+
+    // Lookback window (N days): how far back a non-Super-Admin employee may request a
+    // correction. Super Admin submitters (also holding EMPLOYEE in this org) are exempt
+    // entirely — see submit()/update().
+    @Value("${app.attendance.regularization.employee-lookback-days:3}")
+    private int employeeLookbackDays;
+
+    // Max regularization requests a non-Super-Admin employee may submit per calendar month
+    // (counts every submission regardless of eventual status). Super Admin is exempt.
+    @Value("${app.attendance.regularization.monthly-limit:3}")
+    private int monthlyLimit;
 
     @Transactional
     public RegularizationResponse submit(CreateRegularizationRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
+        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
 
+        ResolvedTimes times = resolveTimes(req, actor.getId());
+        if (!isSuperAdmin) {
+            validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
+            assertMonthlyLimitNotExceeded(actor.getId());
+        }
+        assertNoDuplicateRequest(actor.getId(), req.getAttendanceDate());
+
+        RegularizationRequest entity = RegularizationRequest.builder()
+                .employeeUserId(actor.getId())
+                .assignedApproverId(resolveAssignedApprover(actor.getId(), req.getManagerUserId()))
+                .attendanceDate(req.getAttendanceDate())
+                .requestedCheckIn(times.checkIn())
+                .requestedCheckOut(times.checkOut())
+                .reason(req.getReason().trim())
+                .status(STATUS_PENDING)
+                .build();
+        entity = regularizationRepository.save(entity);
+
+        auditService.log(actor.getId(), "REGULARIZATION_REQUESTED", actor.getId());
+        return toResponse(entity);
+    }
+
+    /**
+     * Max {@link #monthlyLimit} submissions per calendar month per employee, counting every
+     * request regardless of eventual status (a rejected request still consumed a slot) —
+     * skipped entirely for Super Admin submitters. Not enforced on update() — editing an
+     * existing pending request must not consume an extra slot.
+     */
+    private void assertMonthlyLimitNotExceeded(UUID employeeId) {
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
+        LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
+        long countThisMonth = regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
+                employeeId, monthStart, monthStart.plusMonths(1));
+        if (countThisMonth >= monthlyLimit) {
+            throw new IllegalArgumentException(
+                    "You have reached the maximum of " + monthlyLimit + " regularization requests for this month");
+        }
+    }
+
+    /**
+     * Edit a still-pending request. Only the submitting employee may edit, and only while
+     * status is PENDING — approved/rejected requests are immutable history.
+     */
+    @Transactional
+    public RegularizationResponse update(UUID requestId, CreateRegularizationRequest req, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        RegularizationRequest existing = regularizationRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Request not found"));
+        if (!existing.getEmployeeUserId().equals(actor.getId())) {
+            throw new AccessDeniedException("You can only edit your own requests");
+        }
+        if (!STATUS_PENDING.equals(existing.getStatus())) {
+            throw new IllegalStateException("Only pending requests can be edited");
+        }
+
+        String before = auditSnapshot.toJson(regularizationSnapshot(existing));
+        ResolvedTimes times = resolveTimes(req, actor.getId());
+        if (!hasRole(actor, "SUPER_ADMIN")) {
+            validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
+        }
+        if (!existing.getAttendanceDate().equals(req.getAttendanceDate())) {
+            assertNoDuplicateRequest(actor.getId(), req.getAttendanceDate());
+        }
+
+        existing.setAttendanceDate(req.getAttendanceDate());
+        existing.setRequestedCheckIn(times.checkIn());
+        existing.setRequestedCheckOut(times.checkOut());
+        existing.setReason(req.getReason().trim());
+        existing.setAssignedApproverId(resolveAssignedApprover(actor.getId(), req.getManagerUserId()));
+        existing = regularizationRepository.save(existing);
+
+        String after = auditSnapshot.toJson(regularizationSnapshot(existing));
+        auditService.log(actor.getId(), "REGULARIZATION_UPDATED", existing.getId(), before, after);
+        return toResponse(existing);
+    }
+
+    private Map<String, Object> regularizationSnapshot(RegularizationRequest r) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("attendanceDate", r.getAttendanceDate());
+        snapshot.put("requestedCheckIn", r.getRequestedCheckIn());
+        snapshot.put("requestedCheckOut", r.getRequestedCheckOut());
+        snapshot.put("reason", r.getReason());
+        snapshot.put("assignedApproverId", r.getAssignedApproverId());
+        snapshot.put("status", r.getStatus());
+        return snapshot;
+    }
+
+    /**
+     * An APPROVED request for a date is a settled correction — resubmitting is blocked outright.
+     * A PENDING or PARTIALLY_APPROVED request is still awaiting a decision, so a second one for
+     * the same date is blocked too (rejected/approved dates may otherwise be freely resubmitted).
+     */
+    private void assertNoDuplicateRequest(UUID employeeId, LocalDate attendanceDate) {
+        if (regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
+                employeeId, attendanceDate, STATUS_APPROVED)) {
+            throw new IllegalArgumentException("Already raised regularization for this date.");
+        }
+        if (regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
+                employeeId, attendanceDate, STATUS_PARTIALLY_APPROVED)) {
+            throw new IllegalArgumentException(
+                    "A regularization request for this date is already partially approved and pending final review");
+        }
+        if (regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
+                employeeId, attendanceDate, STATUS_PENDING)) {
+            throw new IllegalArgumentException("A pending regularization request already exists for this date");
+        }
+    }
+
+    /** Validates the raw request, then fills any omitted side from the existing punch record. */
+    private ResolvedTimes resolveTimes(CreateRegularizationRequest req, UUID employeeId) {
         if (req.getRequestedCheckIn() == null && req.getRequestedCheckOut() == null) {
             throw new IllegalArgumentException("Provide at least a corrected check-in or check-out time");
         }
@@ -75,29 +217,87 @@ public class RegularizationService {
         if (req.getRequestedCheckOut() != null && !req.getRequestedCheckOut().toLocalDate().equals(req.getAttendanceDate())) {
             throw new IllegalArgumentException("Corrected check-out time must fall on the attendance date");
         }
-        if (req.getRequestedCheckIn() != null && req.getRequestedCheckOut() != null
-                && !req.getRequestedCheckOut().isAfter(req.getRequestedCheckIn())) {
+
+        Attendance existingPunch;
+        try {
+            existingPunch = attendanceRepository
+                    .findByEmployeeUserIdAndWorkDate(employeeId, req.getAttendanceDate())
+                    .orElse(null);
+        } catch (Exception e) {
+            // Punch auto-fill is a convenience, not a requirement — if the attendance lookup
+            // is unavailable for any reason, fall back to exactly what the caller provided
+            // rather than failing the whole regularization request over it.
+            log.warn("Punch auto-fill lookup failed for employee {} on {}; continuing without it: {}",
+                    employeeId, req.getAttendanceDate(), e.getMessage());
+            existingPunch = null;
+        }
+        LocalDateTime checkIn = req.getRequestedCheckIn() != null
+                ? req.getRequestedCheckIn()
+                : (existingPunch != null ? existingPunch.getCheckInAt() : null);
+        LocalDateTime checkOut = req.getRequestedCheckOut() != null
+                ? req.getRequestedCheckOut()
+                : (existingPunch != null ? existingPunch.getCheckOutAt() : null);
+
+        if (checkIn != null && checkOut != null && !checkOut.isAfter(checkIn)) {
             throw new IllegalArgumentException("Check-out time must be after check-in time");
         }
-        validateLookbackWindow(req.getAttendanceDate());
+        return new ResolvedTimes(checkIn, checkOut);
+    }
 
-        if (regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(
-                actor.getId(), req.getAttendanceDate(), "PENDING")) {
-            throw new IllegalArgumentException("A pending regularization request already exists for this date");
+    /** Selected manager (validated as an eligible approver) else the employee's current manager. */
+    private UUID resolveAssignedApprover(UUID employeeId, UUID managerUserId) {
+        if (managerUserId != null) {
+            User candidate = userRepository.findById(managerUserId)
+                    .orElseThrow(() -> new IllegalArgumentException("Selected manager not found"));
+            boolean eligible = candidate.getRoles().stream()
+                    .anyMatch(r -> ELIGIBLE_APPROVER_ROLES.contains(r.getCode()));
+            if (!eligible) {
+                throw new IllegalArgumentException("Selected user is not an eligible approver");
+            }
+            return candidate.getId();
         }
+        return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
+                .map(EmployeeManagerHistory::getManagerUserId)
+                .orElse(null);
+    }
 
-        RegularizationRequest entity = RegularizationRequest.builder()
-                .employeeUserId(actor.getId())
-                .attendanceDate(req.getAttendanceDate())
-                .requestedCheckIn(req.getRequestedCheckIn())
-                .requestedCheckOut(req.getRequestedCheckOut())
-                .reason(req.getReason().trim())
-                .status("PENDING")
-                .build();
-        entity = regularizationRepository.save(entity);
+    /** Active users eligible to be selected/assigned as an approver, for the manager-select dropdown. */
+    @Transactional(readOnly = true)
+    public List<ApproverOptionDto> listApprovers() {
+        return employeeRepository.findActiveByRoleCodes(ELIGIBLE_APPROVER_ROLES).stream()
+                .map(e -> ApproverOptionDto.builder()
+                        .userId(e.getUserId())
+                        .fullName(e.getFullName())
+                        .email(e.getUser().getEmail())
+                        .roleCode(e.getUser().getRoles().stream()
+                                .map(Role::getCode)
+                                .filter(ELIGIBLE_APPROVER_ROLES::contains)
+                                .findFirst().orElse(""))
+                        .build())
+                .sorted(Comparator.comparing(ApproverOptionDto::getFullName, Comparator.nullsLast(String::compareToIgnoreCase)))
+                .toList();
+    }
 
-        auditService.log(actor.getId(), "REGULARIZATION_REQUESTED", actor.getId());
-        return toResponse(entity);
+    /** Super Admin: full history across everyone, with optional filters. */
+    @Transactional(readOnly = true)
+    public List<RegularizationResponse> listAll(UUID employeeUserId, UUID approverUserId,
+                                                 UUID departmentId, String month, String status) {
+        return regularizationRepository.findAll().stream()
+                .filter(r -> employeeUserId == null || employeeUserId.equals(r.getEmployeeUserId()))
+                .filter(r -> approverUserId == null || approverUserId.equals(r.getAssignedApproverId()))
+                .filter(r -> status == null || status.equalsIgnoreCase(r.getStatus()))
+                .filter(r -> month == null || r.getAttendanceDate().toString().startsWith(month))
+                .filter(r -> departmentId == null || departmentId.equals(departmentIdOf(r.getEmployeeUserId())))
+                .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private UUID departmentIdOf(UUID employeeUserId) {
+        return employeeRepository.findById(employeeUserId)
+                .map(Employee::getDepartment)
+                .map(d -> d.getId())
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)
@@ -107,74 +307,200 @@ public class RegularizationService {
                 .stream().map(this::toResponse).toList();
     }
 
-    /** Manager sees only their direct reports' pending requests; HR/Super Admin see all. */
+    /**
+     * Stage-aware queue: a plain MANAGER sees only their assigned PENDING requests (stage 1);
+     * HR_ADMIN sees every PARTIALLY_APPROVED request (stage 2, final); SUPER_ADMIN sees both
+     * (they can act at either stage). A dual-role actor (e.g. MANAGER + HR_ADMIN) gets the
+     * union of both queues rather than one role shadowing the other.
+     */
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listPendingForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
-        List<RegularizationRequest> pending = regularizationRepository.findByStatus("PENDING");
+        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
+        boolean isHrAdmin = hasRole(actor, "HR_ADMIN");
+        boolean isManager = hasRole(actor, "MANAGER");
+
+        Map<UUID, RegularizationRequest> queue = new LinkedHashMap<>();
+        if (isSuperAdmin) {
+            regularizationRepository.findByStatusIn(List.of(STATUS_PENDING, STATUS_PARTIALLY_APPROVED))
+                    .forEach(r -> queue.put(r.getId(), r));
+        } else {
+            if (isHrAdmin) {
+                regularizationRepository.findByStatus(STATUS_PARTIALLY_APPROVED)
+                        .forEach(r -> queue.put(r.getId(), r));
+            }
+            if (isManager) {
+                regularizationRepository.findByStatus(STATUS_PENDING).stream()
+                        .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
+                        .forEach(r -> queue.put(r.getId(), r));
+            }
+        }
+        return queue.values().stream().map(this::toResponse).toList();
+    }
+
+    /**
+     * Same scoping as {@link #listPendingForApprover}, but across every status — not just
+     * PENDING. Powers the Pending Approvals screen's All/Pending/Approved/Rejected status tabs
+     * for Manager/HR/Super Admin, since the review history for requests they've already
+     * decided is otherwise invisible to them (listPendingForApprover only ever returns PENDING).
+     */
+    @Transactional(readOnly = true)
+    public List<RegularizationResponse> listForApprover(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        List<RegularizationRequest> all = regularizationRepository.findAll();
 
         if (hasOverrideRole(actor)) {
-            return pending.stream().map(this::toResponse).toList();
+            return all.stream()
+                    .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
+                    .map(this::toResponse)
+                    .toList();
         }
-        return pending.stream()
-                .filter(r -> isCurrentManagerOf(actor.getId(), r.getEmployeeUserId()))
+        return all.stream()
+                .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
+                .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
                 .map(this::toResponse)
                 .toList();
     }
 
+    /**
+     * Status-first, stage-aware approval. From PENDING: SUPER_ADMIN bypasses straight to the
+     * terminal APPROVED state; MANAGER (their assigned request only) moves it to
+     * PARTIALLY_APPROVED. From PARTIALLY_APPROVED: SUPER_ADMIN or HR_ADMIN finalize to APPROVED.
+     * Branching on the request's current status first (rather than the actor's "highest" role)
+     * means a dual-role actor (e.g. MANAGER + HR_ADMIN) gets whichever authority actually
+     * matches the request's stage, instead of one role permanently shadowing the other.
+     */
     @Transactional
-    public RegularizationResponse approve(UUID requestId, String actorEmail) {
+    public RegularizationResponse approve(UUID requestId, String comment, String actorEmail) {
         User actor = requireActor(actorEmail);
-        RegularizationRequest req = requirePending(requestId);
-        assertCanReview(req, actor);
+        RegularizationRequest req = regularizationRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Request not found"));
 
-        Attendance record = attendanceRepository
-                .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getAttendanceDate())
-                .orElse(null);
-        if (record == null && req.getRequestedCheckIn() == null) {
-            // check_in_at is mandatory on a new row (one-pair-per-day punch schema) — a
-            // checkout-only correction can only ever amend an existing punch.
-            throw new IllegalArgumentException(
-                    "Cannot approve: no attendance record exists for this date and no check-in time was requested");
+        boolean finalStage;
+        String actingRole;
+        if (STATUS_PENDING.equals(req.getStatus())) {
+            if (hasRole(actor, "SUPER_ADMIN")) {
+                actingRole = "SUPER_ADMIN";
+                finalStage = true;
+            } else if (hasRole(actor, "MANAGER")) {
+                assertCanReview(req, actor);
+                actingRole = "MANAGER";
+                finalStage = false;
+            } else {
+                throw new AccessDeniedException("You are not authorized to review this request");
+            }
+        } else if (STATUS_PARTIALLY_APPROVED.equals(req.getStatus())) {
+            if (hasRole(actor, "SUPER_ADMIN")) {
+                actingRole = "SUPER_ADMIN";
+                finalStage = true;
+            } else if (hasRole(actor, "HR_ADMIN")) {
+                actingRole = "HR_ADMIN";
+                finalStage = true;
+            } else {
+                throw new AccessDeniedException("You are not authorized to review this request");
+            }
+        } else {
+            throw new IllegalArgumentException("Only pending or partially-approved requests can be approved");
         }
-        if (record == null) {
-            record = Attendance.builder()
-                    .employeeUserId(req.getEmployeeUserId())
-                    .workDate(req.getAttendanceDate())
-                    .checkInAt(req.getRequestedCheckIn())
-                    .build();
+
+        if (finalStage) {
+            Attendance record = attendanceRepository
+                    .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getAttendanceDate())
+                    .orElse(null);
+            if (record == null && req.getRequestedCheckIn() == null) {
+                // check_in_at is mandatory on a new row (one-pair-per-day punch schema) — a
+                // checkout-only correction can only ever amend an existing punch.
+                throw new IllegalArgumentException(
+                        "Cannot approve: no attendance record exists for this date and no check-in time was requested");
+            }
+            if (record == null) {
+                record = Attendance.builder()
+                        .employeeUserId(req.getEmployeeUserId())
+                        .workDate(req.getAttendanceDate())
+                        .checkInAt(req.getRequestedCheckIn())
+                        .build();
+            }
+            if (req.getRequestedCheckIn() != null) record.setCheckInAt(req.getRequestedCheckIn());
+            if (req.getRequestedCheckOut() != null) record.setCheckOutAt(req.getRequestedCheckOut());
+            record.setSource(SOURCE_REGULARIZATION);
+            recomputeDerivedFields(record);
+            attendanceRepository.save(record);
+
+            req.setStatus(STATUS_APPROVED);
+            req.setFinalApprovedBy(actor.getId());
+            req.setFinalApprovedAt(LocalDateTime.now());
+        } else {
+            req.setStatus(STATUS_PARTIALLY_APPROVED);
+            req.setApprovedBy(actor.getId());
+            req.setApprovedAt(LocalDateTime.now());
         }
-        if (req.getRequestedCheckIn() != null) record.setCheckInAt(req.getRequestedCheckIn());
-        if (req.getRequestedCheckOut() != null) record.setCheckOutAt(req.getRequestedCheckOut());
-        record.setSource(SOURCE_REGULARIZATION);
-        recomputeDerivedFields(record);
-        attendanceRepository.save(record);
-
-        req.setStatus("APPROVED");
-        req.setReviewedBy(actor.getId());
-        req.setReviewedAt(LocalDateTime.now());
-        regularizationRepository.save(req);
-
-        auditService.log(actor.getId(), "REGULARIZATION_APPROVED", req.getEmployeeUserId());
-        // TODO(notifications): notify req.getEmployeeUserId() of approval — owned by another workstream.
-        return toResponse(req);
-    }
-
-    @Transactional
-    public RegularizationResponse reject(UUID requestId, String comment, String actorEmail) {
-        User actor = requireActor(actorEmail);
-        RegularizationRequest req = requirePending(requestId);
-        assertCanReview(req, actor);
-
-        req.setStatus("REJECTED");
+        // reviewed_by/reviewed_at/review_comment always reflect the most recent decision at
+        // either stage — unchanged semantics, preserving every existing read of these fields.
         req.setReviewedBy(actor.getId());
         req.setReviewedAt(LocalDateTime.now());
         req.setReviewComment(comment);
         regularizationRepository.save(req);
+        recordApproval(req.getId(), actor.getId(), "APPROVED", comment, actingRole);
 
-        auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId());
+        auditService.log(actor.getId(),
+                finalStage ? "REGULARIZATION_APPROVED" : "REGULARIZATION_PARTIALLY_APPROVED",
+                req.getEmployeeUserId());
+        // TODO(notifications): notify req.getEmployeeUserId() of approval — owned by another workstream.
+        return toResponse(req);
+    }
+
+    /** Same status-first stage rules as {@link #approve}, but reject is always terminal. */
+    @Transactional
+    public RegularizationResponse reject(UUID requestId, String comment, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        RegularizationRequest req = regularizationRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Request not found"));
+
+        String actingRole;
+        if (STATUS_PENDING.equals(req.getStatus())) {
+            if (hasRole(actor, "SUPER_ADMIN")) {
+                actingRole = "SUPER_ADMIN";
+            } else if (hasRole(actor, "MANAGER")) {
+                assertCanReview(req, actor);
+                actingRole = "MANAGER";
+            } else {
+                throw new AccessDeniedException("You are not authorized to review this request");
+            }
+        } else if (STATUS_PARTIALLY_APPROVED.equals(req.getStatus())) {
+            if (hasRole(actor, "SUPER_ADMIN")) {
+                actingRole = "SUPER_ADMIN";
+            } else if (hasRole(actor, "HR_ADMIN")) {
+                actingRole = "HR_ADMIN";
+            } else {
+                throw new AccessDeniedException("You are not authorized to review this request");
+            }
+        } else {
+            throw new IllegalArgumentException("Only pending or partially-approved requests can be rejected");
+        }
+
+        String before = auditSnapshot.toJson(regularizationSnapshot(req));
+
+        req.setStatus(STATUS_REJECTED);
+        req.setReviewedBy(actor.getId());
+        req.setReviewedAt(LocalDateTime.now());
+        req.setReviewComment(comment);
+        regularizationRepository.save(req);
+        recordApproval(req.getId(), actor.getId(), "REJECTED", comment, actingRole);
+
+        String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId(), before, after);
         // TODO(notifications): notify req.getEmployeeUserId() of rejection — owned by another workstream.
         return toResponse(req);
+    }
+
+    private void recordApproval(UUID requestId, UUID actionBy, String actionType, String comments, String actorRole) {
+        regularizationApprovalRepository.save(RegularizationApproval.builder()
+                .requestId(requestId)
+                .actionBy(actionBy)
+                .actionType(actionType)
+                .comments(comments)
+                .actorRole(actorRole)
+                .build());
     }
 
     /** Mirrors AttendanceService's check-in/check-out status derivation for a corrected row. */
@@ -198,29 +524,33 @@ public class RegularizationService {
                 : (lateByMinutes > 0 ? STATUS_LATE : STATUS_PRESENT));
     }
 
-    private RegularizationRequest requirePending(UUID requestId) {
-        RegularizationRequest req = regularizationRepository.findById(requestId)
-                .orElseThrow(() -> new IllegalArgumentException("Request not found"));
-        if (!"PENDING".equals(req.getStatus())) {
-            throw new IllegalArgumentException("Only pending requests can be reviewed");
-        }
-        return req;
-    }
-
-    private void validateLookbackWindow(LocalDate attendanceDate) {
-        LocalDate today = LocalDate.now();
+    /**
+     * Note: {@code update()} still requires strict PENDING (edit-while-pending only) — that
+     * check is inlined there directly since it's a plain state check, not an authorization one.
+     *
+     * {@code windowDays} counts today itself as one of the allowed days — e.g. windowDays=3
+     * with today=6th allows the 6th/5th/4th and blocks the 3rd onward. Enforced server-side so
+     * it can't be bypassed by calling the API directly; the calendar UI mirrors the same rule
+     * (see RequestModal in AttendancePage.tsx) purely as a convenience.
+     */
+    private void validateLookbackWindow(LocalDate attendanceDate, int windowDays) {
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
         if (attendanceDate.isAfter(today)) {
             throw new IllegalArgumentException("Cannot request regularization for a future date");
         }
-        if (attendanceDate.isBefore(today.minusDays(lookbackDays))) {
+        LocalDate earliestAllowed = today.minusDays(Math.max(windowDays, 1) - 1);
+        if (attendanceDate.isBefore(earliestAllowed)) {
             throw new IllegalArgumentException(
-                    "Regularization requests are only allowed within the last " + lookbackDays + " days");
+                    "Regularization requests are only allowed within the last " + windowDays + " days (including today)");
         }
     }
 
     private void assertCanReview(RegularizationRequest req, User actor) {
         if (hasOverrideRole(actor)) return;
+        if (actor.getId().equals(req.getAssignedApproverId())) return;
 
+        // Fallback for requests predating assigned_approver_id (should be rare — V34 backfills
+        // in-flight PENDING rows at migration time).
         boolean isManager = actor.getRoles().stream().anyMatch(r -> r.getCode().equals("MANAGER"));
         if (isManager && isCurrentManagerOf(actor.getId(), req.getEmployeeUserId())) return;
 
@@ -229,6 +559,10 @@ public class RegularizationService {
 
     private boolean hasOverrideRole(User actor) {
         return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
+    }
+
+    private boolean hasRole(User actor, String code) {
+        return actor.getRoles().stream().anyMatch(r -> code.equals(r.getCode()));
     }
 
     private boolean isCurrentManagerOf(UUID managerCandidateId, UUID employeeUserId) {
@@ -244,28 +578,58 @@ public class RegularizationService {
     }
 
     private RegularizationResponse toResponse(RegularizationRequest req) {
-        String employeeName = employeeRepository.findById(req.getEmployeeUserId())
-                .map(Employee::getFullName)
-                .orElse("Unknown");
+        Employee employee = employeeRepository.findById(req.getEmployeeUserId()).orElse(null);
+        String employeeName = employee != null ? employee.getFullName() : "Unknown";
+        String departmentName = employee != null && employee.getDepartment() != null
+                ? employee.getDepartment().getName() : null;
         String employeeEmail = userRepository.findById(req.getEmployeeUserId())
                 .map(User::getEmail).orElse("");
         String reviewerName = req.getReviewedBy() == null ? null
                 : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
+        String assignedApproverName = req.getAssignedApproverId() == null ? null
+                : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
+        Long totalMinutes = (req.getRequestedCheckIn() != null && req.getRequestedCheckOut() != null)
+                ? Duration.between(req.getRequestedCheckIn(), req.getRequestedCheckOut()).toMinutes()
+                : null;
+        List<ApprovalHistoryEntryDto> history = regularizationApprovalRepository
+                .findByRequestIdOrderByActionDateDesc(req.getId()).stream()
+                .map(a -> ApprovalHistoryEntryDto.builder()
+                        .actionType(a.getActionType())
+                        .actorName(employeeRepository.findById(a.getActionBy())
+                                .map(Employee::getFullName).orElse("Unknown"))
+                        .actorRole(a.getActorRole())
+                        .comments(a.getComments())
+                        .actionDate(a.getActionDate())
+                        .build())
+                .toList();
+        String approvedByName = req.getApprovedBy() == null ? null
+                : employeeRepository.findById(req.getApprovedBy()).map(Employee::getFullName).orElse(null);
+        String finalApprovedByName = req.getFinalApprovedBy() == null ? null
+                : employeeRepository.findById(req.getFinalApprovedBy()).map(Employee::getFullName).orElse(null);
 
         return RegularizationResponse.builder()
                 .id(req.getId())
                 .employeeUserId(req.getEmployeeUserId())
                 .employeeName(employeeName)
                 .employeeEmail(employeeEmail)
+                .departmentName(departmentName)
                 .attendanceDate(req.getAttendanceDate())
                 .requestedCheckIn(req.getRequestedCheckIn())
                 .requestedCheckOut(req.getRequestedCheckOut())
                 .reason(req.getReason())
                 .status(req.getStatus())
+                .assignedApproverId(req.getAssignedApproverId())
+                .assignedApproverName(assignedApproverName)
+                .totalMinutes(totalMinutes)
                 .reviewedByName(reviewerName)
                 .reviewedAt(req.getReviewedAt())
                 .reviewComment(req.getReviewComment())
+                .approvedByName(approvedByName)
+                .approvedAt(req.getApprovedAt())
+                .finalApprovedByName(finalApprovedByName)
+                .finalApprovedAt(req.getFinalApprovedAt())
                 .createdAt(req.getCreatedAt())
+                .approvalHistory(history)
                 .build();
     }
 }

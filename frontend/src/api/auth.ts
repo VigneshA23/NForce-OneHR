@@ -1,4 +1,5 @@
-const BASE = '/api';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api`;
 
 export interface LoginResponse {
   token: string;
@@ -37,7 +38,8 @@ export const authApi = {
     currentPassword: string,
     newPassword: string,
     confirmPassword: string,
-    token: string
+    token: string,
+    signal?: AbortSignal
   ) =>
     fetch(`${BASE}/auth/change-password`, {
       method: 'POST',
@@ -46,6 +48,7 @@ export const authApi = {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+      signal,
     }).then(handle<ChangePasswordResponse>),
 
   forgotPassword: (email: string) =>

@@ -1,4 +1,5 @@
-const BASE = '/api/leave';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/leave`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -67,6 +68,10 @@ export const leaveApi = {
 
   listApprovals: (token: string) =>
     fetch(`${BASE}/approvals`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
+
+  /** Approved leave for the manager's direct reports overlapping [from, to]. */
+  team: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/team?from=${from}&to=${to}`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
 
   approve: (id: string, token: string) =>
     fetch(`${BASE}/requests/${id}/approve`, { method: 'POST', headers: authHeaders(token) }).then(handle<LeaveRequestRecord>),

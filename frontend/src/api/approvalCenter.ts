@@ -1,4 +1,5 @@
-const BASE = '/api/approvals';
+import { API_ORIGIN } from './config';
+const BASE = `${API_ORIGIN}/api/approvals`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -11,7 +12,7 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type RequestType = 'LEAVE' | 'REGULARIZATION' | 'EXPENSE' | 'ASSET_REQUEST';
+export type RequestType = 'LEAVE' | 'REGULARIZATION' | 'WEB_CLOCK_IN' | 'EXPENSE' | 'ASSET_REQUEST';
 
 export interface ApprovalItem {
   id: string;

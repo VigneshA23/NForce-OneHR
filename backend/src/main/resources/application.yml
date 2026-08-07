@@ -1,6 +1,10 @@
 spring:
   config:
     import: optional:classpath:application-local.yml
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -10,6 +14,22 @@ spring:
       # Override validate — Flyway owns the schema; ddl-auto: validate
       # fails on citext/timestamptz column types reported by Postgres metadata
       ddl-auto: none
+    properties:
+      hibernate:
+        # Pin JDBC TIME/TIMESTAMP conversion to a fixed zone. Without this, Hibernate
+        # uses the JVM default zone (IST locally) for java.sql.Time <-> LocalTime
+        # conversion, and historical Asia/Kolkata offset data can produce an
+        # out-of-range NanoOfSecond when reading TIME columns back out.
+        jdbc:
+          time_zone: UTC
+  flyway:
+    # This is a shared dev database that multiple feature branches migrate against
+    # directly (see V40/V47 header comments), so a branch's local migration folder
+    # can lag behind versions another branch already applied ("missing"), or a branch
+    # can pull a migration file before the DB it's testing against has caught up
+    # ("future"). Neither is corruption — don't fail validation over either.
+    ignore-migration-patterns: "*:missing,*:future,*:pending,*:ignored"
+    validate-on-migrate: false
 
 app:
   jwt:
@@ -27,16 +47,29 @@ app:
     half-day-max-hours: 4
     full-day-min-hours: 8
     regularization:
-      # N-day lookback window for regularization requests. OPEN QUESTION FOR PRODUCT
-      # OWNER: is 30 days correct, and should it vary by role/department? Kept
-      # configurable here rather than hardcoded pending that decision.
-      lookback-days: 30
+      # N-day lookback window (counting today itself) for regularization requests submitted by
+      # anyone other than Super Admin, who is exempt entirely — see
+      # RegularizationService.submit/update/validateLookbackWindow. E.g. 3 with today=6th
+      # allows the 6th/5th/4th and blocks the 3rd onward.
+      employee-lookback-days: 3
+      # Max regularization requests a non-Super-Admin employee may submit per calendar month
+      # (counts every submission regardless of eventual status). Super Admin is exempt.
+      monthly-limit: 3
 resend:
   api-key: ${RESEND_API_KEY}
   from: OneHR <onboarding@nforceone.com>
 
 server:
   port: ${PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
 
 logging:
   level:
