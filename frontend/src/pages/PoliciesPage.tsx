@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Megaphone, CheckCircle, Clock, Search } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
