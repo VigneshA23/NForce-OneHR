@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export interface AuthUser {
   email: string;
@@ -24,6 +24,6 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (token, user) => set({ token, user }),
       clearAuth: () => set({ token: null, user: null }),
     }),
-    { name: 'onehr-auth' }
+    { name: 'onehr-auth', storage: createJSONStorage(() => sessionStorage) }
   )
 );

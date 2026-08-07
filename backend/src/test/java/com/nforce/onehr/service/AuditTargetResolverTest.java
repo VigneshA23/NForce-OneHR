@@ -23,6 +23,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -77,15 +78,76 @@ class AuditTargetResolverTest {
     }
 
     @Test
-    void resolve_assetAction_dataQualityCase_fallsBackToActorAsUser() {
-        // ASSET_* call sites pass the actor's own id as target_id (Asset.id is a Long, not a
-        // UUID) — resolving it as a user is still accurate, just not asset-specific.
+    void resolve_assetAssignedAction_resolvesRecipientDirectly() {
+        // AssetService passes the recipient employee's own id as target_id (Asset/AssetAssignment
+        // use Long primary keys that can't fit AuditService.log's UUID target slot) — target_id
+        // IS the affected employee's id directly here, same convention as EMPLOYEE_*/USER_*.
         UUID targetId = UUID.randomUUID();
         when(employeeRepository.findById(targetId)).thenReturn(Optional.empty());
         when(userRepository.findById(targetId)).thenReturn(Optional.of(
                 User.builder().id(targetId).email("priya.nair@nforceone.com").build()));
 
         assertEquals("priya.nair@nforceone.com", resolver.resolve("ASSET_ASSIGNED", targetId));
+    }
+
+    @Test
+    void resolve_assetCreatedAction_fallsBackToActor_noDistinctAffectedEmployee() {
+        // ASSET_CREATED has no distinct affected employee — falls back to resolving target_id
+        // (the actor's own id at that call site) directly, which is the correct/intended fallback.
+        UUID actorAsTargetId = UUID.randomUUID();
+        when(employeeRepository.findById(actorAsTargetId)).thenReturn(Optional.of(
+                Employee.builder().userId(actorAsTargetId).fullName("Priya Nair").build()));
+
+        assertEquals("Priya Nair", resolver.resolve("ASSET_CREATED", actorAsTargetId));
+    }
+
+    @Test
+    void resolve_regularizationApprovedAction_resolvesEmployeeDirectlyWithoutRequestLookup() {
+        // RegularizationService.approve/reject pass the affected employee's own id as target_id
+        // (not the RegularizationRequest.id) — must resolve directly, no repository lookup.
+        UUID employeeId = UUID.randomUUID();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).fullName("Karan Shah").build()));
+
+        assertEquals("Karan Shah", resolver.resolve("REGULARIZATION_APPROVED", employeeId));
+        verifyNoInteractions(regularizationRequestRepository);
+    }
+
+    @Test
+    void resolve_webClockInApprovedAction_resolvesEmployeeDirectlyWithoutRequestLookup() {
+        UUID employeeId = UUID.randomUUID();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).fullName("Divya Iyer").build()));
+
+        assertEquals("Divya Iyer", resolver.resolve("WEB_CLOCK_IN_APPROVED", employeeId));
+        verifyNoInteractions(webClockInRequestRepository);
+    }
+
+    @Test
+    void resolveEmployeeCode_leaveRequestAction_returnsAffectedEmployeesCode() {
+        UUID targetId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        when(leaveRequestRepository.findById(targetId)).thenReturn(Optional.of(
+                LeaveRequest.builder().id(targetId).employeeUserId(employeeId).build()));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).employeeCode("NF-00042").build()));
+
+        assertEquals("NF-00042", resolver.resolveEmployeeCode("LEAVE_REQUEST_APPROVED", targetId));
+    }
+
+    @Test
+    void resolveEmployeeCode_targetIdNull_returnsEmptyString() {
+        assertEquals("", resolver.resolveEmployeeCode("EMPLOYEE_UPDATED", null));
+    }
+
+    @Test
+    void resolveEmployeeCode_noEmployeeRecord_returnsEmptyStringNeverUuid() {
+        UUID targetId = UUID.randomUUID();
+        when(employeeRepository.findById(targetId)).thenReturn(Optional.empty());
+
+        String code = resolver.resolveEmployeeCode("ASSET_CREATED", targetId);
+
+        assertEquals("", code);
     }
 
     @Test

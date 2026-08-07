@@ -210,7 +210,7 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   );
 }
 
-function AddHolidayModal({ token, onClose, onCreated }: { token: string; onClose: () => void; onCreated: () => void }) {
+function AddHolidayModal({ token, onClose, onCreated }: { token: string; onClose: () => void; onCreated: (locationId: string) => void }) {
   const [holidayName, setHolidayName] = useState('');
   const [holidayDate, setHolidayDate] = useState('');
   const [locationId, setLocationId] = useState('');
@@ -235,7 +235,7 @@ function AddHolidayModal({ token, onClose, onCreated }: { token: string; onClose
     setLoading(true);
     try {
       await holidaysApi.createHoliday(token, { holidayName: name, holidayDate, locationId });
-      onCreated();
+      onCreated(locationId);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
@@ -284,6 +284,8 @@ export default function LeavePage() {
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
   const [holidayError, setHolidayError] = useState('');
   const [showAddHoliday, setShowAddHoliday] = useState(false);
+  const [adminLocations, setAdminLocations] = useState<LocationRow[]>([]);
+  const [locationFilter, setLocationFilter] = useState(''); // admin only; '' = All Locations
 
   useEffect(() => {
     Promise.all([leaveApi.listTypes(token), leaveApi.listBalances(token), leaveApi.listMine(token)])
@@ -291,21 +293,36 @@ export default function LeavePage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  async function fetchHolidays() {
+  useEffect(() => {
+    if (isAdmin && token) orgApi.listLocations(token).then(setAdminLocations).catch(() => {});
+  }, [isAdmin, token]);
+
+  // HR Admin/Super Admin manage holidays across locations, not just their own —
+  // "my-location" would silently hide anything they create for a location that
+  // isn't their own (or return nothing at all if they have no location set).
+  async function fetchHolidays(overrideLocationId?: string) {
+    const locId = overrideLocationId !== undefined ? overrideLocationId : locationFilter;
     setHolidayError('');
     try {
-      setHolidays(await holidaysApi.listForMyLocation(token));
+      const rows = isAdmin
+        ? (locId ? await holidaysApi.listByLocation(token, locId) : await holidaysApi.listAll(token))
+        : await holidaysApi.listForMyLocation(token);
+      setHolidays(rows);
     } catch (e) {
       setHolidayError(e instanceof Error ? e.message : 'Failed to load holidays');
     }
   }
 
-  useEffect(() => { if (token) fetchHolidays(); }, [token]);
+  useEffect(() => { if (token) fetchHolidays(); }, [token, isAdmin]);
 
   function handleCreated(r: LeaveRequestRecord) {
     setRequests(prev => [r, ...prev]);
     setBalances(prev => prev); // balance only changes on approval
   }
+
+  const holidayScopeLabel = isAdmin
+    ? (locationFilter ? adminLocations.find(l => l.id === locationFilter)?.name : 'All Locations')
+    : holidays[0]?.locationName;
 
   return (
     <div>
@@ -374,18 +391,32 @@ export default function LeavePage() {
       )}
 
       <div style={{ marginTop: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
           <div>
             <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
-              Company Holidays{holidays[0]?.locationName ? ` — ${holidays[0].locationName}` : ''}
+              Company Holidays{holidayScopeLabel ? ` — ${holidayScopeLabel}` : ''}
             </h2>
-            <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4 }}>Holidays for your work location.</p>
+            <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4 }}>
+              {isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location.'}
+            </p>
           </div>
-          {isAdmin && (
-            <button onClick={() => setShowAddHoliday(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-              <Plus size={13} /> Add Holiday
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {isAdmin && (
+              <select
+                value={locationFilter}
+                onChange={e => { const v = e.target.value; setLocationFilter(v); fetchHolidays(v); }}
+                style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}
+              >
+                <option value="">All Locations</option>
+                {adminLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            )}
+            {isAdmin && (
+              <button onClick={() => setShowAddHoliday(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                <Plus size={13} /> Add Holiday
+              </button>
+            )}
+          </div>
         </div>
 
         {holidayError && (
@@ -401,14 +432,16 @@ export default function LeavePage() {
             {holidays.length === 0 ? (
               <div style={{ padding: 48, textAlign: 'center' }}>
                 <CalendarDays size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
-                <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No holidays have been added for your location yet.</div>
+                <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>
+                  {isAdmin ? 'No holidays have been added yet.' : 'No holidays have been added for your location yet.'}
+                </div>
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr>
-                      {['Holiday Name', 'Date', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                      {(isAdmin ? ['Holiday Name', 'Date', 'Location', 'Status'] : ['Holiday Name', 'Date', 'Status']).map(h => <th key={h} style={thStyle}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -416,6 +449,7 @@ export default function LeavePage() {
                       <tr key={h.id}>
                         <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{h.holidayName}</td>
                         <td style={tdStyle}>{formatHolidayDate(h.holidayDate)}</td>
+                        {isAdmin && <td style={tdStyle}>{h.locationName}</td>}
                         <td style={tdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
                       </tr>
                     ))}
@@ -428,7 +462,11 @@ export default function LeavePage() {
       </div>
 
       {showAddHoliday && (
-        <AddHolidayModal token={token} onClose={() => setShowAddHoliday(false)} onCreated={fetchHolidays} />
+        <AddHolidayModal
+          token={token}
+          onClose={() => setShowAddHoliday(false)}
+          onCreated={(locId) => { setLocationFilter(locId); fetchHolidays(locId); }}
+        />
       )}
     </div>
   );

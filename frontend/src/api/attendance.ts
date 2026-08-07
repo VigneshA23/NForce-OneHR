@@ -28,6 +28,8 @@ export interface AttendanceRecord {
   lateByMinutes: number | null;
   fullDay: boolean | null;
   source: AttendanceSource | null;
+  /** The employee's configured work mode (ONSITE/REMOTE/HYBRID) at query time. */
+  workMode: string | null;
 }
 
 export interface Punch {
@@ -139,6 +141,11 @@ export const attendanceApi = {
 
   team: (date: string, token: string) =>
     fetch(`${BASE}/attendance/team?date=${date}`, { headers: authHeaders(token) })
+      .then(handle<AttendanceRecord[]>),
+
+  /** Attendance rows for the manager's direct reports across a date range — backs the My Team calendar. */
+  teamMonth: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/team-month?from=${from}&to=${to}`, { headers: authHeaders(token) })
       .then(handle<AttendanceRecord[]>),
 
   /** Own punch for a single date, or null if the employee never punched that day. */

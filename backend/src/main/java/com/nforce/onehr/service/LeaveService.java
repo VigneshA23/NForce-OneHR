@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -120,6 +121,26 @@ public class LeaveService {
             return List.of();
         }
         return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING").stream()
+                .map(this::toRequestResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Approved leave for the caller's current direct reports overlapping [from, to] — backs
+     * My Team's "who's on leave today," "out this week," and calendar leave-coloring.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveRequestResponse> listTeamLeave(String actorEmail, LocalDate from, LocalDate to) {
+        User actor = requireActor(actorEmail);
+        List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
+                .map(EmployeeManagerHistory::getEmployeeUserId)
+                .collect(Collectors.toList());
+        if (reportIds.isEmpty()) {
+            return List.of();
+        }
+        return leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from)
+                .stream()
                 .map(this::toRequestResponse)
                 .collect(Collectors.toList());
     }

@@ -26,6 +26,7 @@ export interface AuditLogEntry {
   actionGroup: ActionGroup;
   targetId: string | null;
   targetLabel: string;
+  targetEmployeeCode: string | null; // affected employee's business id (e.g. "NF-00001"), for the Excel export — never a UUID
   beforeState: string | null;
   afterState: string | null;
 }

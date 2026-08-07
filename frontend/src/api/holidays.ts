@@ -27,6 +27,9 @@ export const holidaysApi = {
   listByLocation: (token: string, locationId: string) =>
     fetch(`${BASE}?locationId=${locationId}`, { headers: authHeaders(token) }).then(r => handle<HolidayRow[]>(r)),
 
+  listAll: (token: string) =>
+    fetch(BASE, { headers: authHeaders(token) }).then(r => handle<HolidayRow[]>(r)),
+
   createHoliday: (token: string, payload: { holidayName: string; holidayDate: string; locationId: string }) =>
     fetch(BASE, {
       method: 'POST',

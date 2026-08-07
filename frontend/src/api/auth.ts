@@ -38,7 +38,8 @@ export const authApi = {
     currentPassword: string,
     newPassword: string,
     confirmPassword: string,
-    token: string
+    token: string,
+    signal?: AbortSignal
   ) =>
     fetch(`${BASE}/auth/change-password`, {
       method: 'POST',
@@ -47,6 +48,7 @@ export const authApi = {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+      signal,
     }).then(handle<ChangePasswordResponse>),
 
   forgotPassword: (email: string) =>

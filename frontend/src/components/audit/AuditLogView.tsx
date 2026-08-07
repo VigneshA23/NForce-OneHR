@@ -77,7 +77,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
         'Action': r.action,
         'Category': r.actionCategory,
         'Affected User': r.targetLabel,
-        'Affected User ID': r.targetId ?? '',
+        'Affected User ID': r.targetEmployeeCode ?? '',
       }));
       const ws = XLSX.utils.json_to_sheet(sheetRows);
       const wb = XLSX.utils.book_new();

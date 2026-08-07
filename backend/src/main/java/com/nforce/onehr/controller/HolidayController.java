@@ -27,8 +27,10 @@ public class HolidayController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
-    public List<HolidayResponse> getHolidaysByLocation(@RequestParam UUID locationId) {
-        return holidayService.getHolidaysByLocation(locationId);
+    public List<HolidayResponse> getHolidays(@RequestParam(required = false) UUID locationId) {
+        return locationId != null
+                ? holidayService.getHolidaysByLocation(locationId)
+                : holidayService.listAllHolidays();
     }
 
     @PostMapping

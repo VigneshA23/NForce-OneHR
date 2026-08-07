@@ -17,6 +17,7 @@ public class AuditLogEntryDto {
     private String actionGroup;    // AuditActionGroup name: EMPLOYEE | ATTENDANCE | LEAVE | EXPENSE | ASSET | ACCESS | OTHER
     private UUID targetId;
     private String targetLabel;    // best-effort human label, never null (has a fallback)
+    private String targetEmployeeCode; // affected employee's business id (e.g. "NF-00001") for Excel export — never a UUID; empty if unresolvable
     private String beforeState;    // raw JSON string, pass-through, nullable
     private String afterState;     // raw JSON string, pass-through, nullable
     private LocalDateTime occurredAt;
