@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings, CheckCheck, KeyRound, UserPlus } from 'lucide-react';
+import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings, CheckCheck, HelpCircle, KeyRound, UserPlus } from 'lucide-react';
 import { NAV, toShellRole, type Role } from '../lib/nav.config';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
@@ -127,6 +127,10 @@ function relTime(iso: string): string {
 const NOTIF_ICON: Record<string, React.ReactNode> = {
   ACCOUNT:  <UserPlus size={12} />,
   SECURITY: <KeyRound size={12} />,
+  HELPDESK_TICKET_CREATED: <HelpCircle size={12} />,
+  HELPDESK_TICKET_REPLIED: <HelpCircle size={12} />,
+  HELPDESK_TICKET_STATUS_CHANGED: <HelpCircle size={12} />,
+  HELPDESK_TICKET_ASSIGNED: <HelpCircle size={12} />,
 };
 
 function NotificationDropdown({ token, onClose }: { token: string; onClose: () => void }) {
