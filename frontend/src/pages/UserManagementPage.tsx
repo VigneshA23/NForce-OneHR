@@ -3,6 +3,7 @@ import { UserPlus, X, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi } from '../api/org';
+import { onboardingApi } from '../api/onboarding';
 import { useToast } from '../context/ToastContext';
 import { KebabMenu } from '../components/KebabMenu';
 
@@ -122,9 +123,11 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
   const { showToast } = useToast();
   const [form, setForm] = useState<CreateUserPayload>({ fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
   const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [] });
+  const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
+  const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -142,9 +145,22 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
     setSubmitting(true); setError(null);
     try {
       const emp = await usersApi.create(form, token);
-      setCreated(emp);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
+      if (startOnboarding) {
+        try {
+          await onboardingApi.start({ employeeUserId: emp.userId }, token);
+          setOnboardingOutcome('started');
+        } catch {
+          // Account is already created and safe either way — onboarding can
+          // always be started later from the Onboarding page, so this is a
+          // soft failure, not a blocker.
+          setOnboardingOutcome('failed');
+        }
+      } else {
+        setOnboardingOutcome('skipped');
+      }
+      setCreated(emp);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Create failed';
       setError(msg);
@@ -167,6 +183,16 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
                 <b style={{ color: 'var(--txt)' }}>Role:</b> {created.role}
               </div>
             </div>
+            {onboardingOutcome === 'started' && (
+              <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#4C8DD6' }}>
+                Onboarding checklist started — find it under Onboarding → Active.
+              </div>
+            )}
+            {onboardingOutcome === 'failed' && (
+              <div style={{ background: 'rgba(224,169,59,.1)', border: '1px solid rgba(224,169,59,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#E0A93B' }}>
+                Account created, but starting onboarding didn't go through. Start it manually from the Onboarding page.
+              </div>
+            )}
             {created.tempPassword && (
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password — share once, store nowhere</div>
@@ -228,6 +254,22 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
                 <option value="">— None —</option>{opts.managers.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
               </select>
             </Field>
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={startOnboarding}
+                onChange={e => setStartOnboarding(e.target.checked)}
+                style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, accentColor: 'var(--brand)' }}
+              />
+              <span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Start onboarding for this employee</span>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>
+                  Creates their pre-boarding, document and setup checklist right away. Leave unchecked to add the account only and start onboarding later.
+                </span>
+              </span>
+            </label>
           </div>
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>

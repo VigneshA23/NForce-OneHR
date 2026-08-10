@@ -10,8 +10,7 @@ import {
   onboardingApi, type OnboardingSummary, type OnboardingDetail, type OnboardingItem,
   type OnboardingStatus, type StartOnboardingPayload,
 } from '../api/onboarding';
-import { employeesApi, type EmployeeRecord } from '../api/employees';
-import { orgApi, type DepartmentRow, type DesignationRow, type LocationRow } from '../api/org';
+import type { EmployeeRecord } from '../api/employees';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
@@ -283,10 +282,6 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
 
 // ── Start onboarding modal ──────────────────────────────────
 
-function segBtnStyle(active: boolean): React.CSSProperties {
-  return { flex: 1, padding: '9px 8px', background: active ? 'var(--brand)' : 'var(--shell)', border: 'none', color: active ? '#fff' : 'var(--txt-mut)', fontSize: 12, fontWeight: 600, cursor: 'pointer' };
-}
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -317,83 +312,46 @@ function PreviewRow({ label, value }: { label: string; value: string | number })
   );
 }
 
-interface ManualDraft {
-  fullName: string; email: string; departmentId: string; designationId: string; locationId: string;
-  employmentType: string; workMode: string; joiningDate: string; managerId: string; employeeCode: string;
-}
-
 function StartOnboardingModal({ onClose, onCreated }: { onClose: () => void; onCreated: (checklistId: string) => void }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [step, setStep] = useState<1 | 2>(1);
-  const [mode, setMode] = useState<'select' | 'manual'>('select');
   const [eligible, setEligible] = useState<EmployeeRecord[]>([]);
-  const [departments, setDepartments] = useState<DepartmentRow[]>([]);
-  const [designations, setDesignations] = useState<DesignationRow[]>([]);
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [managers, setManagers] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [selectedId, setSelectedId] = useState('');
-  const [manual, setManual] = useState<ManualDraft>({
-    fullName: '', email: '', departmentId: '', designationId: '', locationId: '',
-    employmentType: 'FULL_TIME', workMode: 'ONSITE', joiningDate: '', managerId: '', employeeCode: '',
-  });
-  const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      onboardingApi.eligibleEmployees(token),
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-    ]).then(([e, d, des, l, m]) => {
-      setEligible(e);
-      setDepartments(d);
-      setDesignations(des);
-      setLocations(l);
-      setManagers(m);
-      if (e.length === 0) setMode('manual');
-      else setSelectedId(e[0].userId);
-    }).catch(err => showToast('error', err instanceof Error ? err.message : 'Failed to load'))
+    setLoading(true);
+    setLoadError('');
+    onboardingApi.eligibleEmployees(token)
+      .then(e => {
+        setEligible(e);
+        if (e.length > 0) setSelectedId(e[0].userId);
+      })
+      .catch(err => {
+        const message = err instanceof Error ? err.message : 'Failed to load';
+        setLoadError(message);
+        showToast('error', message);
+      })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, loadAttempt]);
 
   const selectedEmployee = eligible.find(e => e.userId === selectedId) ?? null;
 
   function handleContinue() {
-    if (mode === 'select') {
-      if (!selectedEmployee) return;
-      setStep(2);
-    } else {
-      if (!manual.fullName.trim() || !manual.email.trim() || !manual.departmentId || !manual.designationId || !manual.joiningDate) {
-        setError('Fill in full name, email, department, designation and joining date to continue.');
-        return;
-      }
-      setError('');
-      setStep(2);
-    }
+    if (!selectedEmployee) return;
+    setStep(2);
   }
 
   async function handleCreate() {
+    if (!selectedEmployee) return;
     setCreating(true);
     try {
-      const payload: StartOnboardingPayload = mode === 'select'
-        ? { employeeUserId: selectedId }
-        : {
-            fullName: manual.fullName.trim(),
-            email: manual.email.trim(),
-            employeeCode: manual.employeeCode.trim() || undefined,
-            departmentId: manual.departmentId,
-            designationId: manual.designationId,
-            locationId: manual.locationId || undefined,
-            employmentType: manual.employmentType,
-            workMode: manual.workMode,
-            joiningDate: manual.joiningDate,
-            managerId: manual.managerId || undefined,
-          };
+      const payload: StartOnboardingPayload = { employeeUserId: selectedEmployee.userId };
       const created = await onboardingApi.start(payload, token);
       showToast('success', `Checklist created for ${created.employeeName}`);
       onCreated(created.checklistId);
@@ -404,129 +362,69 @@ function StartOnboardingModal({ onClose, onCreated }: { onClose: () => void; onC
     }
   }
 
-  const reviewName = mode === 'select' ? (selectedEmployee?.fullName ?? '') : manual.fullName.trim();
-  const reviewDept = mode === 'select' ? selectedEmployee?.departmentName : departments.find(d => d.id === manual.departmentId)?.name;
-  const reviewDesignation = mode === 'select' ? selectedEmployee?.designationName : designations.find(d => d.id === manual.designationId)?.title;
-  const reviewJoining = mode === 'select' ? selectedEmployee?.joiningDate : manual.joiningDate;
-
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: '40px 16px' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '100%', maxWidth: 580, maxHeight: '88vh', overflowY: 'auto', padding: 26, boxSizing: 'border-box' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', padding: 26, boxSizing: 'border-box' }}>
         <h2 style={{ fontSize: 16, marginBottom: 4, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Start onboarding</h2>
         <p style={{ color: 'var(--txt-mut)', fontSize: 12.5, margin: '0 0 18px' }}>
-          Bring in a new hire and we'll generate their pre-boarding, document and setup checklist automatically.
+          Pick a new hire already in Employee Master. We'll generate their pre-boarding, document and setup checklist automatically.
         </p>
 
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
-          <StepBadge n={1} label="New hire details" state={step === 1 ? 'active' : 'done'} />
+          <StepBadge n={1} label="New hire" state={step === 1 ? 'active' : 'done'} />
           <div style={{ flex: 1, height: 2, margin: '0 4px 20px', background: step === 2 ? '#2FB67C' : 'var(--line2)' }} />
           <StepBadge n={2} label="Review & create" state={step === 2 ? 'active' : 'upcoming'} />
         </div>
 
         {loading ? (
           <p style={{ color: 'var(--txt-dim)' }}>Loading…</p>
+        ) : loadError ? (
+          <>
+            <p style={{ color: '#E4373D', fontSize: 13, marginBottom: 16 }}>
+              Couldn't load new hires ({loadError}). Your session may have expired — try refreshing the page and signing in again.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={onClose} style={btnStyle}>Cancel</button>
+              <button onClick={() => setLoadAttempt(a => a + 1)} style={btnPrimaryStyle}>Retry</button>
+            </div>
+          </>
         ) : step === 1 ? (
           <>
-            {eligible.length > 0 && (
-              <div style={{ display: 'flex', border: '1px solid var(--line2)', borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
-                <button onClick={() => setMode('select')} style={segBtnStyle(mode === 'select')}>Pick from Employee Master</button>
-                <button onClick={() => setMode('manual')} style={segBtnStyle(mode === 'manual')}>Add new hire manually</button>
-              </div>
-            )}
-
-            {mode === 'select' ? (
-              eligible.length === 0 ? (
-                <p style={{ color: 'var(--txt-mut)', fontSize: 13, marginBottom: 14 }}>
-                  Every employee already has an onboarding checklist. Add the new hire manually below.
-                </p>
-              ) : (
-                <>
-                  <Field label="New hire">
-                    <select value={selectedId} onChange={e => setSelectedId(e.target.value)} style={inputStyle}>
-                      {eligible.map(e => (
-                        <option key={e.userId} value={e.userId}>{e.fullName} — {e.employeeCode} — {e.departmentName ?? 'No department'}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Joining date">
-                    <input value={selectedEmployee ? fmtDate(selectedEmployee.joiningDate) : ''} readOnly style={{ ...inputStyle, color: 'var(--txt-mut)' }} />
-                  </Field>
-                </>
-              )
+            {eligible.length === 0 ? (
+              <p style={{ color: 'var(--txt-mut)', fontSize: 13, marginBottom: 14 }}>
+                Every employee in Employee Master already has an onboarding checklist. Add the new hire there first, then start onboarding for them.
+              </p>
             ) : (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 14px' }}>
-                  <Field label="Full name *">
-                    <input value={manual.fullName} onChange={e => setManual(m => ({ ...m, fullName: e.target.value }))} placeholder="Priyanka Suresh" style={inputStyle} />
-                  </Field>
-                  <Field label="Work email *">
-                    <input value={manual.email} onChange={e => setManual(m => ({ ...m, email: e.target.value }))} placeholder="priyanka.suresh@nforceone.com" style={inputStyle} />
-                  </Field>
-                  <Field label="Department *">
-                    <select value={manual.departmentId} onChange={e => setManual(m => ({ ...m, departmentId: e.target.value }))} style={inputStyle}>
-                      <option value="">Select…</option>
-                      {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Designation *">
-                    <select value={manual.designationId} onChange={e => setManual(m => ({ ...m, designationId: e.target.value }))} style={inputStyle}>
-                      <option value="">Select…</option>
-                      {designations.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Location">
-                    <select value={manual.locationId} onChange={e => setManual(m => ({ ...m, locationId: e.target.value }))} style={inputStyle}>
-                      <option value="">Select…</option>
-                      {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Reporting manager">
-                    <select value={manual.managerId} onChange={e => setManual(m => ({ ...m, managerId: e.target.value }))} style={inputStyle}>
-                      <option value="">Unassigned</option>
-                      {managers.map(m => <option key={m.userId} value={m.userId}>{m.fullName}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Employment type">
-                    <select value={manual.employmentType} onChange={e => setManual(m => ({ ...m, employmentType: e.target.value }))} style={inputStyle}>
-                      <option value="FULL_TIME">Full-time</option>
-                      <option value="PART_TIME">Part-time</option>
-                      <option value="CONTRACT">Contract</option>
-                      <option value="INTERN">Intern</option>
-                    </select>
-                  </Field>
-                  <Field label="Work mode">
-                    <select value={manual.workMode} onChange={e => setManual(m => ({ ...m, workMode: e.target.value }))} style={inputStyle}>
-                      <option value="ONSITE">Onsite</option>
-                      <option value="HYBRID">Hybrid</option>
-                      <option value="REMOTE">Remote</option>
-                    </select>
-                  </Field>
-                  <Field label="Joining date *">
-                    <input type="date" value={manual.joiningDate} onChange={e => setManual(m => ({ ...m, joiningDate: e.target.value }))} style={inputStyle} />
-                  </Field>
-                  <Field label="Employee code">
-                    <input value={manual.employeeCode} onChange={e => setManual(m => ({ ...m, employeeCode: e.target.value }))} placeholder="Auto-generated if left blank" style={inputStyle} />
-                  </Field>
-                </div>
-                {error && <p style={{ color: '#E4373D', fontSize: 12, margin: '-6px 0 14px' }}>{error}</p>}
+                <Field label="New hire">
+                  <select value={selectedId} onChange={e => setSelectedId(e.target.value)} style={inputStyle}>
+                    {eligible.map(e => (
+                      <option key={e.userId} value={e.userId}>{e.fullName} — {e.employeeCode} — {e.departmentName ?? 'No department'}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Joining date">
+                  <input value={selectedEmployee ? fmtDate(selectedEmployee.joiningDate) : ''} readOnly style={{ ...inputStyle, color: 'var(--txt-mut)' }} />
+                </Field>
               </>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
               <button onClick={onClose} style={btnStyle}>Cancel</button>
-              <button onClick={handleContinue} style={btnPrimaryStyle} disabled={mode === 'select' && eligible.length === 0}>Continue</button>
+              <button onClick={handleContinue} style={btnPrimaryStyle} disabled={eligible.length === 0}>Continue</button>
             </div>
           </>
         ) : (
           <>
             <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '14px 16px', marginBottom: 14, display: 'flex', gap: 12, alignItems: 'center' }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--brand)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, fontFamily: '"Space Grotesk", sans-serif', flexShrink: 0 }}>
-                {initialsOf(reviewName || '?')}
+                {initialsOf(selectedEmployee?.fullName ?? '?')}
               </div>
               <div>
-                <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13.5 }}>{reviewName || '—'}</div>
+                <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13.5 }}>{selectedEmployee?.fullName ?? '—'}</div>
                 <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>
-                  {[reviewDesignation, reviewDept].filter(Boolean).join(' · ')}{reviewJoining ? ` · joining ${fmtDate(reviewJoining)}` : ''}
+                  {[selectedEmployee?.designationName, selectedEmployee?.departmentName].filter(Boolean).join(' · ')}
+                  {selectedEmployee?.joiningDate ? ` · joining ${fmtDate(selectedEmployee.joiningDate)}` : ''}
                 </div>
               </div>
             </div>
@@ -555,14 +453,20 @@ export default function OnboardingPage() {
   const [tab, setTab] = useState<'active' | 'archived'>('active');
   const [rows, setRows] = useState<OnboardingSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
+    setLoadError('');
     onboardingApi.queue(token)
       .then(setRows)
-      .catch(e => showToast('error', e instanceof Error ? e.message : 'Failed to load'))
+      .catch(e => {
+        const message = e instanceof Error ? e.message : 'Failed to load';
+        setLoadError(message);
+        showToast('error', message);
+      })
       .finally(() => setLoading(false));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -627,6 +531,11 @@ export default function OnboardingPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>Loading…</td></tr>
+              ) : loadError ? (
+                <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>
+                  <span style={{ color: '#E4373D' }}>Couldn't load onboarding flows ({loadError}).</span>{' '}
+                  <button onClick={load} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>Retry</button>
+                </td></tr>
               ) : list.length === 0 ? (
                 <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>Nothing here yet.</td></tr>
               ) : list.map(r => {

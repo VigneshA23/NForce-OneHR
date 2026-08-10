@@ -80,17 +80,7 @@ export interface OnboardingDetail {
 }
 
 export interface StartOnboardingPayload {
-  employeeUserId?: string;
-  fullName?: string;
-  email?: string;
-  employeeCode?: string;
-  departmentId?: string;
-  designationId?: string;
-  locationId?: string;
-  employmentType?: string;
-  workMode?: string;
-  joiningDate?: string;
-  managerId?: string;
+  employeeUserId: string;
 }
 
 export const onboardingApi = {
