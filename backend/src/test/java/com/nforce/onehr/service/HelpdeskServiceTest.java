@@ -240,7 +240,110 @@ class HelpdeskServiceTest {
         assertEquals("RESOLVED", detail.getStatus());
         assertNotNull(ticket.getResolvedAt());
         assertEquals(hrAdminId, ticket.getResolvedBy());
-        verify(notificationService).send(eq(employeeId), eq("HELPDESK_TICKET_STATUS_CHANGED"), any(), any(), any());
+        // RESOLVED gets its own distinct notification type, not the generic STATUS_CHANGED one.
+        verify(notificationService).send(eq(employeeId), eq("HELPDESK_TICKET_RESOLVED"), any(), any(), any());
+    }
+
+    @Test
+    void updateStatus_openDirectlyToClosed_isRejected() {
+        HelpdeskTicket ticket = openTicket(); // OPEN
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        UpdateTicketStatusRequest req = new UpdateTicketStatusRequest();
+        req.setStatus("CLOSED"); // OPEN -> CLOSED is not allowed; CLOSED is only reachable from RESOLVED
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.updateStatus(ticket.getId(), req, hrAdminEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void updateStatus_fromClosed_isAlwaysRejected() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.CLOSED.name());
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        UpdateTicketStatusRequest req = new UpdateTicketStatusRequest();
+        req.setStatus("IN_PROGRESS"); // CLOSED is terminal — no reopening, in either direction
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.updateStatus(ticket.getId(), req, hrAdminEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void updateStatus_resolvedBackToInProgress_isRejected() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.RESOLVED.name());
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        UpdateTicketStatusRequest req = new UpdateTicketStatusRequest();
+        req.setStatus("IN_PROGRESS"); // no reopen path exists in the new lifecycle, for anyone
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.updateStatus(ticket.getId(), req, hrAdminEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void closeTicket_byOwningEmployee_onResolvedTicket_succeeds() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.RESOLVED.name());
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        TicketDetailDto detail = helpdeskService.closeTicket(ticket.getId(), employeeEmail);
+
+        assertEquals("CLOSED", detail.getStatus());
+        // The employee closing their own ticket doesn't get a redundant self-notification.
+        verify(notificationService, never()).send(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void closeTicket_byHrAdmin_onResolvedTicket_succeedsAndNotifiesEmployee() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.RESOLVED.name());
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        TicketDetailDto detail = helpdeskService.closeTicket(ticket.getId(), hrAdminEmail);
+
+        assertEquals("CLOSED", detail.getStatus());
+        verify(notificationService).send(eq(employeeId), eq("HELPDESK_TICKET_CLOSED"), any(), any(), any());
+    }
+
+    @Test
+    void closeTicket_onNonResolvedTicket_isRejected() {
+        HelpdeskTicket ticket = openTicket(); // OPEN, not RESOLVED
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.closeTicket(ticket.getId(), employeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void closeTicket_alreadyClosed_isRejected() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.CLOSED.name());
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.closeTicket(ticket.getId(), employeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void closeTicket_byAnotherEmployee_isDenied() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.RESOLVED.name());
+        User stranger = User.builder().id(otherEmployeeId).email(otherEmployeeEmail)
+                .roles(Set.of(Role.builder().code("EMPLOYEE").build())).build();
+        when(userRepo.findByEmail(otherEmployeeEmail)).thenReturn(Optional.of(stranger));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(AccessDeniedException.class, () -> helpdeskService.closeTicket(ticket.getId(), otherEmployeeEmail));
+        verify(ticketRepo, never()).save(any());
     }
 
     @Test
@@ -258,7 +361,9 @@ class HelpdeskServiceTest {
     }
 
     @Test
-    void assignTicket_whileOpen_autoTransitionsToAssigned() {
+    void assignTicket_whileOpen_doesNotChangeStatus() {
+        // Assignment is orthogonal to status under the simplified lifecycle (see V93) — it only
+        // ever sets assignedTo; HR must separately move the ticket to IN_PROGRESS.
         HelpdeskTicket ticket = openTicket(); // OPEN
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
@@ -269,8 +374,60 @@ class HelpdeskServiceTest {
 
         TicketDetailDto detail = helpdeskService.assignTicket(ticket.getId(), req, hrAdminEmail);
 
-        assertEquals("ASSIGNED", detail.getStatus());
+        assertEquals("OPEN", detail.getStatus());
         assertEquals(hrAdminId, detail.getAssignedTo());
+    }
+
+    @Test
+    void startWorking_onOpenTicket_assignsToActorAndMovesToInProgress() {
+        HelpdeskTicket ticket = openTicket(); // OPEN, unassigned
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        TicketDetailDto detail = helpdeskService.startWorking(ticket.getId(), hrAdminEmail);
+
+        assertEquals("IN_PROGRESS", detail.getStatus());
+        assertEquals(hrAdminId, detail.getAssignedTo());
+        // Employee is notified of the status change...
+        verify(notificationService).send(eq(employeeId), eq("HELPDESK_TICKET_STATUS_CHANGED"), any(), any(), any());
+        // ...but the acting HR is never notified of their own self-assignment.
+        verify(notificationService, never()).send(eq(hrAdminId), any(), any(), any(), any());
+    }
+
+    @Test
+    void startWorking_byEmployee_isDenied() {
+        HelpdeskTicket ticket = openTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+
+        assertThrows(AccessDeniedException.class, () -> helpdeskService.startWorking(ticket.getId(), employeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void startWorking_onNonOpenTicket_isRejected() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.IN_PROGRESS.name());
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.startWorking(ticket.getId(), hrAdminEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void startWorking_onTicketAssignedToAnotherHr_reassignsToActingHr() {
+        // OPEN tickets are up for grabs — whoever clicks Start Working takes it over, regardless
+        // of who it was previously (informally) assigned to. Only CLOSED/RESOLVED/IN_PROGRESS are
+        // off-limits (guarded above by the OPEN-only check).
+        HelpdeskTicket ticket = openTicket();
+        ticket.setAssignedTo(otherEmployeeId);
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        TicketDetailDto detail = helpdeskService.startWorking(ticket.getId(), hrAdminEmail);
+
+        assertEquals(hrAdminId, detail.getAssignedTo());
+        assertEquals("IN_PROGRESS", detail.getStatus());
     }
 
     @Test

@@ -69,6 +69,11 @@ public class HelpdeskController {
         return helpdeskService.addReply(id, message, false, attachment, principal.getName());
     }
 
+    @PostMapping("/{id}/close")
+    public TicketDetailDto close(@PathVariable UUID id, Principal principal) {
+        return helpdeskService.closeTicket(id, principal.getName());
+    }
+
     @GetMapping("/replies/{replyId}/attachment")
     public ResponseEntity<byte[]> downloadAttachment(@PathVariable UUID replyId, Principal principal) {
         HelpdeskReply reply = helpdeskService.getReplyAttachment(replyId, principal.getName());

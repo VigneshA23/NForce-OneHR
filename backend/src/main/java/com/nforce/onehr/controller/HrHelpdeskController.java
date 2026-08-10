@@ -30,7 +30,10 @@ public class HrHelpdeskController {
 
     @GetMapping
     public Page<TicketSummaryDto> queue(
-            @RequestParam(required = false) String status,
+            // Accepts either a single status (?status=OPEN) or several (?status=OPEN&status=IN_PROGRESS,
+            // or a comma-joined ?status=OPEN,IN_PROGRESS) — the "Active Queue" default filter needs
+            // OPEN + IN_PROGRESS together; a single value behaves exactly as before.
+            @RequestParam(required = false) List<String> status,
             @RequestParam(required = false) UUID assignedTo,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
@@ -52,6 +55,11 @@ public class HrHelpdeskController {
     @GetMapping("/{id}")
     public TicketDetailDto getOne(@PathVariable UUID id, Principal principal) {
         return helpdeskService.getDetail(id, principal.getName());
+    }
+
+    @PostMapping("/{id}/start-working")
+    public TicketDetailDto startWorking(@PathVariable UUID id, Principal principal) {
+        return helpdeskService.startWorking(id, principal.getName());
     }
 
     @PutMapping("/{id}/status")

@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  BookOpen, Calendar, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, Clock, FileText,
-  FolderOpen, Gift, GraduationCap, Heart, HelpCircle, Paperclip, Phone, Plane, Send, User, Users,
-  Wallet, X,
+  BookOpen, CheckCircle2, ChevronDown, Download, FileText, FolderOpen, HelpCircle, Paperclip,
+  Plus, Search, Send, X,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -15,6 +14,14 @@ import {
   type TicketStatus,
   type TicketSummary,
 } from '../api/helpdesk';
+import {
+  helpContentApi,
+  hrHelpContentApi,
+  type HelpContentDetail,
+  type HelpContentSummary,
+  type HelpContentType,
+} from '../api/helpContent';
+import { ContentFormModal, StatusChip } from '../components/helpContent/ContentFormModal';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -41,9 +48,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const STATUS_COLORS: Record<TicketStatus, { bg: string; color: string }> = {
   OPEN: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-  ASSIGNED: { bg: 'rgba(76,141,214,.15)', color: '#4C8DD6' },
   IN_PROGRESS: { bg: 'rgba(99,102,241,.18)', color: '#818CF8' },
-  WAITING_FOR_EMPLOYEE: { bg: 'rgba(224,169,59,.18)', color: '#E0A93B' },
   RESOLVED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
   CLOSED: { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' },
 };
@@ -196,11 +201,24 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
   const [message, setMessage] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   function load() {
     helpdeskApi.getTicket(ticketId, token).then(setTicket).finally(() => setLoading(false));
   }
   useEffect(load, [ticketId, token]);
+
+  async function handleClose() {
+    setClosing(true);
+    try {
+      await helpdeskApi.close(ticketId, token);
+      showToast('success', 'Ticket closed');
+      load();
+      onChanged();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to close ticket');
+    } finally { setClosing(false); }
+  }
 
   async function handleReply(e: React.FormEvent) {
     e.preventDefault();
@@ -250,6 +268,23 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
         )}
       </div>
 
+      {ticket.status === 'RESOLVED' && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+          background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <CheckCircle2 size={16} style={{ color: 'var(--ok)', flexShrink: 0 }} />
+            <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
+              HR marked this resolved. If everything looks good, close it — closed tickets can't be reopened.
+            </span>
+          </div>
+          <button onClick={handleClose} disabled={closing} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: closing ? 'not-allowed' : 'pointer', opacity: closing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+            {closing ? 'Closing…' : 'Close Ticket'}
+          </button>
+        </div>
+      )}
+
       {ticket.status !== 'CLOSED' ? (
         <form onSubmit={handleReply} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <textarea
@@ -270,123 +305,185 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
           </div>
         </form>
       ) : (
-        <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', textAlign: 'center' }}>This ticket is closed.</div>
+        <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', textAlign: 'center' }}>This ticket is closed and cannot be reopened.</div>
       )}
     </div>
   );
 }
 
-// ── NEW: self-service knowledge-hub building blocks ────────
-// Everything below is presentational + local config. No API calls, no new routes,
-// no changes to the Help Desk data model — placeholder content only, replaceable later
-// by editing the GUIDES/RESOURCES/FAQS arrays.
+// ── Help & Guidance content: FAQ / Quick Help / Guide / Document ──
+// Backed by /api/help-content — HR-managed, published content. Employees are read-only here;
+// see HrHelpContentController for the management surface.
 
-interface GuideItem {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-}
+const CONTENT_TYPE_ICON: Record<HelpContentType, LucideIcon> = {
+  FAQ: HelpCircle,
+  QUICK_HELP: FileText,
+  GUIDE: BookOpen,
+  DOCUMENT: FolderOpen,
+};
 
-const GUIDES: GuideItem[] = [
-  { icon: BookOpen,       title: 'Employee Handbook',     description: 'Company culture, code of conduct, and everything you need to know as a OneHR employee.' },
-  { icon: Calendar,       title: 'Leave Policy',           description: 'Leave types, accrual rules, and how to plan your time off.' },
-  { icon: Clock,          title: 'Attendance Guidelines',  description: 'Shift timings, regularization rules, and how attendance is tracked.' },
-  { icon: Heart,          title: 'Benefits',                description: 'Health insurance, wellness programs, and other employee benefits.' },
-  { icon: Wallet,         title: 'Payroll Information',    description: 'Salary structure, payslips, tax deductions, and payment schedules.' },
-  { icon: Plane,          title: 'Travel Policy',          description: 'Booking process, reimbursement rules, and travel allowances.' },
-  { icon: FileText,       title: 'Company Policies',       description: 'Data security, remote work, and other company-wide policies.' },
-  { icon: User,           title: 'Profile Management',     description: 'How to keep your personal and professional details up to date.' },
-  { icon: GraduationCap,  title: 'Training Resources',     description: 'Learning paths, certifications, and internal training programs.' },
-];
+const CONTENT_TYPE_LABEL: Record<HelpContentType, string> = {
+  FAQ: 'FAQ',
+  QUICK_HELP: 'Quick Help',
+  GUIDE: 'Guide',
+  DOCUMENT: 'Document',
+};
 
-const RESOURCES: GuideItem[] = [
-  { icon: CalendarDays,   title: 'Holiday Calendar',       description: 'Upcoming public and company holidays for your location.' },
-  { icon: FolderOpen,     title: 'Company Documents',      description: 'Official templates, letters, and shared company documents.' },
-  { icon: ClipboardList,  title: 'Forms',                   description: 'Commonly used HR forms and request templates.' },
-  { icon: Phone,          title: 'HR Contacts',            description: 'The right HR contact for your location or department.' },
-  { icon: Gift,           title: 'Benefits Information',   description: 'Insurance providers, coverage details, and enrolment windows.' },
-  { icon: Users,          title: 'Employee Directory',     description: 'Look up colleagues and their contact details across the org.' },
-];
+// Inline management controls (HR Admin/Super Admin only) — deliberately plain text links, not
+// icon buttons or a toolbar, so Help & Guidance keeps reading as a help center with a couple of
+// extra actions rather than turning into a separate admin dashboard.
+const adminLinkStyle: React.CSSProperties = { background: 'none', border: 'none', color: 'var(--brand)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', padding: 0 };
+const adminLinkMutedStyle: React.CSSProperties = { ...adminLinkStyle, color: 'var(--txt-mut)' };
+const addContentBtnStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 
-const FAQS: { question: string; answer: string }[] = [
-  { question: 'How do I apply for leave?', answer: 'Go to Leave & Holidays from the sidebar, click Request Leave, choose a leave type and dates, and submit. Your manager will be notified to approve or reject it.' },
-  { question: 'How can I check my attendance record?', answer: 'Open My Attendance from the sidebar to see your daily punches, regularization requests, and monthly summary.' },
-  { question: 'How do I raise an HR support ticket?', answer: 'Use the Contact HR Support button below. Pick a topic, describe your request, and submit — you’ll get a ticket number to track under My Requests.' },
-  { question: 'How long does HR take to respond?', answer: 'Response times vary by request, but you’ll get an in-app notification the moment HR replies or updates your ticket’s status — no need to keep checking back.' },
-  { question: 'How can I update my profile details?', answer: 'Go to your Profile page from the top-right menu to update your contact details and personal information.' },
-  { question: 'Where can I find company policies and documents?', answer: 'Visit My Documents & Policies from the sidebar, or use the Helpful Resources section above for quick links.' },
-  { question: 'How do I request an asset or submit an expense claim?', answer: 'Open Assets & Expenses from the sidebar to raise a new asset request or submit an expense claim for reimbursement.' },
-  { question: 'Who do I contact about payroll or benefits questions?', answer: 'Raise a ticket under the Payroll or Benefits topic using Contact HR Support — it’ll route directly to the HR team.' },
-];
-
-function SectionHeader({ title, description }: { title: string; description?: string }) {
+/** Edit/Archive links + Draft/Archived chips shown under an FAQ or guide row, admins only. */
+function AdminItemControls({ item, onEdit, onArchiveToggle }: {
+  item: HelpContentSummary; onEdit: (item: HelpContentSummary) => void; onArchiveToggle: (item: HelpContentSummary) => void;
+}) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{title}</h2>
-      {description && <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4, marginBottom: 0 }}>{description}</p>}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      {!item.published && <StatusChip label="Draft" tone="warn" />}
+      {!item.active && <StatusChip label="Archived" tone="dim" />}
+      <button onClick={() => onEdit(item)} style={adminLinkStyle}>Edit</button>
+      <span style={{ color: 'var(--line2)', fontSize: 11 }}>|</span>
+      <button onClick={() => onArchiveToggle(item)} style={adminLinkMutedStyle}>{item.active ? 'Archive' : 'Unarchive'}</button>
     </div>
   );
 }
 
-function GuideCard({ icon: Icon, title, description, onOpen }: GuideItem & { onOpen: () => void }) {
-  const [hover, setHover] = useState(false);
+function SectionHeader({ title, description, action }: { title: string; description?: string; action?: React.ReactNode }) {
   return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        background: 'var(--panel)', border: `1px solid ${hover ? 'var(--line2)' : 'var(--line)'}`, borderRadius: 10,
-        padding: 18, display: 'flex', flexDirection: 'column', gap: 10, transition: 'border-color .15s',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-        <Icon size={17} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{title}</span>
+    <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div>
+        <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{title}</h2>
+        {description && <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4, marginBottom: 0 }}>{description}</p>}
       </div>
-      <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', margin: 0, flex: 1 }}>{description}</p>
+      {action}
+    </div>
+  );
+}
+
+/**
+ * One row in the Quick Help & Guides list — deliberately a row, not a card, so this column
+ * reads with the same rhythm as the FAQ accordion sitting next to it.
+ */
+function GuideListItem({ item, onOpen, isAdmin, onEdit, onArchiveToggle }: {
+  item: HelpContentSummary; onOpen: () => void;
+  isAdmin?: boolean; onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void;
+}) {
+  const Icon = CONTENT_TYPE_ICON[item.type];
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 18px' }}>
+      <Icon size={16} style={{ color: 'var(--brand)', flexShrink: 0, marginTop: 2 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{item.title}</div>
+        {item.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>{item.description}</div>}
+        {isAdmin && onEdit && onArchiveToggle && (
+          <div style={{ marginTop: 7 }}><AdminItemControls item={item} onEdit={onEdit} onArchiveToggle={onArchiveToggle} /></div>
+        )}
+      </div>
       <button
         onClick={onOpen}
-        style={{ alignSelf: 'flex-start', background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, padding: '6px 13px', borderRadius: 6, cursor: 'pointer' }}
+        style={{ alignSelf: 'center', background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 6, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
       >
-        Open Guide
+        Open
       </button>
     </div>
   );
 }
 
-function ResourceCard({ icon: Icon, title, onOpen }: Pick<GuideItem, 'icon' | 'title'> & { onOpen: () => void }) {
-  const [hover, setHover] = useState(false);
+function GuideList({ items, onOpen, isAdmin, onEdit, onArchiveToggle }: {
+  items: HelpContentSummary[]; onOpen: (id: string) => void;
+  isAdmin?: boolean; onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void;
+}) {
+  if (items.length === 0) {
+    return <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No guides published yet.</div>;
+  }
   return (
-    <button
-      onClick={onOpen}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
-        background: hover ? 'var(--raised)' : 'var(--panel)', border: `1px solid ${hover ? 'var(--line2)' : 'var(--line)'}`,
-        borderRadius: 10, padding: '13px 15px', cursor: 'pointer', transition: 'background .15s, border-color .15s',
-      }}
-    >
-      <Icon size={16} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{title}</span>
-    </button>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      {items.map((item, i) => (
+        <div key={item.id} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
+          <GuideListItem item={item} onOpen={() => onOpen(item.id)} isAdmin={isAdmin} onEdit={onEdit} onArchiveToggle={onArchiveToggle} />
+        </div>
+      ))}
+    </div>
   );
 }
 
-/** One reusable modal for every guide and resource — swap `content` for real docs later. */
-function GuideModal({ title, description, content, onClose, onContactHR }: {
-  title: string; description?: string; content?: React.ReactNode; onClose: () => void; onContactHR: () => void;
+/** Full-content view for any content item — fetches its own detail and, if present, previews/downloads its attachment. */
+function ContentModal({ id, token, onClose, onContactHR }: {
+  id: string; token: string; onClose: () => void; onContactHR: () => void;
 }) {
+  const [item, setItem] = useState<HelpContentDetail | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    helpContentApi.getOne(id, token).then(setItem);
+    helpContentApi.trackView(id, token);
+  }, [id, token]);
+
+  useEffect(() => {
+    if (!item?.hasAttachment) return;
+    let objectUrl: string | null = null;
+    helpContentApi.downloadAttachment(id, token).then(blob => {
+      objectUrl = URL.createObjectURL(blob);
+      setPreviewUrl(objectUrl);
+    }).catch(() => { /* preview is best-effort; download button still won't render without a blob */ });
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [item?.hasAttachment, id, token]);
+
+  function download() {
+    if (!previewUrl || !item) return;
+    const a = document.createElement('a');
+    a.href = previewUrl; a.download = item.attachmentName ?? 'download';
+    a.click();
+  }
+
+  if (!item) {
+    return (
+      <div style={overlayStyle}>
+        <div style={modalStyle}><div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div></div>
+      </div>
+    );
+  }
+
+  const ext = (item.attachmentName ?? '').split('.').pop()?.toLowerCase();
+  const isImage = ext === 'png' || ext === 'jpg' || ext === 'jpeg';
+  const isPdf = ext === 'pdf';
+
   return (
     <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={modalStyle}>
-        <ModalHeader title={title} onClose={onClose} />
+      <div style={{ ...modalStyle, maxWidth: 620 }}>
+        <ModalHeader title={item.title} onClose={onClose} />
         <div style={{ padding: 24 }}>
-          {description && <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 0, marginBottom: 16 }}>{description}</p>}
-          <div style={{ background: 'var(--raised)', border: '1px dashed var(--line2)', borderRadius: 8, padding: '28px 18px', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
-            {content ?? 'Detailed content for this guide is being finalized and will appear here soon.'}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, flexWrap: 'wrap', gap: 10 }}>
+          {item.description && <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 0, marginBottom: 14 }}>{item.description}</p>}
+          {item.body && <div style={{ fontSize: 13, color: 'var(--txt)', whiteSpace: 'pre-wrap', lineHeight: 1.6, marginBottom: 16 }}>{item.body}</div>}
+
+          {item.hasAttachment && (
+            <div style={{ marginBottom: 16 }}>
+              {previewUrl && isPdf && (
+                <iframe src={previewUrl} title={item.attachmentName ?? 'preview'} style={{ width: '100%', height: 380, border: '1px solid var(--line)', borderRadius: 8 }} />
+              )}
+              {previewUrl && isImage && (
+                <img src={previewUrl} alt={item.attachmentName ?? ''} style={{ maxWidth: '100%', borderRadius: 8, border: '1px solid var(--line)' }} />
+              )}
+              <button
+                onClick={download}
+                disabled={!previewUrl}
+                style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: previewUrl ? 'pointer' : 'not-allowed' }}
+              >
+                <Download size={13} /> {item.attachmentName ?? 'Download attachment'}
+              </button>
+            </div>
+          )}
+
+          {!item.body && !item.hasAttachment && (
+            <div style={{ background: 'var(--raised)', border: '1px dashed var(--line2)', borderRadius: 8, padding: '28px 18px', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13, marginBottom: 16 }}>
+              Detailed content for this item is being finalized and will appear here soon.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <button onClick={onContactHR} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
               Still need help? Contact HR Support →
             </button>
@@ -400,16 +497,35 @@ function GuideModal({ title, description, content, onClose, onContactHR }: {
   );
 }
 
-function FAQAccordion({ items }: { items: { question: string; answer: string }[] }) {
-  const [openIndex, setOpenIndex] = useState<number | null>(null);
+/** Answers render straight from the list payload's `description` — no per-item fetch needed. */
+function FAQAccordion({ items, token, isAdmin, onEdit, onArchiveToggle }: {
+  items: HelpContentSummary[]; token: string;
+  isAdmin?: boolean; onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const viewedRef = useRef<Set<string>>(new Set());
+
+  function toggle(item: HelpContentSummary) {
+    const opening = openId !== item.id;
+    setOpenId(opening ? item.id : null);
+    if (opening && !viewedRef.current.has(item.id)) {
+      viewedRef.current.add(item.id);
+      helpContentApi.trackView(item.id, token);
+    }
+  }
+
+  if (items.length === 0) {
+    return <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No FAQs published yet.</div>;
+  }
+
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
       {items.map((faq, i) => {
-        const isOpen = openIndex === i;
+        const isOpen = openId === faq.id;
         return (
-          <div key={faq.question} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
+          <div key={faq.id} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
             <button
-              onClick={() => setOpenIndex(isOpen ? null : i)}
+              onClick={() => toggle(faq)}
               aria-expanded={isOpen}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
@@ -417,11 +533,16 @@ function FAQAccordion({ items }: { items: { question: string; answer: string }[]
                 fontSize: 13.5, fontWeight: 600, color: 'var(--txt)', fontFamily: 'inherit',
               }}
             >
-              {faq.question}
+              {faq.title}
               <ChevronDown size={16} style={{ color: 'var(--txt-dim)', flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
             </button>
             {isOpen && (
-              <div style={{ padding: '0 18px 16px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.6 }}>{faq.answer}</div>
+              <div style={{ padding: '0 18px 16px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.6 }}>
+                {faq.description || 'No further detail available.'}
+              </div>
+            )}
+            {isAdmin && onEdit && onArchiveToggle && (
+              <div style={{ padding: '0 18px 12px' }}><AdminItemControls item={faq} onEdit={onEdit} onArchiveToggle={onArchiveToggle} /></div>
             )}
           </div>
         );
@@ -430,15 +551,93 @@ function FAQAccordion({ items }: { items: { question: string; answer: string }[]
   );
 }
 
+function AllFaqsModal({ token, isAdmin, refreshToken, onEdit, onArchiveToggle, onClose }: {
+  token: string; isAdmin: boolean; refreshToken: number;
+  onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void; onClose: () => void;
+}) {
+  const [items, setItems] = useState<HelpContentSummary[] | null>(null);
+  useEffect(() => {
+    const call = isAdmin ? hrHelpContentApi.list(token, { type: 'FAQ', size: 100 }) : helpContentApi.list(token, { type: 'FAQ', size: 100 });
+    call.then(res => setItems(res.content));
+  }, [token, isAdmin, refreshToken]);
+  return (
+    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...modalStyle, maxWidth: 620 }}>
+        <ModalHeader title="All FAQs" onClose={onClose} />
+        <div style={{ padding: 24, maxHeight: '70vh', overflowY: 'auto' }}>
+          {items === null ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
+          ) : (
+            <FAQAccordion items={items} token={token} isAdmin={isAdmin} onEdit={onEdit} onArchiveToggle={onArchiveToggle} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AllGuidesModal({ token, isAdmin, refreshToken, onOpenItem, onEdit, onArchiveToggle, onClose }: {
+  token: string; isAdmin: boolean; refreshToken: number; onOpenItem: (id: string) => void;
+  onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void; onClose: () => void;
+}) {
+  const [items, setItems] = useState<HelpContentSummary[] | null>(null);
+  useEffect(() => {
+    const call = isAdmin ? hrHelpContentApi.list(token, { size: 100 }) : helpContentApi.list(token, { size: 100 });
+    call.then(res => setItems(res.content.filter(c => c.type !== 'FAQ')));
+  }, [token, isAdmin, refreshToken]);
+  return (
+    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...modalStyle, maxWidth: 620 }}>
+        <ModalHeader title="All Guides & Quick Help" onClose={onClose} />
+        <div style={{ padding: 24, maxHeight: '70vh', overflowY: 'auto' }}>
+          {items === null ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
+          ) : (
+            <GuideList items={items} onOpen={onOpenItem} isAdmin={isAdmin} onEdit={onEdit} onArchiveToggle={onArchiveToggle} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────
 
-const STATUS_FILTERS: Array<TicketStatus | 'ALL'> = ['ALL', 'OPEN', 'ASSIGNED', 'IN_PROGRESS', 'WAITING_FOR_EMPLOYEE', 'RESOLVED', 'CLOSED'];
+const STATUS_FILTERS: Array<TicketStatus | 'ALL'> = ['ALL', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
 
 export default function HelpDeskPage() {
   const token = useAuthStore(s => s.token)!;
+  const user = useAuthStore(s => s.user);
+  const { showToast } = useToast();
+  // HR_ADMIN/SUPER_ADMIN see the same page as employees, plus inline content-management
+  // controls — matching the ADMIN_ROLES check already authoritative server-side in
+  // HelpdeskService/HrHelpContentController. Hiding these controls is presentation only;
+  // every mutating call still goes through the same @PreAuthorize-guarded HR endpoints.
+  const isAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN';
+
   const [categories, setCategories] = useState<HelpdeskCategory[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
-  const [activeInfo, setActiveInfo] = useState<GuideItem | null>(null);
+  const [activeContentId, setActiveContentId] = useState<string | null>(null);
+  const [showAllFaqs, setShowAllFaqs] = useState(false);
+  const [showAllGuides, setShowAllGuides] = useState(false);
+
+  // Curated Help & Guidance content (FAQ/Quick Help/Guide/Document), split client-side.
+  // Employees only ever see published+active content; admins see everything (incl. drafts and
+  // archived items) so they can manage the full catalog from this same page.
+  const [allContent, setAllContent] = useState<HelpContentSummary[]>([]);
+  const [contentVersion, setContentVersion] = useState(0);
+  const faqs = allContent.filter(c => c.type === 'FAQ');
+  const guides = allContent.filter(c => c.type !== 'FAQ');
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [formInitialType, setFormInitialType] = useState<HelpContentType>('FAQ');
+  const [editingContent, setEditingContent] = useState<HelpContentDetail | null>(null);
+
+  // Lightweight search across the same content, scoped to this page only.
+  const [contentSearch, setContentSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<HelpContentSummary[]>([]);
+  const [searching, setSearching] = useState(false);
+
   const [tickets, setTickets] = useState<TicketSummary[]>([]);
   const [totalPages, setTotalPages] = useState(0);
   const [page, setPage] = useState(0);
@@ -446,19 +645,69 @@ export default function HelpDeskPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showAllRequests, setShowAllRequests] = useState(false);
 
   function loadTickets(p = page) {
     setLoading(true);
-    helpdeskApi.listMine(token, { status: statusFilter === 'ALL' ? undefined : statusFilter, search: search || undefined, page: p, size: 10 })
+    const size = showAllRequests ? 10 : 5;
+    helpdeskApi.listMine(token, {
+      status: showAllRequests && statusFilter !== 'ALL' ? statusFilter : undefined,
+      search: showAllRequests && search ? search : undefined,
+      page: p, size,
+    })
       .then(res => { setTickets(res.content); setTotalPages(res.totalPages); setPage(res.number); })
       .finally(() => setLoading(false));
   }
 
+  function refreshContent() {
+    const call = isAdmin
+      ? hrHelpContentApi.list(token, { size: 100 })
+      : helpContentApi.list(token, { sort: 'popular', size: 50 });
+    call.then(res => setAllContent(res.content));
+    // Bumped on every mutation so the "View all" modals (which fetch their own, larger page)
+    // know to refetch too — they don't share state with this page's `allContent`.
+    setContentVersion(v => v + 1);
+  }
+
   useEffect(() => { helpdeskApi.listCategories(token).then(setCategories); }, [token]);
-  useEffect(() => { loadTickets(0); }, [token, statusFilter, search]);
+  useEffect(refreshContent, [token, isAdmin]);
+  useEffect(() => { loadTickets(0); }, [token, statusFilter, search, showAllRequests]);
+
+  function openCreateContent(type: HelpContentType) {
+    setEditingContent(null);
+    setFormInitialType(type);
+    setFormOpen(true);
+  }
+
+  async function openEditContent(item: HelpContentSummary) {
+    const detail = await hrHelpContentApi.getOne(item.id, token);
+    setEditingContent(detail);
+    setFormOpen(true);
+  }
+
+  async function handleArchiveToggle(item: HelpContentSummary) {
+    try {
+      await (item.active ? hrHelpContentApi.archive(item.id, token) : hrHelpContentApi.reactivate(item.id, token));
+      showToast('success', item.active ? 'Archived' : 'Unarchived');
+      refreshContent();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to update');
+    }
+  }
+
+  // Debounced content search — fires 300ms after typing stops, clears back to the curated view when empty.
+  useEffect(() => {
+    const q = contentSearch.trim();
+    if (!q) { setSearchResults([]); setSearching(false); return; }
+    setSearching(true);
+    const handle = setTimeout(() => {
+      helpContentApi.list(token, { search: q, size: 20 }).then(res => setSearchResults(res.content)).finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [contentSearch, token]);
 
   function openContactFromModal() {
-    setActiveInfo(null);
+    setActiveContentId(null);
     setShowContactModal(true);
   }
 
@@ -473,85 +722,149 @@ export default function HelpDeskPage() {
     );
   }
 
+  const visibleTickets = showAllRequests ? tickets : tickets.slice(0, 5);
+
   return (
     <div>
       {/* 1. Header */}
-      <div style={{ marginBottom: 28 }}>
+      <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
-          Browse HR guides, find company resources, and raise a support request — all from one place.
+          Find an answer yourself, or reach HR directly — all from one place.
         </p>
       </div>
 
-      {/* 2. Quick Help / Guides */}
-      <div style={{ marginBottom: 32 }}>
-        <SectionHeader title="Quick Help & Guides" description="Start here — most questions are already answered below." />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
-          {GUIDES.map(guide => (
-            <GuideCard key={guide.title} {...guide} onOpen={() => setActiveInfo(guide)} />
-          ))}
+      {/* 2. Hero row: search + Contact HR Support — both visible without scrolling */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
+        <div style={{ position: 'relative', flex: '1 1 320px', minWidth: 220 }}>
+          <Search size={14} style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+          <input
+            placeholder="Search FAQs, guides, and quick help…"
+            value={contentSearch}
+            onChange={e => setContentSearch(e.target.value)}
+            style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '11px 14px 11px 34px', color: 'var(--txt)', fontSize: 13.5, outline: 'none' }}
+          />
         </div>
-      </div>
-
-      {/* 3. Helpful Resources */}
-      <div style={{ marginBottom: 32 }}>
-        <SectionHeader title="Helpful Resources" description="Quick links to things employees need most often." />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-          {RESOURCES.map(resource => (
-            <ResourceCard key={resource.title} icon={resource.icon} title={resource.title} onOpen={() => setActiveInfo(resource)} />
-          ))}
-        </div>
-      </div>
-
-      {/* 4. FAQ */}
-      <div style={{ marginBottom: 32 }}>
-        <SectionHeader title="Frequently Asked Questions" description="Quick answers to the questions HR hears most." />
-        <FAQAccordion items={FAQS} />
-      </div>
-
-      {/* 5. Contact HR Support — unchanged button/modal, just relocated */}
-      <div style={{
-        marginBottom: 32, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
-        padding: '20px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14,
-      }}>
-        <div>
-          <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Still need help?</div>
-          <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>Raise a request and our HR team will get back to you.</div>
-        </div>
-        <button onClick={() => setShowContactModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <HelpCircle size={14} /> Contact HR Support
+        <button onClick={() => setShowContactModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '0 20px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <HelpCircle size={15} /> Contact HR Support
         </button>
       </div>
 
-      {/* 6. My Requests — unchanged block, just relocated */}
-      <div style={{ marginBottom: 18 }}>
-        <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: '0 0 12px' }}>My Requests</h2>
-
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-          <input
-            placeholder="Search ticket number or description…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
+      {contentSearch.trim() ? (
+        /* 3a. Search results — replaces the curated view while a query is active */
+        <div style={{ marginBottom: 32 }}>
+          <SectionHeader
+            title={`Results for "${contentSearch.trim()}"`}
+            description={searching ? 'Searching…' : `${searchResults.length} match${searchResults.length === 1 ? '' : 'es'}`}
           />
+          {!searching && searchResults.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 }}>
+              No matches. Try different words, or{' '}
+              <button onClick={() => setShowContactModal(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', padding: 0, font: 'inherit' }}>contact HR</button>.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {searchResults.map(r => {
+                const Icon = CONTENT_TYPE_ICON[r.type];
+                return (
+                  <button key={r.id} onClick={() => setActiveContentId(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', cursor: 'pointer' }}>
+                    <Icon size={15} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{r.title}</div>
+                      {r.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</div>}
+                    </div>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', flexShrink: 0 }}>{CONTENT_TYPE_LABEL[r.type]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
+      ) : (
+        /* 3b. FAQ + Quick Help & Guides — side by side on desktop, stacking only when the
+           viewport is too narrow for both (see minmax below), per the required layout. */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, marginBottom: 32, alignItems: 'start' }}>
+          <div>
+            <SectionHeader
+              title="Frequently Asked Questions"
+              description="Quick answers to the questions HR hears most."
+              action={
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  {isAdmin && (
+                    <button onClick={() => openCreateContent('FAQ')} style={addContentBtnStyle}><Plus size={12} /> Add FAQ</button>
+                  )}
+                  {faqs.length > 0 && (
+                    <button onClick={() => setShowAllFaqs(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                      View all →
+                    </button>
+                  )}
+                </div>
+              }
+            />
+            <FAQAccordion items={faqs.slice(0, 5)} token={token} isAdmin={isAdmin} onEdit={openEditContent} onArchiveToggle={handleArchiveToggle} />
+          </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-          {STATUS_FILTERS.map(s => (
-            <button key={s} onClick={() => setStatusFilter(s)} style={{
-              padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
-              background: statusFilter === s ? 'var(--brand)' : 'var(--raised)',
-              color: statusFilter === s ? '#fff' : 'var(--txt-mut)',
-            }}>
-              {s === 'ALL' ? 'All' : s.replace(/_/g, ' ')}
-            </button>
-          ))}
+          <div>
+            <SectionHeader
+              title="Quick Help & Guides"
+              description="Guides, policies, and documents curated by HR."
+              action={
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  {isAdmin && (
+                    <button onClick={() => openCreateContent('GUIDE')} style={addContentBtnStyle}><Plus size={12} /> Add Guide</button>
+                  )}
+                  {guides.length > 0 && (
+                    <button onClick={() => setShowAllGuides(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                      View all →
+                    </button>
+                  )}
+                </div>
+              }
+            />
+            <GuideList items={guides.slice(0, 5)} onOpen={id => setActiveContentId(id)} isAdmin={isAdmin} onEdit={openEditContent} onArchiveToggle={handleArchiveToggle} />
+          </div>
         </div>
+      )}
+
+      {/* 5. My Requests — compact by default, "View all" reveals search/filter/pagination */}
+      <div style={{ marginBottom: 18 }}>
+        <SectionHeader
+          title="My Requests"
+          action={!showAllRequests && tickets.length > 0 && (
+            <button onClick={() => setShowAllRequests(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+              View all requests →
+            </button>
+          )}
+        />
+
+        {showAllRequests && (
+          <>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+              <input
+                placeholder="Search ticket number or description…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              {STATUS_FILTERS.map(s => (
+                <button key={s} onClick={() => setStatusFilter(s)} style={{
+                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+                  background: statusFilter === s ? 'var(--brand)' : 'var(--raised)',
+                  color: statusFilter === s ? '#fff' : 'var(--txt-mut)',
+                }}>
+                  {s === 'ALL' ? 'All' : s.replace(/_/g, ' ')}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
-          ) : tickets.length === 0 ? (
+          ) : visibleTickets.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center' }}>
               <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>
                 {statusFilter === 'ALL' && !search ? "You haven't raised any requests yet." : 'No matching requests.'}
@@ -563,17 +876,16 @@ export default function HelpDeskPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Ticket Number', 'Category', 'Created', 'Last Updated', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                    {['Ticket Number', 'Topic', 'Status', 'Last Updated'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
-                  {tickets.map(t => (
+                  {visibleTickets.map(t => (
                     <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedId(t.id)}>
                       <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
                       <td style={tdStyle}>{t.categoryName}</td>
-                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDateTime(t.createdAt)}</td>
-                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDateTime(t.updatedAt)}</td>
                       <td style={tdStyle}><StatusBadge status={t.status} /></td>
+                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDateTime(t.updatedAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -581,7 +893,7 @@ export default function HelpDeskPage() {
             </div>
           )}
 
-          {totalPages > 1 && (
+          {showAllRequests && totalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
               <button onClick={() => loadTickets(page - 1)} disabled={page === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? 0.5 : 1 }}>← Prev</button>
               <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {page + 1} of {totalPages}</span>
@@ -600,12 +912,45 @@ export default function HelpDeskPage() {
         />
       )}
 
-      {activeInfo && (
-        <GuideModal
-          title={activeInfo.title}
-          description={activeInfo.description}
-          onClose={() => setActiveInfo(null)}
+      {activeContentId && (
+        <ContentModal
+          id={activeContentId}
+          token={token}
+          onClose={() => setActiveContentId(null)}
           onContactHR={openContactFromModal}
+        />
+      )}
+
+      {showAllFaqs && (
+        <AllFaqsModal
+          token={token}
+          isAdmin={isAdmin}
+          refreshToken={contentVersion}
+          onEdit={isAdmin ? openEditContent : undefined}
+          onArchiveToggle={isAdmin ? handleArchiveToggle : undefined}
+          onClose={() => setShowAllFaqs(false)}
+        />
+      )}
+
+      {showAllGuides && (
+        <AllGuidesModal
+          token={token}
+          isAdmin={isAdmin}
+          refreshToken={contentVersion}
+          onOpenItem={id => { setShowAllGuides(false); setActiveContentId(id); }}
+          onEdit={isAdmin ? openEditContent : undefined}
+          onArchiveToggle={isAdmin ? handleArchiveToggle : undefined}
+          onClose={() => setShowAllGuides(false)}
+        />
+      )}
+
+      {formOpen && (
+        <ContentFormModal
+          editing={editingContent}
+          initialType={formInitialType}
+          token={token}
+          onClose={() => setFormOpen(false)}
+          onSaved={refreshContent}
         />
       )}
     </div>

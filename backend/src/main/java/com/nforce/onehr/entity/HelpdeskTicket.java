@@ -35,7 +35,7 @@ public class HelpdeskTicket {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String description;
 
-    // OPEN | ASSIGNED | IN_PROGRESS | WAITING_FOR_EMPLOYEE | RESOLVED | CLOSED
+    // OPEN | IN_PROGRESS | RESOLVED | CLOSED — see TicketStatus, enforced by chk_helpdesk_status (V93)
     @Column(nullable = false, length = 30)
     @Builder.Default
     private String status = "OPEN";

@@ -8,21 +8,23 @@ import java.util.Set;
  * column (this codebase's established convention for status fields — see LeaveRequest,
  * OnboardingChecklist) — this enum exists purely for compile-time safety and to centralize the
  * allowed-transition rules in one place instead of scattering string comparisons through the service.
+ *
+ * <p>Strictly linear four-state lifecycle (simplified from a prior six-state model that allowed
+ * reopening and ad-hoc shortcuts — see migration V93): {@code OPEN -> IN_PROGRESS -> RESOLVED ->
+ * CLOSED}. There is deliberately no path back to an earlier state from anywhere, including from
+ * {@code RESOLVED}, and no shortcut directly into {@code CLOSED} except from {@code RESOLVED}.
+ * {@code CLOSED} is permanently terminal.
  */
 public enum TicketStatus {
     OPEN,
-    ASSIGNED,
     IN_PROGRESS,
-    WAITING_FOR_EMPLOYEE,
     RESOLVED,
     CLOSED;
 
     private static final Map<TicketStatus, Set<TicketStatus>> ALLOWED_TRANSITIONS = Map.of(
-            OPEN, Set.of(ASSIGNED, IN_PROGRESS, CLOSED),
-            ASSIGNED, Set.of(IN_PROGRESS, OPEN, CLOSED),
-            IN_PROGRESS, Set.of(WAITING_FOR_EMPLOYEE, RESOLVED, ASSIGNED, CLOSED),
-            WAITING_FOR_EMPLOYEE, Set.of(IN_PROGRESS, RESOLVED, CLOSED),
-            RESOLVED, Set.of(CLOSED, IN_PROGRESS),
+            OPEN, Set.of(IN_PROGRESS),
+            IN_PROGRESS, Set.of(RESOLVED),
+            RESOLVED, Set.of(CLOSED),
             CLOSED, Set.of()
     );
 

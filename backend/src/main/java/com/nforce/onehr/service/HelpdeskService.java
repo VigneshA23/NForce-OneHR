@@ -108,10 +108,13 @@ public class HelpdeskService {
     // ── List: HR queue (all tickets) ───────────────────────
 
     @Transactional(readOnly = true)
-    public Page<TicketSummaryDto> listQueue(String actorEmail, String status, UUID assignedTo, String search, int page, int size) {
+    public Page<TicketSummaryDto> listQueue(String actorEmail, List<String> statuses, UUID assignedTo, String search, int page, int size) {
         requireAdmin(actorEmail);
+        // statusIn already handles null/empty as "no filter" and a single-element list identically
+        // to the old exact-match statusIs — this supports the "Active Queue" (OPEN + IN_PROGRESS)
+        // default filter without adding any new query logic.
         Specification<HelpdeskTicket> spec = Specification
-                .allOf(HelpdeskTicketSpecifications.statusIs(status),
+                .allOf(HelpdeskTicketSpecifications.statusIn(statuses),
                         HelpdeskTicketSpecifications.assignedTo(assignedTo),
                         HelpdeskTicketSpecifications.searchText(search));
         return ticketRepo.findAll(spec, PageRequest.of(page, size, Sort.by("createdAt").descending()))
@@ -162,12 +165,6 @@ public class HelpdeskService {
                 .internal(internal);
         applyAttachment(replyBuilder, attachment);
         HelpdeskReply reply = replyRepo.save(replyBuilder.build());
-
-        // The employee replying while HR is waiting on them puts the ball back in HR's court.
-        if (!isAdmin && TicketStatus.WAITING_FOR_EMPLOYEE.name().equals(ticket.getStatus())) {
-            ticket.setStatus(TicketStatus.IN_PROGRESS.name());
-            ticketRepo.save(ticket);
-        }
 
         auditService.log(actor.getId(), "HELPDESK_TICKET_REPLIED", ticket.getId());
 
@@ -232,12 +229,71 @@ public class HelpdeskService {
         String before = auditSnapshot.toJson(Map.of("status", current.name()));
         String after = auditSnapshot.toJson(Map.of("status", target.name()));
         auditService.log(actor.getId(), "HELPDESK_TICKET_STATUS_CHANGED", ticket.getId(), before, after);
-        notificationService.send(ticket.getEmployeeUserId(), "HELPDESK_TICKET_STATUS_CHANGED",
-                target == TicketStatus.RESOLVED ? "Your ticket was resolved" : "Your ticket status changed",
-                "Ticket " + ticket.getTicketNumber() + " is now " + target.name().replace('_', ' '),
-                LINK_EMPLOYEE_HELP);
+        notifyStatusChange(ticket, target);
 
         return toDetail(ticket, false);
+    }
+
+    /**
+     * A ticket's employee is always notified on every status change, but RESOLVED and CLOSED
+     * get their own distinct notification types (rather than sharing the generic
+     * HELPDESK_TICKET_STATUS_CHANGED type) so the frontend can render a dedicated icon/CTA —
+     * e.g. "Close this ticket" — for the two states the employee actually needs to act on.
+     */
+    private void notifyStatusChange(HelpdeskTicket ticket, TicketStatus target) {
+        String type = switch (target) {
+            case RESOLVED -> "HELPDESK_TICKET_RESOLVED";
+            case CLOSED -> "HELPDESK_TICKET_CLOSED";
+            default -> "HELPDESK_TICKET_STATUS_CHANGED";
+        };
+        String title = switch (target) {
+            case RESOLVED -> "Your ticket was resolved";
+            case CLOSED -> "Your ticket was closed";
+            default -> "Your ticket status changed";
+        };
+        notificationService.send(ticket.getEmployeeUserId(), type, title,
+                "Ticket " + ticket.getTicketNumber() + " is now " + target.name().replace('_', ' '),
+                LINK_EMPLOYEE_HELP);
+    }
+
+    // ── Close (RESOLVED -> CLOSED only; owning employee or any HR admin) ────
+
+    /**
+     * The one status change an employee may make themselves: closing their own ticket once HR
+     * has marked it RESOLVED. Gated the same way as every other shared endpoint — owner-or-admin
+     * — and routed through the same {@link TicketStatus#canTransitionTo} guard HR's updateStatus
+     * uses, so CLOSED stays reachable only from RESOLVED and only ever forward.
+     */
+    @Transactional
+    public TicketDetailDto closeTicket(UUID ticketId, String actorEmail) {
+        User actor = requireUser(actorEmail);
+        boolean isAdmin = isAdmin(actor);
+        HelpdeskTicket ticket = ticketRepo.findById(ticketId)
+                .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
+
+        if (!isAdmin && !ticket.getEmployeeUserId().equals(actor.getId())) {
+            throw new AccessDeniedException("You may only close your own tickets");
+        }
+
+        TicketStatus current = TicketStatus.from(ticket.getStatus());
+        if (!current.canTransitionTo(TicketStatus.CLOSED)) {
+            throw new IllegalStateException("Only a resolved ticket can be closed (current status: " + current + ")");
+        }
+
+        ticket.setStatus(TicketStatus.CLOSED.name());
+        ticketRepo.save(ticket);
+
+        String before = auditSnapshot.toJson(Map.of("status", current.name()));
+        String after = auditSnapshot.toJson(Map.of("status", TicketStatus.CLOSED.name()));
+        auditService.log(actor.getId(), "HELPDESK_TICKET_STATUS_CHANGED", ticket.getId(), before, after);
+
+        // Skip notifying the employee when they're the one who just closed it themselves —
+        // only notify when HR performed the close, same as every other admin-initiated change.
+        if (!actor.getId().equals(ticket.getEmployeeUserId())) {
+            notifyStatusChange(ticket, TicketStatus.CLOSED);
+        }
+
+        return toDetail(ticket, !isAdmin);
     }
 
     // ── Assign (HR only) ─────────────────────────────────────
@@ -252,10 +308,9 @@ public class HelpdeskService {
             throw new IllegalArgumentException("Assignee must be an HR Admin or Super Admin");
         }
 
+        // Assignment is orthogonal to status — it no longer implies a status change (see V93);
+        // HR explicitly moves OPEN -> IN_PROGRESS when they actually start working the ticket.
         ticket.setAssignedTo(req.getAssigneeUserId());
-        if (TicketStatus.OPEN.name().equals(ticket.getStatus())) {
-            ticket.setStatus(TicketStatus.ASSIGNED.name());
-        }
         ticketRepo.save(ticket);
 
         // Audit records who performed the assignment (the acting HR admin), not who was
@@ -268,6 +323,43 @@ public class HelpdeskService {
         return toDetail(ticket, false);
     }
 
+    /**
+     * "Start Working": the one explicit business action that both assigns an OPEN ticket to the
+     * acting HR admin themselves and moves it to IN_PROGRESS, atomically. Deliberately a single
+     * endpoint rather than the frontend chaining assign+updateStatus — the frontend has no
+     * reliable way to know its own user id (the JWT/auth store only carries email), and chaining
+     * two calls would risk a partial-failure state (assigned but still OPEN) plus a pointless
+     * self-notification. Viewing a ticket (getDetail) never calls this — only this explicit
+     * action does.
+     */
+    @Transactional
+    public TicketDetailDto startWorking(UUID ticketId, String actorEmail) {
+        User actor = requireAdmin(actorEmail);
+        HelpdeskTicket ticket = ticketRepo.findById(ticketId)
+                .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
+
+        TicketStatus current = TicketStatus.from(ticket.getStatus());
+        if (current != TicketStatus.OPEN) {
+            throw new IllegalStateException("Only an open ticket can be started (current status: " + current + ")");
+        }
+
+        ticket.setAssignedTo(actor.getId());
+        ticket.setStatus(TicketStatus.IN_PROGRESS.name());
+        ticketRepo.save(ticket);
+
+        auditService.log(actor.getId(), "HELPDESK_TICKET_ASSIGNED", ticket.getId());
+        String before = auditSnapshot.toJson(Map.of("status", current.name()));
+        String after = auditSnapshot.toJson(Map.of("status", TicketStatus.IN_PROGRESS.name()));
+        auditService.log(actor.getId(), "HELPDESK_TICKET_STATUS_CHANGED", ticket.getId(), before, after);
+
+        // Reuse the existing status-change notification (to the employee); deliberately skip the
+        // assignment notification here since actor == assignee — notifying yourself is noise,
+        // same precedent as closeTicket's self-close skip below.
+        notifyStatusChange(ticket, TicketStatus.IN_PROGRESS);
+
+        return toDetail(ticket, false);
+    }
+
     // ── Dashboard (HR only) ──────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -275,9 +367,7 @@ public class HelpdeskService {
         requireAdmin(actorEmail);
         return HelpdeskDashboardDto.builder()
                 .openCount(ticketRepo.countByStatus(TicketStatus.OPEN.name()))
-                .assignedCount(ticketRepo.countByStatus(TicketStatus.ASSIGNED.name()))
                 .inProgressCount(ticketRepo.countByStatus(TicketStatus.IN_PROGRESS.name()))
-                .waitingForEmployeeCount(ticketRepo.countByStatus(TicketStatus.WAITING_FOR_EMPLOYEE.name()))
                 .resolvedCount(ticketRepo.countByStatus(TicketStatus.RESOLVED.name()))
                 .closedCount(ticketRepo.countByStatus(TicketStatus.CLOSED.name()))
                 .build();

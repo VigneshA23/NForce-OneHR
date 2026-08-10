@@ -19,7 +19,7 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type TicketStatus = 'OPEN' | 'ASSIGNED' | 'IN_PROGRESS' | 'WAITING_FOR_EMPLOYEE' | 'RESOLVED' | 'CLOSED';
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface HelpdeskCategory {
@@ -84,9 +84,7 @@ export interface PagedTickets {
 
 export interface HelpdeskDashboard {
   openCount: number;
-  assignedCount: number;
   inProgressCount: number;
-  waitingForEmployeeCount: number;
   resolvedCount: number;
   closedCount: number;
 }
@@ -126,6 +124,10 @@ export const helpdeskApi = {
     return fetch(`${BASE}/${id}/reply`, { method: 'POST', headers: bearerOnly(token), body: form }).then(handle<ReplyItem>);
   },
 
+  // RESOLVED -> CLOSED only; the one status change an employee may make on their own ticket.
+  close: (id: string, token: string) =>
+    fetch(`${BASE}/${id}/close`, { method: 'POST', headers: authHeaders(token) }).then(handle<TicketDetail>),
+
   attachmentDownloadUrl: (replyId: string) => `${BASE}/replies/${replyId}/attachment`,
 
   downloadAttachment: async (replyId: string, token: string) => {
@@ -138,8 +140,10 @@ export const helpdeskApi = {
 // ── HR Admin ("HR Service Requests" queue) ─────────────────────────────────
 
 export const hrHelpdeskApi = {
-  listQueue: (token: string, opts: { status?: string; assignedTo?: string; search?: string; page?: number; size?: number } = {}) =>
-    fetch(`${HR_BASE}${qs({ status: opts.status, assignedTo: opts.assignedTo, search: opts.search, page: opts.page ?? 0, size: opts.size ?? 10 })}`,
+  // `status` accepts one value or several (e.g. the "Active Queue" filter = OPEN + IN_PROGRESS) —
+  // joined as a comma-separated list, which the backend's List<String> binding splits back out.
+  listQueue: (token: string, opts: { status?: string | string[]; assignedTo?: string; search?: string; page?: number; size?: number } = {}) =>
+    fetch(`${HR_BASE}${qs({ status: Array.isArray(opts.status) ? opts.status.join(',') : opts.status, assignedTo: opts.assignedTo, search: opts.search, page: opts.page ?? 0, size: opts.size ?? 10 })}`,
       { headers: authHeaders(token) }).then(handle<PagedTickets>),
 
   dashboard: (token: string) =>
@@ -150,6 +154,10 @@ export const hrHelpdeskApi = {
 
   getTicket: (id: string, token: string) =>
     fetch(`${HR_BASE}/${id}`, { headers: authHeaders(token) }).then(handle<TicketDetail>),
+
+  // "Start Working": assigns the OPEN ticket to the caller and moves it to IN_PROGRESS, atomically.
+  startWorking: (id: string, token: string) =>
+    fetch(`${HR_BASE}/${id}/start-working`, { method: 'POST', headers: authHeaders(token) }).then(handle<TicketDetail>),
 
   updateStatus: (id: string, payload: { status: TicketStatus; comment?: string }, token: string) =>
     fetch(`${HR_BASE}/${id}/status`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<TicketDetail>),
