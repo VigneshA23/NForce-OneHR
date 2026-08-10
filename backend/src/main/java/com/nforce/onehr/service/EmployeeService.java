@@ -7,6 +7,7 @@ import com.nforce.onehr.dto.ManagerDashboardDto;
 import com.nforce.onehr.dto.UpdateEmployeeRequest;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -160,7 +161,7 @@ public class EmployeeService {
                 .map(u -> {
                     String name = employeeRepository.findById(u.getId())
                             .map(Employee::getFullName).orElse(u.getEmail());
-                    String role = u.getRoles().stream().findFirst().map(Role::getCode).orElse("");
+                    String role = RoleUtils.primaryRoleCode(u.getRoles(), "");
                     return EmployeeResponse.builder()
                             .userId(u.getId())
                             .email(u.getEmail())
@@ -244,7 +245,7 @@ public class EmployeeService {
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {
-        String role = user.getRoles().stream().findFirst().map(Role::getCode).orElse("EMPLOYEE");
+        String role = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
                 .employeeCode(emp.getEmployeeCode())
