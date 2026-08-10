@@ -5,6 +5,7 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -58,10 +59,7 @@ public class AuthService {
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.isMustChangePassword());
         auditService.log(user.getId(), "LOGIN_SUCCESS", user.getId());
 
-        String roleCode = user.getRoles().stream()
-                .findFirst()
-                .map(com.nforce.onehr.entity.Role::getCode)
-                .orElse("EMPLOYEE");
+        String roleCode = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
 
         return LoginResponse.builder()
                 .token(token)

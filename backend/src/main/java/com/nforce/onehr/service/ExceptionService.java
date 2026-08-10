@@ -41,11 +41,12 @@ public class ExceptionService {
      * roles only — never client-supplied. HR/Super Admin takes precedence over Manager
      * for any user holding both roles.
      *
-     * This dashboard is an individual-contributor view only. "Employee" here means
-     * exactly what EmployeeService.listEmployees() (the Employee Master / Employees
-     * page) means: holds the EMPLOYEE role. Admin/HR/Manager-only accounts never appear
-     * as exception subjects, company-wide or as a direct report, even if their own
-     * attendance would otherwise qualify.
+     * This dashboard is an individual-contributor view only: an exception subject must
+     * hold the EMPLOYEE role and none of MANAGER/HR_ADMIN/SUPER_ADMIN (see
+     * UserRepository.findEmployeeRoleUserIds()). Admin/HR/Manager accounts never appear
+     * as exception subjects, company-wide or as a direct report, even if they were also
+     * granted EMPLOYEE (e.g. to punch in/out themselves) or their own attendance would
+     * otherwise qualify.
      */
     @Transactional
     public List<ExceptionResponse> getExceptionsForCaller(String actorEmail, LocalDate from, LocalDate to) {

@@ -12,10 +12,16 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
 public class Role {
 
+    // Only the DB id participates in equals/hashCode — Role rows are only ever created by the
+    // Flyway seed migration (never constructed transient at runtime), so id is always present
+    // once persisted. Without this, Set<Role> falls back to JVM identity hashing, which makes
+    // Set iteration order (and thus any findFirst() over it) different on every fresh JPA load.
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
     private Integer id;
 
     // Stable machine code (e.g. 'SUPER_ADMIN') — never changes after seed

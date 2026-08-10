@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -189,7 +190,7 @@ public class UserManagementService {
         snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
         snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
         snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
-        snapshot.put("role", user.getRoles().stream().findFirst().map(Role::getCode).orElse(null));
+        snapshot.put("role", RoleUtils.primaryRoleCode(user.getRoles(), null));
         snapshot.put("managerId", historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
                 .map(EmployeeManagerHistory::getManagerUserId).orElse(null));
         return snapshot;
@@ -269,7 +270,7 @@ public class UserManagementService {
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {
-        String role = user.getRoles().stream().findFirst().map(Role::getCode).orElse("");
+        String role = RoleUtils.primaryRoleCode(user.getRoles(), "");
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
                 .employeeCode(emp.getEmployeeCode())
