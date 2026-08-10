@@ -1,30 +1,19 @@
 package com.nforce.onehr.dto.onboarding;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
-import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * Either set employeeUserId (pick from Employee Master) OR leave it null and
- * fill the inline new-hire fields — OnboardingService delegates to
- * EmployeeService.createEmployee for the latter so no employee-creation logic
- * is duplicated here.
+ * Onboarding always starts for an employee that already exists in Employee
+ * Master — this is a checklist/orchestration layer, not another way to create
+ * employee records. Use POST /api/employees first if the person isn't in the
+ * system yet.
  */
 @Data
 public class StartOnboardingRequest {
 
+    @NotNull
     private UUID employeeUserId;
-
-    // Inline new-hire fields — only read when employeeUserId is null.
-    private String fullName;
-    private String email;
-    private String employeeCode;
-    private UUID departmentId;
-    private UUID designationId;
-    private UUID locationId;
-    private String employmentType;
-    private String workMode;
-    private LocalDate joiningDate;
-    private UUID managerId;
 }

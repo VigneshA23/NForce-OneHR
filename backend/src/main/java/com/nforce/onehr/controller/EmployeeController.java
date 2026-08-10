@@ -29,9 +29,10 @@ public class EmployeeController {
         return employeeService.listEmployees();
     }
 
+    /** Creating new employee accounts is a Super Admin action, done from User Management. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public EmployeeResponse createEmployee(@Valid @RequestBody CreateEmployeeRequest req, Principal principal) {
         return employeeService.createEmployee(req, principal.getName());
     }

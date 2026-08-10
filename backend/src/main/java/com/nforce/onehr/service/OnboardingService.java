@@ -1,6 +1,5 @@
 package com.nforce.onehr.service;
 
-import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.asset.AssetAssignmentResponse;
 import com.nforce.onehr.dto.doc.RequiredDocumentDto;
@@ -57,31 +56,9 @@ public class OnboardingService {
     public OnboardingChecklistDetailDto startOnboarding(StartOnboardingRequest req, String actorEmail) {
         User actor = requireAdmin(actorEmail);
 
-        UUID employeeUserId;
-        if (req.getEmployeeUserId() != null) {
-            employeeUserId = req.getEmployeeUserId();
-            if (!employeeRepo.existsById(employeeUserId)) {
-                throw new NoSuchElementException("Employee not found: " + employeeUserId);
-            }
-        } else {
-            if (req.getFullName() == null || req.getFullName().isBlank()
-                    || req.getEmail() == null || req.getEmail().isBlank()
-                    || req.getJoiningDate() == null) {
-                throw new IllegalArgumentException("Full name, email and joining date are required for a new hire");
-            }
-            CreateEmployeeRequest cer = new CreateEmployeeRequest();
-            cer.setFullName(req.getFullName().trim());
-            cer.setEmail(req.getEmail().trim());
-            cer.setEmployeeCode(req.getEmployeeCode());
-            cer.setDepartmentId(req.getDepartmentId());
-            cer.setDesignationId(req.getDesignationId());
-            cer.setLocationId(req.getLocationId());
-            if (req.getEmploymentType() != null) cer.setEmploymentType(req.getEmploymentType());
-            if (req.getWorkMode() != null) cer.setWorkMode(req.getWorkMode());
-            cer.setJoiningDate(req.getJoiningDate());
-            cer.setManagerId(req.getManagerId());
-            EmployeeResponse created = employeeService.createEmployee(cer, actorEmail);
-            employeeUserId = created.getUserId();
+        UUID employeeUserId = req.getEmployeeUserId();
+        if (!employeeRepo.existsById(employeeUserId)) {
+            throw new NoSuchElementException("Employee not found: " + employeeUserId);
         }
 
         if (checklistRepo.existsByEmployeeUserId(employeeUserId)) {

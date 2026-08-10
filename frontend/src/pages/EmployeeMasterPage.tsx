@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, X, ChevronDown } from 'lucide-react';
+import { X, ChevronDown } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
-import { employeesApi, type EmployeeRecord, type CreateEmployeePayload, type UpdateEmployeePayload } from '../api/employees';
+import { employeesApi, type EmployeeRecord, type UpdateEmployeePayload } from '../api/employees';
 import { orgApi } from '../api/org';
 
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
@@ -129,136 +129,6 @@ function CreatableLocationSelect({
   );
 }
 
-// ─── Add Modal ────────────────────────────────────────────────────────────────
-function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string }) {
-  const [form, setForm] = useState<CreateEmployeePayload>({ fullName: '', email: '', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
-  const [opts, setOpts] = useState<{ departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[] }>({ departments: [], designations: [], locations: [], managers: [] });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<EmployeeRecord | null>(null);
-
-  useEffect(() => {
-    Promise.all([
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-    ]).then(([d, des, l, m]) => setOpts({ departments: d, designations: des, locations: l, managers: m }));
-  }, [token]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.fullName.trim() || !form.email.trim() || !form.joiningDate) { setError('Name, email, and joining date are required.'); return; }
-    if (!/[a-zA-Z]/.test(form.fullName.trim())) { setError('Full name must contain at least one letter.'); return; }
-    setSubmitting(true); setError(null);
-    try {
-      const emp = await employeesApi.create(form, token);
-      setCreated(emp);
-      onCreated(emp);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
-    } finally { setSubmitting(false); }
-  }
-
-  if (created) {
-    return (
-      <div style={overlayStyle}>
-        <div style={modalStyle}>
-          <ModalHeader title="Employee Created" onClose={onClose} />
-          <div style={{ padding: 24 }}>
-            <div style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-              <div style={{ color: '#2FB67C', fontWeight: 600, marginBottom: 8 }}>Employee account created successfully</div>
-              <div style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.8 }}>
-                <b style={{ color: 'var(--txt)' }}>Name:</b> {created.fullName}<br />
-                <b style={{ color: 'var(--txt)' }}>Email:</b> {created.email}<br />
-                <b style={{ color: 'var(--txt)' }}>Employee ID:</b> {created.employeeCode}
-              </div>
-            </div>
-            {created.tempPassword && (
-              <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password — share once, store nowhere</div>
-                <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'monospace', userSelect: 'all' }}>{created.tempPassword}</code>
-              </div>
-            )}
-            <button onClick={onClose} style={{ marginTop: 20, width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 580 }}>
-        <ModalHeader title="Add Employee" onClose={onClose} />
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Full Name *">
-              <input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" />
-            </Field>
-          </div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Company Email *">
-              <input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" />
-            </Field>
-          </div>
-          <Field label="Employee ID (auto if blank)">
-            <input style={inputStyle} value={form.employeeCode ?? ''} onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value || undefined }))} placeholder="NF-00001" />
-          </Field>
-          <Field label="Joining Date *">
-            <input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} />
-          </Field>
-          <Field label="Department">
-            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
-              {opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Designation">
-            <select style={inputStyle} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
-              {opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
-            </select>
-          </Field>
-          <Field label="Employment Type">
-            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}>
-              {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
-            </select>
-          </Field>
-          <Field label="Work Mode">
-            <select style={inputStyle} value={form.workMode ?? 'ONSITE'} onChange={e => setForm(f => ({ ...f, workMode: e.target.value }))}>
-              {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
-            </select>
-          </Field>
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Location">
-              <CreatableLocationSelect
-                locations={opts.locations}
-                value={form.locationId}
-                onChange={id => setForm(f => ({ ...f, locationId: id }))}
-                token={token}
-              />
-            </Field>
-          </div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Manager">
-              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => setForm(f => ({ ...f, managerId: e.target.value || undefined }))}>
-                <option value="">— None —</option>
-                {opts.managers.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
-              </select>
-            </Field>
-          </div>
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Creating…' : 'Create Employee'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
   const [form, setForm] = useState<UpdateEmployeePayload>({
@@ -352,7 +222,6 @@ export default function EmployeeMasterPage() {
   const token = useAuthStore(s => s.token)!;
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<EmployeeRecord | null>(null);
 
   // Filters
@@ -393,11 +262,8 @@ export default function EmployeeMasterPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Add and manage employee records. Role, manager, and access are managed by Super Admin.</p>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage employee records. New hires, role and access are added from Super Admin → User Management.</p>
         </div>
-        <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <UserPlus size={14} /> Add Employee
-        </button>
       </div>
 
       {/* Search + Filters */}
@@ -438,7 +304,7 @@ export default function EmployeeMasterPage() {
           <div style={{ padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>{employees.length === 0 ? 'No employees yet' : 'No results'}</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
-              {employees.length === 0 ? 'Click "Add Employee" to create the first record.' : 'Try adjusting search or filters.'}
+              {employees.length === 0 ? 'New hires are added from Super Admin → User Management.' : 'Try adjusting search or filters.'}
             </div>
           </div>
         ) : (
@@ -512,7 +378,6 @@ export default function EmployeeMasterPage() {
         )}
       </div>
 
-      {showAdd && <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={emp => setEmployees(prev => [emp, ...prev])} />}
       {editing && <EditModal emp={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setEmployees(prev => prev.map(e => e.userId === updated.userId ? updated : e))} />}
     </div>
   );
