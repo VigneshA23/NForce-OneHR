@@ -142,6 +142,7 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
     e.preventDefault();
     if (!form.fullName.trim() || !form.email.trim()) { setError('Name and email required.'); return; }
     if (!/[a-zA-Z]/.test(form.fullName.trim())) { setError('Full name must contain at least one letter.'); return; }
+    if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
     setSubmitting(true); setError(null);
     try {
       const emp = await usersApi.create(form, token);
@@ -244,7 +245,7 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
             </select>
           </Field>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Location">
+            <Field label="Location *">
               <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>

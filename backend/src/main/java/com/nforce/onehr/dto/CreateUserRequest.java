@@ -26,7 +26,10 @@ public class CreateUserRequest {
     private String employeeCode;
     private UUID departmentId;
     private UUID designationId;
+
+    @NotNull
     private UUID locationId;
+
     private String employmentType = "FULL_TIME";
     private String workMode = "ONSITE";
 
