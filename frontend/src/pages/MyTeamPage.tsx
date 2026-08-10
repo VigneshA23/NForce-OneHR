@@ -3,10 +3,18 @@ import { ChevronLeft, ChevronRight, Search, Check, X, AlertTriangle, Users, Chec
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
-import { attendanceApi, regularizationApi, type AttendanceRecord } from '../api/attendance';
+import {
+  attendanceApi, regularizationApi, type AttendanceRecord,
+  type TeamEffortEntry, type TeamNegligenceResponse,
+  type TeamLateArrivalEntry, type TeamLeastHoursEntry, type TeamFrequentBreaksEntry,
+} from '../api/attendance';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { approvalCenterApi, type ApprovalItem } from '../api/approvalCenter';
+import {
+  employeeAssignmentsApi, type EmployeeAssignmentRow, type AssignmentLookups, type AssignmentFilters,
+} from '../api/employeeAssignments';
+import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestReportRow } from '../api/reports';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -278,9 +286,739 @@ const DAY_COLORS: Record<Exclude<DayCategory, 'plain'>, string> = {
   missing: 'var(--risk)',
 };
 
+/* ── Shared: date-range control for the leaderboard/negligence tabs ── */
+function DateRangeControl({ from, to, onFrom, onTo }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)' }}>Date range</span>
+      <input type="date" value={from} max={to} onChange={e => onFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
+      <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>–</span>
+      <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => onTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
+    </div>
+  );
+}
+
+function useTeamDateRange(days: number) {
+  const [from, setFrom] = useState(() => toISO(addDays(new Date(), -(days - 1))));
+  const [to, setTo] = useState(() => todayIsoDate());
+  return { from, setFrom, to, setTo };
+}
+
+/* ══ ONEHR-106: Team Effort (Avg. Work Hours Leaderboard) ══ */
+function EffortRow({ entry }: { entry: TeamEffortEntry }) {
+  const fillPct = Math.min(100, entry.avgHoursPerDay * 10);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+      <Avatar name={entry.fullName} size={30} />
+      <div style={{ minWidth: 150 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+      </div>
+      <div style={{ flex: 1, minWidth: 100 }}>
+        <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${fillPct}%`, borderRadius: 4, background: 'var(--brand-bright)' }} />
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
+        Avg. {entry.avgHoursPerDay.toFixed(1)} hrs/day · {entry.hoursWorked.toFixed(1)}/{entry.expectedHours.toFixed(0)} hrs worked
+      </div>
+    </div>
+  );
+}
+
+function EffortTab({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const { from, setFrom, to, setTo } = useTeamDateRange(7);
+  const [entries, setEntries] = useState<TeamEffortEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    attendanceApi.teamEffort(from, to, token)
+      .then(setEntries)
+      .catch(e => showToast('error', e instanceof Error ? e.message : 'Failed to load team effort'))
+      .finally(() => setLoading(false));
+  }, [token, from, to]);
+
+  return (
+    <div style={panelStyle}>
+      <div style={panelHeadStyle}>
+        <span style={panelTitleStyle}>Avg. Work Hours Leaderboard</span>
+        <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+      </div>
+      <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
+      {loading ? (
+        <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
+      ) : entries.length === 0 ? (
+        <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
+      ) : (
+        entries.map(e => <EffortRow key={e.employeeUserId} entry={e} />)
+      )}
+    </div>
+  );
+}
+
+/* ══ ONEHR-107: Team Negligence Signals ══ */
+function LateArrivalRow({ entry }: { entry: TeamLateArrivalEntry }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+      <Avatar name={entry.fullName} size={30} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{entry.lateDays} / {entry.activeDays} Late Arrivals</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--risk)' }}>{entry.latePct.toFixed(0)}%</div>
+      </div>
+    </div>
+  );
+}
+
+function DailyBarChart({ data, color }: { data: { date: string; count: number }[]; color: string }) {
+  const max = Math.max(1, ...data.map(d => d.count));
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 130, padding: '14px 6px 0' }}>
+      {data.map(d => (
+        <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 9.5, color: 'var(--txt-dim)' }}>{d.count}</span>
+          <div style={{
+            width: '100%', maxWidth: 26, height: `${(d.count / max) * 90}%`, minHeight: d.count > 0 ? 3 : 0,
+            background: color, borderRadius: '3px 3px 0 0',
+          }} />
+          <span style={{ fontSize: 9, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>{fmtDateShort(d.date)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LeastHoursRow({ entry }: { entry: TeamLeastHoursEntry }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+      <Avatar name={entry.fullName} size={30} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>Avg. {entry.avgHoursPerDay.toFixed(1)} hrs/day</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.hoursWorked.toFixed(1)} hrs worked</div>
+      </div>
+    </div>
+  );
+}
+
+const BUCKET_COLORS = ['#E4373D', '#E0A93B', '#4C8DD6', '#2FB67C', '#818CF8', '#8B5CF6'];
+
+function HoursDonut({ buckets }: { buckets: { label: string; count: number; pct: number }[] }) {
+  let acc = 0;
+  const total = buckets.reduce((s, b) => s + b.count, 0);
+  const stops = buckets.map((b, i) => {
+    const start = acc;
+    acc += b.pct;
+    return `${BUCKET_COLORS[i]} ${start}% ${acc}%`;
+  }).join(', ');
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', padding: '16px 18px' }}>
+      <div style={{ width: 130, height: 130, borderRadius: '50%', flexShrink: 0, background: total > 0 ? `conic-gradient(${stops})` : 'var(--raised2)' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {buckets.map((b, i) => (
+          <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: 'var(--txt-mut)' }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: BUCKET_COLORS[i], flexShrink: 0 }} />
+            {b.label} <b style={{ color: 'var(--txt)' }}>{b.pct.toFixed(0)}%</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FrequentBreaksRow({ entry }: { entry: TeamFrequentBreaksEntry }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+      <Avatar name={entry.fullName} size={30} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{entry.totalBreakHours.toFixed(1)} hrs in {entry.totalBreakCount} breaks</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>Avg. {entry.avgBreaksPerDay.toFixed(1)} breaks/day</div>
+      </div>
+    </div>
+  );
+}
+
+function BreaksTrend({ data }: { data: { date: string; avgBreaks: number }[] }) {
+  if (data.length === 0) return null;
+  const max = Math.max(...data.map(d => d.avgBreaks), 1);
+  const point = (i: number, v: number) => {
+    const x = data.length === 1 ? 150 : (i / (data.length - 1)) * 280 + 10;
+    const y = 130 - (v / max) * 100;
+    return [x, y] as const;
+  };
+  const points = data.map((d, i) => point(i, d.avgBreaks).join(',')).join(' ');
+  const trendingUp = data.length > 1 && data[data.length - 1].avgBreaks >= data[0].avgBreaks;
+  return (
+    <div style={{ padding: '14px 18px' }}>
+      <svg viewBox="0 0 300 140" style={{ width: '100%', maxWidth: 360, height: 'auto', display: 'block' }}>
+        <line x1="0" y1="130" x2="300" y2="130" stroke="var(--line)" strokeWidth="1" />
+        <polyline points={points} fill="none" stroke="var(--info)" strokeWidth="2.5" />
+        {data.map((d, i) => {
+          const [x, y] = point(i, d.avgBreaks);
+          return <circle key={d.date} cx={x} cy={y} r="3.5" fill="var(--info)" />;
+        })}
+      </svg>
+      <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 6 }}>
+        Avg. breaks/day across flagged employees — {trendingUp ? 'trending up' : 'trending down'} this range
+      </div>
+    </div>
+  );
+}
+
+function NegligenceTab({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const { from, setFrom, to, setTo } = useTeamDateRange(7);
+  const [data, setData] = useState<TeamNegligenceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    attendanceApi.teamNegligence(from, to, token)
+      .then(setData)
+      .catch(e => showToast('error', e instanceof Error ? e.message : 'Failed to load negligence data'))
+      .finally(() => setLoading(false));
+  }, [token, from, to]);
+
+  if (loading || !data) {
+    return <div style={{ ...panelStyle, padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={panelStyle}>
+        <div style={panelHeadStyle}>
+          <span style={panelTitleStyle}>Late Arrivals</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+        </div>
+        <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
+        {data.lateArrivals.length === 0 ? (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No late arrivals in this range.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
+            <div>{data.lateArrivals.map(e => <LateArrivalRow key={e.employeeUserId} entry={e} />)}</div>
+            <div style={{ borderLeft: '1px solid var(--line)' }}>
+              <DailyBarChart data={data.dailyLateCounts.map(d => ({ date: d.date, count: d.count }))} color="var(--risk)" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={panelStyle}>
+        <div style={panelHeadStyle}>
+          <span style={panelTitleStyle}>Least Hours Worked</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+        </div>
+        {data.leastHoursWorked.length === 0 ? (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
+            <div>{data.leastHoursWorked.slice(0, 5).map(e => <LeastHoursRow key={e.employeeUserId} entry={e} />)}</div>
+            <div style={{ borderLeft: '1px solid var(--line)' }}>
+              <HoursDonut buckets={data.hoursHistogram} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={panelStyle}>
+        <div style={panelHeadStyle}>
+          <span style={panelTitleStyle}>Frequent Breaks</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+        </div>
+        {data.frequentBreaks.length === 0 ? (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No breaks recorded in this range.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 0 }}>
+            <div>{data.frequentBreaks.map(e => <FrequentBreaksRow key={e.employeeUserId} entry={e} />)}</div>
+            <div style={{ borderLeft: '1px solid var(--line)' }}>
+              <BreaksTrend data={data.breaksTrend} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══ ONEHR-108: Bulk-Edit Team Shift, Weekly Off & Penalisation Policy Assignments ══ */
+function BulkButton({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      fontSize: 11.5, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer',
+      border: '1px solid var(--line2)', background: disabled ? 'var(--raised2)' : 'var(--shell)', color: disabled ? 'var(--txt-dim)' : 'var(--txt)',
+    }}>
+      {label}
+    </button>
+  );
+}
+
+const assignmentCellStyle: React.CSSProperties = { padding: '8px 12px', borderBottom: '1px solid var(--line)', fontSize: 12, color: 'var(--txt-mut)' };
+
+interface AssignmentActionResult {
+  kind: 'bulk' | 'import';
+  succeeded: number;
+  failures: { label: string; reason: string }[];
+}
+
+function AssignmentsTab({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const [lookups, setLookups] = useState<AssignmentLookups | null>(null);
+  const [rows, setRows] = useState<EmployeeAssignmentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<AssignmentFilters>({});
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkModal, setBulkModal] = useState<null | 'shift' | 'weeklyOff' | 'penalisation'>(null);
+  const [bulkPickerValue, setBulkPickerValue] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [lastResult, setLastResult] = useState<AssignmentActionResult | null>(null);
+
+  useEffect(() => {
+    employeeAssignmentsApi.lookups(token).then(setLookups).catch(() => {});
+  }, [token]);
+
+  const activeFilters = useMemo<AssignmentFilters>(() => ({ ...filters, search: search.trim() || undefined }), [filters, search]);
+
+  function reload() {
+    setLoading(true);
+    return employeeAssignmentsApi.team(activeFilters, token)
+      .then(r => { setRows(r); setSelected(new Set()); })
+      .catch(e => showToast('error', e instanceof Error ? e.message : 'Failed to load team assignments'))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => { reload(); }, [token, filters, search]);
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.employeeUserId)));
+  }
+
+  async function applyBulk() {
+    if (!bulkModal || !bulkPickerValue || selected.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const ids = Array.from(selected);
+      const fn = bulkModal === 'shift' ? employeeAssignmentsApi.bulkUpdateShift
+        : bulkModal === 'weeklyOff' ? employeeAssignmentsApi.bulkUpdateWeeklyOff
+        : employeeAssignmentsApi.bulkUpdatePenalisationPolicy;
+      const result = await fn(ids, bulkPickerValue, token);
+      showToast(result.failed.length === 0 ? 'success' : 'error',
+        `${result.succeededIds.length} updated${result.failed.length ? `, ${result.failed.length} failed` : ''}`);
+      setLastResult({
+        kind: 'bulk',
+        succeeded: result.succeededIds.length,
+        failures: result.failed.map(f => ({
+          label: rows.find(r => r.employeeUserId === f.employeeUserId)?.fullName ?? f.employeeUserId,
+          reason: f.reason,
+        })),
+      });
+      setBulkModal(null);
+      setBulkPickerValue('');
+      await reload();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Bulk update failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function runImport() {
+    if (!importFile) return;
+    setImportBusy(true);
+    try {
+      const result = await employeeAssignmentsApi.import(importFile, token);
+      showToast(result.failed === 0 ? 'success' : 'error', `${result.succeeded}/${result.totalRows} rows imported`);
+      setLastResult({
+        kind: 'import',
+        succeeded: result.succeeded,
+        failures: result.results.filter(r => !r.success)
+          .map(r => ({ label: `Row ${r.row} (${r.employeeCode || '—'})`, reason: r.error ?? 'Unknown error' })),
+      });
+      setImportOpen(false);
+      setImportFile(null);
+      await reload();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Import failed');
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  const pickerOptions = bulkModal === 'shift' ? lookups?.shifts
+    : bulkModal === 'weeklyOff' ? lookups?.weeklyOffPolicies
+    : lookups?.penalisationPolicies;
+
+  return (
+    <div style={panelStyle}>
+      <div style={panelHeadStyle}>
+        <span style={panelTitleStyle}>Time Assignments</span>
+        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'person' : 'people'}</span>
+      </div>
+
+      <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <label style={labelStyle}>Shift</label>
+          <select value={filters.shiftId ?? ''} onChange={e => setFilters(f => ({ ...f, shiftId: e.target.value || undefined }))} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All shifts</option>
+            {lookups?.shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Weekly off</label>
+          <select value={filters.weeklyOffPolicyId ?? ''} onChange={e => setFilters(f => ({ ...f, weeklyOffPolicyId: e.target.value || undefined }))} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All policies</option>
+            {lookups?.weeklyOffPolicies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Penalisation policy</label>
+          <select value={filters.penalisationPolicyId ?? ''} onChange={e => setFilters(f => ({ ...f, penalisationPolicyId: e.target.value || undefined }))} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All policies</option>
+            {lookups?.penalisationPolicies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Department</label>
+          <select value={filters.department ?? ''} onChange={e => setFilters(f => ({ ...f, department: e.target.value || undefined }))} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All departments</option>
+            {lookups?.departments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Location</label>
+          <select value={filters.location ?? ''} onChange={e => setFilters(f => ({ ...f, location: e.target.value || undefined }))} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All locations</option>
+            {lookups?.locations.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+          <Search size={13} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+        </div>
+      </div>
+
+      <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <BulkButton label="Update Shift" disabled={selected.size === 0} onClick={() => { setBulkModal('shift'); setBulkPickerValue(''); }} />
+        <BulkButton label="Update Weekly Off" disabled={selected.size === 0} onClick={() => { setBulkModal('weeklyOff'); setBulkPickerValue(''); }} />
+        <BulkButton label="Update Penalisation Policy" disabled={selected.size === 0} onClick={() => { setBulkModal('penalisation'); setBulkPickerValue(''); }} />
+        <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+          Total: <b style={{ color: 'var(--txt)' }}>{rows.length}</b>{selected.size > 0 && <> · {selected.size} selected</>}
+        </span>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setImportOpen(true)} style={{ fontSize: 11.5, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: 'pointer', border: '1px solid transparent', background: 'var(--brand)', color: '#fff' }}>
+          Import Shifts &amp; Weekly Offs
+        </button>
+      </div>
+
+      {lastResult && (
+        <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
+            {lastResult.kind === 'import' ? 'Import' : 'Bulk update'} — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+          </div>
+          {lastResult.failures.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {lastResult.failures.map((f, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: 'var(--risk)' }}>{f.label}: {f.reason}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 12px', textAlign: 'left' }}>
+                <input type="checkbox" checked={rows.length > 0 && selected.size === rows.length} onChange={toggleSelectAll} />
+              </th>
+              {['Employee', 'Employee number', 'Department', 'Location', 'Shift type', 'Weekly off', 'Penalisation policy'].map(h => (
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={8} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={8} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one matches these filters.</td></tr>
+            ) : rows.map(r => (
+              <tr key={r.employeeUserId}>
+                <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+                  <input type="checkbox" checked={selected.has(r.employeeUserId)} onChange={() => toggleSelect(r.employeeUserId)} />
+                </td>
+                <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Avatar name={r.fullName} size={26} />
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.fullName}</span>
+                  </div>
+                </td>
+                <td style={assignmentCellStyle}>{r.employeeCode}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.shiftName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.weeklyOffPolicyName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {bulkModal && (
+        <div style={overlayStyle} onClick={() => !bulkBusy && setBulkModal(null)}>
+          <div style={{ ...modalStyle, maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>
+              {bulkModal === 'shift' ? 'Update Shift' : bulkModal === 'weeklyOff' ? 'Update Weekly Off' : 'Update Penalisation Policy'}
+            </div>
+            <div style={{ padding: 18 }}>
+              <label style={labelStyle}>New value for {selected.size} selected {selected.size === 1 ? 'employee' : 'employees'}</label>
+              <select value={bulkPickerValue} onChange={e => setBulkPickerValue(e.target.value)} style={inputStyle}>
+                <option value="">Select…</option>
+                {pickerOptions?.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </div>
+            <div style={{ padding: 18, display: 'flex', gap: 8, borderTop: '1px solid var(--line)' }}>
+              <button onClick={() => setBulkModal(null)} disabled={bulkBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>Cancel</button>
+              <button onClick={applyBulk} disabled={!bulkPickerValue || bulkBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: !bulkPickerValue || bulkBusy ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+                {bulkBusy ? 'Applying…' : 'Apply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div style={overlayStyle} onClick={() => !importBusy && setImportOpen(false)}>
+          <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
+            <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+                CSV with columns <code>employee_code,shift_name,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched.
+              </div>
+              <input type="file" accept=".csv,text/csv" onChange={e => setImportFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12.5, color: 'var(--txt)' }} />
+            </div>
+            <div style={{ padding: 18, display: 'flex', gap: 8, borderTop: '1px solid var(--line)' }}>
+              <button onClick={() => setImportOpen(false)} disabled={importBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>Cancel</button>
+              <button onClick={runImport} disabled={!importFile || importBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: !importFile || importBusy ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+                {importBusy ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══ ONEHR-109: Attendance Request Reports Library ══ */
+interface ReportCardDef {
+  key: string;
+  title: string;
+  description: string;
+  reportType?: AttendanceRequestReportType; // present only for the 4 real, data-backed cards
+  blockedReason?: string; // present only for the 6 stubbed cards — never silently empty (AC #5)
+}
+
+const REPORT_CARDS: ReportCardDef[] = [
+  { key: 'reg-summary', title: 'Attendance Regularizations Summary', description: 'Summary of attendance adjustment and regularization requests made by employees.', reportType: 'REGULARIZATION' },
+  { key: 'mobile-location', title: 'Mobile Location Punches', description: "Details of employees' location punches along with coordinates.", blockedReason: 'Requires GPS/coordinate punch tracking — not yet built.' },
+  { key: 'overtime', title: 'Overtime Requests', description: 'Summary of overtime requests made by employees.', blockedReason: 'Requires Overtime tracking — not yet built.' },
+  { key: 'partial-day', title: 'Partial Day Requests', description: 'Summary of partial day requests made by employees.', blockedReason: 'Requires Partial Day requests — not yet built.' },
+  { key: 'remote-summary', title: 'Remote Clock-in Requests Summary', description: 'Summary of remote clock-ins and outs requests made by employees.', reportType: 'WEB_CLOCK_IN' },
+  { key: 'remote-clockins', title: 'Remote Clock-ins', description: "Details of employees' remote punch (In/Out) along with coordinates.", reportType: 'WEB_CLOCK_IN' },
+  { key: 'shift-weeklyoff', title: 'Shift & Weekly Off Requests', description: 'Summary of shift/weekly off requests made by employees.', blockedReason: 'Requires Shift & Weekly Off as a request workflow — not yet built (see the Employee Assignments tab for static assignments).' },
+  { key: 'web-clockins', title: 'Web Clock-ins', description: "Details of employees' web clock-ins along with IP address.", reportType: 'WEB_CLOCK_IN' },
+  { key: 'web-clockins-forgot', title: 'Web Clock-ins (includes Forgot ID requests)', description: 'Summary of web clock-ins done by employees.', blockedReason: 'Requires a Forgot ID flag on web clock-ins — not yet built.' },
+  { key: 'wfh-od', title: 'Working Remotely (WFH/OD) Requests', description: 'Summary of WFH/OD requests made by employees.', blockedReason: 'Requires WFH/OD as a request workflow — not yet built (only a static work-mode profile field exists today).' },
+];
+
+const REPORT_CATEGORIES = ['Reports Home', 'Attendance Request Reports', 'Attendance Reports', 'Punctuality Reports', 'Negligence Reports', 'Scheduled reports'];
+
+function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: string; onClose: () => void }) {
+  const { showToast } = useToast();
+  const { from, setFrom, to, setTo } = useTeamDateRange(30);
+  const [rows, setRows] = useState<AttendanceRequestReportRow[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function run() {
+    if (!card.reportType) return;
+    setLoading(true);
+    try {
+      setRows(await reportsApi.attendanceRequests(card.reportType, from, to, token));
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to run report');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function exportCsv() {
+    if (!card.reportType) return;
+    setExporting(true);
+    try {
+      await reportsApi.exportAttendanceRequests(card.reportType, from, to, token);
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { run(); }, []);
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{card.title}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
+          <span style={{ color: 'var(--txt-dim)' }}>–</span>
+          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
+          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+            {loading ? 'Running…' : 'Run'}
+          </button>
+          <div style={{ flex: 1 }} />
+          <button onClick={exportCsv} disabled={exporting || !rows || rows.length === 0} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: exporting || !rows?.length ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+        </div>
+        <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+          {loading ? (
+            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
+          ) : !rows || rows.length === 0 ? (
+            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No requests in this range.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Employee', 'Date', 'Check In', 'Check Out', 'Status'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
+                    <td style={assignmentCellStyle}>{fmtDateShort(r.date)}</td>
+                    <td style={assignmentCellStyle}>{fmtTime(r.checkIn)}</td>
+                    <td style={assignmentCellStyle}>{fmtTime(r.checkOut)}</td>
+                    <td style={assignmentCellStyle}>{r.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReportsTab({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const [category, setCategory] = useState('Attendance Request Reports');
+  const [search, setSearch] = useState('');
+  const [runningCard, setRunningCard] = useState<ReportCardDef | null>(null);
+
+  const q = search.trim().toLowerCase();
+  const filteredCards = category === 'Attendance Request Reports'
+    ? REPORT_CARDS.filter(c => !q || c.title.toLowerCase().includes(q))
+    : [];
+
+  function openCard(card: ReportCardDef) {
+    if (!card.reportType) {
+      showToast('error', card.blockedReason ?? 'Not available yet.');
+      return;
+    }
+    setRunningCard(card);
+  }
+
+  return (
+    <div style={panelStyle}>
+      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)' }}>
+        <div style={{ borderRight: '1px solid var(--line)', padding: '14px 10px' }}>
+          {REPORT_CATEGORIES.map(cat => (
+            <div key={cat} onClick={() => setCategory(cat)} style={{
+              padding: '9px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, marginBottom: 2,
+              background: category === cat ? 'var(--brand)' : 'transparent', color: category === cat ? '#fff' : 'var(--txt-mut)',
+            }}>
+              {cat}
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+            <span style={panelTitleStyle}>{category}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+              <Search size={13} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search reports…" style={{ background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+            </div>
+          </div>
+          <div style={{ padding: 18 }}>
+            {category !== 'Attendance Request Reports' ? (
+              <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Not available yet.</div>
+            ) : filteredCards.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No reports match your search.</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                {filteredCards.map(c => (
+                  <div key={c.key} onClick={() => openCard(c)} style={{
+                    background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: 14,
+                    cursor: 'pointer', opacity: c.reportType ? 1 : 0.55, position: 'relative',
+                  }}>
+                    {!c.reportType && (
+                      <span style={{ position: 'absolute', top: 10, right: 10, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'var(--raised2)', color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>
+                        Coming soon
+                      </span>
+                    )}
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 5, paddingRight: c.reportType ? 0 : 78 }}>{c.title}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', lineHeight: 1.4 }}>{c.description}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {runningCard && <ReportRunModal card={runningCard} token={token} onClose={() => setRunningCard(null)} />}
+    </div>
+  );
+}
+
 export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
   const today = todayIsoDate();
+
+  const [tab, setTab] = useState<'overview' | 'effort' | 'negligence' | 'assignments' | 'reports'>('overview');
 
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [directReportCount, setDirectReportCount] = useState(0);
@@ -409,6 +1147,25 @@ export default function MyTeamPage() {
         </div>
       </div>
 
+      {/* Sub-tabs — Overview is the original page; the rest are ONEHR-106/107/108/109. */}
+      <div style={{ display: 'flex', gap: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', marginBottom: 20, flexWrap: 'wrap' }}>
+        {([
+          ['overview', 'Overview'],
+          ['effort', 'Efforts / Punctuality'],
+          ['negligence', 'Negligence'],
+          ['assignments', 'Employee Assignments'],
+          ['reports', 'Reports'],
+        ] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)} style={{
+            padding: '8px 14px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12.5,
+            background: tab === key ? 'var(--brand)' : 'transparent', color: tab === key ? '#fff' : 'var(--txt-dim)', whiteSpace: 'nowrap',
+          }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'overview' && (<>
       {/* Who's on leave / Not in yet */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
@@ -638,6 +1395,12 @@ export default function MyTeamPage() {
       </div>
 
       {viewing && <EmployeeDetailModal row={viewing} onClose={() => setViewing(null)} />}
+      </>)}
+
+      {tab === 'effort' && <EffortTab token={token} />}
+      {tab === 'negligence' && <NegligenceTab token={token} />}
+      {tab === 'assignments' && <AssignmentsTab token={token} />}
+      {tab === 'reports' && <ReportsTab token={token} />}
     </div>
   );
 }

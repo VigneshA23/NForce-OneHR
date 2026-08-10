@@ -11,6 +11,8 @@ import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.attendance.RejectRegularizationRequest;
+import com.nforce.onehr.dto.attendance.TeamEffortEntry;
+import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
 import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.RegularizationService;
 import jakarta.validation.Valid;
@@ -112,6 +114,26 @@ public class AttendanceController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             Principal principal) {
         return attendanceService.getMonthForMyTeam(principal.getName(), from, to);
+    }
+
+    /** Avg. Work Hours Leaderboard, ranked desc — direct reports only (ONEHR-106). */
+    @GetMapping("/team-effort")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public List<TeamEffortEntry> teamEffort(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceService.getTeamEffort(principal.getName(), from, to);
+    }
+
+    /** Late Arrivals, Least Hours Worked, and Frequent Breaks — direct reports only (ONEHR-107). */
+    @GetMapping("/team-negligence")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public TeamNegligenceResponse teamNegligence(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceService.getTeamNegligence(principal.getName(), from, to);
     }
 
     @GetMapping("/employee/{userId}")
