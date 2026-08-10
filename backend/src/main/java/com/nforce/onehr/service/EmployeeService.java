@@ -33,6 +33,7 @@ public class EmployeeService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
+    private final LeaveService leaveService;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -81,6 +82,7 @@ public class EmployeeService {
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
 
         emp = employeeRepository.save(emp);
+        leaveService.initializeDefaultBalances(newUser.getId());
 
         if (req.getManagerId() != null) {
             EmployeeManagerHistory history = EmployeeManagerHistory.builder()

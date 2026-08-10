@@ -34,6 +34,7 @@ public class UserManagementService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final LeaveService leaveService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -78,6 +79,7 @@ public class UserManagementService {
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
 
         emp = employeeRepository.save(emp);
+        leaveService.initializeDefaultBalances(newUser.getId());
 
         if (req.getManagerId() != null) {
             historyRepository.save(EmployeeManagerHistory.builder()

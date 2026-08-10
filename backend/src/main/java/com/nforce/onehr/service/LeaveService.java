@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -57,6 +58,30 @@ public class LeaveService {
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
                 .map(this::toBalanceResponse)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Grants each configured LeaveType a default opening balance for the current year, unless
+     * the employee already has one (idempotent — safe to call more than once). Mirrors the
+     * "20 days per type per employee" default that V19's one-time migration seed used. Called
+     * on employee creation so new hires aren't left with zero balances (see UserManagementService
+     * and EmployeeService).
+     */
+    @Transactional
+    public void initializeDefaultBalances(UUID employeeUserId) {
+        int year = LocalDate.now().getYear();
+        Set<UUID> existingTypeIds = leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year)
+                .stream().map(b -> b.getLeaveType().getId()).collect(Collectors.toSet());
+        for (LeaveType type : leaveTypeRepository.findAll()) {
+            if (existingTypeIds.contains(type.getId())) continue;
+            leaveBalanceRepository.save(LeaveBalance.builder()
+                    .employeeUserId(employeeUserId)
+                    .leaveType(type)
+                    .year(year)
+                    .totalDays(new BigDecimal("20"))
+                    .usedDays(BigDecimal.ZERO)
+                    .build());
+        }
     }
 
     @Transactional
