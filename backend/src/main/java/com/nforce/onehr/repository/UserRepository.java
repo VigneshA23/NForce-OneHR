@@ -36,9 +36,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     Set<UUID> findUserIdsByEmailOrFullNameContaining(@Param("q") String q);
 
-    // Mirrors EmployeeService.listEmployees()'s own definition of "employee" — holds the
-    // EMPLOYEE role — so any dashboard filtering by this stays consistent with the
-    // Employee Master page rather than re-deriving its own notion of who counts.
-    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL")
+    // Exception Dashboard subjects: accounts holding EMPLOYEE and none of
+    // MANAGER/HR_ADMIN/SUPER_ADMIN. A plain "holds EMPLOYEE" whitelist isn't enough —
+    // some accounts (e.g. an HR Admin or Manager also granted EMPLOYEE so they can
+    // punch in/out themselves) hold EMPLOYEE alongside an admin/manager role, and must
+    // still never appear as exception subjects, company-wide or as a direct report.
+    @Query("""
+            SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL
+            AND u.id NOT IN (
+                SELECT u2.id FROM User u2 JOIN u2.roles r2 WHERE r2.code IN ('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')
+            )
+            """)
     Set<UUID> findEmployeeRoleUserIds();
 }
