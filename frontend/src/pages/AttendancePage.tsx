@@ -24,6 +24,7 @@ import {
 } from '../api/attendanceRequests';
 import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeRequests';
 import { WebClockInRequestModal } from '../components/WebClockInRequestModal';
+import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { useAuthStore } from '../store/authStore';
@@ -1437,7 +1438,7 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
 // ─── Quick Actions ──────────────────────────────────────────────────────────────
 function QuickActionsPanel({ token }: { token: string }) {
   const { format, toggle } = useTimeFormat();
-  const [modal, setModal] = useState<'WEB_CHECK_IN' | 'WFH' | 'PARTIAL_DAY' | null>(null);
+  const [modal, setModal] = useState<'WEB_CHECK_IN' | 'WFH' | 'PARTIAL_DAY' | 'POLICY' | null>(null);
   const { showToast } = useToast();
 
   const actionStyle: React.CSSProperties = {
@@ -1458,9 +1459,9 @@ function QuickActionsPanel({ token }: { token: string }) {
       <button style={actionStyle} onClick={() => setModal('PARTIAL_DAY')}>
         <Sun size={15} style={{ color: 'var(--brand)' }} /> Partial Day Request
       </button>
-      <Link to="/policies" style={{ ...actionStyle, textDecoration: 'none' }}>
+      <button style={actionStyle} onClick={() => setModal('POLICY')}>
         <FileText size={15} style={{ color: 'var(--brand)' }} /> Attendance Policy
-      </Link>
+      </button>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
         <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Time format</span>
         <button
@@ -1491,6 +1492,9 @@ function QuickActionsPanel({ token }: { token: string }) {
           onClose={() => setModal(null)}
           onSaved={() => { /* toast already shown by the modal itself */ }}
         />
+      )}
+      {modal === 'POLICY' && (
+        <AttendancePolicyModal onClose={() => setModal(null)} />
       )}
     </div>
   );
