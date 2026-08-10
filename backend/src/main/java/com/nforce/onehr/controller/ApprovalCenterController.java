@@ -1,6 +1,8 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.ApprovalItemDto;
+import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
+import com.nforce.onehr.dto.attendance.OvertimeRequestResponse;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.asset.AssetRequestResponse;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
@@ -10,8 +12,10 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.dto.attendance.WebClockInResponse;
 import com.nforce.onehr.service.AssetService;
+import com.nforce.onehr.service.AttendanceRequestService;
 import com.nforce.onehr.service.ExpenseService;
 import com.nforce.onehr.service.LeaveService;
+import com.nforce.onehr.service.OvertimeRequestService;
 import com.nforce.onehr.service.RegularizationService;
 import com.nforce.onehr.service.WebClockInService;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +46,8 @@ public class ApprovalCenterController {
     private final WebClockInService webClockInService;
     private final ExpenseService expenseService;
     private final AssetService assetService;
+    private final AttendanceRequestService attendanceRequestService;
+    private final OvertimeRequestService overtimeRequestService;
     private final UserRepository userRepo;
 
     /**
@@ -76,6 +82,12 @@ public class ApprovalCenterController {
             // Asset requests
             assetService.listPendingForApprover(email).stream()
                     .map(this::assetRequestToApprovalItem).forEach(items::add);
+            // WFH / Partial Day — managers see own reports' pending requests
+            attendanceRequestService.listPendingForApprover(email).stream()
+                    .map(this::attendanceRequestToApprovalItem).forEach(items::add);
+            // Overtime — managers see own reports' pending requests
+            overtimeRequestService.listPendingForApprover(email).stream()
+                    .map(this::overtimeToApprovalItem).forEach(items::add);
         }
 
         if (isAdmin) {
@@ -92,6 +104,12 @@ public class ApprovalCenterController {
             assetService.listPendingForApprover(email).stream()
                     .filter(r -> "PENDING".equals(r.getStatus()))
                     .map(this::assetRequestToApprovalItem).forEach(items::add);
+            // WFH / Partial Day — HR/SA see all pending
+            attendanceRequestService.listPendingForApprover(email).stream()
+                    .map(this::attendanceRequestToApprovalItem).forEach(items::add);
+            // Overtime — HR/SA see all pending
+            overtimeRequestService.listPendingForApprover(email).stream()
+                    .map(this::overtimeToApprovalItem).forEach(items::add);
         }
 
         // De-duplicate by (id + requestType) in case manager and admin roles overlap
@@ -177,6 +195,35 @@ public class ApprovalCenterController {
                 .requestedCategoryName(r.getCategoryName())
                 .assetRequestReason(r.getReason())
                 .assetRequestStatus(r.getStatus())
+                .build();
+    }
+
+    private ApprovalItemDto attendanceRequestToApprovalItem(AttendanceRequestResponse r) {
+        return ApprovalItemDto.builder()
+                .id(r.getId().toString())
+                .requestType(r.getRequestType()) // "WFH" or "PARTIAL_DAY"
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .attendanceDate(r.getRequestDate())
+                .partialDayHours(r.getPartialDayHours())
+                .regularizationReason(r.getReason())
+                .build();
+    }
+
+    private ApprovalItemDto overtimeToApprovalItem(OvertimeRequestResponse r) {
+        return ApprovalItemDto.builder()
+                .id(r.getId().toString())
+                .requestType("OVERTIME")
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .attendanceDate(r.getWorkDate())
+                .requestedCheckIn(r.getRequestedStart())
+                .requestedCheckOut(r.getRequestedEnd())
+                .regularizationReason(r.getReason())
                 .build();
     }
 }

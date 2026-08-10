@@ -37,4 +37,7 @@ public class AttendanceProperties {
 
     /** Worked hours required for the day to count as a full day. */
     private int fullDayMinHours = 8;
+
+    /** Daily break allowance before it starts eating into worked hours. Provisional — pending PO/final confirmation. */
+    private int dailyBreakBudgetMinutes = 60;
 }

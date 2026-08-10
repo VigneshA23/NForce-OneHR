@@ -4,9 +4,14 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
+import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
+import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -23,6 +28,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +55,7 @@ public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final AttendancePunchRepository attendancePunchRepository;
+    private final AttendanceExceptionRepository attendanceExceptionRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
     private final AuditService auditService;
@@ -72,6 +79,8 @@ public class AttendanceService {
                         .canCheckIn(record.getCheckOutAt() != null)
                         .canCheckOut(record.getCheckOutAt() == null)
                         .record(toResponse(record, employee))
+                        .breakUsedMinutes(computeBreakMinutes(record.getId()))
+                        .breakBudgetMinutes(props.getDailyBreakBudgetMinutes())
                         .build())
                 .orElseGet(() -> TodayAttendanceResponse.builder()
                         .workDate(today)
@@ -79,7 +88,65 @@ public class AttendanceService {
                         .canCheckIn(true)
                         .canCheckOut(false)
                         .record(null)
+                        .breakUsedMinutes(null)
+                        .breakBudgetMinutes(props.getDailyBreakBudgetMinutes())
                         .build());
+    }
+
+    /** Sum of the gaps between consecutive closed punch sessions — an open (unclosed) session contributes nothing yet. */
+    private int computeBreakMinutes(UUID attendanceRecordId) {
+        List<AttendancePunch> punches = attendancePunchRepository
+                .findByAttendanceRecordIdOrderByCheckInAtAsc(attendanceRecordId);
+        int breakMinutes = 0;
+        for (int i = 0; i < punches.size() - 1; i++) {
+            LocalDateTime gapStart = punches.get(i).getCheckOutAt();
+            LocalDateTime gapEnd = punches.get(i + 1).getCheckInAt();
+            if (gapStart != null && gapEnd != null) {
+                breakMinutes += (int) Duration.between(gapStart, gapEnd).toMinutes();
+            }
+        }
+        return breakMinutes;
+    }
+
+    /** Read-only mirror of AttendanceProperties for the Today's Timings panel — no shiftEnd exists (ONEHR-108 not built). */
+    @Transactional(readOnly = true)
+    public AttendanceConfigResponse getConfig(String actorEmail) {
+        Employee employee = resolveEmployee(actorEmail);
+        Shift shift = employee.getShift();
+        WeeklyOffPolicy weeklyOffPolicy = employee.getWeeklyOffPolicy();
+
+        return AttendanceConfigResponse.builder()
+                .shiftStart(shift != null ? shift.getStartTime() : props.getShiftStart())
+                .shiftEnd(shift != null ? shift.getEndTime() : null)
+                .lateGraceMinutes(props.getLateGraceMinutes())
+                .halfDayMaxHours(props.getHalfDayMaxHours())
+                .fullDayMinHours(props.getFullDayMinHours())
+                .dailyBreakBudgetMinutes(props.getDailyBreakBudgetMinutes())
+                .weeklyOffDays(weeklyOffPolicy != null
+                        ? Arrays.stream(weeklyOffPolicy.getOffDays().split(",")).map(String::trim).toList()
+                        : List.of("SATURDAY", "SUNDAY"))
+                .build();
+    }
+
+    /**
+     * Always empty today — see AttendanceExceptionResponse's Javadoc. Passive read only, no
+     * detection logic added here.
+     */
+    @Transactional(readOnly = true)
+    public List<AttendanceExceptionResponse> getMyExceptions(String actorEmail, LocalDate from, LocalDate to) {
+        Employee employee = resolveEmployee(actorEmail);
+        return attendanceExceptionRepository
+                .findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                        List.of(employee.getUserId()), from, to)
+                .stream()
+                .map(e -> AttendanceExceptionResponse.builder()
+                        .id(e.getId())
+                        .exceptionDate(e.getExceptionDate())
+                        .exceptionType(e.getExceptionType())
+                        .status(e.getStatus())
+                        .minutesLate(e.getMinutesLate())
+                        .build())
+                .toList();
     }
 
     @Transactional

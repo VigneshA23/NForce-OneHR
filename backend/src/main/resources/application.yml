@@ -46,6 +46,8 @@ app:
     late-grace-minutes: 15
     half-day-max-hours: 4
     full-day-min-hours: 8
+    # Provisional — pending PO/final confirmation, same status as the shift fields above.
+    daily-break-budget-minutes: 60
     regularization:
       # N-day lookback window (counting today itself) for regularization requests submitted by
       # anyone other than Super Admin, who is exempt entirely — see

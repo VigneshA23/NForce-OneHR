@@ -2,43 +2,51 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Laptop, Home, Sun, FileText, Users, User } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
   type AttendanceStatus,
   type TodayAttendance,
+  type AttendanceConfig,
+  type AttendanceStats,
+  type AttendanceExceptionRecord,
   type RegularizationRecord,
   type SubmitRegularizationPayload,
   type ApproverOption,
   type Punch,
 } from '../api/attendance';
+import {
+  attendanceRequestApi,
+  type AttendanceRequestRecord,
+  type AttendanceRequestType,
+  type SubmitAttendanceRequestPayload,
+} from '../api/attendanceRequests';
+import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeRequests';
+import { WebClockInRequestModal } from '../components/WebClockInRequestModal';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole } from '../lib/nav.config';
+import { TimeFormatProvider, useTimeFormat } from '../context/TimeFormatContext';
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 // Server timestamps are wall-clock strings in the business timezone (no offset), so they are
 // formatted by slicing rather than via `new Date()` — that would re-interpret them in the
 // browser's zone and shift the displayed time.
+// formatTime/formatDuration themselves now live in TimeFormatContext (12h/24h-aware) — every
+// consumer on this page pulls them from useTimeFormat() instead of a plain module function.
 
-function formatTime(iso: string | null): string | null {
-  if (!iso) return null;
+/** Index-aligned with JS Date#getDay() (0=Sunday) → java.time.DayOfWeek name, for weeklyOffDays. */
+const DOW_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+
+/** Minutes since local midnight, parsed the same zone-less way as formatTime (no Date object). */
+function minutesSinceMidnight(iso: string): number | null {
   const time = iso.slice(11, 16);
   if (time.length < 5) return null;
   const [h, m] = time.split(':').map(Number);
-  const suffix = h < 12 ? 'AM' : 'PM';
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
-}
-
-function formatDuration(minutes: number | null): string | null {
-  if (minutes == null) return null;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  return h * 60 + m;
 }
 
 function formatDay(isoDate: string): string {
@@ -349,6 +357,7 @@ function RegularizationStatusPill({ status }: { status: string }) {
 
 /** Every check-in/check-out session for a single day — shows a lunch-break gap explicitly. */
 function PunchHistoryList({ date, token }: { date: string; token: string }) {
+  const { formatTime } = useTimeFormat();
   const [punches, setPunches] = useState<Punch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -517,6 +526,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   isSuperAdmin: boolean;
 }) {
   const { showToast } = useToast();
+  const { formatTime, formatDuration } = useTimeFormat();
   const today = todayIsoDate();
   // Employee/Manager/HR: earliest attendance date selectable in the calendar picker. Super
   // Admin has no lower bound — "any number of previous days" per Requirement 1.
@@ -733,6 +743,7 @@ function FullText({ text, style }: { text: string | null | undefined; style?: Re
 
 // ─── Request Details Modal (read-only — replaces the old Comments table column) ──────
 function RequestDetailsModal({ request, onClose }: { request: RegularizationRecord; onClose: () => void }) {
+  const { formatTime, formatDuration } = useTimeFormat();
   // Mirrors ReviewerCell's logic: who's responsible for the *next* action while still in
   // flight (assigned manager while PENDING, whichever HR/Super Admin queue while
   // PARTIALLY_APPROVED), or who made the final call once resolved.
@@ -823,6 +834,7 @@ function ConfirmApproveModal({ request, onClose, onApproved, token }: {
   request: RegularizationRecord; onClose: () => void; onApproved: (r: RegularizationRecord) => void; token: string;
 }) {
   const { showToast } = useToast();
+  const { formatTime } = useTimeFormat();
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -994,6 +1006,7 @@ function BulkActionModal({ action, ids, token, onClose, onDone }: {
 function RosterTable({ rows, loading, emptyMessage }: {
   rows: AttendanceRecord[]; loading: boolean; emptyMessage: string;
 }) {
+  const { formatTime, formatDuration } = useTimeFormat();
   return (
     <div style={panelStyle}>
       {loading ? (
@@ -1058,6 +1071,10 @@ interface DayInfo {
   leaveTypeName?: string;
   /** Only ever set when the request is APPROVED — pending/rejected requests get no calendar mark. */
   regularization?: RegularizationRecord;
+  /** Only ever set when the WFH/Partial Day request is APPROVED. */
+  attendanceRequest?: AttendanceRequestRecord;
+  /** Always empty today — see AttendanceExceptionRecord's doc comment in api/attendance.ts. */
+  exception?: AttendanceExceptionRecord;
   record?: AttendanceRecord;
 }
 
@@ -1067,7 +1084,8 @@ const DAY_TAG_STYLE: React.CSSProperties = {
 };
 
 /** Renders the small tag/status indicator inside a calendar day cell. */
-function DayCellBadge({ info }: { info: DayInfo }) {
+/** The primary per-day badge — one of these, in precedence order. */
+function primaryDayBadge(info: DayInfo): React.ReactNode {
   if (info.holidayName) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>Holiday</span>;
   }
@@ -1081,10 +1099,34 @@ function DayCellBadge({ info }: { info: DayInfo }) {
   if (info.regularization) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Regularization</span>;
   }
+  // Only ever set for an APPROVED WFH/Partial Day request — same reasoning as regularization above.
+  if (info.attendanceRequest) {
+    return info.attendanceRequest.requestType === 'WFH'
+      ? <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>WFH</span>
+      : <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.18)', color: '#E0A93B' }}>Partial Day</span>;
+  }
   if (info.record) {
     return <StatusPill status={info.record.status} />;
   }
+  // Nothing else going on for a weekend day — Keka's reference UI shows this explicitly rather
+  // than a blank cell/row.
+  if (info.isWeekend) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(155,161,172,.15)', color: '#9BA1AC' }}>Weekly-off</span>;
+  }
   return null;
+}
+
+function DayCellBadge({ info }: { info: DayInfo }) {
+  const primary = primaryDayBadge(info);
+  // A penalty annotates a day rather than replacing its status — shown alongside, not instead of.
+  return (
+    <>
+      {primary}
+      {info.exception && (
+        <span style={{ ...DAY_TAG_STYLE, background: 'rgba(228,55,61,.15)', color: '#E4373D', marginLeft: primary ? 4 : 0 }}>Penalty</span>
+      )}
+    </>
+  );
 }
 
 function MonthCalendar({
@@ -1156,6 +1198,370 @@ function MonthCalendar({
 
 // ─── My attendance (punch card + attendance calendar) ─────────────────────────
 
+// ─── Attendance Request (WFH / Partial Day) submit modal ──────────────────────
+// Reuses the regularization approver-assignment pattern (Assign To dropdown sourced from the
+// existing GET /attendance/regularization/approvers endpoint) rather than duplicating it.
+function AttendanceRequestModal({ presetType, onClose, onSaved, token }: {
+  presetType?: AttendanceRequestType;
+  onClose: () => void;
+  onSaved: (r: AttendanceRequestRecord) => void;
+  token: string;
+}) {
+  const { showToast } = useToast();
+  const [requestType, setRequestType] = useState<AttendanceRequestType>(presetType ?? 'WFH');
+  const [requestDate, setRequestDate] = useState(todayIsoDate());
+  const [partialDayHours, setPartialDayHours] = useState('4');
+  const [reason, setReason] = useState('');
+  const [managerUserId, setManagerUserId] = useState('');
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty */ });
+  }, [token]);
+
+  async function handleSubmit() {
+    if (!reason.trim()) { setError('Reason is required'); return; }
+    if (requestType === 'PARTIAL_DAY' && (!partialDayHours || Number(partialDayHours) <= 0)) {
+      setError('Partial day hours must be greater than zero');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const payload: SubmitAttendanceRequestPayload = {
+        requestType,
+        requestDate,
+        reason: reason.trim(),
+        partialDayHours: requestType === 'PARTIAL_DAY' ? Number(partialDayHours) : undefined,
+        managerUserId: managerUserId || undefined,
+      };
+      const created = await attendanceRequestApi.submit(payload, token);
+      showToast('success', `${requestType === 'WFH' ? 'Work From Home' : 'Partial Day'} request submitted for approval`);
+      onSaved(created);
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit request';
+      setError(msg);
+      showToast('error', msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 440 }}>
+        <ModalHeader title={presetType === 'WFH' ? 'Work From Home' : presetType === 'PARTIAL_DAY' ? 'Partial Day Request' : 'New Attendance Request'} onClose={onClose} />
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {error && <div style={{ color: 'var(--risk)', fontSize: 13 }}>{error}</div>}
+          {!presetType && (
+            <Field label="Request Type">
+              <select value={requestType} onChange={(e) => setRequestType(e.target.value as AttendanceRequestType)} style={inputStyle}>
+                <option value="WFH">Work From Home</option>
+                <option value="PARTIAL_DAY">Partial Day</option>
+              </select>
+            </Field>
+          )}
+          <Field label="Date">
+            <input type="date" value={requestDate} max={todayIsoDate()} onChange={(e) => setRequestDate(e.target.value)} style={inputStyle} />
+          </Field>
+          {requestType === 'PARTIAL_DAY' && (
+            <Field label="Hours">
+              <input type="number" min="0.5" step="0.5" value={partialDayHours} onChange={(e) => setPartialDayHours(e.target.value)} style={inputStyle} />
+            </Field>
+          )}
+          <Field label="Reason *">
+            <textarea
+              style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why are you requesting this?"
+              autoFocus
+            />
+          </Field>
+          <Field label="Assign To (optional)">
+            <select value={managerUserId} onChange={(e) => setManagerUserId(e.target.value)} style={inputStyle}>
+              <option value="">Current manager</option>
+              {approvers.map((a) => (
+                <option key={a.userId} value={a.userId}>{a.fullName} ({a.roleCode})</option>
+              ))}
+            </select>
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button
+              onClick={handleSubmit}
+              disabled={!reason.trim() || submitting}
+              style={{ background: reason.trim() ? 'var(--brand)' : 'var(--raised2)', color: reason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: !reason.trim() || submitting ? 'not-allowed' : 'pointer' }}
+            >
+              {submitting ? 'Submitting…' : 'Submit for Approval'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Attendance Stats: Me vs My Team ───────────────────────────────────────────
+type StatsRange = 'WEEK' | 'MONTH';
+
+function AttendanceStatsPanel({ token }: { token: string }) {
+  const [range, setRange] = useState<StatsRange>('WEEK');
+  const [stats, setStats] = useState<AttendanceStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    const to = todayIsoDate();
+    const from = range === 'WEEK' ? isoDaysAgo(6) : isoDaysAgo(29);
+    attendanceApi.stats(from, to, token)
+      .then(setStats)
+      .catch(() => setStats(null))
+      .finally(() => setLoading(false));
+  }, [range, token]);
+
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '10px 0' };
+
+  return (
+    <div style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Attendance Stats</span>
+        <select value={range} onChange={(e) => setRange(e.target.value as StatsRange)} style={{ ...inputStyle, width: 'auto', padding: '4px 8px', fontSize: 12 }}>
+          <option value="WEEK">Last Week</option>
+          <option value="MONTH">Last 30 Days</option>
+        </select>
+      </div>
+      {loading ? (
+        <div style={{ color: 'var(--txt-dim)', fontSize: 13, padding: '12px 0' }}>Loading…</div>
+      ) : !stats ? (
+        <div style={{ color: 'var(--txt-dim)', fontSize: 13, padding: '12px 0' }}>Stats unavailable right now.</div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            <span style={{ flex: 1 }} />
+            <span style={{ width: 90, textAlign: 'right' }}>Avg hrs/day</span>
+            <span style={{ width: 110, textAlign: 'right' }}>On-time %</span>
+          </div>
+          <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--txt)', fontWeight: 600 }}>
+              <User size={14} style={{ color: 'var(--brand)' }} /> Me
+            </span>
+            <span style={{ width: 90, textAlign: 'right', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>
+              {stats.me.avgHoursPerDay != null ? `${stats.me.avgHoursPerDay}h` : dash}
+            </span>
+            <span style={{ width: 110, textAlign: 'right', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>
+              {stats.me.onTimeArrivalPercent != null ? `${stats.me.onTimeArrivalPercent}%` : dash}
+            </span>
+          </div>
+          <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--txt)', fontWeight: 600 }}>
+              <Users size={14} style={{ color: 'var(--txt-dim)' }} /> My Team
+            </span>
+            <span style={{ width: 90, textAlign: 'right', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>
+              {stats.team.avgHoursPerDay != null ? `${stats.team.avgHoursPerDay}h` : dash}
+            </span>
+            <span style={{ width: 110, textAlign: 'right', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>
+              {stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash}
+            </span>
+          </div>
+          {stats.teamSize === 0 && (
+            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>No peers on record under your current manager yet.</div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Today's Timings ────────────────────────────────────────────────────────────
+// No shift-end (or per-employee shift) exists yet — ONEHR-108 shift assignment is not built.
+// The progress bar target is deliberately the existing fullDayMinHours config, labeled as
+// "progress toward a full day" rather than "shift end", so nothing here is invented.
+function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
+  today: TodayAttendance | null;
+  config: AttendanceConfig | null;
+  workedMinutesToday: number | null;
+}) {
+  const { formatTime, formatDuration } = useTimeFormat();
+
+  // ONEHR-108: every employee is now seeded with an assigned Shift (start+end), so shiftEnd is
+  // normally always present — fall back to the fullDayMinHours target only for the edge case of
+  // an employee with no Shift assigned at all.
+  const shiftMinutes = config?.shiftEnd
+    ? (minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0)
+      - (minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0)
+    : null;
+  const fullDayTargetMinutes = shiftMinutes ?? (config ? config.fullDayMinHours * 60 : null);
+  const progressPct = fullDayTargetMinutes && workedMinutesToday != null
+    ? Math.min(100, Math.round((workedMinutesToday / fullDayTargetMinutes) * 100))
+    : 0;
+  const breakUsed = today?.breakUsedMinutes ?? 0;
+  const breakBudget = today?.breakBudgetMinutes ?? config?.dailyBreakBudgetMinutes ?? 60;
+  const breakPct = breakBudget > 0 ? Math.min(100, Math.round((breakUsed / breakBudget) * 100)) : 0;
+
+  return (
+    <div style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Today's Timings</span>
+      {config && (
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+          {config.shiftEnd
+            ? <>Shift {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} – {formatTime(`${todayIsoDate()}T${config.shiftEnd}`)} · grace {config.lateGraceMinutes}m</>
+            : <>Shift starts {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} · grace {config.lateGraceMinutes}m</>}
+        </div>
+      )}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--txt-dim)', marginBottom: 4 }}>
+          <span>{shiftMinutes ? 'Progress toward shift end' : `Progress toward a full day${config ? ` (${config.fullDayMinHours}h)` : ''}`}</span>
+          <span>{formatDuration(workedMinutesToday) ?? dash}</span>
+        </div>
+        <div style={{ height: 8, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--brand)', borderRadius: 4, transition: 'width .3s' }} />
+        </div>
+      </div>
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--txt-dim)', marginBottom: 4 }}>
+          <span>Break used</span>
+          <span>{breakUsed} / {breakBudget} min</span>
+        </div>
+        <div style={{ height: 6, borderRadius: 3, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${breakPct}%`, background: '#E0A93B', borderRadius: 3, transition: 'width .3s' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick Actions ──────────────────────────────────────────────────────────────
+function QuickActionsPanel({ token }: { token: string }) {
+  const { format, toggle } = useTimeFormat();
+  const [modal, setModal] = useState<'WEB_CHECK_IN' | 'WFH' | 'PARTIAL_DAY' | null>(null);
+  const { showToast } = useToast();
+
+  const actionStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 9, background: 'var(--raised)', border: '1px solid var(--line2)',
+    borderRadius: 8, padding: '9px 12px', fontSize: 13, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600, width: '100%',
+    textAlign: 'left' as const,
+  };
+
+  return (
+    <div style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>Quick Actions</span>
+      <button style={actionStyle} onClick={() => setModal('WEB_CHECK_IN')}>
+        <Laptop size={15} style={{ color: 'var(--brand)' }} /> Web Check-in
+      </button>
+      <button style={actionStyle} onClick={() => setModal('WFH')}>
+        <Home size={15} style={{ color: 'var(--brand)' }} /> Work From Home
+      </button>
+      <button style={actionStyle} onClick={() => setModal('PARTIAL_DAY')}>
+        <Sun size={15} style={{ color: 'var(--brand)' }} /> Partial Day Request
+      </button>
+      <Link to="/policies" style={{ ...actionStyle, textDecoration: 'none' }}>
+        <FileText size={15} style={{ color: 'var(--brand)' }} /> Attendance Policy
+      </Link>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+        <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Time format</span>
+        <button
+          onClick={toggle}
+          style={{ display: 'flex', background: 'var(--raised2)', border: '1px solid var(--line2)', borderRadius: 20, padding: 2, cursor: 'pointer' }}
+        >
+          {(['12h', '24h'] as const).map((f) => (
+            <span
+              key={f}
+              style={{
+                fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 18,
+                background: format === f ? 'var(--brand)' : 'transparent',
+                color: format === f ? '#fff' : 'var(--txt-dim)',
+              }}
+            >
+              {f}
+            </span>
+          ))}
+        </button>
+      </div>
+      {modal === 'WEB_CHECK_IN' && (
+        <WebClockInRequestModal onClose={() => setModal(null)} onSubmitted={() => showToast('success', 'Web clock-in request submitted for approval')} />
+      )}
+      {(modal === 'WFH' || modal === 'PARTIAL_DAY') && (
+        <AttendanceRequestModal
+          presetType={modal}
+          token={token}
+          onClose={() => setModal(null)}
+          onSaved={() => { /* toast already shown by the modal itself */ }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Attendance Log: per-day visual timeline ───────────────────────────────────
+// A coarse single-segment bar from the day's own checkInAt/checkOutAt (already on the row —
+// no extra fetch, no N+1). Fine-grained multi-punch/break visualization stays in the existing
+// on-demand PunchHistoryList.
+function AttendanceVisualBar({ info }: { info: DayInfo }) {
+  if (info.holidayName) {
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Company holiday — {info.holidayName}</span>;
+  }
+  if (info.leaveTypeName) {
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>On leave — {info.leaveTypeName}</span>;
+  }
+  if (info.isWeekend && !info.record && !info.attendanceRequest) {
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Full day Weekly-off</span>;
+  }
+  const record = info.record;
+  const inMin = record?.checkInAt ? minutesSinceMidnight(record.checkInAt) : null;
+  if (inMin == null) {
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>—</span>;
+  }
+  const outMin = record?.checkOutAt ? minutesSinceMidnight(record.checkOutAt) : null;
+  const leftPct = (inMin / 1440) * 100;
+  const widthPct = Math.max(1, (((outMin ?? inMin + 20) - inMin) / 1440) * 100);
+  return (
+    <div style={{ position: 'relative', height: 8, minWidth: 130, background: 'var(--raised2)', borderRadius: 4 }}>
+      <div style={{ position: 'absolute', left: `${leftPct}%`, width: `${widthPct}%`, height: '100%', background: outMin ? 'var(--brand)' : '#E0A93B', borderRadius: 4 }} />
+    </div>
+  );
+}
+
+/** Last 6 months as quick-jump pill buttons, matching the reference UI's month shortcuts row. */
+function MonthShortcuts({ viewYear, viewMonth, onSelect }: {
+  viewYear: number; viewMonth: number; onSelect: (year: number, month: number) => void;
+}) {
+  const months = useMemo(() => {
+    const now = new Date();
+    const out: { year: number; month: number; label: string }[] = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      out.push({ year: d.getFullYear(), month: d.getMonth(), label: d.toLocaleDateString(undefined, { month: 'short' }) });
+    }
+    return out;
+  }, []);
+
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {months.map((m) => {
+        const active = m.year === viewYear && m.month === viewMonth;
+        return (
+          <button
+            key={`${m.year}-${m.month}`}
+            onClick={() => onSelect(m.year, m.month)}
+            style={{
+              background: active ? 'var(--brand)' : 'var(--raised)',
+              color: active ? '#fff' : 'var(--txt-mut)',
+              border: `1px solid ${active ? 'var(--brand)' : 'var(--line2)'}`,
+              borderRadius: 7, padding: '6px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase',
+            }}
+          >
+            {m.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export interface MyAttendanceHandle {
   exportMonth: () => void;
 }
@@ -1163,10 +1569,16 @@ export interface MyAttendanceHandle {
 const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props, ref) {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
+  const { formatTime, formatDuration } = useTimeFormat();
 
   const [today, setToday] = useState<TodayAttendance | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [config, setConfig] = useState<AttendanceConfig | null>(null);
+
+  useEffect(() => {
+    attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
+  }, [token]);
 
   // Offset between the browser clock and the server's business-timezone clock, captured on
   // load, so the live elapsed counter is correct in any browser timezone.
@@ -1182,15 +1594,24 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
   const [regularizations, setRegularizations] = useState<RegularizationRecord[]>([]);
+  const [attendanceRequests, setAttendanceRequests] = useState<AttendanceRequestRecord[]>([]);
+  const [exceptions, setExceptions] = useState<AttendanceExceptionRecord[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(todayIsoDate());
 
-  // Holidays / leaves / regularizations are fetched once — the calendar filters them per month.
+  // Holidays / leaves / regularizations / attendance requests are fetched once — the calendar
+  // filters them per month. Exceptions are ranged (always empty today — see AttendanceService).
   useEffect(() => {
+    const exceptionsFrom = isoDaysAgo(365);
+    const exceptionsTo = todayIsoDate();
     Promise.all([
       holidaysApi.listForMyLocation(token).catch(() => []),
       leaveApi.listMine(token).catch(() => []),
       regularizationApi.mine(token).catch(() => []),
-    ]).then(([h, l, r]) => { setHolidays(h); setLeaves(l); setRegularizations(r); });
+      attendanceRequestApi.mine(token).catch(() => []),
+      attendanceApi.exceptions(exceptionsFrom, exceptionsTo, token).catch(() => []),
+    ]).then(([h, l, r, ar, ex]) => {
+      setHolidays(h); setLeaves(l); setRegularizations(r); setAttendanceRequests(ar); setExceptions(ex);
+    });
   }, [token]);
 
   const refreshMonth = useCallback(() => {
@@ -1262,6 +1683,18 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
     return map;
   }, [regularizations]);
 
+  const attendanceRequestByDate = useMemo(() => {
+    const map = new Map<string, AttendanceRequestRecord>();
+    attendanceRequests.filter((r) => r.status === 'APPROVED').forEach((r) => map.set(r.requestDate, r));
+    return map;
+  }, [attendanceRequests]);
+
+  const exceptionByDate = useMemo(() => {
+    const map = new Map<string, AttendanceExceptionRecord>();
+    exceptions.forEach((e) => map.set(e.exceptionDate, e));
+    return map;
+  }, [exceptions]);
+
   const monthPrefix = `${viewYear}-${pad2(viewMonth + 1)}`;
   const presentDaysCount = monthRecords.filter((r) => r.checkInAt).length;
   const workedMinutesTotal = monthRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
@@ -1275,18 +1708,24 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
   const getDayInfo = useCallback((day: number): DayInfo => {
     const iso = isoOf(viewYear, viewMonth, day);
     const dow = new Date(viewYear, viewMonth, day).getDay();
+    // ONEHR-108: respects the employee's assigned WeeklyOffPolicy when loaded, else Sat/Sun.
+    const isWeekend = config
+      ? config.weeklyOffDays.includes(DOW_NAMES[dow])
+      : dow === 0 || dow === 6;
     return {
       iso,
       day,
       isFuture: iso > todayIsoDate(),
       isToday: iso === todayIsoDate(),
-      isWeekend: dow === 0 || dow === 6,
+      isWeekend,
       holidayName: holidayByDate.get(iso),
       leaveTypeName: leaveByDate.get(iso),
       regularization: regularizationByDate.get(iso),
+      attendanceRequest: attendanceRequestByDate.get(iso),
+      exception: exceptionByDate.get(iso),
       record: recordByDate.get(iso),
     };
-  }, [viewYear, viewMonth, holidayByDate, leaveByDate, regularizationByDate, recordByDate]);
+  }, [viewYear, viewMonth, config, holidayByDate, leaveByDate, regularizationByDate, attendanceRequestByDate, exceptionByDate, recordByDate]);
 
   function goToPrevMonth() {
     setSelectedDate(null);
@@ -1296,6 +1735,25 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
     setSelectedDate(null);
     if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); } else { setViewMonth((m) => m + 1); }
   }
+  /** Month-shortcut buttons — jumps directly to a given month/year, same reset behavior as prev/next. */
+  function goToMonth(year: number, month: number) {
+    setSelectedDate(null);
+    setViewYear(year);
+    setViewMonth(month);
+  }
+
+  // Every non-future day of the month, newest first — reuses getDayInfo exactly as
+  // MonthCalendar does, so weekends/leaves/holidays appear as rows even with no punch.
+  const logRows = useMemo(() => {
+    const total = daysInMonth(viewYear, viewMonth);
+    const todayIso = todayIsoDate();
+    const rows: DayInfo[] = [];
+    for (let d = 1; d <= total; d++) {
+      const info = getDayInfo(d);
+      if (info.iso <= todayIso) rows.push(info);
+    }
+    return rows.reverse();
+  }, [viewYear, viewMonth, getDayInfo]);
 
   const selectedInfo = useMemo(() => {
     if (!selectedDate) return null;
@@ -1336,6 +1794,17 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
     return minutes >= 0 ? formatDuration(minutes) : null;
   }, [openSince, tick]);
 
+  // Raw minutes-worked-so-far-today (same clock as `elapsed`), for the Today's Timings
+  // progress bar / break panel, which need a number rather than a formatted string.
+  const workedMinutesToday = useMemo(() => {
+    if (openSince) {
+      void tick;
+      const minutes = Math.floor((Date.now() + serverOffsetMs.current - wallClockMs(openSince)) / 60000);
+      return minutes >= 0 ? minutes : null;
+    }
+    return today?.record?.workedMinutes ?? null;
+  }, [openSince, tick, today]);
+
   async function punch(kind: 'in' | 'out') {
     setSubmitting(true);
     try {
@@ -1369,6 +1838,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {/* Attendance Stats / Today's Timings / Quick Actions */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        <AttendanceStatsPanel token={token} />
+        <TodaysTimingsPanel today={today} config={config} workedMinutesToday={workedMinutesToday} />
+        <QuickActionsPanel token={token} />
+      </div>
+
       {/* Monthly attendance calendar */}
       <div>
         <SectionHeading title="My attendance calendar" hint="Present days, worked hours, and leave/holidays for the selected month." />
@@ -1525,34 +2001,36 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
           </div>
         </div>
 
-        {/* Daily records — flat table for the selected month, reusing the same monthRecords
-            already fetched for the calendar/stat tiles above. Mode is derived client-side from
-            the existing `source` field (WEB_REMOTE → Remote, else → Office); no new API calls. */}
+        {/* Attendance Log — every day of the month (not just punched ones), with visual
+            timeline/presence bar, status badges, and month shortcuts. */}
         <div style={{ marginTop: 16 }}>
-          <SectionHeading title={`Daily records — ${calendarMonthLabel(viewYear, viewMonth)}`} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+            <SectionHeading title={`Attendance Log — ${calendarMonthLabel(viewYear, viewMonth)}`} />
+            <MonthShortcuts viewYear={viewYear} viewMonth={viewMonth} onSelect={goToMonth} />
+          </div>
           <div style={panelStyle}>
             {monthLoading ? (
               <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</div>
-            ) : monthRecords.length === 0 ? (
-              <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No attendance records for this month.</div>
+            ) : logRows.length === 0 ? (
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No days to show for this month.</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr>{['Date', 'Check In', 'Check Out', 'Worked', 'Mode', 'Status', 'Details'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                    <tr>{['Date', 'Attendance Visual', 'Check In', 'Check Out', 'Worked', 'Status', 'Details'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
                   </thead>
                   <tbody>
-                    {monthRecords.map((r) => (
-                      <tr key={r.workDate}>
-                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
-                        <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
-                        <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
-                        <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
-                        <td style={tdStyle}>{r.source === 'WEB_REMOTE' ? 'Remote' : 'Office'}</td>
-                        <td style={tdStyle}><StatusPill status={r.status} /></td>
+                    {logRows.map((info) => (
+                      <tr key={info.iso}>
+                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600, whiteSpace: 'nowrap' }}>{formatDay(info.iso)}</td>
+                        <td style={tdStyle}><AttendanceVisualBar info={info} /></td>
+                        <td style={tdStyle}>{formatTime(info.record?.checkInAt ?? null) ?? dash}</td>
+                        <td style={tdStyle}>{formatTime(info.record?.checkOutAt ?? null) ?? dash}</td>
+                        <td style={tdStyle}>{formatDuration(info.record?.workedMinutes ?? null) ?? dash}</td>
+                        <td style={tdStyle}><DayCellBadge info={info} /></td>
                         <td style={tdStyle}>
                           <button
-                            onClick={() => setSelectedDate(r.workDate)}
+                            onClick={() => setSelectedDate(info.iso)}
                             style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
                           >
                             <Eye size={11} /> View
@@ -1673,6 +2151,7 @@ export interface RegularizationSectionHandle {
 const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean; isManager: boolean }>(
   function RegularizationSection({ token, canApprove, isSuperAdmin, isManager }, ref) {
   const { showToast } = useToast();
+  const { formatTime, formatDuration } = useTimeFormat();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
   const [pending, setPending] = useState<RegularizationRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1942,6 +2421,404 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
   );
 });
 
+// ─── WFH / Partial Day requests — single-stage approval (no PARTIALLY_APPROVED stage, no
+// bulk actions), mirroring WebClockInService's simpler flow rather than Regularization's
+// two-stage one. See AttendanceRequestService for why. ──────────────────────────
+function AttendanceRequestsSection({ token, canApprove }: { token: string; canApprove: boolean }) {
+  const { showToast } = useToast();
+  const [myRequests, setMyRequests] = useState<AttendanceRequestRecord[]>([]);
+  const [pending, setPending] = useState<AttendanceRequestRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showRequest, setShowRequest] = useState(false);
+  const [month, setMonth] = useState(ALL_MONTHS_VALUE);
+  const [acting, setActing] = useState<{ request: AttendanceRequestRecord; action: 'APPROVE' | 'REJECT' } | null>(null);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadAll = useCallback(() => {
+    const calls: Promise<unknown>[] = [attendanceRequestApi.mine(token).then(setMyRequests)];
+    if (canApprove) calls.push(attendanceRequestApi.pending(token).then(setPending));
+    return Promise.all(calls)
+      .catch((err) => showToast('error', err instanceof Error ? err.message : 'Failed to load attendance requests'))
+      .finally(() => setLoading(false));
+  }, [token, canApprove, showToast]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const filteredMyRequests = useMemo(
+    () => month === ALL_MONTHS_VALUE ? myRequests : myRequests.filter((r) => r.requestDate.slice(5, 7) === month),
+    [myRequests, month],
+  );
+
+  async function handleAct() {
+    if (!acting) return;
+    if (acting.action === 'REJECT' && !comment.trim()) { showToast('error', 'A comment is required when rejecting'); return; }
+    setSubmitting(true);
+    try {
+      const updated = acting.action === 'APPROVE'
+        ? await attendanceRequestApi.approve(acting.request.id, token, comment.trim() || undefined)
+        : await attendanceRequestApi.reject(acting.request.id, comment.trim(), token);
+      setPending((prev) => prev.filter((r) => r.id !== updated.id));
+      showToast('success', acting.action === 'APPROVE' ? 'Request approved' : 'Request rejected');
+      setActing(null);
+      setComment('');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function typeLabel(t: AttendanceRequestType) { return t === 'WFH' ? 'Work From Home' : 'Partial Day'; }
+
+  function renderTable(rows: AttendanceRequestRecord[], showActions: boolean) {
+    return (
+      <div style={panelStyle}>
+        {rows.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Nothing to show.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>{['Date', 'Type', 'Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
+                    <td style={tdStyle}>{typeLabel(r.requestType)}</td>
+                    <td style={tdStyle}>{r.partialDayHours ?? dash}</td>
+                    <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
+                    <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
+                    <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    {showActions && (
+                      <td style={tdStyle}>
+                        {r.status === 'PENDING' ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => setActing({ request: r, action: 'APPROVE' })} style={{ background: 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>Approve</button>
+                            <button onClick={() => setActing({ request: r, action: 'REJECT' })} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#E4373D', cursor: 'pointer', fontWeight: 600 }}>Reject</button>
+                          </div>
+                        ) : dash}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {canApprove && (
+        <div>
+          <SectionHeading title="Pending Approvals — WFH & Partial Day" />
+          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</div> : renderTable(pending, true)}
+        </div>
+      )}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          <SectionHeading title="My Requests" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <MonthFilter month={month} onChange={setMonth} />
+            <button
+              onClick={() => setShowRequest(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <CalendarPlus size={13} /> New Request
+            </button>
+          </div>
+        </div>
+        {loading ? <div style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
+      </div>
+      {showRequest && (
+        <AttendanceRequestModal
+          token={token}
+          onClose={() => setShowRequest(false)}
+          onSaved={(r) => setMyRequests((prev) => [r, ...prev])}
+        />
+      )}
+      {acting && (
+        <div style={overlayStyle}>
+          <div style={{ ...modalStyle, maxWidth: 420 }}>
+            <ModalHeader title={`${acting.action === 'APPROVE' ? 'Approve' : 'Reject'} — ${acting.request.employeeName}`} onClose={() => setActing(null)} />
+            <div style={{ padding: 24 }}>
+              <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
+                {typeLabel(acting.request.requestType)} · {formatDay(acting.request.requestDate)}
+              </div>
+              <Field label={acting.action === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
+                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
+              </Field>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button onClick={() => setActing(null)} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                <button
+                  onClick={handleAct}
+                  disabled={submitting}
+                  style={{ background: acting.action === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                >
+                  {submitting ? 'Submitting…' : acting.action === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Overtime requests — same single-stage shape as AttendanceRequestsSection. ──
+function OvertimeRequestsSection({ token, canApprove }: { token: string; canApprove: boolean }) {
+  const { showToast } = useToast();
+  const { formatTime, formatDuration } = useTimeFormat();
+  const [myRequests, setMyRequests] = useState<OvertimeRequestRecord[]>([]);
+  const [pending, setPending] = useState<OvertimeRequestRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showRequest, setShowRequest] = useState(false);
+  const [month, setMonth] = useState(ALL_MONTHS_VALUE);
+  const [acting, setActing] = useState<{ request: OvertimeRequestRecord; action: 'APPROVE' | 'REJECT' } | null>(null);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadAll = useCallback(() => {
+    const calls: Promise<unknown>[] = [overtimeRequestApi.mine(token).then(setMyRequests)];
+    if (canApprove) calls.push(overtimeRequestApi.pending(token).then(setPending));
+    return Promise.all(calls)
+      .catch((err) => showToast('error', err instanceof Error ? err.message : 'Failed to load overtime requests'))
+      .finally(() => setLoading(false));
+  }, [token, canApprove, showToast]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const filteredMyRequests = useMemo(
+    () => month === ALL_MONTHS_VALUE ? myRequests : myRequests.filter((r) => r.workDate.slice(5, 7) === month),
+    [myRequests, month],
+  );
+
+  async function handleAct() {
+    if (!acting) return;
+    if (acting.action === 'REJECT' && !comment.trim()) { showToast('error', 'A comment is required when rejecting'); return; }
+    setSubmitting(true);
+    try {
+      const updated = acting.action === 'APPROVE'
+        ? await overtimeRequestApi.approve(acting.request.id, token, comment.trim() || undefined)
+        : await overtimeRequestApi.reject(acting.request.id, comment.trim(), token);
+      setPending((prev) => prev.filter((r) => r.id !== updated.id));
+      showToast('success', acting.action === 'APPROVE' ? 'Request approved' : 'Request rejected');
+      setActing(null);
+      setComment('');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function renderTable(rows: OvertimeRequestRecord[], showActions: boolean) {
+    return (
+      <div style={panelStyle}>
+        {rows.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>Nothing to show.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>{['Date', 'Start', 'End', 'Duration', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
+                    <td style={tdStyle}>{formatTime(r.requestedStart) ?? dash}</td>
+                    <td style={tdStyle}>{formatTime(r.requestedEnd) ?? dash}</td>
+                    <td style={tdStyle}>{formatDuration(r.requestedMinutes) ?? dash}</td>
+                    <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
+                    <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
+                    <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    {showActions && (
+                      <td style={tdStyle}>
+                        {r.status === 'PENDING' ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => setActing({ request: r, action: 'APPROVE' })} style={{ background: 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>Approve</button>
+                            <button onClick={() => setActing({ request: r, action: 'REJECT' })} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#E4373D', cursor: 'pointer', fontWeight: 600 }}>Reject</button>
+                          </div>
+                        ) : dash}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {canApprove && (
+        <div>
+          <SectionHeading title="Pending Approvals — Overtime" />
+          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</div> : renderTable(pending, true)}
+        </div>
+      )}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          <SectionHeading title="My Requests" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <MonthFilter month={month} onChange={setMonth} />
+            <button
+              onClick={() => setShowRequest(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <CalendarPlus size={13} /> New Request
+            </button>
+          </div>
+        </div>
+        {loading ? <div style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
+      </div>
+      {showRequest && (
+        <OvertimeRequestModal
+          token={token}
+          onClose={() => setShowRequest(false)}
+          onSaved={(r) => setMyRequests((prev) => [r, ...prev])}
+        />
+      )}
+      {acting && (
+        <div style={overlayStyle}>
+          <div style={{ ...modalStyle, maxWidth: 420 }}>
+            <ModalHeader title={`${acting.action === 'APPROVE' ? 'Approve' : 'Reject'} — ${acting.request.employeeName}`} onClose={() => setActing(null)} />
+            <div style={{ padding: 24 }}>
+              <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
+                {formatDay(acting.request.workDate)} · {formatTime(acting.request.requestedStart) ?? dash} → {formatTime(acting.request.requestedEnd) ?? dash}
+              </div>
+              <Field label={acting.action === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
+                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
+              </Field>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button onClick={() => setActing(null)} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                <button
+                  onClick={handleAct}
+                  disabled={submitting}
+                  style={{ background: acting.action === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                >
+                  {submitting ? 'Submitting…' : acting.action === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Overtime submit modal — reuses the same TimeTextInput 12h masked input as regularization ──
+function OvertimeRequestModal({ onClose, onSaved, token }: {
+  onClose: () => void;
+  onSaved: (r: OvertimeRequestRecord) => void;
+  token: string;
+}) {
+  const { showToast } = useToast();
+  const [workDate, setWorkDate] = useState(todayIsoDate());
+  const [startText, setStartText] = useState('');
+  const [endText, setEndText] = useState('');
+  const [startTouched, setStartTouched] = useState(false);
+  const [endTouched, setEndTouched] = useState(false);
+  const [reason, setReason] = useState('');
+  const [managerUserId, setManagerUserId] = useState('');
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty */ });
+  }, [token]);
+
+  const startValue = parseTimeText(startText);
+  const endValue = parseTimeText(endText);
+
+  async function handleSubmit() {
+    setStartTouched(true); setEndTouched(true);
+    if (!startValue || !isTimeValueComplete(startValue) || !endValue || !isTimeValueComplete(endValue)) {
+      setError('Enter both a requested start and end time'); return;
+    }
+    if (!reason.trim()) { setError('Reason is required'); return; }
+    const requestedStart = isoFromTimeValue(workDate, startValue);
+    const requestedEnd = isoFromTimeValue(workDate, endValue);
+    if (!requestedStart || !requestedEnd) { setError('Invalid time'); return; }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await overtimeRequestApi.submit({
+        workDate, requestedStart, requestedEnd, reason: reason.trim(), managerUserId: managerUserId || undefined,
+      }, token);
+      showToast('success', 'Overtime request submitted for approval');
+      onSaved(created);
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit overtime request';
+      setError(msg);
+      showToast('error', msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 440 }}>
+        <ModalHeader title="Request Overtime" onClose={onClose} />
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {error && <div style={{ color: 'var(--risk)', fontSize: 13 }}>{error}</div>}
+          <Field label="Work Date">
+            <input type="date" value={workDate} max={todayIsoDate()} onChange={(e) => setWorkDate(e.target.value)} style={inputStyle} />
+          </Field>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <TimeTextInput label="Requested Start" value={startText} touched={startTouched} onChange={setStartText} onBlur={() => setStartTouched(true)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <TimeTextInput label="Requested End" value={endText} touched={endTouched} onChange={setEndText} onBlur={() => setEndTouched(true)} />
+            </div>
+          </div>
+          <Field label="Reason *">
+            <textarea
+              style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why is overtime needed?"
+            />
+          </Field>
+          <Field label="Assign To (optional)">
+            <select value={managerUserId} onChange={(e) => setManagerUserId(e.target.value)} style={inputStyle}>
+              <option value="">Current manager</option>
+              {approvers.map((a) => (
+                <option key={a.userId} value={a.userId}>{a.fullName} ({a.roleCode})</option>
+              ))}
+            </select>
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer' }}
+            >
+              {submitting ? 'Submitting…' : 'Submit for Approval'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Roster view (Manager team / HR org-wide) ─────────────────────────────────
 
 function DayRoster({ scope }: { scope: 'team' | 'all' }) {
@@ -1994,7 +2871,9 @@ function DayRoster({ scope }: { scope: 'team' | 'all' }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function AttendancePage() {
+type RequestsTab = 'REGULARIZATION' | 'ATTENDANCE_REQUESTS' | 'OVERTIME';
+
+function AttendancePageInner() {
   // The router has no role guard, so — like Shell — the page resolves the role itself.
   const token = useAuthStore((s) => s.token)!;
   const role = toShellRole(useAuthStore((s) => s.user?.role));
@@ -2008,6 +2887,18 @@ export default function AttendancePage() {
 
   const myAttendanceRef = useRef<MyAttendanceHandle>(null);
   const regularizationRef = useRef<RegularizationSectionHandle>(null);
+  const [requestsTab, setRequestsTab] = useState<RequestsTab>('REGULARIZATION');
+  const pendingOpenRequest = useRef(false);
+
+  // The header's "Request Regularization" button may be clicked while a different sub-tab is
+  // active (RegularizationSection unmounted, ref not yet attached) — switch tabs first, then
+  // open the modal once the ref attaches (refs commit before this effect runs).
+  useEffect(() => {
+    if (requestsTab === 'REGULARIZATION' && pendingOpenRequest.current) {
+      pendingOpenRequest.current = false;
+      regularizationRef.current?.openNewRequest();
+    }
+  }, [requestsTab]);
 
   return (
     <div>
@@ -2027,7 +2918,14 @@ export default function AttendancePage() {
             <Download size={14} /> Export selected month
           </button>
           <button
-            onClick={() => regularizationRef.current?.openNewRequest()}
+            onClick={() => {
+              if (requestsTab === 'REGULARIZATION') {
+                regularizationRef.current?.openNewRequest();
+              } else {
+                pendingOpenRequest.current = true;
+                setRequestsTab('REGULARIZATION');
+              }
+            }}
             style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
             <CalendarPlus size={14} /> Request Regularization
@@ -2037,10 +2935,42 @@ export default function AttendancePage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
         <MyAttendance ref={myAttendanceRef} />
-        <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
+
+        <div>
+          <SectionHeading title="Logs & Requests" />
+          <div style={{ marginBottom: 16 }}>
+            <FilterTabs
+              value={requestsTab}
+              onChange={setRequestsTab}
+              options={[
+                { value: 'REGULARIZATION', label: 'Regularization' },
+                { value: 'ATTENDANCE_REQUESTS', label: 'WFH & Partial Day' },
+                { value: 'OVERTIME', label: 'Overtime Requests' },
+              ]}
+            />
+          </div>
+          {requestsTab === 'REGULARIZATION' && (
+            <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
+          )}
+          {requestsTab === 'ATTENDANCE_REQUESTS' && (
+            <AttendanceRequestsSection token={token} canApprove={canApprove} />
+          )}
+          {requestsTab === 'OVERTIME' && (
+            <OvertimeRequestsSection token={token} canApprove={canApprove} />
+          )}
+        </div>
+
         {role === 'Manager' && <DayRoster scope="team" />}
         {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
       </div>
     </div>
+  );
+}
+
+export default function AttendancePage() {
+  return (
+    <TimeFormatProvider>
+      <AttendancePageInner />
+    </TimeFormatProvider>
   );
 }

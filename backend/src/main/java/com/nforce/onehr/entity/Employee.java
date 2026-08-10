@@ -39,6 +39,20 @@ public class Employee {
     @JoinColumn(name = "location_id")
     private Location location;
 
+    // Shift/weekly-off/penalisation assignments (ONEHR-108) — separate from workMode above,
+    // which is a self-service ONSITE/REMOTE/HYBRID profile attribute, not a policy assignment.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "shift_id")
+    private Shift shift;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "weekly_off_policy_id")
+    private WeeklyOffPolicy weeklyOffPolicy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "penalisation_policy_id")
+    private PenalisationPolicy penalisationPolicy;
+
     @Column(name = "employment_type", nullable = false)
     @Builder.Default
     private String employmentType = "FULL_TIME";

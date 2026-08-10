@@ -14,14 +14,15 @@ import java.util.UUID;
  * All approve/reject decisions for EVERY request type happen ONLY via Approval Center —
  * no other page may issue approval decisions.
  *
- * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST
+ * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST |
+ * WFH | PARTIAL_DAY | OVERTIME
  */
 @Data
 @Builder
 public class ApprovalItemDto {
 
     private String id;          // String to cover UUID (Leave/Expense) and Long (Regularization/AssetRequest)
-    private String requestType; // LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST
+    private String requestType; // see class Javadoc for the full discriminator list
     private UUID employeeUserId;
     private String employeeName;
     private Instant createdAt;
@@ -34,13 +35,18 @@ public class ApprovalItemDto {
     private Boolean leaveHalfDay;
     private String leaveReason;
 
-    // ── Attendance Regularization / Web Clock-In (shared fields — WEB_CLOCK_IN has no
-    //    requestedCheckOut; attendanceDate/requestedCheckIn/regularizationReason double
-    //    as workDate/requestedCheckIn/reason respectively) ──
+    // ── Attendance Regularization / Web Clock-In / WFH / Partial Day / Overtime (shared
+    //    fields — WEB_CLOCK_IN has no requestedCheckOut; WFH/PARTIAL_DAY have neither;
+    //    attendanceDate/requestedCheckIn/requestedCheckOut/regularizationReason double as
+    //    requestDate-or-workDate/requestedCheckIn-or-requestedStart/requestedCheckOut-or-
+    //    requestedEnd/reason respectively for the newer types) ──
     private LocalDate attendanceDate;
     private LocalDateTime requestedCheckIn;
     private LocalDateTime requestedCheckOut;
     private String regularizationReason;
+
+    // ── WFH / Partial Day (PARTIAL_DAY only; null for WFH) ──
+    private BigDecimal partialDayHours;
 
     // ── Expense ───────────────────────────────────────────
     private String expenseCategoryName;

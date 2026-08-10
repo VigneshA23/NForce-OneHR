@@ -1,0 +1,63 @@
+package com.nforce.onehr.controller;
+
+import com.nforce.onehr.dto.attendance.ApproveRegularizationRequest;
+import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
+import com.nforce.onehr.dto.attendance.CreateAttendanceRequest;
+import com.nforce.onehr.dto.attendance.RejectRegularizationRequest;
+import com.nforce.onehr.service.AttendanceRequestService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.security.Principal;
+import java.util.List;
+import java.util.UUID;
+
+/** Work From Home / Partial Day requests. See AttendanceRequestService for the flow's semantics. */
+@RestController
+@RequestMapping("/api/attendance/requests")
+@RequiredArgsConstructor
+public class AttendanceRequestController {
+
+    private final AttendanceRequestService attendanceRequestService;
+
+    @PostMapping
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ResponseEntity<AttendanceRequestResponse> submit(
+            @Valid @RequestBody CreateAttendanceRequest req, Principal principal) {
+        AttendanceRequestResponse created = attendanceRequestService.submit(req, principal.getName());
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public List<AttendanceRequestResponse> mine(Principal principal) {
+        return attendanceRequestService.listMine(principal.getName());
+    }
+
+    @GetMapping("/pending")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public List<AttendanceRequestResponse> pending(Principal principal) {
+        return attendanceRequestService.listPendingForApprover(principal.getName());
+    }
+
+    @PatchMapping("/{id}/approve")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public AttendanceRequestResponse approve(@PathVariable UUID id,
+                                              @RequestBody(required = false) ApproveRegularizationRequest req,
+                                              Principal principal) {
+        String comment = req != null ? req.getComment() : null;
+        return attendanceRequestService.approve(id, comment, principal.getName());
+    }
+
+    @PatchMapping("/{id}/reject")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public AttendanceRequestResponse reject(@PathVariable UUID id,
+                                             @Valid @RequestBody RejectRegularizationRequest req,
+                                             Principal principal) {
+        return attendanceRequestService.reject(id, req.getComment(), principal.getName());
+    }
+}

@@ -2,9 +2,13 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.MyRequestItemDto;
 import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
+import com.nforce.onehr.dto.attendance.OvertimeRequestResponse;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.attendance.WebClockInResponse;
+import com.nforce.onehr.service.AttendanceRequestService;
 import com.nforce.onehr.service.LeaveService;
+import com.nforce.onehr.service.OvertimeRequestService;
 import com.nforce.onehr.service.RegularizationService;
 import com.nforce.onehr.service.WebClockInService;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +34,8 @@ public class MyRequestsController {
     private final LeaveService leaveService;
     private final RegularizationService regularizationService;
     private final WebClockInService webClockInService;
+    private final AttendanceRequestService attendanceRequestService;
+    private final OvertimeRequestService overtimeRequestService;
 
     @GetMapping
     public List<MyRequestItemDto> myRequests(Principal principal) {
@@ -39,6 +45,8 @@ public class MyRequestsController {
         leaveService.listMyRequests(email).stream().map(this::leaveToItem).forEach(items::add);
         regularizationService.listMine(email).stream().map(this::regularizationToItem).forEach(items::add);
         webClockInService.listMine(email).stream().map(this::webClockInToItem).forEach(items::add);
+        attendanceRequestService.listMine(email).stream().map(this::attendanceRequestToItem).forEach(items::add);
+        overtimeRequestService.listMine(email).stream().map(this::overtimeToItem).forEach(items::add);
 
         items.sort(Comparator.comparing(MyRequestItemDto::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
         return items;
@@ -106,6 +114,45 @@ public class MyRequestsController {
                 // Reused field: for WEB_CLOCK_IN this carries the actual check-out time
                 // (set via the no-approval Web Clock Out action), not a "requested" one.
                 .requestedCheckOut(r.getCheckedOutAt())
+                .regularizationReason(r.getReason())
+                .build();
+    }
+
+    private MyRequestItemDto attendanceRequestToItem(AttendanceRequestResponse r) {
+        return MyRequestItemDto.builder()
+                .id(r.getId().toString())
+                .requestType(r.getRequestType()) // "WFH" or "PARTIAL_DAY"
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .status(r.getStatus())
+                .decisionReason(r.getReviewComment())
+                .decidedByName(r.getReviewedByName())
+                .decidedAt(r.getReviewedAt() != null
+                        ? r.getReviewedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .attendanceDate(r.getRequestDate())
+                .partialDayHours(r.getPartialDayHours())
+                .regularizationReason(r.getReason())
+                .build();
+    }
+
+    private MyRequestItemDto overtimeToItem(OvertimeRequestResponse r) {
+        return MyRequestItemDto.builder()
+                .id(r.getId().toString())
+                .requestType("OVERTIME")
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .status(r.getStatus())
+                .decisionReason(r.getReviewComment())
+                .decidedByName(r.getReviewedByName())
+                .decidedAt(r.getReviewedAt() != null
+                        ? r.getReviewedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .attendanceDate(r.getWorkDate())
+                .requestedCheckIn(r.getRequestedStart())
+                .requestedCheckOut(r.getRequestedEnd())
                 .regularizationReason(r.getReason())
                 .build();
     }
