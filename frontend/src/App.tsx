@@ -44,8 +44,10 @@ function DocumentsRouter() {
     : <DocumentsPage />;
 }
 
-// HR Admin and Super Admin share the same /audit path with different components — only these
-// two roles have an 'audit' nav entry at all (see nav.config.ts), so the ternary is exhaustive.
+// Manager, HR Admin, and Super Admin share the same /audit path with different components —
+// only these three roles have an 'audit' nav entry at all (see nav.config.ts). Super Admin gets
+// the full Audit & Security view; Manager and HR Admin both get the self-scoped Audit History
+// view (the server, not this ternary, enforces that scoping — see AuditLogController).
 function AuditRouter() {
   const user = useAuthStore(s => s.user);
   const role = toShellRole(user?.role);

@@ -45,6 +45,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('performance', 'Team Performance', GitBranch, 2),
     item('assets', 'Team Assets & Expenses', Package, 1),
     item('reports', 'Reports & Analytics', FileText, 2),
+    item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   'HR Admin': [

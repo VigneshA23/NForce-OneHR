@@ -19,16 +19,19 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * One shared set of endpoints for both HR Admin and Super Admin — same precedent as
+ * One shared set of endpoints for Manager, HR Admin, and Super Admin — same precedent as
  * {@code AttendanceController.employeeHistory}: a single method whose scope varies by the
- * caller's actual role, rather than two endpoints duplicating the same filter wiring. The
+ * caller's actual role, rather than duplicating the same filter wiring per role. The
  * HR_OPERATIONAL/ACCESS_CONTROL split is enforced entirely server-side in
- * {@link AuditQueryService} — the client never gets to ask for a role it doesn't hold.
+ * {@link AuditQueryService} — the client never gets to ask for a role it doesn't hold. Manager
+ * is treated identically to HR Admin here (isSuperAdmin=false): both get HR_OPERATIONAL actions
+ * only, self-scoped to the caller's own actorId — {@link AuditQueryService} never branches on
+ * "is this a Manager", only on "is this a Super Admin".
  */
 @RestController
 @RequestMapping("/api/audit-logs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+@PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
 public class AuditLogController {
 
     private final AuditQueryService auditQueryService;

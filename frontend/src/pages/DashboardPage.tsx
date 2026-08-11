@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Clock, Calendar, TrendingUp, UserCheck, LogIn, LogOut } from 'lucide-react';
+import { Users, Clock, Calendar, TrendingUp, UserCheck, LogIn, LogOut, X } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
-import { dashboardApi, type DirectReport, type ManagerDashboard } from '../api/dashboard';
+import { dashboardApi, type TeamJoiner, type ManagerDashboard } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord, type TodayAttendance } from '../api/attendance';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
+import { leaveApi } from '../api/leave';
 
 function formatClockTime(iso: string | null): string | null {
   if (!iso) return null;
@@ -46,7 +47,7 @@ function PendingCard({ icon: Icon, title, note }: {
 }
 
 /* ── Joiners-per-month chart ─────────────────────── */
-function buildJoinerData(): { month: string; joiners: number }[] {
+function buildJoinerData(joiners: TeamJoiner[]): { month: string; joiners: number }[] {
   const counts: Record<string, number> = {};
   const today = new Date();
   for (let i = 11; i >= 0; i--) {
@@ -54,32 +55,40 @@ function buildJoinerData(): { month: string; joiners: number }[] {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     counts[key] = 0;
   }
+  for (const j of joiners) {
+    const key = j.joinedTeamOn.slice(0, 7); // 'yyyy-MM'
+    if (key in counts) counts[key] += 1;
+  }
   return Object.entries(counts).map(([month, joiners]) => ({
     month: new Date(month + '-01').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
     joiners,
   }));
 }
 
-function JoinersChart({ reports: _reports }: { reports: DirectReport[] }) {
-  const data = useMemo(() => buildJoinerData(), []);
-  const hasData = data.some(d => d.joiners > 0);
+function JoinersChart({ joiners }: { joiners: TeamJoiner[] }) {
+  const [showModal, setShowModal] = useState(false);
+  const data = useMemo(() => buildJoinerData(joiners), [joiners]);
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
-          Team Joiners per Month
-        </span>
-        <span style={{ fontSize: 11, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 8px' }}>
-          Last 12 months
-        </span>
-      </div>
-      <p style={{ margin: '0 0 16px', fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-        {hasData
-          ? 'New team members joining per calendar month.'
-          : 'Available once DirectReport records carry joining dates. Joining dates are stored per employee — the API will be enriched in a future slice to include them here.'}
-      </p>
-      {hasData ? (
+    <>
+      <div
+        onClick={() => setShowModal(true)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setShowModal(true); }}
+        style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+            Team Joiners per Month
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 8px' }}>
+            Last 12 months
+          </span>
+        </div>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
+          New team members joining per calendar month. Click for details.
+        </p>
         <ResponsiveContainer width="100%" height={180}>
           <BarChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
@@ -92,14 +101,75 @@ function JoinersChart({ reports: _reports }: { reports: DirectReport[] }) {
             <Bar dataKey="joiners" name="New joiners" fill="#B11116" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
-      ) : (
-        <div style={{ height: 180, display: 'grid', placeItems: 'center', background: 'var(--raised)', borderRadius: 8, border: '1px dashed var(--line2)' }}>
-          <div style={{ textAlign: 'center' }}>
-            <TrendingUp size={24} style={{ color: 'var(--line2)', marginBottom: 8 }} />
-            <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Joiner data available once API is enriched</div>
+      </div>
+      {showModal && <TeamJoinersModal joiners={joiners} onClose={() => setShowModal(false)} />}
+    </>
+  );
+}
+
+/* ── Team Joiners detail modal: enlarged chart + underlying employee list ── */
+function TeamJoinersModal({ joiners, onClose }: { joiners: TeamJoiner[]; onClose: () => void }) {
+  const data = useMemo(() => buildJoinerData(joiners), [joiners]);
+  const sorted = useMemo(
+    () => [...joiners].sort((a, b) => b.joinedTeamOn.localeCompare(a.joinedTeamOn)),
+    [joiners]
+  );
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 880, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            Team Joiners — Last 12 Months
+          </span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px' }}>
+          <div style={{ padding: 20, borderRight: '1px solid var(--line)' }}>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                <XAxis dataKey="month" tick={{ fill: 'var(--txt-dim)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: 'var(--txt-dim)', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
+                  cursor={{ fill: 'rgba(177,17,22,.08)' }}
+                />
+                <Bar dataKey="joiners" name="New joiners" fill="#B11116" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 460, overflowY: 'auto' }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+              Employees ({sorted.length})
+            </span>
+            {sorted.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one joined your team in the last 12 months.</div>
+            ) : sorted.map((j, i) => (
+              <div key={`${j.userId}-${j.joinedTeamOn}-${i}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{j.fullName}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>
+                  {j.designationName ?? '—'}{j.departmentName ? ` · ${j.departmentName}` : ''}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{j.employeeCode}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--brand)', marginTop: 6 }}>
+                  Joined team: {new Date(j.joinedTeamOn).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -349,12 +419,27 @@ function ManagerDashboardView() {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState('');
   const { records: teamToday, loading: teamLoading } = useTeamAttendanceToday(token);
+  const [onLeaveCount, setOnLeaveCount] = useState<number | null>(null);
+  const [pendingLeaveCount, setPendingLeaveCount] = useState<number | null>(null);
 
   useEffect(() => {
     dashboardApi.managerDashboard(token)
       .then(setData)
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load team data'))
       .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    const today = todayIsoDate();
+    leaveApi.team(today, today, token)
+      .then(rows => setOnLeaveCount(new Set(rows.map(r => r.employeeUserId)).size))
+      .catch(() => setOnLeaveCount(0));
+  }, [token]);
+
+  useEffect(() => {
+    leaveApi.listApprovals(token)
+      .then(rows => setPendingLeaveCount(rows.length))
+      .catch(() => setPendingLeaveCount(0));
   }, [token]);
 
   const firstName = user?.firstName ?? user?.email?.split('@')[0] ?? 'Manager';
@@ -408,13 +493,19 @@ function ManagerDashboardView() {
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today</div>
         </div>
 
-        <div style={{ background: 'var(--panel)', border: '1px dashed var(--line2)', borderRadius: 10, padding: '18px 20px', opacity: .7 }}>
+        <button
+          onClick={() => navigate('/my-team?status=LEAVE')}
+          style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Calendar size={14} style={{ color: 'var(--txt-dim)' }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>On Leave</span>
+            <Calendar size={14} style={{ color: 'var(--brand)' }} />
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>On Leave</span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--txt-dim)', lineHeight: 1.5 }}>Available once Leave module is built</div>
-        </div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+            {onLeaveCount === null ? '—' : onLeaveCount}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>on leave today · view roster →</div>
+        </button>
       </div>
 
       {/* Team list + chart */}
@@ -466,7 +557,7 @@ function ManagerDashboardView() {
         </div>
 
         {/* Joiner chart */}
-        <JoinersChart reports={data?.directReports ?? []} />
+        <JoinersChart joiners={data?.teamJoiners ?? []} />
       </div>
 
       {/* Honest pending cards */}
@@ -491,11 +582,25 @@ function ManagerDashboardView() {
             View team attendance →
           </button>
         </div>
-        <PendingCard
-          icon={Calendar}
-          title="Pending Leave Requests"
-          note="Leave approvals from your team will appear here. Available once the Leave module is built."
-        />
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Calendar size={14} style={{ color: 'var(--brand)' }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Pending Leave Requests</span>
+          </div>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
+            {pendingLeaveCount === null
+              ? 'Loading…'
+              : pendingLeaveCount === 0
+                ? 'No leave requests waiting on your approval.'
+                : `${pendingLeaveCount} leave request${pendingLeaveCount === 1 ? '' : 's'} waiting on your approval.`}
+          </p>
+          <button
+            onClick={() => navigate('/approvals?type=LEAVE')}
+            style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            Review in Approval Center →
+          </button>
+        </div>
         <PendingCard
           icon={TrendingUp}
           title="Performance Overview"

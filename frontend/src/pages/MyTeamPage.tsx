@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -1017,6 +1018,8 @@ function ReportsTab({ token }: { token: string }) {
 export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
   const today = todayIsoDate();
+  const [searchParams] = useSearchParams();
+  const rosterRef = useRef<HTMLDivElement>(null);
 
   const [tab, setTab] = useState<'overview' | 'effort' | 'negligence' | 'assignments' | 'reports'>('overview');
 
@@ -1034,8 +1037,18 @@ export default function MyTeamPage() {
   const [monthLeave, setMonthLeave] = useState<LeaveRequestRecord[]>([]);
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'IN' | 'OUT' | 'NOT_IN_YET' | 'LEAVE'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'IN' | 'OUT' | 'NOT_IN_YET' | 'LEAVE'>(() => {
+    const s = searchParams.get('status');
+    return (['all', 'IN', 'OUT', 'NOT_IN_YET', 'LEAVE'] as string[]).includes(s ?? '') ? (s as any) : 'all';
+  });
   const [viewing, setViewing] = useState<RosterRow | null>(null);
+
+  // Landed here via a dashboard link (e.g. "On Leave" KPI) — scroll straight to the roster
+  // instead of leaving the pre-applied filter buried further down the page.
+  useEffect(() => {
+    if (searchParams.get('status') === 'LEAVE') rosterRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
+  }, []);
 
   useEffect(() => {
     dashboardApi.managerDashboard(token)
@@ -1289,7 +1302,7 @@ export default function MyTeamPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
         {/* Roster */}
-        <div style={panelStyle}>
+        <div ref={rosterRef} style={panelStyle}>
           <div style={panelHeadStyle}>
             <span style={panelTitleStyle}>Team roster</span>
             <span style={panelCountStyle}>{filteredRoster.length} {filteredRoster.length === 1 ? 'person' : 'people'}</span>
