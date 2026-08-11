@@ -26,4 +26,14 @@ export const directoryApi = {
   list: (token: string) =>
     fetch(BASE, { headers: { Authorization: `Bearer ${token}` } })
       .then(handle<DirectoryEntry[]>),
+
+  /** Colleagues who currently share the caller's manager — My Team: Peers view (ONEHR-73). */
+  myPeers: (token: string) =>
+    fetch(`${API_ORIGIN}/api/employees/my-peers`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<DirectoryEntry[]>),
+
+  /** The caller's own current reporting manager, or null if unassigned. */
+  myManager: (token: string) =>
+    fetch(`${API_ORIGIN}/api/employees/my-manager`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.status === 204 ? null : handle<{ userId: string; fullName: string; email: string } | null>(res))),
 };

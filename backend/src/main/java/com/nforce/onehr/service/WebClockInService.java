@@ -164,17 +164,16 @@ public class WebClockInService {
     @Transactional
     public WebClockInResponse checkOut(String actorEmail) {
         User actor = requireActor(actorEmail);
-        LocalDate today = now().toLocalDate();
 
+        // Looked up by "approved and not yet checked out", not by today's work_date — a web
+        // clock-in approved before midnight (shift crosses into the next day) can still be
+        // open under yesterday's work_date once the calendar date rolls over.
         WebClockInRequest req = webClockInRepository
-                .findByEmployeeUserIdAndWorkDateAndStatus(actor.getId(), today, "APPROVED")
+                .findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId(), "APPROVED")
                 .orElseThrow(() -> new IllegalArgumentException("No approved web clock-in found for today"));
-        if (req.getCheckedOutAt() != null) {
-            throw new IllegalArgumentException("You have already clocked out today");
-        }
 
         Attendance record = attendanceRepository
-                .findByEmployeeUserIdAndWorkDate(actor.getId(), today)
+                .findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
 
         LocalDateTime now = now();

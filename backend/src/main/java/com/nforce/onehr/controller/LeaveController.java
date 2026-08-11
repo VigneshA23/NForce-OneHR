@@ -58,6 +58,15 @@ public class LeaveController {
         return leaveService.listTeamLeave(principal.getName(), from, to);
     }
 
+    /** Approved leave for the caller's current peers — My Team: Peers view (ONEHR-73). */
+    @GetMapping("/peers")
+    public List<LeaveRequestResponse> peers(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return leaveService.listPeerLeave(principal.getName(), from, to);
+    }
+
     @PostMapping("/requests/{id}/approve")
     public LeaveRequestResponse approve(@PathVariable UUID id, Principal principal) {
         return leaveService.approve(id, principal.getName());

@@ -14,8 +14,14 @@ public class AttendanceResponse {
     private String employeeCode;
     private String fullName;
     private LocalDate workDate;
+    /** The day's original check-in — stays fixed across lunch-break resumes (late calculations
+     * anchor to it). For "what time did the current/most recent session start," use
+     * sessionStartedAt instead. */
     private LocalDateTime checkInAt;
     private LocalDateTime checkOutAt;
+    /** When the most recent session started — updates on every check-in, including a resume
+     * after a break, unlike checkInAt. Null only for records predating this field. */
+    private LocalDateTime sessionStartedAt;
     private Integer workedMinutes;
     private String status;
     private Integer lateByMinutes;
