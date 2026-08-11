@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -225,9 +226,31 @@ public class EmployeeService {
                         .stream())
                 .collect(Collectors.toList());
 
+        // Trailing 12 calendar months (including the current one), matching the dashboard
+        // chart's own bucketing window. Every history row in that window counts as its own
+        // join event, even if that employee has since been reassigned away from this manager —
+        // "who joined the team when" should survive a later reassignment/removal.
+        LocalDateTime since = LocalDate.now().withDayOfMonth(1).minusMonths(11).atStartOfDay();
+        List<ManagerDashboardDto.TeamJoiner> teamJoiners = historyRepository
+                .findByManagerUserIdAndEffectiveFromGreaterThanEqual(manager.getId(), since)
+                .stream()
+                .flatMap(rel -> employeeRepository.findById(rel.getEmployeeUserId())
+                        .map(emp -> ManagerDashboardDto.TeamJoiner.builder()
+                                .userId(emp.getUserId().toString())
+                                .employeeCode(emp.getEmployeeCode())
+                                .fullName(emp.getFullName())
+                                .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                                .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                                .active(emp.getUser().isActive())
+                                .joinedTeamOn(rel.getEffectiveFrom().toLocalDate().toString())
+                                .build())
+                        .stream())
+                .collect(Collectors.toList());
+
         return ManagerDashboardDto.builder()
                 .directReportCount(reports.size())
                 .directReports(reports)
+                .teamJoiners(teamJoiners)
                 .build();
     }
 

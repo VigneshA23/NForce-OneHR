@@ -20,6 +20,11 @@ public interface EmployeeManagerHistoryRepository extends JpaRepository<Employee
 
     List<EmployeeManagerHistory> findByManagerUserIdAndEffectiveToIsNull(UUID managerUserId);
 
+    // All history rows (open or closed) for a manager with effectiveFrom in a window — used
+    // for "team joiners" reporting, where someone reassigned away since joining should still
+    // count, unlike findByManagerUserIdAndEffectiveToIsNull above which only sees current reports.
+    List<EmployeeManagerHistory> findByManagerUserIdAndEffectiveFromGreaterThanEqual(UUID managerUserId, LocalDateTime since);
+
     // Current direct reports of a manager — effective_to IS NULL is the open row,
     // same convention as findByEmployeeUserIdAndEffectiveToIsNull above.
     @Query("SELECT h.employeeUserId FROM EmployeeManagerHistory h "
