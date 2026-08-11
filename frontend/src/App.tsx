@@ -6,7 +6,6 @@ import ChangePasswordPage from './pages/ChangePasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import AttendancePage from './pages/AttendancePage';
 import SuperAdminRegularizationPage from './pages/SuperAdminRegularizationPage';
-import Phase1Stub from './pages/Phase1Stub';
 import OrgSetupPage from './pages/OrgSetupPage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
@@ -26,6 +25,8 @@ import PoliciesPage from './pages/PoliciesPage';
 import OnboardingPage from './pages/OnboardingPage';
 import AuditHistoryPage from './pages/AuditHistoryPage';
 import AuditSecurityPage from './pages/AuditSecurityPage';
+import HelpDeskPage from './pages/HelpDeskPage';
+import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -50,6 +51,17 @@ function AuditRouter() {
   const user = useAuthStore(s => s.user);
   const role = toShellRole(user?.role);
   return role === 'Super Admin' ? <AuditSecurityPage /> : <AuditHistoryPage />;
+}
+
+// /requests is "My Requests" (Leave/Regularization/Web Clock-In tracker) for Employee/Manager,
+// but the Help Desk ticket queue for HR Admin/Super Admin — same nav slot the "HR Service
+// Requests" item already reserved (see nav.config.ts). Mirrors DocumentsRouter/AuditRouter.
+function RequestsRouter() {
+  const user = useAuthStore(s => s.user);
+  const role = toShellRole(user?.role);
+  return role === 'HR Admin' || role === 'Super Admin'
+    ? <HelpDeskAdminPage />
+    : <MyRequestsPage />;
 }
 
 function RequirePasswordChanged({ children }: { children: React.ReactNode }) {
@@ -93,9 +105,9 @@ export default function App() {
           <Route path="/attendance/regularization/all" element={<SuperAdminRegularizationPage />} />
           <Route path="/leave"        element={<LeavePage />} />
           <Route path="/my-team"      element={<MyTeamPage />} />
-          <Route path="/help"         element={<Phase1Stub />} />
+          <Route path="/help"         element={<HelpDeskPage />} />
           <Route path="/approvals"    element={<ApprovalsPage />} />
-          <Route path="/requests"     element={<MyRequestsPage />} />
+          <Route path="/requests"     element={<RequestsRouter />} />
           <Route path="/assets"       element={<AssetsExpensesPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}

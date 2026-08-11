@@ -135,6 +135,69 @@ export interface BulkActionResult {
   failed: { id: string; reason: string }[];
 }
 
+/** One row of the Avg. Work Hours Leaderboard (ONEHR-106). */
+export interface TeamEffortEntry {
+  employeeUserId: string;
+  fullName: string;
+  designationName: string | null;
+  avgHoursPerDay: number;
+  hoursWorked: number;
+  expectedHours: number;
+  activeDays: number;
+}
+
+export interface TeamLateArrivalEntry {
+  employeeUserId: string;
+  fullName: string;
+  designationName: string | null;
+  lateDays: number;
+  activeDays: number;
+  latePct: number;
+}
+
+export interface TeamDailyCount {
+  date: string;
+  count: number;
+}
+
+export interface TeamLeastHoursEntry {
+  employeeUserId: string;
+  fullName: string;
+  designationName: string | null;
+  avgHoursPerDay: number;
+  hoursWorked: number;
+}
+
+export interface TeamHoursBucket {
+  label: string;
+  count: number;
+  pct: number;
+}
+
+export interface TeamFrequentBreaksEntry {
+  employeeUserId: string;
+  fullName: string;
+  designationName: string | null;
+  totalBreakHours: number;
+  totalBreakCount: number;
+  avgBreaksPerDay: number;
+}
+
+export interface TeamDailyAverage {
+  date: string;
+  avgBreaks: number;
+}
+
+/** The three Negligence panels: Late Arrivals, Least Hours Worked, Frequent Breaks (ONEHR-107). */
+export interface TeamNegligenceResponse {
+  lateArrivals: TeamLateArrivalEntry[];
+  dailyLateCounts: TeamDailyCount[];
+  leastHoursWorked: TeamLeastHoursEntry[];
+  hoursHistogram: TeamHoursBucket[];
+  frequentBreaks: TeamFrequentBreaksEntry[];
+  breaksTrend: TeamDailyAverage[];
+}
+
 export interface SubmitRegularizationPayload {
   attendanceDate: string;
   requestedCheckIn?: string;
@@ -212,6 +275,16 @@ export const attendanceApi = {
   exceptions: (from: string, to: string, token: string) =>
     fetch(`${BASE}/attendance/exceptions?from=${from}&to=${to}`, { headers: authHeaders(token) })
       .then(handle<AttendanceExceptionRecord[]>),
+
+  /** Avg. Work Hours Leaderboard for the manager's direct reports over a date range (ONEHR-106). */
+  teamEffort: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/team-effort?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<TeamEffortEntry[]>),
+
+  /** Late Arrivals, Least Hours Worked, and Frequent Breaks for direct reports (ONEHR-107). */
+  teamNegligence: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/team-negligence?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<TeamNegligenceResponse>),
 };
 
 export const regularizationApi = {

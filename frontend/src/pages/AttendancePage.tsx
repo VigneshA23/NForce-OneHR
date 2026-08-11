@@ -1391,9 +1391,14 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
   // ONEHR-108: every employee is now seeded with an assigned Shift (start+end), so shiftEnd is
   // normally always present — fall back to the fullDayMinHours target only for the edge case of
   // an employee with no Shift assigned at all.
+  // Overnight shifts (e.g. 3:30 PM – 12:30 AM) have an end time numerically before the start
+  // time within a single day — wrap past midnight rather than producing a negative duration.
   const shiftMinutes = config?.shiftEnd
-    ? (minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0)
-      - (minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0)
+    ? (() => {
+        const startMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0;
+        const endMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0;
+        return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
+      })()
     : null;
   const fullDayTargetMinutes = shiftMinutes ?? (config ? config.fullDayMinHours * 60 : null);
   const progressPct = fullDayTargetMinutes && workedMinutesToday != null

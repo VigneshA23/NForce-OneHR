@@ -6,6 +6,8 @@ import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
 import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
+import com.nforce.onehr.dto.attendance.TeamEffortEntry;
+import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
@@ -22,6 +24,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -30,6 +33,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -349,6 +353,261 @@ public class AttendanceService {
         Employee employee = employeeRepository.findById(employeeUserId)
                 .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
         return historyFor(employee, from, to);
+    }
+
+    // ---------------------------------------------------------------- Team Effort / Negligence (ONEHR-106/107)
+
+    private static final int EXPECTED_HOURS_PER_WORKDAY = 8;
+
+    /** Avg. Work Hours Leaderboard — ranked desc by avg hrs/day over the range (ONEHR-106). */
+    @Transactional(readOnly = true)
+    public List<TeamEffortEntry> getTeamEffort(String managerEmail, LocalDate from, LocalDate to) {
+        Employee manager = resolveEmployee(managerEmail);
+        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+        if (reportIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<Attendance> records = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(reportIds, from, to);
+        Map<UUID, Employee> byId = employeeRepository.findAllById(reportIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, Function.identity()));
+        double expectedHours = countWeekdays(from, to) * EXPECTED_HOURS_PER_WORKDAY;
+
+        return groupByEmployee(records).entrySet().stream()
+                .filter(e -> e.getValue().activeDays > 0)
+                .map(e -> {
+                    TeamStat stat = e.getValue();
+                    Employee employee = byId.get(e.getKey());
+                    return TeamEffortEntry.builder()
+                            .employeeUserId(e.getKey())
+                            .fullName(employee != null ? employee.getFullName() : null)
+                            .designationName(designationOf(employee))
+                            .avgHoursPerDay(round1(stat.totalWorkedMinutes / 60.0 / stat.activeDays))
+                            .hoursWorked(round1(stat.totalWorkedMinutes / 60.0))
+                            .expectedHours(expectedHours)
+                            .activeDays(stat.activeDays)
+                            .build();
+                })
+                .sorted(Comparator.comparingDouble(TeamEffortEntry::getAvgHoursPerDay).reversed())
+                .toList();
+    }
+
+    /** The three Negligence panels: Late Arrivals, Least Hours Worked, Frequent Breaks (ONEHR-107). */
+    @Transactional(readOnly = true)
+    public TeamNegligenceResponse getTeamNegligence(String managerEmail, LocalDate from, LocalDate to) {
+        Employee manager = resolveEmployee(managerEmail);
+        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+        if (reportIds.isEmpty()) {
+            return TeamNegligenceResponse.builder()
+                    .lateArrivals(List.of()).dailyLateCounts(List.of())
+                    .leastHoursWorked(List.of()).hoursHistogram(List.of())
+                    .frequentBreaks(List.of()).build();
+        }
+
+        List<Attendance> records = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(reportIds, from, to);
+        Map<UUID, Employee> byId = employeeRepository.findAllById(reportIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, Function.identity()));
+        Map<UUID, TeamStat> statsByEmployee = groupByEmployee(records);
+
+        List<TeamNegligenceResponse.LateArrivalEntry> lateArrivals = statsByEmployee.entrySet().stream()
+                .filter(e -> e.getValue().activeDays > 0)
+                .map(e -> {
+                    TeamStat stat = e.getValue();
+                    Employee employee = byId.get(e.getKey());
+                    return TeamNegligenceResponse.LateArrivalEntry.builder()
+                            .employeeUserId(e.getKey())
+                            .fullName(employee != null ? employee.getFullName() : null)
+                            .designationName(designationOf(employee))
+                            .lateDays(stat.lateDays)
+                            .activeDays(stat.activeDays)
+                            .latePct(round1(stat.lateDays * 100.0 / stat.activeDays))
+                            .build();
+                })
+                .sorted(Comparator.comparingDouble(TeamNegligenceResponse.LateArrivalEntry::getLatePct).reversed())
+                .toList();
+
+        Map<LocalDate, Long> lateByDate = records.stream()
+                .filter(r -> STATUS_LATE.equals(r.getStatus()))
+                .collect(Collectors.groupingBy(Attendance::getWorkDate, Collectors.counting()));
+        List<TeamNegligenceResponse.DailyCount> dailyLateCounts = from.datesUntil(to.plusDays(1))
+                .map(d -> TeamNegligenceResponse.DailyCount.builder().date(d).count(lateByDate.getOrDefault(d, 0L)).build())
+                .toList();
+
+        List<TeamNegligenceResponse.LeastHoursEntry> leastHoursWorked = statsByEmployee.entrySet().stream()
+                .filter(e -> e.getValue().activeDays > 0)
+                .map(e -> {
+                    TeamStat stat = e.getValue();
+                    Employee employee = byId.get(e.getKey());
+                    return TeamNegligenceResponse.LeastHoursEntry.builder()
+                            .employeeUserId(e.getKey())
+                            .fullName(employee != null ? employee.getFullName() : null)
+                            .designationName(designationOf(employee))
+                            .avgHoursPerDay(round1(stat.totalWorkedMinutes / 60.0 / stat.activeDays))
+                            .hoursWorked(round1(stat.totalWorkedMinutes / 60.0))
+                            .build();
+                })
+                .sorted(Comparator.comparingDouble(TeamNegligenceResponse.LeastHoursEntry::getAvgHoursPerDay))
+                .toList();
+
+        FrequentBreaksResult breaks = computeFrequentBreaks(records, byId, from, to);
+
+        return TeamNegligenceResponse.builder()
+                .lateArrivals(lateArrivals)
+                .dailyLateCounts(dailyLateCounts)
+                .leastHoursWorked(leastHoursWorked)
+                .hoursHistogram(buildHoursHistogram(leastHoursWorked))
+                .frequentBreaks(breaks.entries)
+                .breaksTrend(breaks.trend)
+                .build();
+    }
+
+    /** Per-employee accumulator for the range — active/late days and total worked minutes. */
+    private static final class TeamStat {
+        int activeDays;
+        int lateDays;
+        int totalWorkedMinutes;
+    }
+
+    private Map<UUID, TeamStat> groupByEmployee(List<Attendance> records) {
+        Map<UUID, TeamStat> stats = new HashMap<>();
+        for (Attendance r : records) {
+            if (r.getCheckInAt() == null) {
+                continue; // no punch that day — not an "active" day for averaging purposes
+            }
+            TeamStat stat = stats.computeIfAbsent(r.getEmployeeUserId(), k -> new TeamStat());
+            stat.activeDays++;
+            if (STATUS_LATE.equals(r.getStatus())) {
+                stat.lateDays++;
+            }
+            stat.totalWorkedMinutes += r.getWorkedMinutes() != null ? r.getWorkedMinutes() : 0;
+        }
+        return stats;
+    }
+
+    private long countWeekdays(LocalDate from, LocalDate to) {
+        return from.datesUntil(to.plusDays(1))
+                .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY)
+                .count();
+    }
+
+    private List<TeamNegligenceResponse.HoursBucket> buildHoursHistogram(
+            List<TeamNegligenceResponse.LeastHoursEntry> entries) {
+        String[] labels = {"< 4 hours", "4 - 5 hours", "5 - 6 hours", "6 - 7 hours", "7 - 8 hours", ">= 8 hours"};
+        int[] counts = new int[labels.length];
+        for (TeamNegligenceResponse.LeastHoursEntry e : entries) {
+            double h = e.getAvgHoursPerDay();
+            int idx = h < 4 ? 0 : h < 5 ? 1 : h < 6 ? 2 : h < 7 ? 3 : h < 8 ? 4 : 5;
+            counts[idx]++;
+        }
+        int total = entries.size();
+        List<TeamNegligenceResponse.HoursBucket> buckets = new ArrayList<>();
+        for (int i = 0; i < labels.length; i++) {
+            double pct = total == 0 ? 0 : counts[i] * 100.0 / total;
+            buckets.add(TeamNegligenceResponse.HoursBucket.builder()
+                    .label(labels[i]).count(counts[i]).pct(round1(pct)).build());
+        }
+        return buckets;
+    }
+
+    /** Per-employee accumulator for break count/minutes while walking punch sessions. */
+    private static final class BreakStat {
+        int count;
+        long minutes;
+    }
+
+    /** Per-day accumulator for the trend line: total breaks and how many employees punched that day. */
+    private static final class DayBreakTotals {
+        int totalBreaks;
+        int employeesWithSessions;
+    }
+
+    private static final class FrequentBreaksResult {
+        final List<TeamNegligenceResponse.FrequentBreaksEntry> entries;
+        final List<TeamNegligenceResponse.DailyAverage> trend;
+
+        FrequentBreaksResult(List<TeamNegligenceResponse.FrequentBreaksEntry> entries,
+                              List<TeamNegligenceResponse.DailyAverage> trend) {
+            this.entries = entries;
+            this.trend = trend;
+        }
+    }
+
+    private FrequentBreaksResult computeFrequentBreaks(
+            List<Attendance> records, Map<UUID, Employee> byId, LocalDate from, LocalDate to) {
+        if (records.isEmpty()) {
+            return new FrequentBreaksResult(List.of(), List.of());
+        }
+        Map<UUID, Attendance> recordById = records.stream()
+                .collect(Collectors.toMap(Attendance::getId, Function.identity()));
+        List<AttendancePunch> punches =
+                attendancePunchRepository.findByAttendanceRecordIdInOrderByCheckInAtAsc(recordById.keySet());
+        Map<UUID, List<AttendancePunch>> byRecord = punches.stream()
+                .collect(Collectors.groupingBy(AttendancePunch::getAttendanceRecordId));
+
+        Map<UUID, BreakStat> statByEmployee = new HashMap<>();
+        Map<UUID, Integer> activeDaysWithPunches = new HashMap<>();
+        Map<LocalDate, DayBreakTotals> dailyTotals = new HashMap<>();
+
+        for (Map.Entry<UUID, List<AttendancePunch>> entry : byRecord.entrySet()) {
+            List<AttendancePunch> sessions = entry.getValue(); // already ordered by checkInAt asc
+            Attendance record = recordById.get(entry.getKey());
+            if (sessions.isEmpty() || record == null) {
+                continue;
+            }
+            UUID employeeUserId = record.getEmployeeUserId();
+            activeDaysWithPunches.merge(employeeUserId, 1, Integer::sum);
+            BreakStat stat = statByEmployee.computeIfAbsent(employeeUserId, k -> new BreakStat());
+            DayBreakTotals dayTotals = dailyTotals.computeIfAbsent(record.getWorkDate(), k -> new DayBreakTotals());
+            dayTotals.employeesWithSessions++;
+
+            // sessions.size() - 1 gaps = the day's breaks; the first session isn't a break.
+            for (int i = 0; i < sessions.size() - 1; i++) {
+                AttendancePunch current = sessions.get(i);
+                AttendancePunch next = sessions.get(i + 1);
+                stat.count++;
+                dayTotals.totalBreaks++;
+                if (current.getCheckOutAt() != null) {
+                    stat.minutes += Duration.between(current.getCheckOutAt(), next.getCheckInAt()).toMinutes();
+                }
+            }
+        }
+
+        List<TeamNegligenceResponse.FrequentBreaksEntry> entries = new ArrayList<>();
+        for (Map.Entry<UUID, BreakStat> entry : statByEmployee.entrySet()) {
+            if (entry.getValue().count == 0) {
+                continue; // no breaks in range — excluded entirely, not shown as 0 (AC #4)
+            }
+            Employee employee = byId.get(entry.getKey());
+            int activeDays = activeDaysWithPunches.getOrDefault(entry.getKey(), 1);
+            entries.add(TeamNegligenceResponse.FrequentBreaksEntry.builder()
+                    .employeeUserId(entry.getKey())
+                    .fullName(employee != null ? employee.getFullName() : null)
+                    .designationName(designationOf(employee))
+                    .totalBreakHours(round1(entry.getValue().minutes / 60.0))
+                    .totalBreakCount(entry.getValue().count)
+                    .avgBreaksPerDay(round1((double) entry.getValue().count / activeDays))
+                    .build());
+        }
+        entries.sort(Comparator.comparingDouble(TeamNegligenceResponse.FrequentBreaksEntry::getTotalBreakHours).reversed());
+
+        List<TeamNegligenceResponse.DailyAverage> trend = from.datesUntil(to.plusDays(1))
+                .map(d -> {
+                    DayBreakTotals t = dailyTotals.get(d);
+                    double avg = (t == null || t.employeesWithSessions == 0)
+                            ? 0 : (double) t.totalBreaks / t.employeesWithSessions;
+                    return TeamNegligenceResponse.DailyAverage.builder().date(d).avgBreaks(round1(avg)).build();
+                })
+                .toList();
+
+        return new FrequentBreaksResult(entries, trend);
+    }
+
+    private String designationOf(Employee employee) {
+        return employee != null && employee.getDesignation() != null ? employee.getDesignation().getTitle() : null;
+    }
+
+    private double round1(double value) {
+        return Math.round(value * 10) / 10.0;
     }
 
     // ---------------------------------------------------------------- internals

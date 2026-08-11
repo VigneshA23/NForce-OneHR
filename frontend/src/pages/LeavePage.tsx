@@ -280,6 +280,7 @@ export default function LeavePage() {
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [requests, setRequests] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [leaveError, setLeaveError] = useState('');
   const [showRequest, setShowRequest] = useState(false);
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
   const [holidayError, setHolidayError] = useState('');
@@ -288,8 +289,10 @@ export default function LeavePage() {
   const [locationFilter, setLocationFilter] = useState(''); // admin only; '' = All Locations
 
   useEffect(() => {
+    setLeaveError('');
     Promise.all([leaveApi.listTypes(token), leaveApi.listBalances(token), leaveApi.listMine(token)])
       .then(([t, b, r]) => { setTypes(t); setBalances(b); setRequests(r); })
+      .catch(e => setLeaveError(e instanceof Error ? e.message : 'Failed to load leave data'))
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -335,6 +338,12 @@ export default function LeavePage() {
           <CalendarPlus size={14} /> Request Leave
         </button>
       </div>
+
+      {leaveError && (
+        <div role="alert" style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 8, padding: '10px 14px', color: 'var(--risk)', fontSize: 13, marginBottom: 14 }}>
+          {leaveError}
+        </div>
+      )}
 
       {!loading && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 22 }}>

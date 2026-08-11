@@ -27,4 +27,9 @@ public interface WebClockInRequestRepository extends JpaRepository<WebClockInReq
             UUID employeeUserId, LocalDate workDate, String status);
 
     boolean existsByEmployeeUserIdAndWorkDateAndStatus(UUID employeeUserId, LocalDate workDate, String status);
+
+    // Backs the "Remote Clock-ins" / "Remote Clock-in Requests Summary" / "Web Clock-ins" report
+    // cards (ONEHR-109) — one entity backs all three, a manager's team over a date range.
+    List<WebClockInRequest> findByEmployeeUserIdInAndWorkDateBetween(
+            Collection<UUID> employeeUserIds, LocalDate from, LocalDate to);
 }
