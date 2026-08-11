@@ -1274,13 +1274,18 @@ function AttendanceStatsPanel({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Guards against a slower, earlier request (e.g. a stale MONTH fetch from before the user
+    // switched to WEEK) resolving after a newer one and silently overwriting it with the wrong
+    // range's data — same cancellation pattern used by every other fetch effect on this page.
+    let cancelled = false;
     setLoading(true);
     const to = todayIsoDate();
     const from = range === 'WEEK' ? isoDaysAgo(6) : isoDaysAgo(29);
     attendanceApi.stats(from, to, token)
-      .then(setStats)
-      .catch(() => setStats(null))
-      .finally(() => setLoading(false));
+      .then((s) => { if (!cancelled) setStats(s); })
+      .catch(() => { if (!cancelled) setStats(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [range, token]);
 
   const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '10px 0' };
@@ -1401,7 +1406,6 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
 
 // ─── Quick Actions ──────────────────────────────────────────────────────────────
 function QuickActionsPanel({ token }: { token: string }) {
-  const { format, toggle } = useTimeFormat();
   const [modal, setModal] = useState<'WEB_CHECK_IN' | 'WFH' | 'PARTIAL_DAY' | 'POLICY' | null>(null);
   const { showToast } = useToast();
 
@@ -1426,26 +1430,6 @@ function QuickActionsPanel({ token }: { token: string }) {
       <button style={actionStyle} onClick={() => setModal('POLICY')}>
         <FileText size={15} style={{ color: 'var(--brand)' }} /> Attendance Policy
       </button>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
-        <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Time format</span>
-        <button
-          onClick={toggle}
-          style={{ display: 'flex', background: 'var(--raised2)', border: '1px solid var(--line2)', borderRadius: 20, padding: 2, cursor: 'pointer' }}
-        >
-          {(['12h', '24h'] as const).map((f) => (
-            <span
-              key={f}
-              style={{
-                fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 18,
-                background: format === f ? 'var(--brand)' : 'transparent',
-                color: format === f ? '#fff' : 'var(--txt-dim)',
-              }}
-            >
-              {f}
-            </span>
-          ))}
-        </button>
-      </div>
       {modal === 'WEB_CHECK_IN' && (
         <WebClockInRequestModal onClose={() => setModal(null)} onSubmitted={() => showToast('success', 'Web clock-in request submitted for approval')} />
       )}
@@ -1505,33 +1489,77 @@ function computeRowMetrics(info: DayInfo, punches: Punch[] | undefined, workedMi
 }
 
 /** One presence bar — purely presentational, no interactivity (the timeline is visual-only). */
-function TimelineBar({ checkOutAt, leftPct, widthPct }: {
-  checkOutAt: string | null; leftPct: number; widthPct: number;
+/**
+ * One presence bar, proportionally positioned/sized against the 24-hour track. Hovering shows a
+ * small "Logged in HH:MM – HH:MM" tooltip centered directly above the bar — no click, no extra
+ * day-details content here (that lives behind the row's View button instead).
+ */
+function TimelineBar({ checkInAt, checkOutAt, leftPct, widthPct }: {
+  checkInAt: string; checkOutAt: string | null; leftPct: number; widthPct: number;
 }) {
+  const { formatTime } = useTimeFormat();
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+
+  function show() {
+    const rect = barRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setCoords({ top: rect.top - 6, left: rect.left + rect.width / 2 });
+  }
+  function hide() {
+    setCoords(null);
+  }
+
+  const label = `Logged in ${formatTime(checkInAt) ?? '—'} - ${checkOutAt ? formatTime(checkOutAt) : 'now'}`;
+
   return (
-    <div
-      style={{
-        position: 'absolute', left: `${leftPct}%`, width: `${widthPct}%`, minWidth: 4,
-        top: 0, height: '100%',
-        background: checkOutAt ? 'var(--brand)' : '#E0A93B',
-        borderRadius: 4,
-      }}
-    />
+    <>
+      <div
+        ref={barRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        style={{
+          position: 'absolute', left: `${leftPct}%`, width: `${widthPct}%`, minWidth: 3,
+          top: 0, height: '100%',
+          background: checkOutAt ? 'var(--brand)' : '#E0A93B',
+          borderRadius: 3,
+        }}
+      />
+      {coords && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed', top: coords.top, left: coords.left, transform: 'translate(-50%, -100%)',
+            background: 'var(--raised2)', color: 'var(--txt)', border: '1px solid var(--line2)', borderRadius: 6,
+            padding: '5px 9px', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap',
+            boxShadow: '0 6px 18px rgba(0,0,0,.35)', zIndex: 1000, pointerEvents: 'none',
+          }}
+        >
+          {label}
+          <div style={{
+            position: 'absolute', bottom: -4, left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0, borderLeft: '4px solid transparent', borderRight: '4px solid transparent',
+            borderTop: '4px solid var(--raised2)',
+          }} />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
-/** Purely visual 24-hour presence timeline — no click behavior; day details live behind the row's View button instead. */
+/** Compact, column-filling 24-hour presence timeline. Bars are proportional to actual login/logout duration; hovering a bar shows a small tooltip (see TimelineBar). No day-details content lives here — that's behind the row's View button. */
 function AttendanceTimeline({ info, punches, punchesLoading }: {
   info: DayInfo; punches: Punch[] | undefined; punchesLoading: boolean;
 }) {
   if (info.holidayName) {
-    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Company holiday — {info.holidayName}</span>;
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>Company holiday — {info.holidayName}</span>;
   }
   if (info.leaveTypeName) {
-    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>On leave — {info.leaveTypeName}</span>;
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>On leave — {info.leaveTypeName}</span>;
   }
   if (info.isWeekend && !info.record && !info.attendanceRequest) {
-    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Full day Weekly-off</span>;
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>Full day Weekly-off</span>;
   }
   const record = info.record;
   if (!record?.checkInAt) {
@@ -1549,20 +1577,21 @@ function AttendanceTimeline({ info, punches, punchesLoading }: {
       : [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt }];
 
   return (
-    <div style={{ position: 'relative', height: 22, minWidth: 170 }}>
-      <div style={{ position: 'absolute', left: 0, right: 0, top: 7, height: 8, background: 'var(--raised2)', borderRadius: 4 }} />
+    <div style={{ position: 'relative', height: 18, width: '100%', minWidth: 140, maxWidth: 220 }}>
+      <div style={{ position: 'absolute', left: 0, right: 0, top: 6, height: 6, background: 'var(--raised2)', borderRadius: 3 }} />
       {Array.from({ length: 25 }).map((_, i) => (
-        <div key={i} style={{ position: 'absolute', left: `${(i / 24) * 100}%`, top: 4, width: 1, height: 14, background: 'var(--line2)', opacity: i % 6 === 0 ? 0.9 : 0.4 }} />
+        <div key={i} style={{ position: 'absolute', left: `${(i / 24) * 100}%`, top: 3, width: 1, height: 12, background: 'var(--line2)', opacity: i % 6 === 0 ? 0.8 : 0.35 }} />
       ))}
       {segments.map((seg, i) => {
         const inMin = minutesSinceMidnight(seg.checkInAt);
         if (inMin == null) return null;
         const outMin = seg.checkOutAt ? minutesSinceMidnight(seg.checkOutAt) : null;
         const leftPct = (inMin / 1440) * 100;
-        // A still-open session (no checkOutAt) gets a small visible sliver rather than zero width.
-        const widthPct = Math.max(0.8, (((outMin ?? inMin + 10) - inMin) / 1440) * 100);
+        // Width is strictly proportional to the actual session duration out of the 24h track,
+        // with a small floor so a very short/still-open session stays visible and hoverable.
+        const widthPct = Math.max(0.6, (((outMin ?? inMin + 10) - inMin) / 1440) * 100);
         return (
-          <TimelineBar key={seg.key ?? i} leftPct={leftPct} widthPct={widthPct} checkOutAt={seg.checkOutAt} />
+          <TimelineBar key={seg.key ?? i} leftPct={leftPct} widthPct={widthPct} checkInAt={seg.checkInAt} checkOutAt={seg.checkOutAt} />
         );
       })}
     </div>
@@ -1638,6 +1667,116 @@ function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] 
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Full day-details body — date header, then whichever of holiday/leave/regularization/punched-
+ * record/weekend/nothing applies, including (for a punched record) DayShiftAndActions and
+ * DayPunchIntervals. Shared by the calendar's side panel AND the View-button modal below, so
+ * both present exactly the same information.
+ */
+function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay }: {
+  info: DayInfo;
+  config: AttendanceConfig | null;
+  punches: Punch[] | undefined;
+  onRegularize: () => void;
+  onApplyPartialDay: () => void;
+}) {
+  const { formatTime, formatDuration } = useTimeFormat();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{formatDay(info.iso)}</div>
+      {info.holidayName ? (
+        <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Company holiday — {info.holidayName}</div>
+      ) : info.leaveTypeName ? (
+        <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>On leave — {info.leaveTypeName}</div>
+      ) : info.regularization ? (
+        <>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested In</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.regularization.requestedCheckIn) ?? dash}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested Out</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.regularization.requestedCheckOut) ?? dash}</div>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Total Hours</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(info.regularization.totalMinutes) ?? dash}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Status</div>
+            <RegularizationStatusPill status={info.regularization.status} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Approved By</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{info.regularization.reviewedByName ?? dash}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Comments</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>{info.regularization.reviewComment ?? dash}</div>
+          </div>
+        </>
+      ) : info.record ? (
+        <>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                <LogIn size={11} /> Check In
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkInAt) ?? dash}</div>
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+                <LogOut size={11} /> Check Out
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkOutAt) ?? dash}</div>
+            </div>
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
+              <Clock size={11} /> Hours
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(info.record.workedMinutes) ?? dash}</div>
+          </div>
+          <StatusPill status={info.record.status} />
+          <DayShiftAndActions info={info} config={config} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
+          <DayPunchIntervals info={info} punches={punches} />
+        </>
+      ) : info.isWeekend ? (
+        <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>
+      ) : (
+        <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No attendance recorded for this day.</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Opened directly by the Attendance Log's View button — a self-contained modal (not dependent
+ * on the calendar's side panel, which can be scrolled out of view) showing the exact same
+ * DayDetailsBody: shift timing, Regularize, Apply Partial Day, and the full punch history.
+ */
+function DayDetailsModal({ info, config, punches, onClose, onRegularize, onApplyPartialDay }: {
+  info: DayInfo;
+  config: AttendanceConfig | null;
+  punches: Punch[] | undefined;
+  onClose: () => void;
+  onRegularize: () => void;
+  onApplyPartialDay: () => void;
+}) {
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 420 }}>
+        <ModalHeader title="Attendance Details" onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          <DayDetailsBody info={info} config={config} punches={punches} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -1732,18 +1871,91 @@ function MonthShortcuts({ viewYear, viewMonth, onSelect }: {
   );
 }
 
+// ─── Logs & Requests tab bar ────────────────────────────────────────────────────
+// One flat row of 4 tabs (Keka reference: nforceone.keka.com/#/me/attendance/logs) — the
+// active tab gets a bordered "chip", inactive tabs stay plain text. Calendar/Attendance Log
+// content lives here (inside MyAttendance, which already owns that state); Attendance
+// Requests/Overtime Requests content is handed in as `otherTabContent` by the page since it
+// lives in sibling components with their own state.
+export type LogsTab = 'ATTENDANCE_LOG' | 'CALENDAR' | 'ATTENDANCE_REQUESTS' | 'OVERTIME';
+
+const LOGS_TABS: { value: LogsTab; label: string }[] = [
+  { value: 'ATTENDANCE_LOG', label: 'Attendance Log' },
+  { value: 'CALENDAR', label: 'Calendar' },
+  { value: 'ATTENDANCE_REQUESTS', label: 'Attendance Requests' },
+  { value: 'OVERTIME', label: 'Overtime Requests' },
+];
+
+function LogsTabBar({ value, onChange }: { value: LogsTab; onChange: (v: LogsTab) => void }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {LOGS_TABS.map((t) => {
+        const active = t.value === value;
+        return (
+          <button
+            key={t.value}
+            onClick={() => onChange(t.value)}
+            style={{
+              background: active ? 'var(--raised)' : 'transparent',
+              border: `1px solid ${active ? 'var(--line2)' : 'transparent'}`,
+              borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600,
+              color: active ? 'var(--txt)' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Relocated from Quick Actions so it sits above/right of the Logs & Requests tab bar, matching the Keka reference. Same shared preference (useTimeFormat) — just one on/off switch instead of a 12h/24h pair. */
+function TimeFormatToggle() {
+  const { format, toggle } = useTimeFormat();
+  const checked = format === '24h';
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--txt-mut)', userSelect: 'none' }}>
+      <span
+        role="switch"
+        aria-checked={checked}
+        onClick={toggle}
+        style={{
+          width: 36, height: 20, borderRadius: 10, position: 'relative', flexShrink: 0,
+          background: checked ? 'var(--brand)' : 'var(--line2)', transition: 'background .15s',
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%',
+          background: '#fff', transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.25)',
+        }} />
+      </span>
+      24 hour format
+    </label>
+  );
+}
+
 export interface MyAttendanceHandle {
   exportMonth: () => void;
 }
 
-const MyAttendance = forwardRef<MyAttendanceHandle, { isSuperAdmin: boolean }>(function MyAttendance({ isSuperAdmin }, ref) {
+const MyAttendance = forwardRef<MyAttendanceHandle, {
+  isSuperAdmin: boolean;
+  logsTab: LogsTab;
+  onLogsTabChange: (tab: LogsTab) => void;
+  /** Attendance Requests / Overtime Requests content — owned by sibling components in the page, rendered in this same box when their tab is active. */
+  otherTabContent: React.ReactNode;
+}>(function MyAttendance({ isSuperAdmin, logsTab, onLogsTabChange, otherTabContent }, ref) {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
 
   const [today, setToday] = useState<TodayAttendance | null>(null);
   const [loading, setLoading] = useState(true);
-  // Regularize/Apply Partial Day, opened from the View/details side panel (see
+  // The Attendance Log's View button opens this modal directly — it doesn't rely on the
+  // calendar's side panel, which can be scrolled out of view for rows further down the table.
+  const [viewDetailsIso, setViewDetailsIso] = useState<string | null>(null);
+  // Regularize/Apply Partial Day, opened from either the side panel or the View modal (see
   // DayShiftAndActions) — reuses the existing RequestModal/AttendanceRequestModal flows
   // directly rather than routing through the Regularization/WFH&Partial-Day tabs.
   const [regularizeDate, setRegularizeDate] = useState<string | null>(null);
@@ -2053,10 +2265,19 @@ const MyAttendance = forwardRef<MyAttendanceHandle, { isSuperAdmin: boolean }>(f
         <QuickActionsPanel token={token} />
       </div>
 
-      {/* Monthly attendance calendar */}
+      {/* Logs & Requests — Keka-style 4-tab bar (nforceone.keka.com/#/me/attendance/logs).
+          Calendar/Attendance Log render inline below since they share this component's state;
+          Attendance Requests/Overtime Requests are handed in as otherTabContent — they live in
+          sibling components with their own state. */}
       <div>
-        <SectionHeading title="My attendance calendar" hint="Present days, worked hours, and leave/holidays for the selected month." />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+          <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Logs & Requests</h2>
+          <TimeFormatToggle />
+        </div>
+        <LogsTabBar value={logsTab} onChange={onLogsTabChange} />
 
+        {logsTab === 'CALENDAR' && (
+        <div style={{ marginTop: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
           <MonthStatTile label="Present Days" value={monthLoading ? '—' : String(presentDaysCount)} hint="Selected month" />
           <MonthStatTile label="Worked Hours" value={monthLoading ? '—' : (formatDuration(workedMinutesTotal) ?? '0m')} hint="Selected month" />
@@ -2145,87 +2366,23 @@ const MyAttendance = forwardRef<MyAttendanceHandle, { isSuperAdmin: boolean }>(f
                 )}
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{formatDay(selectedInfo.iso)}</div>
-                {selectedInfo.holidayName ? (
-                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Company holiday — {selectedInfo.holidayName}</div>
-                ) : selectedInfo.leaveTypeName ? (
-                  <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>On leave — {selectedInfo.leaveTypeName}</div>
-                ) : selectedInfo.regularization ? (
-                  <>
-                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested In</div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.regularization.requestedCheckIn) ?? dash}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Requested Out</div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.regularization.requestedCheckOut) ?? dash}</div>
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Total Hours</div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.regularization.totalMinutes) ?? dash}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Status</div>
-                      <RegularizationStatusPill status={selectedInfo.regularization.status} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Approved By</div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{selectedInfo.regularization.reviewedByName ?? dash}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Comments</div>
-                      <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>{selectedInfo.regularization.reviewComment ?? dash}</div>
-                    </div>
-                  </>
-                ) : selectedInfo.record ? (
-                  <>
-                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
-                          <LogIn size={11} /> Check In
-                        </div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkInAt) ?? dash}</div>
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
-                          <LogOut size={11} /> Check Out
-                        </div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(selectedInfo.record.checkOutAt) ?? dash}</div>
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
-                        <Clock size={11} /> Hours
-                      </div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.record.workedMinutes) ?? dash}</div>
-                    </div>
-                    <StatusPill status={selectedInfo.record.status} />
-                    <DayShiftAndActions
-                      info={selectedInfo}
-                      config={config}
-                      onRegularize={() => setRegularizeDate(selectedInfo.iso)}
-                      onApplyPartialDay={() => setPartialDayDate(selectedInfo.iso)}
-                    />
-                    <DayPunchIntervals info={selectedInfo} punches={punchesByDate.get(selectedInfo.iso)} />
-                  </>
-                ) : selectedInfo.isWeekend ? (
-                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>
-                ) : (
-                  <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No attendance recorded for this day.</div>
-                )}
-              </div>
+              <DayDetailsBody
+                info={selectedInfo}
+                config={config}
+                punches={punchesByDate.get(selectedInfo.iso)}
+                onRegularize={() => setRegularizeDate(selectedInfo.iso)}
+                onApplyPartialDay={() => setPartialDayDate(selectedInfo.iso)}
+              />
             )}
           </div>
         </div>
+        </div>
+        )}
 
-        {/* Attendance Log — every day of the month (not just punched ones), with visual
-            timeline/presence bar, status badges, and month shortcuts. */}
+        {logsTab === 'ATTENDANCE_LOG' && (
         <div style={{ marginTop: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-            <SectionHeading title={`Attendance Log — ${calendarMonthLabel(viewYear, viewMonth)}`} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt-mut)' }}>{calendarMonthLabel(viewYear, viewMonth)}</div>
             <MonthShortcuts viewYear={viewYear} viewMonth={viewMonth} onSelect={goToMonth} />
           </div>
           <div style={panelStyle}>
@@ -2262,7 +2419,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, { isSuperAdmin: boolean }>(f
                           <td style={tdStyle}><ArrivalCell record={info.record} /></td>
                           <td style={tdStyle}>
                             <button
-                              onClick={() => setSelectedDate(info.iso)}
+                              onClick={() => setViewDetailsIso(info.iso)}
                               style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
                             >
                               <Eye size={11} /> View
@@ -2277,7 +2434,27 @@ const MyAttendance = forwardRef<MyAttendanceHandle, { isSuperAdmin: boolean }>(f
             )}
           </div>
         </div>
+        )}
+
+        {logsTab !== 'CALENDAR' && logsTab !== 'ATTENDANCE_LOG' && (
+          <div style={{ marginTop: 16 }}>{otherTabContent}</div>
+        )}
       </div>
+
+      {viewDetailsIso && (() => {
+        const viewInfo = logRows.find((r) => r.iso === viewDetailsIso);
+        if (!viewInfo) return null;
+        return (
+          <DayDetailsModal
+            info={viewInfo}
+            config={config}
+            punches={punchesByDate.get(viewDetailsIso)}
+            onClose={() => setViewDetailsIso(null)}
+            onRegularize={() => { setViewDetailsIso(null); setRegularizeDate(viewDetailsIso); }}
+            onApplyPartialDay={() => { setViewDetailsIso(null); setPartialDayDate(viewDetailsIso); }}
+          />
+        );
+      })()}
 
       {regularizeDate && (
         <RequestModal
@@ -3125,7 +3302,10 @@ function DayRoster({ scope }: { scope: 'team' | 'all' }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type RequestsTab = 'REGULARIZATION' | 'ATTENDANCE_REQUESTS' | 'OVERTIME';
+// Sub-tab inside the "Attendance Requests" main tab — Regularization and WFH & Partial Day
+// used to be two of three siblings in a flat FilterTabs; they now nest one level deeper so the
+// outer bar can match Keka's exact 4-tab list (Overtime Requests moved out to its own main tab).
+type AttendanceRequestsSubTab = 'REGULARIZATION' | 'WFH_PARTIAL_DAY';
 
 function AttendancePageInner() {
   // The router has no role guard, so — like Shell — the page resolves the role itself.
@@ -3141,18 +3321,19 @@ function AttendancePageInner() {
 
   const myAttendanceRef = useRef<MyAttendanceHandle>(null);
   const regularizationRef = useRef<RegularizationSectionHandle>(null);
-  const [requestsTab, setRequestsTab] = useState<RequestsTab>('REGULARIZATION');
+  const [logsTab, setLogsTab] = useState<LogsTab>('ATTENDANCE_LOG');
+  const [requestsSubTab, setRequestsSubTab] = useState<AttendanceRequestsSubTab>('REGULARIZATION');
   const pendingOpenRequest = useRef(false);
 
-  // The header's "Request Regularization" button may be clicked while a different sub-tab is
+  // The header's "Request Regularization" button may be clicked while a different tab is
   // active (RegularizationSection unmounted, ref not yet attached) — switch tabs first, then
   // open the modal once the ref attaches (refs commit before this effect runs).
   useEffect(() => {
-    if (requestsTab === 'REGULARIZATION' && pendingOpenRequest.current) {
+    if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION' && pendingOpenRequest.current) {
       pendingOpenRequest.current = false;
       regularizationRef.current?.openNewRequest();
     }
-  }, [requestsTab]);
+  }, [logsTab, requestsSubTab]);
 
   return (
     <div>
@@ -3173,11 +3354,12 @@ function AttendancePageInner() {
           </button>
           <button
             onClick={() => {
-              if (requestsTab === 'REGULARIZATION') {
+              if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
                 regularizationRef.current?.openNewRequest();
               } else {
                 pendingOpenRequest.current = true;
-                setRequestsTab('REGULARIZATION');
+                setLogsTab('ATTENDANCE_REQUESTS');
+                setRequestsSubTab('REGULARIZATION');
               }
             }}
             style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
@@ -3188,31 +3370,36 @@ function AttendancePageInner() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
-        <MyAttendance ref={myAttendanceRef} isSuperAdmin={role === 'Super Admin'} />
-
-        <div>
-          <SectionHeading title="Logs & Requests" />
-          <div style={{ marginBottom: 16 }}>
-            <FilterTabs
-              value={requestsTab}
-              onChange={setRequestsTab}
-              options={[
-                { value: 'REGULARIZATION', label: 'Regularization' },
-                { value: 'ATTENDANCE_REQUESTS', label: 'WFH & Partial Day' },
-                { value: 'OVERTIME', label: 'Overtime Requests' },
-              ]}
-            />
-          </div>
-          {requestsTab === 'REGULARIZATION' && (
-            <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
-          )}
-          {requestsTab === 'ATTENDANCE_REQUESTS' && (
-            <AttendanceRequestsSection token={token} canApprove={canApprove} />
-          )}
-          {requestsTab === 'OVERTIME' && (
-            <OvertimeRequestsSection token={token} canApprove={canApprove} />
-          )}
-        </div>
+        <MyAttendance
+          ref={myAttendanceRef}
+          isSuperAdmin={role === 'Super Admin'}
+          logsTab={logsTab}
+          onLogsTabChange={setLogsTab}
+          otherTabContent={
+            logsTab === 'ATTENDANCE_REQUESTS' ? (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <FilterTabs
+                    value={requestsSubTab}
+                    onChange={setRequestsSubTab}
+                    options={[
+                      { value: 'REGULARIZATION', label: 'Regularization' },
+                      { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
+                    ]}
+                  />
+                </div>
+                {requestsSubTab === 'REGULARIZATION' && (
+                  <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
+                )}
+                {requestsSubTab === 'WFH_PARTIAL_DAY' && (
+                  <AttendanceRequestsSection token={token} canApprove={canApprove} />
+                )}
+              </div>
+            ) : logsTab === 'OVERTIME' ? (
+              <OvertimeRequestsSection token={token} canApprove={canApprove} />
+            ) : null
+          }
+        />
 
         {role === 'Manager' && <DayRoster scope="team" />}
         {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
