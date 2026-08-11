@@ -254,6 +254,54 @@ public class EmployeeService {
                 .build();
     }
 
+    /**
+     * Directory entries for the caller's current peers — colleagues who presently share the
+     * caller's manager. Interim "peer group" definition (see
+     * {@link com.nforce.onehr.repository.EmployeeManagerHistoryRepository#findCurrentPeerIds});
+     * shares the exact same {@link DirectoryEntryDto} shape as {@link #listDirectory()} so the
+     * frontend can reuse the same card rendering for both.
+     */
+    @Transactional(readOnly = true)
+    public List<DirectoryEntryDto> listPeers(String employeeEmail) {
+        Employee self = employeeRepository.findByUser_Email(employeeEmail)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No employee profile found for this account. Contact HR to complete your profile."));
+
+        List<UUID> peerIds = historyRepository.findCurrentPeerIds(self.getUserId());
+        if (peerIds.isEmpty()) {
+            return List.of();
+        }
+        return employeeRepository.findAllById(peerIds).stream()
+                .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
+                .map(e -> {
+                    var mgr = findCurrentManager(e.getUserId());
+                    return DirectoryEntryDto.builder()
+                            .userId(e.getUserId().toString())
+                            .employeeCode(e.getEmployeeCode())
+                            .fullName(e.getFullName())
+                            .email(e.getUser().getEmail())
+                            .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
+                            .designationName(e.getDesignation() != null ? e.getDesignation().getTitle() : null)
+                            .locationName(e.getLocation() != null ? e.getLocation().getName() : null)
+                            .workMode(e.getWorkMode())
+                            .employmentType(e.getEmploymentType())
+                            .active(e.getUser().isActive())
+                            .managerName(mgr != null ? mgr.getFullName() : null)
+                            .managerEmail(mgr != null ? mgr.getEmail() : null)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    /** The caller's own current reporting manager — backs the "Appreciate your lead" card (ONEHR-73). */
+    @Transactional(readOnly = true)
+    public EmployeeResponse.ManagerRef getMyManager(String employeeEmail) {
+        Employee self = employeeRepository.findByUser_Email(employeeEmail)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No employee profile found for this account. Contact HR to complete your profile."));
+        return findCurrentManager(self.getUserId());
+    }
+
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
         return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .flatMap(h -> userRepository.findById(h.getManagerUserId()))

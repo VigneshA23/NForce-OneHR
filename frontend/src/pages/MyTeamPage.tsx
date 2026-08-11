@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
@@ -16,6 +16,7 @@ import {
   employeeAssignmentsApi, type EmployeeAssignmentRow, type AssignmentLookups, type AssignmentFilters,
 } from '../api/employeeAssignments';
 import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestReportRow } from '../api/reports';
+import { directoryApi, type DirectoryEntry } from '../api/directory';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -264,7 +265,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 /* ── KPI card ── */
-function KpiCard({ icon, iconColor, label, value, note }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string }) {
+function KpiCard({ icon, iconColor, label, value, note, onView }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onView?: () => void }) {
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: iconColor }}>
@@ -273,6 +274,11 @@ function KpiCard({ icon, iconColor, label, value, note }: { icon: React.ReactNod
       </div>
       <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
+      {onView && (
+        <button onClick={onView} style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
+          View Employees
+        </button>
+      )}
     </div>
   );
 }
@@ -1015,6 +1021,297 @@ function ReportsTab({ token }: { token: string }) {
   );
 }
 
+/* ── My Team: Peers view (ONEHR-73) ── employee-facing, scoped to colleagues who currently
+ * share the caller's manager, not direct reports. Self-contained: fetches its own data so it
+ * doesn't disturb MyTeamPage's existing (manager-facing) state below. */
+function PeersView({ token }: { token: string }) {
+  const today = todayIsoDate();
+
+  const [peers, setPeers] = useState<DirectoryEntry[]>([]);
+  const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
+  const [todayLeave, setTodayLeave] = useState<LeaveRequestRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [viewDate, setViewDate] = useState(() => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1); });
+  const [monthAttendance, setMonthAttendance] = useState<AttendanceRecord[]>([]);
+  const [monthLeave, setMonthLeave] = useState<LeaveRequestRecord[]>([]);
+  const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
+  }, [token]);
+
+  useEffect(() => {
+    attendanceApi.peers(today, token).then(setTodayRecords).catch(() => setTodayRecords([])).finally(() => setLoading(false));
+  }, [token, today]);
+
+  useEffect(() => {
+    leaveApi.peers(today, today, token).then(setTodayLeave).catch(() => setTodayLeave([]));
+  }, [token, today]);
+
+  useEffect(() => {
+    holidaysApi.listForMyLocation(token).then(setHolidays).catch(() => setHolidays([]));
+  }, [token]);
+
+  useEffect(() => {
+    const year = viewDate.getFullYear(), month = viewDate.getMonth();
+    const from = toISODate(year, month, 1);
+    const to = toISODate(year, month, daysInMonth(year, month));
+    Promise.all([
+      attendanceApi.peersMonth(from, to, token).catch(() => []),
+      leaveApi.peers(from, to, token).catch(() => []),
+    ]).then(([att, lv]) => { setMonthAttendance(att); setMonthLeave(lv); });
+  }, [token, viewDate]);
+
+  const attendanceByEmployee = useMemo(() => new Map(todayRecords.map(r => [r.employeeUserId, r])), [todayRecords]);
+  const onLeaveToday = useMemo(() => new Map(todayLeave.map(l => [l.employeeUserId, l])), [todayLeave]);
+
+  interface PeerRow { peer: DirectoryEntry; status: RosterStatus; leaveTypeName: string | undefined; }
+  const peerRows: PeerRow[] = useMemo(() => peers.map(p => {
+    const record = attendanceByEmployee.get(p.userId);
+    const onLeave = onLeaveToday.get(p.userId);
+    const status: RosterStatus = onLeave ? 'LEAVE' : !record?.checkInAt ? 'NOT_IN_YET' : !record.checkOutAt ? 'IN' : 'OUT';
+    return { peer: p, status, leaveTypeName: onLeave?.leaveTypeName };
+  }), [peers, attendanceByEmployee, onLeaveToday]);
+
+  const notInYet = peerRows.filter(r => r.status === 'NOT_IN_YET');
+  const onLeaveList = peerRows.filter(r => r.status === 'LEAVE');
+  const onTimeCount = todayRecords.filter(r => r.status === 'PRESENT').length;
+  const lateCount = todayRecords.filter(r => r.status === 'LATE').length;
+  const remoteClockInCount = todayRecords.filter(r => r.source === 'WEB_REMOTE').length;
+  const wfhOnDutyCount = new Set(todayRecords.filter(r => r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE')).map(r => r.employeeUserId)).size;
+
+  const filteredPeers = peerRows.filter(r => {
+    const q = search.trim().toLowerCase();
+    return !q
+      || r.peer.fullName.toLowerCase().includes(q)
+      || (r.peer.departmentName ?? '').toLowerCase().includes(q)
+      || (r.peer.designationName ?? '').toLowerCase().includes(q);
+  });
+
+  const year = viewDate.getFullYear(), month = viewDate.getMonth();
+  const totalDays = daysInMonth(year, month);
+  const holidaySet = useMemo(() => new Set(holidays.map(h => h.holidayDate)), [holidays]);
+  const monthAttByKey = useMemo(() => {
+    const m = new Map<string, AttendanceRecord>();
+    monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
+    return m;
+  }, [monthAttendance]);
+
+  function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
+    if (holidaySet.has(iso)) return 'holiday';
+    if (dow === 0 || dow === 6) return 'weekly-off';
+    const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
+    if (onLeave) return 'leave';
+    const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
+    if (record) return (record.workMode && record.workMode !== 'ONSITE') || record.source === 'WEB_REMOTE' ? 'wfh' : 'plain';
+    if (iso >= today) return 'plain';
+    return 'missing';
+  }
+
+  const OVERFLOW_LIMIT = 6;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 14px', marginBottom: 16, background: 'rgba(76,141,214,.08)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 10, fontSize: 12, color: 'var(--txt-mut)' }}>
+        <AlertTriangle size={14} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
+        <span>
+          <b style={{ color: 'var(--txt)' }}>Open question for Product:</b> "Project Team" is currently defined as everyone
+          who shares your manager — there's no Team/Project grouping in the data model yet, so this is a same-manager
+          stand-in, not real project membership. Confirm this is the right definition before this ships more broadly
+          (see ONEHR-73).
+        </span>
+      </div>
+
+      {/* Who's on leave / Not in yet */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+        <div style={panelStyle}>
+          <div style={panelHeadStyle}>
+            <span style={panelTitleStyle}>Who's on leave today</span>
+            <span style={panelCountStyle}>{onLeaveList.length} {onLeaveList.length === 1 ? 'person' : 'people'}</span>
+          </div>
+          {onLeaveList.length === 0 ? (
+            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your project team is on leave today.</div>
+          ) : (
+            onLeaveList.map(r => (
+              <div key={r.peer.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+                <Avatar name={r.peer.fullName} size={30} />
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.peer.fullName}</span>
+                <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{r.leaveTypeName}</span>
+              </div>
+            ))
+          )}
+        </div>
+        <div style={panelStyle}>
+          <div style={panelHeadStyle}>
+            <span style={panelTitleStyle}>Not in yet today</span>
+            <span style={panelCountStyle}>{notInYet.length} {notInYet.length === 1 ? 'person' : 'people'}</span>
+          </div>
+          {loading ? (
+            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
+          ) : notInYet.length === 0 ? (
+            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Everyone's checked in.</div>
+          ) : (
+            <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex' }}>
+                {notInYet.slice(0, OVERFLOW_LIMIT).map((r, i) => (
+                  <div key={r.peer.userId} title={r.peer.fullName} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid var(--panel)', borderRadius: '50%' }}>
+                    <Avatar name={r.peer.fullName} size={30} />
+                  </div>
+                ))}
+              </div>
+              {notInYet.length > OVERFLOW_LIMIT && (
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '4px 9px', borderRadius: 20 }}>
+                  +{notInYet.length - OVERFLOW_LIMIT} more
+                </span>
+              )}
+              <span style={{ fontSize: 12, color: 'var(--txt-dim)', flexBasis: '100%' }}>
+                {notInYet.slice(0, OVERFLOW_LIMIT).map(r => r.peer.fullName).join(', ')}
+                {notInYet.length > OVERFLOW_LIMIT ? `, +${notInYet.length - OVERFLOW_LIMIT} more` : ''}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
+      </div>
+
+      {/* Team calendar */}
+      <div style={{ ...panelStyle, marginBottom: 16 }}>
+        <div style={panelHeadStyle}>
+          <span style={panelTitleStyle}>Team calendar</span>
+          <span style={panelCountStyle}>{peers.length} {peers.length === 1 ? 'person' : 'people'} · project team</span>
+        </div>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 8, padding: 4 }}>
+            <button onClick={() => setViewDate(new Date(year, month - 1, 1))} aria-label="Previous month" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6, display: 'flex' }}><ChevronLeft size={14} /></button>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', padding: '0 8px', whiteSpace: 'nowrap' }}>{viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+            <button onClick={() => setViewDate(new Date(year, month + 1, 1))} aria-label="Next month" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6, display: 'flex' }}><ChevronRight size={14} /></button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 10.5, color: 'var(--txt-mut)' }}>
+            {(['holiday', 'weekly-off', 'leave', 'wfh', 'missing'] as const).map(cat => (
+              <span key={cat} style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background: DAY_COLORS[cat] }} />
+                {cat === 'holiday' ? 'Holiday' : cat === 'weekly-off' ? 'Weekly off' : cat === 'leave' ? 'On leave' : cat === 'wfh' ? 'WFH / On duty' : 'Missing attendance'}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ position: 'sticky', left: 0, zIndex: 2, textAlign: 'left', padding: '7px 18px', minWidth: 168, background: 'var(--raised)', fontSize: 9.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>Teammate</th>
+                {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
+                  const iso = toISODate(year, month, d);
+                  const isToday = iso === today;
+                  return (
+                    <th key={d} style={{ padding: '7px 3px', fontSize: 9.5, fontWeight: 700, color: isToday ? 'var(--brand-bright)' : 'var(--txt-dim)', textAlign: 'center', borderBottom: '1px solid var(--line)', background: 'var(--raised)', textTransform: 'uppercase' }}>
+                      {WEEKDAY_LABELS[new Date(year, month, d).getDay()]}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {peers.map(p => (
+                <tr key={p.userId}>
+                  <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Avatar name={p.fullName} size={24} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{p.fullName}</span>
+                    </div>
+                  </td>
+                  {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
+                    const iso = toISODate(year, month, d);
+                    const dow = new Date(year, month, d).getDay();
+                    const category = classifyDay(iso, dow, p.userId);
+                    const isToday = iso === today;
+                    return (
+                      <td key={d} style={{ padding: 3, textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
+                        <div style={{
+                          width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
+                          fontSize: 10, fontWeight: 600,
+                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
+                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
+                        }}>
+                          {d}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Peer directory grid — same information density as DirectoryPage.tsx's detail drawer
+       * (avatar, designation, status, location, department, email), reshaped as cards per ONEHR-73. */}
+      <div style={panelStyle}>
+        <div style={panelHeadStyle}>
+          <div>
+            <span style={panelTitleStyle}>Project Team ({peers.length})</span>
+            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 3 }}>Avatar, designation, live status, location, department and email — find and reach a teammate without leaving this page.</div>
+          </div>
+        </div>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+            <Search size={13} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, designation, or department…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10, padding: '14px 18px' }}>
+          {loading ? (
+            <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>Loading…</div>
+          ) : peers.length === 0 ? (
+            <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>
+              No project team members found — you don't currently share a manager with anyone else in the system.
+            </div>
+          ) : filteredPeers.length === 0 ? (
+            <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
+          ) : filteredPeers.map(row => (
+            <div key={row.peer.userId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <Avatar name={row.peer.fullName} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.peer.fullName}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.peer.designationName ?? '—'}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                <StatusPill status={row.status} />
+                {row.peer.departmentName && (
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: 'rgba(76,141,214,.14)', color: 'var(--info)' }}>{row.peer.departmentName}</span>
+                )}
+              </div>
+              {row.peer.locationName && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--txt-mut)' }}>
+                  <MapPin size={11} /> {row.peer.locationName}
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--txt-mut)', overflow: 'hidden' }}>
+                <Mail size={11} style={{ flexShrink: 0 }} />
+                <a href={`mailto:${row.peer.email}`} style={{ color: 'var(--txt-mut)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.peer.email}</a>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
   const today = todayIsoDate();
@@ -1043,6 +1340,11 @@ export default function MyTeamPage() {
   });
   const [viewing, setViewing] = useState<RosterRow | null>(null);
 
+  // Direct Reports / Peers toggle (ONEHR-73) — every employee can see Peers; Direct Reports
+  // only appears once we know the caller actually has any (reuses ONEHR-72 as-is otherwise).
+  const [viewMode, setViewMode] = useState<'direct' | 'peers'>('direct');
+  const autoSwitched = useRef(false);
+
   // Landed here via a dashboard link (e.g. "On Leave" KPI) — scroll straight to the roster
   // instead of leaving the pre-applied filter buried further down the page.
   useEffect(() => {
@@ -1052,7 +1354,14 @@ export default function MyTeamPage() {
 
   useEffect(() => {
     dashboardApi.managerDashboard(token)
-      .then(d => { setDirectReports(d.directReports.filter(r => r.active)); setDirectReportCount(d.directReportCount); })
+      .then(d => {
+        setDirectReports(d.directReports.filter(r => r.active));
+        setDirectReportCount(d.directReportCount);
+        if (d.directReportCount === 0 && !autoSwitched.current) {
+          autoSwitched.current = true;
+          setViewMode('peers');
+        }
+      })
       .catch(() => {});
   }, [token]);
 
@@ -1156,10 +1465,34 @@ export default function MyTeamPage() {
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>Attendance, leave, and open requests for your direct reports — one place, so you don't have to check four separate pages to know how your team is doing today.</p>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
+            {viewMode === 'direct'
+              ? "Attendance, leave, and open requests for your direct reports — one place, so you don't have to check four separate pages to know how your team is doing today."
+              : "Who's around today on your project team, plus a quick way to find and reach a teammate — without opening the full company directory."}
+          </p>
         </div>
+        {directReportCount > 0 && (
+          <div style={{ display: 'inline-flex', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: 4, flexShrink: 0 }} role="tablist" aria-label="My Team view">
+            <button role="tab" aria-selected={viewMode === 'direct'} onClick={() => setViewMode('direct')} style={{
+              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: viewMode === 'direct' ? 'var(--brand)' : 'transparent', color: viewMode === 'direct' ? '#fff' : 'var(--txt-mut)',
+            }}>
+              <Users size={13} /> Direct Reports
+            </button>
+            <button role="tab" aria-selected={viewMode === 'peers'} onClick={() => setViewMode('peers')} style={{
+              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: viewMode === 'peers' ? 'var(--brand)' : 'transparent', color: viewMode === 'peers' ? '#fff' : 'var(--txt-mut)',
+            }}>
+              <Sparkles size={13} /> Project Team
+            </button>
+          </div>
+        )}
       </div>
 
+      {viewMode === 'peers' ? (
+        <PeersView token={token} />
+      ) : (
+      <>
       {/* Sub-tabs — Overview is the original page; the rest are ONEHR-106/107/108/109. */}
       <div style={{ display: 'flex', gap: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', marginBottom: 20, flexWrap: 'wrap' }}>
         {([
@@ -1414,6 +1747,8 @@ export default function MyTeamPage() {
       {tab === 'negligence' && <NegligenceTab token={token} />}
       {tab === 'assignments' && <AssignmentsTab token={token} />}
       {tab === 'reports' && <ReportsTab token={token} />}
+      </>
+      )}
     </div>
   );
 }

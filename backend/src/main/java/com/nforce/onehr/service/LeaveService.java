@@ -170,6 +170,25 @@ public class LeaveService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Approved leave for the caller's current peers (same-manager siblings) overlapping
+     * [from, to] — backs the Peers view's "who's on leave today" panel and calendar (ONEHR-73).
+     * Mirrors {@link #listTeamLeave} exactly, swapping direct-report resolution for peer resolution.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveRequestResponse> listPeerLeave(String actorEmail, LocalDate from, LocalDate to) {
+        User actor = requireActor(actorEmail);
+        List<UUID> peerIds = historyRepository.findCurrentPeerIds(actor.getId());
+        if (peerIds.isEmpty()) {
+            return List.of();
+        }
+        return leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(peerIds, "APPROVED", to, from)
+                .stream()
+                .map(this::toRequestResponse)
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public LeaveRequestResponse approve(UUID requestId, String actorEmail) {
         User actor = requireActor(actorEmail);

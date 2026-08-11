@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, KeyRound, UserPlus, Users } from 'lucide-react';
+import { Bell, CheckCheck, HelpCircle, KeyRound, UserPlus, Users } from 'lucide-react';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
 import { useAuthStore } from '../store/authStore';
 
@@ -8,6 +8,10 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   ACCOUNT:  <UserPlus size={14} />,
   SECURITY: <KeyRound size={14} />,
   ORG_UPDATE: <Users size={14} />,
+  HELPDESK_TICKET_CREATED: <HelpCircle size={14} />,
+  HELPDESK_TICKET_REPLIED: <HelpCircle size={14} />,
+  HELPDESK_TICKET_STATUS_CHANGED: <HelpCircle size={14} />,
+  HELPDESK_TICKET_ASSIGNED: <HelpCircle size={14} />,
 };
 
 function relativeTime(iso: string): string {

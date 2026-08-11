@@ -20,6 +20,7 @@ function item(key: string, label: string, icon: LucideIcon, phase: 1 | 2): NavIt
 export const NAV: Record<Role, NavItem[]> = {
   Employee: [
     item('dashboard', 'My Dashboard', Home, 1),
+    item('my-team', 'My Team', Users, 1),
     item('notifications', 'Notifications', Bell, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
@@ -64,7 +65,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('organization', 'Organization Structure', GitBranch, 1),
     item('performance', 'Performance & Engagement', GitBranch, 2),
     item('assets', 'Assets & Expenses', Package, 1),
-    item('requests', 'HR Service Requests', HelpCircle, 2),
+    item('requests', 'HR Service Requests', HelpCircle, 1),
     item('reports', 'Reports & Analytics', FileText, 2),
     item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
@@ -81,6 +82,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('assets', 'Assets & Expenses', Package, 1),
     item('workflows', 'Workflow Studio', GitBranch, 2),
     item('masters', 'Organization Masters', FileText, 1),
+    item('requests', 'HR Service Requests', HelpCircle, 1),
     item('templates', 'Templates & Notifications', Bell, 2),
     item('integrations', 'Integrations', FileText, 2),
     item('audit', 'Audit & Security', Clock, 1),

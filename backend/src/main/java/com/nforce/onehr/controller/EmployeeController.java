@@ -62,4 +62,16 @@ public class EmployeeController {
     public ManagerDashboardDto myReports(Principal principal) {
         return employeeService.getManagerDashboard(principal.getName());
     }
+
+    /** Peer directory — colleagues who currently share the caller's manager (My Team: Peers view, ONEHR-73). */
+    @GetMapping("/my-peers")
+    public List<DirectoryEntryDto> myPeers(Principal principal) {
+        return employeeService.listPeers(principal.getName());
+    }
+
+    /** The caller's own reporting manager — backs "Appreciate your lead" (ONEHR-73). */
+    @GetMapping("/my-manager")
+    public EmployeeResponse.ManagerRef myManager(Principal principal) {
+        return employeeService.getMyManager(principal.getName());
+    }
 }
