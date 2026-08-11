@@ -263,8 +263,12 @@ function AttendanceStatusCard() {
     setSubmitting(true);
     try {
       const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
-      await refresh();
-      const at = formatClockTime(kind === 'in' ? record.checkInAt : record.checkOutAt);
+      const refreshed = await attendanceApi.today(token);
+      setToday(refreshed);
+      // record.checkInAt is the day's *original* check-in (deliberately never updated on a
+      // lunch-break resume, see AttendanceService.checkIn) — not what just happened on a
+      // repeat check-in. checkOutAt is always the latest checkout, so it's fine as-is.
+      const at = formatClockTime(kind === 'in' ? refreshed.serverNow : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);

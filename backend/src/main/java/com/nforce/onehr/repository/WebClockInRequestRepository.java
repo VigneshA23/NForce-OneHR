@@ -27,4 +27,16 @@ public interface WebClockInRequestRepository extends JpaRepository<WebClockInReq
             UUID employeeUserId, LocalDate workDate, String status);
 
     boolean existsByEmployeeUserIdAndWorkDateAndStatus(UUID employeeUserId, LocalDate workDate, String status);
+
+    // The employee's approved-but-not-yet-checked-out request, if any — independent of
+    // calendar date. A web clock-in approved before midnight (shift crosses into the next
+    // day) is still filed under *yesterday's* work_date once the clock rolls over, so "today"
+    // is the wrong key to look it up by. See WebClockInService.checkOut.
+    //
+    // "findFirst...OrderBy..." (LIMIT 1), not a bare uniqueness-assuming lookup — same reasoning
+    // as AttendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc:
+    // a plain findBy...IsNull() throws IncorrectResultSizeDataAccessException the moment an
+    // employee ever ends up with more than one open approved request, rather than just picking
+    // the most recent one.
+    Optional<WebClockInRequest> findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(UUID employeeUserId, String status);
 }
