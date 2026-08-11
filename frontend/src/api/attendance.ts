@@ -70,6 +70,8 @@ export interface AttendanceStats {
  * global defaults (shiftEnd null, weeklyOffDays Sat/Sun) — see AttendanceService.getConfig.
  */
 export interface AttendanceConfig {
+  /** Null only if the caller has no Shift assigned. */
+  shiftName: string | null;
   shiftStart: string; // "HH:mm:ss"
   /** Null only if the caller has no Shift assigned — every employee is seeded with one, so this is normally always set. */
   shiftEnd: string | null;

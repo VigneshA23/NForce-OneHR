@@ -15,6 +15,8 @@ import java.util.List;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class AttendanceConfigResponse {
 
+    /** Null only if the caller has no Shift assigned — every employee is seeded with one (V95), so this is normally always set. */
+    private String shiftName;
     private LocalTime shiftStart;
     /** Null only if the caller has no Shift assigned — every employee is seeded with one (V95), so this is normally always set. */
     private LocalTime shiftEnd;

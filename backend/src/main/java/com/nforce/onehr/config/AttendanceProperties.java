@@ -30,7 +30,7 @@ public class AttendanceProperties {
     private LocalTime shiftStart = LocalTime.of(9, 30);
 
     /** Minutes past shiftStart that are forgiven before a punch counts as LATE. */
-    private int lateGraceMinutes = 15;
+    private int lateGraceMinutes = 10;
 
     /** A day with fewer worked hours than this is HALF_DAY. */
     private int halfDayMaxHours = 4;

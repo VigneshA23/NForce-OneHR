@@ -120,6 +120,7 @@ public class AttendanceService {
         WeeklyOffPolicy weeklyOffPolicy = employee.getWeeklyOffPolicy();
 
         return AttendanceConfigResponse.builder()
+                .shiftName(shift != null ? shift.getName() : null)
                 .shiftStart(shift != null ? shift.getStartTime() : props.getShiftStart())
                 .shiftEnd(shift != null ? shift.getEndTime() : null)
                 .lateGraceMinutes(props.getLateGraceMinutes())

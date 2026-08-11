@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Laptop, Home, Sun, FileText, Users, User } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Laptop, Home, Sun, FileText, Users, User, AlertCircle, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -356,51 +356,6 @@ function RegularizationStatusPill({ status }: { status: string }) {
   );
 }
 
-/** Every check-in/check-out session for a single day — shows a lunch-break gap explicitly. */
-function PunchHistoryList({ date, token }: { date: string; token: string }) {
-  const { formatTime } = useTimeFormat();
-  const [punches, setPunches] = useState<Punch[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setPunches(null);
-    setError(null);
-    attendanceApi.punches(date, token)
-      .then((p) => { if (!cancelled) setPunches(p); })
-      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load punch history'); });
-    return () => { cancelled = true; };
-  }, [date, token]);
-
-  if (error) {
-    return <div style={{ fontSize: 12, color: 'var(--risk)' }}>Punch history: {error}</div>;
-  }
-  if (punches === null) {
-    return <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Loading punch history…</div>;
-  }
-  if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>
-        <Clock size={11} /> Punch History
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {punches.map((p, i) => (
-          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--txt-mut)' }}>
-            <span style={{ color: 'var(--txt-dim)', fontSize: 11 }}>{i + 1}.</span>
-            <LogIn size={12} style={{ color: 'var(--txt-dim)' }} />
-            <span>{formatTime(p.checkInAt) ?? dash}</span>
-            <span style={{ color: 'var(--txt-dim)' }}>→</span>
-            <LogOut size={12} style={{ color: 'var(--txt-dim)' }} />
-            <span>{formatTime(p.checkOutAt) ?? 'still open'}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function SourceTag({ source }: { source: string | null }) {
   if (!source) return dash;
   const label = source === 'REGULARIZATION' ? 'Regularized' : source === 'WEB_REMOTE' ? 'Web Remote' : 'System';
@@ -516,7 +471,7 @@ function TruncatedText({ text, style }: { text: string | null | undefined; style
 }
 
 // ─── Request Regularization Modal (create or edit-while-pending) ──────────────
-function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuperAdmin }: {
+function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuperAdmin, initialDate }: {
   onClose: () => void;
   onSaved: (r: RegularizationRecord) => void;
   token: string;
@@ -525,6 +480,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   approvedDates: Set<string>;
   /** Super Admin is exempt from the date-window restriction below (Requirement 1). */
   isSuperAdmin: boolean;
+  /** Pre-selects a date on a fresh (non-editing) request — e.g. opened from a specific day's Attendance Log entry. */
+  initialDate?: string;
 }) {
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
@@ -532,7 +489,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   // Employee/Manager/HR: earliest attendance date selectable in the calendar picker. Super
   // Admin has no lower bound — "any number of previous days" per Requirement 1.
   const minDate = isSuperAdmin ? undefined : isoDaysAgo(REGULARIZATION_LOOKBACK_DAYS - 1);
-  const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? today);
+  const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? initialDate ?? today);
   const [checkInText, setCheckInText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckIn)));
   const [checkOutText, setCheckOutText] = useState(formatTimeValue(timeValueFromIso(editing?.requestedCheckOut)));
   const [checkInTouched, setCheckInTouched] = useState(false);
@@ -1202,15 +1159,17 @@ function MonthCalendar({
 // ─── Attendance Request (WFH / Partial Day) submit modal ──────────────────────
 // Reuses the regularization approver-assignment pattern (Assign To dropdown sourced from the
 // existing GET /attendance/regularization/approvers endpoint) rather than duplicating it.
-function AttendanceRequestModal({ presetType, onClose, onSaved, token }: {
+function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDate }: {
   presetType?: AttendanceRequestType;
   onClose: () => void;
   onSaved: (r: AttendanceRequestRecord) => void;
   token: string;
+  /** Pre-selects a date — e.g. opened from a specific day's Attendance Log entry. */
+  initialDate?: string;
 }) {
   const { showToast } = useToast();
   const [requestType, setRequestType] = useState<AttendanceRequestType>(presetType ?? 'WFH');
-  const [requestDate, setRequestDate] = useState(todayIsoDate());
+  const [requestDate, setRequestDate] = useState(initialDate ?? todayIsoDate());
   const [partialDayHours, setPartialDayHours] = useState('4');
   const [reason, setReason] = useState('');
   const [managerUserId, setManagerUserId] = useState('');
@@ -1506,10 +1465,65 @@ function QuickActionsPanel({ token }: { token: string }) {
 }
 
 // ─── Attendance Log: per-day visual timeline ───────────────────────────────────
-// A coarse single-segment bar from the day's own checkInAt/checkOutAt (already on the row —
-// no extra fetch, no N+1). Fine-grained multi-punch/break visualization stays in the existing
-// on-demand PunchHistoryList.
-function AttendanceVisualBar({ info }: { info: DayInfo }) {
+// One 24-hour axis per day, with a clickable presence bar per punch session — supports
+// multiple check-in/out blocks per day (e.g. a lunch break) when the real per-day punches
+// have been fetched (see MyAttendance's punchesByDate cache); falls back to the day's single
+// checkIn/checkOut pair otherwise. Never rendered for leave/holiday/weekly-off days — those
+// show a plain text label instead, since a timeline would be misleading there.
+
+/** Sum of gaps between consecutive closed punch sessions — mirrors AttendanceService's break calc. */
+function computeBreakMinutesFromPunches(punches: Punch[]): number {
+  let total = 0;
+  for (let i = 0; i < punches.length - 1; i++) {
+    const gapStart = punches[i].checkOutAt;
+    const gapEnd = punches[i + 1].checkInAt;
+    if (gapStart && gapEnd) {
+      total += Math.round((wallClockMs(gapEnd) - wallClockMs(gapStart)) / 60000);
+    }
+  }
+  return total;
+}
+
+interface RowMetrics {
+  /** True only for today's row while still checked in — the only case worked minutes are still live. */
+  openSession: boolean;
+  effectiveMinutes: number | null;
+  breakMinutes: number | null;
+  grossMinutes: number | null;
+}
+
+/** Effective/Break/Gross for one Attendance Log row. Gross = Effective + Break (elapsed incl. breaks). */
+function computeRowMetrics(info: DayInfo, punches: Punch[] | undefined, workedMinutesToday: number | null): RowMetrics {
+  if (!info.record?.checkInAt) {
+    return { openSession: false, effectiveMinutes: null, breakMinutes: null, grossMinutes: null };
+  }
+  const openSession = info.iso === todayIsoDate() && !info.record.checkOutAt;
+  const effectiveMinutes = openSession ? workedMinutesToday : (info.record.workedMinutes ?? null);
+  const breakMinutes = punches ? computeBreakMinutesFromPunches(punches) : 0;
+  const grossMinutes = effectiveMinutes != null ? effectiveMinutes + breakMinutes : null;
+  return { openSession, effectiveMinutes, breakMinutes, grossMinutes };
+}
+
+/** One presence bar — purely presentational, no interactivity (the timeline is visual-only). */
+function TimelineBar({ checkOutAt, leftPct, widthPct }: {
+  checkOutAt: string | null; leftPct: number; widthPct: number;
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute', left: `${leftPct}%`, width: `${widthPct}%`, minWidth: 4,
+        top: 0, height: '100%',
+        background: checkOutAt ? 'var(--brand)' : '#E0A93B',
+        borderRadius: 4,
+      }}
+    />
+  );
+}
+
+/** Purely visual 24-hour presence timeline — no click behavior; day details live behind the row's View button instead. */
+function AttendanceTimeline({ info, punches, punchesLoading }: {
+  info: DayInfo; punches: Punch[] | undefined; punchesLoading: boolean;
+}) {
   if (info.holidayName) {
     return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Company holiday — {info.holidayName}</span>;
   }
@@ -1520,17 +1534,164 @@ function AttendanceVisualBar({ info }: { info: DayInfo }) {
     return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Full day Weekly-off</span>;
   }
   const record = info.record;
-  const inMin = record?.checkInAt ? minutesSinceMidnight(record.checkInAt) : null;
-  if (inMin == null) {
+  if (!record?.checkInAt) {
     return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>—</span>;
   }
-  const outMin = record?.checkOutAt ? minutesSinceMidnight(record.checkOutAt) : null;
-  const leftPct = (inMin / 1440) * 100;
-  const widthPct = Math.max(1, (((outMin ?? inMin + 20) - inMin) / 1440) * 100);
+  if (punchesLoading) {
+    return <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Loading…</span>;
+  }
+
+  // Real per-session punches (supports multiple blocks/day) when the fetch has resolved;
+  // otherwise fall back to the day's single check-in/out pair rather than showing nothing.
+  const segments: { key: string; checkInAt: string; checkOutAt: string | null }[] =
+    punches && punches.length > 0
+      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }))
+      : [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt }];
+
   return (
-    <div style={{ position: 'relative', height: 8, minWidth: 130, background: 'var(--raised2)', borderRadius: 4 }}>
-      <div style={{ position: 'absolute', left: `${leftPct}%`, width: `${widthPct}%`, height: '100%', background: outMin ? 'var(--brand)' : '#E0A93B', borderRadius: 4 }} />
+    <div style={{ position: 'relative', height: 22, minWidth: 170 }}>
+      <div style={{ position: 'absolute', left: 0, right: 0, top: 7, height: 8, background: 'var(--raised2)', borderRadius: 4 }} />
+      {Array.from({ length: 25 }).map((_, i) => (
+        <div key={i} style={{ position: 'absolute', left: `${(i / 24) * 100}%`, top: 4, width: 1, height: 14, background: 'var(--line2)', opacity: i % 6 === 0 ? 0.9 : 0.4 }} />
+      ))}
+      {segments.map((seg, i) => {
+        const inMin = minutesSinceMidnight(seg.checkInAt);
+        if (inMin == null) return null;
+        const outMin = seg.checkOutAt ? minutesSinceMidnight(seg.checkOutAt) : null;
+        const leftPct = (inMin / 1440) * 100;
+        // A still-open session (no checkOutAt) gets a small visible sliver rather than zero width.
+        const widthPct = Math.max(0.8, (((outMin ?? inMin + 10) - inMin) / 1440) * 100);
+        return (
+          <TimelineBar key={seg.key ?? i} leftPct={leftPct} widthPct={widthPct} checkOutAt={seg.checkOutAt} />
+        );
+      })}
     </div>
+  );
+}
+
+/** Shift name/timing for the selected day + Regularize/Apply Partial Day actions, shown in the
+ * existing View/details side panel (reuses RequestModal/AttendanceRequestModal — see MyAttendance's
+ * regularizeDate/partialDayDate state). */
+function DayShiftAndActions({ info, config, onRegularize, onApplyPartialDay }: {
+  info: DayInfo; config: AttendanceConfig | null; onRegularize: () => void; onApplyPartialDay: () => void;
+}) {
+  const { formatTime } = useTimeFormat();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {config?.shiftName && (
+        <div>
+          <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Shift</div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{config.shiftName}</div>
+          {config.shiftStart && config.shiftEnd && (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>
+              {formatTime(`${info.iso}T${config.shiftStart}`)} - {formatTime(`${info.iso}T${config.shiftEnd}`)}
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+        <button
+          onClick={onRegularize}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 0, color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+        >
+          <Pencil size={12} /> Regularize
+        </button>
+        <button
+          onClick={onApplyPartialDay}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 0, color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+        >
+          <Pencil size={12} /> Apply Partial Day
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Complete real punch history for the day (supports multiple IN/OUT sessions), MISSING shown for any session still missing its check-out. */
+function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] | undefined }) {
+  const { formatTime } = useTimeFormat();
+  const record = info.record;
+  const sessions: { key: string; checkInAt: string; checkOutAt: string | null }[] =
+    punches && punches.length > 0
+      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }))
+      : record?.checkInAt
+        ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt }]
+        : [];
+
+  if (sessions.length === 0) {
+    return <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No punches recorded for this day.</div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 260 }}>
+      {sessions.map((s, i) => (
+        <div key={s.key ?? i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12.5 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--ok)', fontWeight: 600 }}>
+            <ArrowDownLeft size={13} /> {formatTime(s.checkInAt) ?? dash}
+          </span>
+          {s.checkOutAt ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--txt)', fontWeight: 600 }}>
+              <ArrowUpRight size={13} /> {formatTime(s.checkOutAt)}
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#E4373D', letterSpacing: '.04em' }}>MISSING</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Special-day badge shown next to the date — plain PRESENT/LATE status is conveyed by the
+ * Arrival/Effective Hours columns instead, so it's deliberately not repeated here. */
+function InlineDayBadge({ info }: { info: DayInfo }) {
+  if (info.holidayName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>Holiday</span>;
+  }
+  if (info.leaveTypeName) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(139,92,246,.18)', color: '#8B5CF6' }}>LEAVE</span>;
+  }
+  if (info.regularization) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(47,182,124,.15)', color: '#2FB67C' }}>Regularization</span>;
+  }
+  if (info.attendanceRequest) {
+    return info.attendanceRequest.requestType === 'WFH'
+      ? <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>WFH</span>
+      : <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.18)', color: '#E0A93B' }}>PARTIAL DAY</span>;
+  }
+  if (info.isWeekend && !info.record) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(155,161,172,.15)', color: '#9BA1AC' }}>W-OFF</span>;
+  }
+  return null;
+}
+
+function EffectiveHoursCell({ metrics }: { metrics: RowMetrics }) {
+  const { formatDuration } = useTimeFormat();
+  if (metrics.effectiveMinutes == null) return dash;
+  const dotColor = metrics.openSession ? 'transparent' : 'var(--brand)';
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, border: metrics.openSession ? '1.5px solid var(--brand)' : 'none', flexShrink: 0 }} />
+      {formatDuration(metrics.effectiveMinutes)}{metrics.openSession ? ' +' : ''}
+    </span>
+  );
+}
+
+function ArrivalCell({ record }: { record: AttendanceRecord | undefined }) {
+  const { formatDuration } = useTimeFormat();
+  if (!record?.checkInAt) return dash;
+  const late = record.lateByMinutes ?? 0;
+  if (late > 0) {
+    return (
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#E0A93B', fontSize: 12.5, fontWeight: 600 }}>
+        <AlertCircle size={12} /> {formatDuration(late)} late
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--ok)', fontSize: 12.5, fontWeight: 600 }}>
+      <CheckCircle2 size={12} /> On Time
+    </span>
   );
 }
 
@@ -1575,13 +1736,18 @@ export interface MyAttendanceHandle {
   exportMonth: () => void;
 }
 
-const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props, ref) {
+const MyAttendance = forwardRef<MyAttendanceHandle, { isSuperAdmin: boolean }>(function MyAttendance({ isSuperAdmin }, ref) {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
 
   const [today, setToday] = useState<TodayAttendance | null>(null);
   const [loading, setLoading] = useState(true);
+  // Regularize/Apply Partial Day, opened from the View/details side panel (see
+  // DayShiftAndActions) — reuses the existing RequestModal/AttendanceRequestModal flows
+  // directly rather than routing through the Regularization/WFH&Partial-Day tabs.
+  const [regularizeDate, setRegularizeDate] = useState<string | null>(null);
+  const [partialDayDate, setPartialDayDate] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
 
@@ -1751,6 +1917,11 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
     setViewMonth(month);
   }
 
+  const approvedRegularizationDates = useMemo(
+    () => new Set(regularizationByDate.keys()),
+    [regularizationByDate],
+  );
+
   // Every non-future day of the month, newest first — reuses getDayInfo exactly as
   // MonthCalendar does, so weekends/leaves/holidays appear as rows even with no punch.
   const logRows = useMemo(() => {
@@ -1763,6 +1934,34 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
     }
     return rows.reverse();
   }, [viewYear, viewMonth, getDayInfo]);
+
+  // Real per-day punches (for the Attendance Log's multi-segment timeline + break calc, and for
+  // DayPunchIntervals in the View/details side panel), fetched once per punched day and cached
+  // across month switches via the existing per-date /attendance/punches/{date} endpoint.
+  const [punchesByDate, setPunchesByDate] = useState<Map<string, Punch[]>>(new Map());
+  useEffect(() => {
+    const datesNeeded = logRows
+      .filter((info) => info.record?.checkInAt && !punchesByDate.has(info.iso))
+      .map((info) => info.iso);
+    if (datesNeeded.length === 0) return;
+    let cancelled = false;
+    Promise.all(datesNeeded.map((iso) =>
+      attendanceApi.punches(iso, token)
+        .then((p) => [iso, p] as const)
+        .catch(() => [iso, [] as Punch[]] as const),
+    )).then((results) => {
+      if (cancelled) return;
+      setPunchesByDate((prev) => {
+        const next = new Map(prev);
+        results.forEach(([iso, p]) => next.set(iso, p));
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+    // punchesByDate is read only to skip already-cached dates — omitted from deps deliberately,
+    // since including it would make this effect re-run every time it updates its own state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logRows, token]);
 
   const selectedInfo = useMemo(() => {
     if (!selectedDate) return null;
@@ -1935,7 +2134,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
                         </div>
                       )}
                     </div>
-                    <PunchHistoryList date={selectedInfo.iso} token={token} />
+                    <DayShiftAndActions
+                      info={selectedInfo}
+                      config={config}
+                      onRegularize={() => setRegularizeDate(selectedInfo.iso)}
+                      onApplyPartialDay={() => setPartialDayDate(selectedInfo.iso)}
+                    />
+                    <DayPunchIntervals info={selectedInfo} punches={punchesByDate.get(selectedInfo.iso)} />
                   </>
                 )}
               </div>
@@ -1998,7 +2203,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
                       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(selectedInfo.record.workedMinutes) ?? dash}</div>
                     </div>
                     <StatusPill status={selectedInfo.record.status} />
-                    <PunchHistoryList date={selectedInfo.iso} token={token} />
+                    <DayShiftAndActions
+                      info={selectedInfo}
+                      config={config}
+                      onRegularize={() => setRegularizeDate(selectedInfo.iso)}
+                      onApplyPartialDay={() => setPartialDayDate(selectedInfo.iso)}
+                    />
+                    <DayPunchIntervals info={selectedInfo} punches={punchesByDate.get(selectedInfo.iso)} />
                   </>
                 ) : selectedInfo.isWeekend ? (
                   <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>
@@ -2026,27 +2237,40 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr>{['Date', 'Attendance Visual', 'Check In', 'Check Out', 'Worked', 'Status', 'Details'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                    <tr>{['Date', 'Attendance Visual', 'Effective Hours', 'Break Taken', 'Gross Hours', 'Arrival', 'Log'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
                   </thead>
                   <tbody>
-                    {logRows.map((info) => (
-                      <tr key={info.iso}>
-                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600, whiteSpace: 'nowrap' }}>{formatDay(info.iso)}</td>
-                        <td style={tdStyle}><AttendanceVisualBar info={info} /></td>
-                        <td style={tdStyle}>{formatTime(info.record?.checkInAt ?? null) ?? dash}</td>
-                        <td style={tdStyle}>{formatTime(info.record?.checkOutAt ?? null) ?? dash}</td>
-                        <td style={tdStyle}>{formatDuration(info.record?.workedMinutes ?? null) ?? dash}</td>
-                        <td style={tdStyle}><DayCellBadge info={info} /></td>
-                        <td style={tdStyle}>
-                          <button
-                            onClick={() => setSelectedDate(info.iso)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            <Eye size={11} /> View
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {logRows.map((info) => {
+                      const punches = punchesByDate.get(info.iso);
+                      const punchesLoading = !!info.record?.checkInAt && !punches;
+                      const metrics = computeRowMetrics(info, punches, workedMinutesToday);
+                      return (
+                        <tr key={info.iso}>
+                          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{formatDay(info.iso)}</span>
+                              <InlineDayBadge info={info} />
+                              {info.exception && <span style={{ ...DAY_TAG_STYLE, background: 'rgba(228,55,61,.15)', color: '#E4373D' }}>PENALTY</span>}
+                            </span>
+                          </td>
+                          <td style={tdStyle}>
+                            <AttendanceTimeline info={info} punches={punches} punchesLoading={punchesLoading} />
+                          </td>
+                          <td style={tdStyle}><EffectiveHoursCell metrics={metrics} /></td>
+                          <td style={tdStyle}>{formatDuration(metrics.breakMinutes) ?? dash}</td>
+                          <td style={tdStyle}>{formatDuration(metrics.grossMinutes) ?? dash}{metrics.grossMinutes != null && metrics.openSession ? ' +' : ''}</td>
+                          <td style={tdStyle}><ArrivalCell record={info.record} /></td>
+                          <td style={tdStyle}>
+                            <button
+                              onClick={() => setSelectedDate(info.iso)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
+                            >
+                              <Eye size={11} /> View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2054,6 +2278,27 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
           </div>
         </div>
       </div>
+
+      {regularizeDate && (
+        <RequestModal
+          token={token}
+          initialDate={regularizeDate}
+          approvedDates={approvedRegularizationDates}
+          isSuperAdmin={isSuperAdmin}
+          onClose={() => setRegularizeDate(null)}
+          onSaved={(r) => { setRegularizations((prev) => [r, ...prev]); setRegularizeDate(null); }}
+        />
+      )}
+
+      {partialDayDate && (
+        <AttendanceRequestModal
+          presetType="PARTIAL_DAY"
+          token={token}
+          initialDate={partialDayDate}
+          onClose={() => setPartialDayDate(null)}
+          onSaved={(r) => { setAttendanceRequests((prev) => [r, ...prev]); setPartialDayDate(null); }}
+        />
+      )}
     </div>
   );
 });
@@ -2943,7 +3188,7 @@ function AttendancePageInner() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
-        <MyAttendance ref={myAttendanceRef} />
+        <MyAttendance ref={myAttendanceRef} isSuperAdmin={role === 'Super Admin'} />
 
         <div>
           <SectionHeading title="Logs & Requests" />

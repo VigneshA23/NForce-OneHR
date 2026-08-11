@@ -43,7 +43,7 @@ app:
     zone: ${ATTENDANCE_ZONE:Asia/Kolkata}
     # Provisional shift rules pending PO confirmation.
     shift-start: "09:30"
-    late-grace-minutes: 15
+    late-grace-minutes: 10
     half-day-max-hours: 4
     full-day-min-hours: 8
     # Provisional — pending PO/final confirmation, same status as the shift fields above.
