@@ -21,8 +21,12 @@ export interface AttendanceRecord {
   employeeCode: string;
   fullName: string;
   workDate: string;
+  /** The day's original check-in — stays fixed across lunch-break resumes. For "when did the
+   * current/latest session start," use sessionStartedAt instead. */
   checkInAt: string | null;
   checkOutAt: string | null;
+  /** When the most recent session started — updates on every check-in, including a resume. */
+  sessionStartedAt: string | null;
   workedMinutes: number | null;
   status: AttendanceStatus | null;
   lateByMinutes: number | null;
@@ -253,6 +257,16 @@ export const attendanceApi = {
   /** Attendance rows for the manager's direct reports across a date range — backs the My Team calendar. */
   teamMonth: (from: string, to: string, token: string) =>
     fetch(`${BASE}/attendance/team-month?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<AttendanceRecord[]>),
+
+  /** Day roster for the caller's current peers — My Team: Peers view (ONEHR-73). Any employee. */
+  peers: (date: string, token: string) =>
+    fetch(`${BASE}/attendance/peers?date=${date}`, { headers: authHeaders(token) })
+      .then(handle<AttendanceRecord[]>),
+
+  /** Peer attendance across a date range — backs the Peers view calendar. */
+  peersMonth: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/peers-month?from=${from}&to=${to}`, { headers: authHeaders(token) })
       .then(handle<AttendanceRecord[]>),
 
   /** Own punch for a single date, or null if the employee never punched that day. */

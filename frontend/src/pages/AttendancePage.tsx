@@ -348,11 +348,84 @@ function StatusPill({ status }: { status: AttendanceStatus | null }) {
   );
 }
 
+/**
+ * Arrival-time lateness, shown independently of the day's overall status — a short day
+ * overrides `status` to HALF_DAY (see AttendanceService.checkOut), which would otherwise hide
+ * the fact that the person also arrived late. `lateByMinutes` is stored regardless of that
+ * override, so this reads straight from it instead of gating on `status === 'LATE'`.
+ */
+function LateBadge({ minutes }: { minutes: number | null | undefined }) {
+  const { formatDuration } = useTimeFormat();
+  if (!minutes || minutes <= 0) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#E0A93B' }}>
+      <span role="img" aria-label="Late" style={{ fontSize: 18, lineHeight: 1 }}>🐢</span> Late by {formatDuration(minutes)}
+    </div>
+  );
+}
+
 function RegularizationStatusPill({ status }: { status: string }) {
   return (
     <span style={{ fontSize: 11, fontWeight: 600, color: REGULARIZATION_STATUS_COLOR[status] ?? '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
       {status}
     </span>
+  );
+}
+
+/**
+ * Every check-in/check-out session for a single day — shows a lunch-break gap explicitly.
+ * `refreshKey` exists solely so the caller can force a re-fetch after a punch: `date`/`token`
+ * alone never change when a new punch happens today, so without it this list would only ever
+ * reflect whatever was on file when the panel first mounted, not the punch that just happened.
+ */
+function PunchHistoryList({ date, token, lateByMinutes, refreshKey }: { date: string; token: string; lateByMinutes?: number | null; refreshKey?: unknown }) {
+  const { formatTime, formatDuration } = useTimeFormat();
+  const [punches, setPunches] = useState<Punch[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPunches(null);
+    setError(null);
+    attendanceApi.punches(date, token)
+      .then((p) => { if (!cancelled) setPunches(p); })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load punch history'); });
+    return () => { cancelled = true; };
+  }, [date, token, refreshKey]);
+
+  if (error) {
+    return <div style={{ fontSize: 12, color: 'var(--risk)' }}>Punch history: {error}</div>;
+  }
+  if (punches === null) {
+    return <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Loading punch history…</div>;
+  }
+  if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>
+        <Clock size={11} /> Punch History
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {punches.map((p, i) => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--txt-mut)' }}>
+            <span style={{ color: 'var(--txt-dim)', fontSize: 11 }}>{i + 1}.</span>
+            <LogIn size={12} style={{ color: 'var(--txt-dim)' }} />
+            <span>{formatTime(p.checkInAt) ?? dash}</span>
+            {/* Lateness is an arrival-time fact tied to the day's original check-in — the
+                first punch — not to each later lunch-break resume. */}
+            {i === 0 && (lateByMinutes ?? 0) > 0 && (
+              <Tooltip content={`Checked in ${formatDuration(lateByMinutes ?? null)} after shift start.`}>
+                <span role="img" aria-label="Late" style={{ display: 'block', fontSize: 15, lineHeight: 1 }}>🐢</span>
+              </Tooltip>
+            )}
+            <span style={{ color: 'var(--txt-dim)' }}>→</span>
+            <LogOut size={12} style={{ color: 'var(--txt-dim)' }} />
+            <span>{formatTime(p.checkOutAt) ?? 'still open'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1967,6 +2040,11 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
   }, [token]);
 
+  // Bumped on every successful punch — PunchHistoryList's own fetch is keyed on [date, token],
+  // neither of which changes on a punch, so without this it never re-fetches until something
+  // else forces the whole panel to remount (e.g. a page reload).
+  const [punchVersion, setPunchVersion] = useState(0);
+
   // Offset between the browser clock and the server's business-timezone clock, captured on
   // load, so the live elapsed counter is correct in any browser timezone.
   const serverOffsetMs = useRef(0);
@@ -2197,7 +2275,10 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     return () => { cancelled = true; };
   }, [token, showToast]);
 
-  const openSince = today?.canCheckOut ? today.record?.checkInAt ?? null : null;
+  // sessionStartedAt (not checkInAt) — the currently-open session's own start, so a resumed
+  // session after a break shows its own elapsed time instead of counting from the day's
+  // original check-in (which would wrongly include the break in "elapsed").
+  const openSince = today?.canCheckOut ? today.record?.sessionStartedAt ?? today.record?.checkInAt ?? null : null;
 
   useEffect(() => {
     if (!openSince) return;
@@ -2239,8 +2320,12 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       ]);
       serverOffsetMs.current = wallClockMs(refreshed.serverNow) - Date.now();
       setToday(refreshed);
+      setPunchVersion((v) => v + 1);
 
-      const at = formatTime(kind === 'in' ? record.checkInAt : record.checkOutAt);
+      // record.checkInAt is the day's *original* check-in (deliberately never updated on a
+      // lunch-break resume, see AttendanceService.checkIn) — not what just happened on a
+      // repeat check-in. checkOutAt is always the latest checkout, so it's fine as-is.
+      const at = formatTime(kind === 'in' ? refreshed.serverNow : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
@@ -2314,7 +2399,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                           <LogIn size={11} /> Check In
                         </div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(today.record?.checkInAt ?? null) ?? dash}</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>
+                          {formatTime(today.record?.sessionStartedAt ?? today.record?.checkInAt ?? null) ?? dash}
+                        </div>
                       </div>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
@@ -2332,11 +2419,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                       </div>
                     </div>
                     {today.record?.status && <StatusPill status={today.record.status} />}
-                    {today.record?.status === 'LATE' && (today.record.lateByMinutes ?? 0) > 0 && (
-                      <div style={{ fontSize: 12, color: '#E0A93B' }}>
-                        Checked in {formatDuration(today.record.lateByMinutes)} past the grace period.
-                      </div>
-                    )}
+                    <LateBadge minutes={today.record?.lateByMinutes} />
                     {/* The button is driven only by the server's canCheckIn / canCheckOut flags. */}
                     <div>
                       {today.canCheckIn && (
@@ -2361,7 +2444,10 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                       onRegularize={() => setRegularizeDate(selectedInfo.iso)}
                       onApplyPartialDay={() => setPartialDayDate(selectedInfo.iso)}
                     />
-                    <DayPunchIntervals info={selectedInfo} punches={punchesByDate.get(selectedInfo.iso)} />
+                    {/* PunchHistoryList (not DayPunchIntervals) here specifically — it self-fetches
+                        with a refreshKey, so today's list updates immediately after a punch instead
+                        of showing whatever punchesByDate cached before the punch happened. */}
+                    <PunchHistoryList date={selectedInfo.iso} token={token} lateByMinutes={today.record?.lateByMinutes} refreshKey={punchVersion} />
                   </>
                 )}
               </div>

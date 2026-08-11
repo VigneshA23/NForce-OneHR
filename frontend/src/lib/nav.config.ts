@@ -20,6 +20,7 @@ function item(key: string, label: string, icon: LucideIcon, phase: 1 | 2): NavIt
 export const NAV: Record<Role, NavItem[]> = {
   Employee: [
     item('dashboard', 'My Dashboard', Home, 1),
+    item('my-team', 'My Team', Users, 1),
     item('notifications', 'Notifications', Bell, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
@@ -45,6 +46,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('performance', 'Team Performance', GitBranch, 2),
     item('assets', 'Team Assets & Expenses', Package, 1),
     item('reports', 'Reports & Analytics', FileText, 2),
+    item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   'HR Admin': [

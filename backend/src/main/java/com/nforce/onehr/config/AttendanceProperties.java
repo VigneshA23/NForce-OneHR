@@ -25,9 +25,9 @@ public class AttendanceProperties {
      */
     private String zone = "Asia/Kolkata";
 
-    /** Scheduled start of the workday. */
+    /** Scheduled start of the workday. Shift is 3:30 PM - 12:30 AM — crosses midnight. */
     @DateTimeFormat(iso = DateTimeFormat.ISO.TIME)
-    private LocalTime shiftStart = LocalTime.of(9, 30);
+    private LocalTime shiftStart = LocalTime.of(15, 30);
 
     /** Minutes past shiftStart that are forgiven before a punch counts as LATE. */
     private int lateGraceMinutes = 10;

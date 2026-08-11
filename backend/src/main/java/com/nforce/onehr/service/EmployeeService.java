@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -225,10 +226,80 @@ public class EmployeeService {
                         .stream())
                 .collect(Collectors.toList());
 
+        // Trailing 12 calendar months (including the current one), matching the dashboard
+        // chart's own bucketing window. Every history row in that window counts as its own
+        // join event, even if that employee has since been reassigned away from this manager —
+        // "who joined the team when" should survive a later reassignment/removal.
+        LocalDateTime since = LocalDate.now().withDayOfMonth(1).minusMonths(11).atStartOfDay();
+        List<ManagerDashboardDto.TeamJoiner> teamJoiners = historyRepository
+                .findByManagerUserIdAndEffectiveFromGreaterThanEqual(manager.getId(), since)
+                .stream()
+                .flatMap(rel -> employeeRepository.findById(rel.getEmployeeUserId())
+                        .map(emp -> ManagerDashboardDto.TeamJoiner.builder()
+                                .userId(emp.getUserId().toString())
+                                .employeeCode(emp.getEmployeeCode())
+                                .fullName(emp.getFullName())
+                                .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                                .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                                .active(emp.getUser().isActive())
+                                .joinedTeamOn(rel.getEffectiveFrom().toLocalDate().toString())
+                                .build())
+                        .stream())
+                .collect(Collectors.toList());
+
         return ManagerDashboardDto.builder()
                 .directReportCount(reports.size())
                 .directReports(reports)
+                .teamJoiners(teamJoiners)
                 .build();
+    }
+
+    /**
+     * Directory entries for the caller's current peers — colleagues who presently share the
+     * caller's manager. Interim "peer group" definition (see
+     * {@link com.nforce.onehr.repository.EmployeeManagerHistoryRepository#findCurrentPeerIds});
+     * shares the exact same {@link DirectoryEntryDto} shape as {@link #listDirectory()} so the
+     * frontend can reuse the same card rendering for both.
+     */
+    @Transactional(readOnly = true)
+    public List<DirectoryEntryDto> listPeers(String employeeEmail) {
+        Employee self = employeeRepository.findByUser_Email(employeeEmail)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No employee profile found for this account. Contact HR to complete your profile."));
+
+        List<UUID> peerIds = historyRepository.findCurrentPeerIds(self.getUserId());
+        if (peerIds.isEmpty()) {
+            return List.of();
+        }
+        return employeeRepository.findAllById(peerIds).stream()
+                .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
+                .map(e -> {
+                    var mgr = findCurrentManager(e.getUserId());
+                    return DirectoryEntryDto.builder()
+                            .userId(e.getUserId().toString())
+                            .employeeCode(e.getEmployeeCode())
+                            .fullName(e.getFullName())
+                            .email(e.getUser().getEmail())
+                            .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
+                            .designationName(e.getDesignation() != null ? e.getDesignation().getTitle() : null)
+                            .locationName(e.getLocation() != null ? e.getLocation().getName() : null)
+                            .workMode(e.getWorkMode())
+                            .employmentType(e.getEmploymentType())
+                            .active(e.getUser().isActive())
+                            .managerName(mgr != null ? mgr.getFullName() : null)
+                            .managerEmail(mgr != null ? mgr.getEmail() : null)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    /** The caller's own current reporting manager — backs the "Appreciate your lead" card (ONEHR-73). */
+    @Transactional(readOnly = true)
+    public EmployeeResponse.ManagerRef getMyManager(String employeeEmail) {
+        Employee self = employeeRepository.findByUser_Email(employeeEmail)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No employee profile found for this account. Contact HR to complete your profile."));
+        return findCurrentManager(self.getUserId());
     }
 
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {

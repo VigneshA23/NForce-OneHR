@@ -10,9 +10,20 @@ export interface DirectReport {
   active: boolean;
 }
 
+export interface TeamJoiner {
+  userId: string;
+  employeeCode: string;
+  fullName: string;
+  designationName: string | null;
+  departmentName: string | null;
+  active: boolean;
+  joinedTeamOn: string;
+}
+
 export interface ManagerDashboard {
   directReportCount: number;
   directReports: DirectReport[];
+  teamJoiners: TeamJoiner[];
 }
 
 async function handle<T>(res: Response): Promise<T> {
