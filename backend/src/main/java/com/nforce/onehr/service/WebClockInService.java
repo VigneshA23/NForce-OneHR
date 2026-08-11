@@ -7,6 +7,7 @@ import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceRepository;
@@ -124,7 +125,7 @@ public class WebClockInService {
             record.setCheckInAt(req.getRequestedCheckIn());
         }
         record.setSource(SOURCE_WEB_REMOTE);
-        recomputeDerivedFields(record);
+        recomputeDerivedFields(record, req.getEmployeeUserId());
         attendanceRepository.save(record);
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
@@ -207,8 +208,16 @@ public class WebClockInService {
                 .orElse(null);
     }
 
-    private void recomputeDerivedFields(Attendance record) {
-        LocalTime deadline = attendanceProps.getShiftStart().plusMinutes(attendanceProps.getLateGraceMinutes());
+    /** The employee's actually-assigned Shift start (ONEHR-108) if present, else the global fallback. */
+    private LocalTime resolveShiftStart(UUID employeeUserId) {
+        return employeeRepository.findById(employeeUserId)
+                .map(Employee::getShift)
+                .map(Shift::getStartTime)
+                .orElse(attendanceProps.getShiftStart());
+    }
+
+    private void recomputeDerivedFields(Attendance record, UUID employeeUserId) {
+        LocalTime deadline = resolveShiftStart(employeeUserId).plusMinutes(attendanceProps.getLateGraceMinutes());
         int lateByMinutes = record.getCheckInAt().toLocalTime().isAfter(deadline)
                 ? (int) Duration.between(deadline, record.getCheckInAt().toLocalTime()).toMinutes()
                 : 0;

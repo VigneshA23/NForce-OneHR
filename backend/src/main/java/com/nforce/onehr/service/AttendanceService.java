@@ -121,7 +121,7 @@ public class AttendanceService {
 
         return AttendanceConfigResponse.builder()
                 .shiftName(shift != null ? shift.getName() : null)
-                .shiftStart(shift != null ? shift.getStartTime() : props.getShiftStart())
+                .shiftStart(resolveShiftStart(employee))
                 .shiftEnd(shift != null ? shift.getEndTime() : null)
                 .lateGraceMinutes(props.getLateGraceMinutes())
                 .halfDayMaxHours(props.getHalfDayMaxHours())
@@ -131,6 +131,12 @@ public class AttendanceService {
                         ? Arrays.stream(weeklyOffPolicy.getOffDays().split(",")).map(String::trim).toList()
                         : List.of("SATURDAY", "SUNDAY"))
                 .build();
+    }
+
+    /** The employee's actually-assigned Shift start (ONEHR-108) if present, else the global fallback. */
+    private LocalTime resolveShiftStart(Employee employee) {
+        Shift shift = employee.getShift();
+        return shift != null ? shift.getStartTime() : props.getShiftStart();
     }
 
     /**
@@ -180,7 +186,9 @@ public class AttendanceService {
         }
 
         // Minutes past the grace deadline (shift start + grace), not past shift start itself.
-        LocalTime deadline = props.getShiftStart().plusMinutes(props.getLateGraceMinutes());
+        // Uses the employee's actually-assigned Shift (ONEHR-108) when present — falling back to
+        // the global shiftStart would judge lateness against the wrong time of day entirely.
+        LocalTime deadline = resolveShiftStart(employee).plusMinutes(props.getLateGraceMinutes());
         int lateByMinutes = now.toLocalTime().isAfter(deadline)
                 ? (int) Duration.between(deadline, now.toLocalTime()).toMinutes()
                 : 0;
