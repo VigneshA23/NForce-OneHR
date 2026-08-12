@@ -327,9 +327,13 @@ public class AttendanceService {
 
         // Sessions accumulate: only this session's minutes are added to whatever was
         // already worked earlier today, so a lunch break isn't counted as worked time.
+        // Rounded to the nearest minute, not truncated: Duration.toMinutes() floors, so several
+        // short sessions (e.g. under a minute each) would each independently floor to 0 and the
+        // total would silently lose real worked time instead of just losing sub-minute
+        // precision on the total once.
         LocalDateTime sessionStart = record.getSessionStartedAt() != null
                 ? record.getSessionStartedAt() : record.getCheckInAt();
-        int sessionMinutes = (int) Duration.between(sessionStart, now).toMinutes();
+        int sessionMinutes = (int) Math.round(Duration.between(sessionStart, now).getSeconds() / 60.0);
         int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
         String before = auditSnapshot.toJson(Map.of(
                 "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
