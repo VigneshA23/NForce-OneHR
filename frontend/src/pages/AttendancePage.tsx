@@ -1417,7 +1417,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
           <MonthStatTile label="Leave / Holidays" value={String(leaveHolidayCount)} hint="Selected month" />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
+        <div className="nf-grid-proportional-collapse" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
           <MonthCalendar
             year={viewYear}
             month={viewMonth}
