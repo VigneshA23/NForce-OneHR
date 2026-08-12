@@ -156,6 +156,68 @@ export interface TeamNegligenceResponse {
   breaksTrend: TeamDailyAverage[];
 }
 
+/** One row of the On-Time Leaderboard — "on time" means attendance.status == PRESENT. */
+export interface PunctualityLeaderboardEntry {
+  employeeUserId: string;
+  fullName: string;
+  designationName: string | null;
+  onTimeDays: number;
+  expectedWorkingDays: number;
+  percentage: number;
+}
+
+export interface DailyPunctuality {
+  date: string;
+  employeesOnTime: number;
+}
+
+/** Computed from applicable daily values only (dates that were a working day for someone). */
+export interface PunctualitySummary {
+  averageEmployeesOnTime: number;
+  minimumEmployeesOnTime: number;
+  maximumEmployeesOnTime: number;
+}
+
+export interface TeamPunctualityResponse {
+  leaderboard: PunctualityLeaderboardEntry[];
+  daily: DailyPunctuality[];
+  summary: PunctualitySummary;
+}
+
+export type AttendancePenaltyStatus = 'PENDING_REVIEW' | 'APPLIED' | 'CANCELLED' | 'REVERSED';
+
+/** One row of the Regularize & Cancel Penalties table. */
+export interface PenaltyRow {
+  id: string;
+  employeeUserId: string;
+  fullName: string;
+  employeeCode: string;
+  incidentDate: string;
+  penalizedOn: string;
+  status: AttendancePenaltyStatus;
+  locationName: string | null;
+  departmentName: string | null;
+  discrepancyType: string;
+  /** The matched Penalization Policy rule's configured deduction amount at evaluation time. */
+  deductionDays: number | null;
+  cancellable: boolean;
+}
+
+export interface PenaltyFilters {
+  from: string;
+  to: string;
+  status?: AttendancePenaltyStatus;
+  discrepancyType?: string;
+  department?: string;
+  location?: string;
+  search?: string;
+}
+
+export interface PenaltyCancelResult {
+  succeededIds: string[];
+  failed: { id: string; reason: string }[];
+}
+
 export interface SubmitRegularizationPayload {
   attendanceDate: string;
   requestedCheckIn?: string;
@@ -230,6 +292,36 @@ export const attendanceApi = {
   teamNegligence: (from: string, to: string, token: string) =>
     fetch(`${BASE}/attendance/team-negligence?from=${from}&to=${to}`, { headers: authHeaders(token) })
       .then(handle<TeamNegligenceResponse>),
+
+  /** On-Time Leaderboard for the manager's direct reports over a date range. */
+  teamPunctuality: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/team-punctuality?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<TeamPunctualityResponse>),
+};
+
+export const penaltiesApi = {
+  // Because there is no active attendance penalty policy today, an empty list is expected.
+  list: (filters: PenaltyFilters, token: string) => {
+    const params = new URLSearchParams({ from: filters.from, to: filters.to });
+    if (filters.status) params.set('status', filters.status);
+    if (filters.discrepancyType) params.set('discrepancyType', filters.discrepancyType);
+    if (filters.department) params.set('department', filters.department);
+    if (filters.location) params.set('location', filters.location);
+    if (filters.search) params.set('search', filters.search);
+    return fetch(`${BASE}/attendance/penalties?${params.toString()}`, { headers: authHeaders(token) })
+      .then(handle<PenaltyRow[]>);
+  },
+
+  // Each id is independently re-validated server-side — one failure doesn't affect the rest.
+  cancel: (penaltyIds: string[], reason: string, token: string) =>
+    fetch(`${BASE}/attendance/penalties/cancel`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ penaltyIds, reason }),
+    }).then(r => handle<PenaltyCancelResult>(r)),
+
+  // Read-only — every regularization request ever filed for one employee/date, newest first.
+  regularizationHistory: (employeeUserId: string, attendanceDate: string, token: string) =>
+    fetch(`${BASE}/attendance/regularization/history?employeeUserId=${employeeUserId}&attendanceDate=${attendanceDate}`,
+      { headers: authHeaders(token) }).then(r => handle<RegularizationRecord[]>(r)),
 };
 
 export const regularizationApi = {

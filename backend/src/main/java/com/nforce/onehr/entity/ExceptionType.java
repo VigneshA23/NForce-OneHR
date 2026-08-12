@@ -15,5 +15,17 @@ public final class ExceptionType {
     // An approved leave request covers this date, yet a check-in/check-out was also recorded.
     public static final String LEAVE_ATTENDANCE_CONFLICT = "LEAVE_ATTENDANCE_CONFLICT";
 
+    // Reserved — no working day with zero attendance is detected as an exception yet
+    // (ExceptionService.detectExceptions doesn't produce this today). Listed here as the
+    // authoritative discrepancy identifier for AttendancePolicyEngine/AttendancePenalty
+    // consumers so a future detector and the policy layer agree on the same string.
+    public static final String NO_ATTENDANCE = "NO_ATTENDANCE";
+
+    // Reserved — a worked day short of the expected hours is not detected as an exception yet.
+    public static final String WORK_HOURS_SHORTAGE = "WORK_HOURS_SHORTAGE";
+
+    // Reserved — an early checkout is not detected as an exception yet.
+    public static final String EARLY_DEPARTURE = "EARLY_DEPARTURE";
+
     private ExceptionType() {}
 }
