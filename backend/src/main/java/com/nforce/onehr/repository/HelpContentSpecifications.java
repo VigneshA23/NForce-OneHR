@@ -24,9 +24,9 @@ public final class HelpContentSpecifications {
         return (root, query, cb) -> cb.equal(root.get("category"), category);
     }
 
-    /** Employee-visible content only — published and not archived. */
+    /** Employee-visible content only. */
     public static Specification<HelpContent> publishedAndActive() {
-        return (root, query, cb) -> cb.and(cb.isTrue(root.get("published")), cb.isTrue(root.get("active")));
+        return (root, query, cb) -> cb.equal(root.get("status"), "PUBLISHED");
     }
 
     /** Matches on title, description, or body text (case-insensitive, partial). */

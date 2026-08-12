@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -25,6 +26,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code IN ('HR_ADMIN', 'SUPER_ADMIN') AND u.deletedAt IS NULL")
     Set<UUID> findAdminUserIds();
+
+    // Help Content approver-resolution fallback: the final authority when an author's reporting
+    // chain has no active manager. Ordered by createdAt for a deterministic pick.
+    @Query("SELECT u FROM User u JOIN u.roles r WHERE r.code = 'SUPER_ADMIN' AND u.active = true AND u.deletedAt IS NULL ORDER BY u.createdAt ASC")
+    List<User> findActiveSuperAdmins();
 
     // Backs audit-log actor/target search: resolves a free-text name/email fragment to candidate
     // user ids without requiring a @ManyToOne join on AuditLog (which has none).

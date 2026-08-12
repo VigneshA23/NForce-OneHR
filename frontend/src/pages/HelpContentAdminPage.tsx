@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, Eye, EyeOff, FilePlus2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, FilePlus2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
   hrHelpContentApi,
   type HelpContentDetail,
+  type HelpContentStatus,
   type HelpContentSummary,
   type HelpContentType,
 } from '../api/helpContent';
 import { ContentFormModal, StatusChip } from '../components/helpContent/ContentFormModal';
+
+const STATUS_LABEL: Record<HelpContentStatus, string> = {
+  DRAFT: 'Draft', PENDING_APPROVAL: 'Pending Approval', APPROVED: 'Approved',
+  PUBLISHED: 'Published', UNPUBLISHED: 'Unpublished', ARCHIVED: 'Archived',
+};
+const STATUS_TONE: Record<HelpContentStatus, 'ok' | 'warn' | 'dim'> = {
+  DRAFT: 'warn', PENDING_APPROVAL: 'warn', APPROVED: 'ok', PUBLISHED: 'ok', UNPUBLISHED: 'dim', ARCHIVED: 'dim',
+};
 
 // Same local style-const convention as HelpDeskPage/HelpDeskAdminPage — no shared component
 // library in this codebase.
@@ -51,18 +60,42 @@ export default function HelpContentAdminPage() {
     setFormOpen(true);
   }
 
-  async function togglePublished(item: HelpContentSummary) {
+  // Minimal status-driven action per row — see HelpDeskPage's AdminItemControls for the full
+  // action set; this unrouted legacy table only needs a single "next step" affordance per status.
+  async function handlePrimaryAction(item: HelpContentSummary) {
     try {
-      await (item.published ? hrHelpContentApi.unpublish(item.id, token) : hrHelpContentApi.publish(item.id, token));
-      showToast('success', item.published ? 'Unpublished' : 'Published');
+      if (item.status === 'DRAFT') {
+        if (!window.confirm(`Submit "${item.title}" for approval?`)) return;
+        await hrHelpContentApi.submit(item.id, token);
+        showToast('success', 'Submitted for approval');
+      } else if (item.status === 'PENDING_APPROVAL') {
+        const reason = window.prompt('Withdrawal reason:');
+        if (!reason) return;
+        await hrHelpContentApi.withdraw(item.id, reason, token);
+        showToast('success', 'Withdrawn — back to Draft');
+      } else if (item.status === 'APPROVED' || item.status === 'UNPUBLISHED') {
+        await hrHelpContentApi.publish(item.id, token);
+        showToast('success', 'Published');
+      } else if (item.status === 'PUBLISHED') {
+        await hrHelpContentApi.unpublish(item.id, token);
+        showToast('success', 'Unpublished');
+      } else {
+        await hrHelpContentApi.restore(item.id, token);
+        showToast('success', 'Restored to Draft');
+      }
       load();
     } catch (err) { showToast('error', err instanceof Error ? err.message : 'Failed to update'); }
   }
 
   async function toggleActive(item: HelpContentSummary) {
     try {
-      await (item.active ? hrHelpContentApi.archive(item.id, token) : hrHelpContentApi.reactivate(item.id, token));
-      showToast('success', item.active ? 'Archived' : 'Reactivated');
+      if (item.status === 'ARCHIVED') {
+        await hrHelpContentApi.restore(item.id, token);
+        showToast('success', 'Restored to Draft');
+      } else {
+        await hrHelpContentApi.archive(item.id, token);
+        showToast('success', 'Archived');
+      }
       load();
     } catch (err) { showToast('error', err instanceof Error ? err.message : 'Failed to update'); }
   }
@@ -126,8 +159,7 @@ export default function HelpContentAdminPage() {
                     <td style={tdStyle}>{item.category ?? '—'}</td>
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <StatusChip label={item.published ? 'Published' : 'Draft'} tone={item.published ? 'ok' : 'warn'} />
-                        {!item.active && <StatusChip label="Archived" tone="dim" />}
+                        <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />
                         {item.featured && <StatusChip label="Featured" tone="warn" />}
                       </div>
                     </td>
@@ -136,12 +168,14 @@ export default function HelpContentAdminPage() {
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button title="Edit" onClick={() => openEdit(item.id)} style={iconBtn}><Pencil size={13} /></button>
-                        <button title={item.published ? 'Unpublish' : 'Publish'} onClick={() => togglePublished(item)} style={iconBtn}>
-                          {item.published ? <EyeOff size={13} /> : <Eye size={13} />}
+                        <button title="Next step" onClick={() => handlePrimaryAction(item)} style={{ ...iconBtn, width: 'auto', padding: '5px 9px', fontSize: 11 }}>
+                          {item.status === 'DRAFT' ? 'Submit' : item.status === 'PENDING_APPROVAL' ? 'Withdraw' : item.status === 'PUBLISHED' ? 'Unpublish' : item.status === 'ARCHIVED' ? 'Restore' : 'Publish'}
                         </button>
-                        <button title={item.active ? 'Archive' : 'Reactivate'} onClick={() => toggleActive(item)} style={iconBtn}>
-                          {item.active ? <Archive size={13} /> : <ArchiveRestore size={13} />}
-                        </button>
+                        {item.status !== 'PENDING_APPROVAL' && item.status !== 'APPROVED' && (
+                          <button title={item.status === 'ARCHIVED' ? 'Restore' : 'Archive'} onClick={() => toggleActive(item)} style={iconBtn}>
+                            {item.status === 'ARCHIVED' ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+                          </button>
+                        )}
                         <button title="Delete" onClick={() => remove(item)} style={{ ...iconBtn, color: 'var(--risk)' }}><Trash2 size={13} /></button>
                       </div>
                     </td>
