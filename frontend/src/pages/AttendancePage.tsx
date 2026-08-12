@@ -368,7 +368,7 @@ function RegularizationStatusPill({ status }: { status: string }) {
  * alone never change when a new punch happens today, so without it this list would only ever
  * reflect whatever was on file when the panel first mounted, not the punch that just happened.
  */
-function PunchHistoryList({ date, token, lateByMinutes, refreshKey }: { date: string; token: string; lateByMinutes?: number | null; refreshKey?: unknown }) {
+function PunchHistoryList({ date, token, refreshKey }: { date: string; token: string; refreshKey?: unknown }) {
   const [punches, setPunches] = useState<Punch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -398,16 +398,11 @@ function PunchHistoryList({ date, token, lateByMinutes, refreshKey }: { date: st
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {punches.map((p, i) => (
           <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--txt-mut)' }}>
+            {/* Every row uses the exact same icons/spacing (no per-row extras like the old
+                tortoise marker) so rows stay aligned regardless of lateness. */}
             <span style={{ color: 'var(--txt-dim)', fontSize: 11 }}>{i + 1}.</span>
             <LogIn size={12} style={{ color: 'var(--txt-dim)' }} />
             <span>{formatTime(p.checkInAt) ?? dash}</span>
-            {/* Lateness is an arrival-time fact tied to the day's original check-in — the
-                first punch — not to each later lunch-break resume. */}
-            {i === 0 && (lateByMinutes ?? 0) > 0 && (
-              <Tooltip content={`Checked in ${formatDuration(lateByMinutes ?? null)} after shift start.`}>
-                <span role="img" aria-label="Late" style={{ display: 'block', fontSize: 15, lineHeight: 1 }}>🐢</span>
-              </Tooltip>
-            )}
             <span style={{ color: 'var(--txt-dim)' }}>→</span>
             <LogOut size={12} style={{ color: 'var(--txt-dim)' }} />
             <span>{formatTime(p.checkOutAt) ?? 'still open'}</span>
@@ -1447,8 +1442,11 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                           <LogIn size={11} /> Check In
                         </div>
+                        {/* The day's original check-in — fixed once set. A resumed session
+                            after a break updates sessionStartedAt (used for the Elapsed timer
+                            below) and Check Out, but never replaces this. */}
                         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>
-                          {formatTime(today.record?.sessionStartedAt ?? today.record?.checkInAt ?? null) ?? dash}
+                          {formatTime(today.record?.checkInAt ?? null) ?? dash}
                         </div>
                       </div>
                       <div>
@@ -1486,7 +1484,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
                         </div>
                       )}
                     </div>
-                    <PunchHistoryList date={selectedInfo.iso} token={token} lateByMinutes={today.record?.lateByMinutes} refreshKey={punchVersion} />
+                    <PunchHistoryList date={selectedInfo.iso} token={token} refreshKey={punchVersion} />
                   </>
                 )}
               </div>
@@ -1534,7 +1532,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
                           <LogIn size={11} /> Check In
                         </div>
                         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)' }}>
-                          {formatTime(selectedInfo.record.sessionStartedAt ?? selectedInfo.record.checkInAt) ?? dash}
+                          {formatTime(selectedInfo.record.checkInAt) ?? dash}
                         </div>
                       </div>
                       <div>
@@ -1552,7 +1550,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle>(function MyAttendance(_props
                     </div>
                     <StatusPill status={selectedInfo.record.status} />
                     <LateBadge minutes={selectedInfo.record.lateByMinutes} />
-                    <PunchHistoryList date={selectedInfo.iso} token={token} lateByMinutes={selectedInfo.record.lateByMinutes} />
+                    <PunchHistoryList date={selectedInfo.iso} token={token} />
                   </>
                 ) : selectedInfo.isWeekend ? (
                   <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Weekend — no attendance expected.</div>

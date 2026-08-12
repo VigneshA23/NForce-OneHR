@@ -51,6 +51,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   'HR Admin': [
     item('dashboard', 'HR Dashboard', Home, 1),
+    item('my-team', 'My Team', Users, 1),
     item('notifications', 'Notifications', Bell, 1),
     item('employees', 'Employee Master', Users, 1),
     item('directory', 'People Directory', Users, 1),

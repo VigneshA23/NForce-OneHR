@@ -4,8 +4,13 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
+import com.nforce.onehr.dto.attendance.DailyPunctuality;
+import com.nforce.onehr.dto.attendance.PunctualityLeaderboardEntry;
+import com.nforce.onehr.dto.attendance.PunctualitySummary;
 import com.nforce.onehr.dto.attendance.TeamEffortEntry;
 import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
+import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
+import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
@@ -33,9 +38,12 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -72,6 +80,7 @@ public class AttendanceService {
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final LeaveTypeRepository leaveTypeRepository;
     private final NotificationService notificationService;
+    private final WorkingDayService workingDayService;
 
     // ---------------------------------------------------------------- self-service
 
@@ -248,9 +257,13 @@ public class AttendanceService {
 
         // Sessions accumulate: only this session's minutes are added to whatever was
         // already worked earlier today, so a lunch break isn't counted as worked time.
+        // Rounded to the nearest minute, not truncated: Duration.toMinutes() floors, so several
+        // short sessions (e.g. under a minute each) would each independently floor to 0 and the
+        // total would silently lose real worked time instead of just losing sub-minute
+        // precision on the total once.
         LocalDateTime sessionStart = record.getSessionStartedAt() != null
                 ? record.getSessionStartedAt() : record.getCheckInAt();
-        int sessionMinutes = (int) Duration.between(sessionStart, now).toMinutes();
+        int sessionMinutes = (int) Math.round(Duration.between(sessionStart, now).getSeconds() / 60.0);
         int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
         String before = auditSnapshot.toJson(Map.of(
                 "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
@@ -433,15 +446,21 @@ public class AttendanceService {
         }
 
         List<Attendance> records = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(reportIds, from, to);
-        Map<UUID, Employee> byId = employeeRepository.findAllById(reportIds).stream()
+        Map<UUID, Employee> byId = employeeRepository.findAllByIdWithScheduleDetails(reportIds).stream()
                 .collect(Collectors.toMap(Employee::getUserId, Function.identity()));
-        double expectedHours = countWeekdays(from, to) * EXPECTED_HOURS_PER_WORKDAY;
+        // Working-days-per-employee (joining date, weekly off, holidays, approved leave) —
+        // NOT a flat weekday count: two direct reports can have different expected hours in the
+        // same range (e.g. one joined mid-range, or is on a non-Sat/Sun weekly-off policy).
+        Map<UUID, WorkingDaySchedule> schedules =
+                workingDayService.computeExpectedWorkingDaysBulk(new ArrayList<>(byId.values()), from, to);
 
         return groupByEmployee(records).entrySet().stream()
                 .filter(e -> e.getValue().activeDays > 0)
                 .map(e -> {
                     TeamStat stat = e.getValue();
                     Employee employee = byId.get(e.getKey());
+                    WorkingDaySchedule schedule = schedules.get(e.getKey());
+                    double expectedHours = (schedule != null ? schedule.getExpectedWorkingDays() : 0) * EXPECTED_HOURS_PER_WORKDAY;
                     return TeamEffortEntry.builder()
                             .employeeUserId(e.getKey())
                             .fullName(employee != null ? employee.getFullName() : null)
@@ -454,6 +473,84 @@ public class AttendanceService {
                 })
                 .sorted(Comparator.comparingDouble(TeamEffortEntry::getAvgHoursPerDay).reversed())
                 .toList();
+    }
+
+    /**
+     * Team Punctuality / On-Time Leaderboard — "on time" is defined solely as
+     * {@code attendance.status == PRESENT}; LATE, HALF_DAY, and no record at all (ABSENT) never
+     * count. Ranked desc by percentage, ties left in whatever order the underlying stream
+     * produces (no invented secondary tie-break). Direct reports with zero expected working
+     * days in the range are excluded from the leaderboard entirely, not shown as 0%.
+     */
+    @Transactional(readOnly = true)
+    public TeamPunctualityResponse getTeamPunctuality(String managerEmail, LocalDate from, LocalDate to) {
+        Employee manager = resolveEmployee(managerEmail);
+        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+        if (reportIds.isEmpty()) {
+            return TeamPunctualityResponse.builder()
+                    .leaderboard(List.of()).daily(List.of())
+                    .summary(PunctualitySummary.builder().averageEmployeesOnTime(0).minimumEmployeesOnTime(0).maximumEmployeesOnTime(0).build())
+                    .build();
+        }
+
+        List<Employee> reports = employeeRepository.findAllByIdWithScheduleDetails(reportIds);
+        List<Attendance> records = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(reportIds, from, to);
+        Map<UUID, WorkingDaySchedule> schedules = workingDayService.computeExpectedWorkingDaysBulk(reports, from, to);
+
+        Map<UUID, Set<LocalDate>> onTimeDatesByEmployee = records.stream()
+                .filter(r -> STATUS_PRESENT.equals(r.getStatus()))
+                .collect(Collectors.groupingBy(Attendance::getEmployeeUserId,
+                        Collectors.mapping(Attendance::getWorkDate, Collectors.toSet())));
+
+        List<PunctualityLeaderboardEntry> leaderboard = new ArrayList<>();
+        // Union of every direct report's working dates — a date only belongs on the daily chart
+        // if it was a working day for at least one of them.
+        Map<LocalDate, Integer> onTimeCountByDate = new TreeMap<>();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            onTimeCountByDate.put(d, 0);
+        }
+        Set<LocalDate> anyWorkingDate = new HashSet<>();
+
+        for (Employee employee : reports) {
+            WorkingDaySchedule schedule = schedules.get(employee.getUserId());
+            if (schedule == null || schedule.getExpectedWorkingDays() == 0) {
+                continue;
+            }
+            Set<LocalDate> onTimeDates = onTimeDatesByEmployee.getOrDefault(employee.getUserId(), Set.of());
+            int onTimeDays = 0;
+            for (LocalDate workingDate : schedule.getWorkingDates()) {
+                anyWorkingDate.add(workingDate);
+                if (onTimeDates.contains(workingDate)) {
+                    onTimeDays++;
+                    onTimeCountByDate.merge(workingDate, 1, Integer::sum);
+                }
+            }
+            leaderboard.add(PunctualityLeaderboardEntry.builder()
+                    .employeeUserId(employee.getUserId())
+                    .fullName(employee.getFullName())
+                    .designationName(designationOf(employee))
+                    .onTimeDays(onTimeDays)
+                    .expectedWorkingDays(schedule.getExpectedWorkingDays())
+                    .percentage(round1(onTimeDays * 100.0 / schedule.getExpectedWorkingDays()))
+                    .build());
+        }
+        leaderboard.sort(Comparator.comparingDouble(PunctualityLeaderboardEntry::getPercentage).reversed());
+
+        List<DailyPunctuality> daily = onTimeCountByDate.entrySet().stream()
+                .filter(e -> anyWorkingDate.contains(e.getKey()))
+                .map(e -> DailyPunctuality.builder().date(e.getKey()).employeesOnTime(e.getValue()).build())
+                .toList();
+
+        List<Integer> applicableCounts = daily.stream().map(DailyPunctuality::getEmployeesOnTime).toList();
+        PunctualitySummary summary = applicableCounts.isEmpty()
+                ? PunctualitySummary.builder().averageEmployeesOnTime(0).minimumEmployeesOnTime(0).maximumEmployeesOnTime(0).build()
+                : PunctualitySummary.builder()
+                        .averageEmployeesOnTime(round1(applicableCounts.stream().mapToInt(Integer::intValue).average().orElse(0)))
+                        .minimumEmployeesOnTime(applicableCounts.stream().min(Integer::compareTo).orElse(0))
+                        .maximumEmployeesOnTime(applicableCounts.stream().max(Integer::compareTo).orElse(0))
+                        .build();
+
+        return TeamPunctualityResponse.builder().leaderboard(leaderboard).daily(daily).summary(summary).build();
     }
 
     /** The three Negligence panels: Late Arrivals, Least Hours Worked, Frequent Breaks (ONEHR-107). */
@@ -546,12 +643,6 @@ public class AttendanceService {
             stat.totalWorkedMinutes += r.getWorkedMinutes() != null ? r.getWorkedMinutes() : 0;
         }
         return stats;
-    }
-
-    private long countWeekdays(LocalDate from, LocalDate to) {
-        return from.datesUntil(to.plusDays(1))
-                .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY)
-                .count();
     }
 
     private List<TeamNegligenceResponse.HoursBucket> buildHoursHistogram(

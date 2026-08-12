@@ -5,10 +5,13 @@ import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import {
-  attendanceApi, regularizationApi, type AttendanceRecord,
+  attendanceApi, regularizationApi, penaltiesApi, type AttendanceRecord,
   type TeamEffortEntry, type TeamNegligenceResponse,
   type TeamLateArrivalEntry, type TeamLeastHoursEntry, type TeamFrequentBreaksEntry,
+  type TeamPunctualityResponse, type PunctualityLeaderboardEntry,
+  type PenaltyRow, type PenaltyFilters, type AttendancePenaltyStatus, type RegularizationRecord,
 } from '../api/attendance';
+import { KebabMenu } from '../components/KebabMenu';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { approvalCenterApi, type ApprovalItem } from '../api/approvalCenter';
@@ -17,6 +20,7 @@ import {
 } from '../api/employeeAssignments';
 import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestReportRow } from '../api/reports';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
+import { kudosApi } from '../api/kudos';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -333,6 +337,80 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
   );
 }
 
+/* ══ Team Punctuality / On-Time Leaderboard — "on time" == attendance.status PRESENT ══ */
+function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
+  const fillPct = Math.min(100, entry.percentage);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+      <Avatar name={entry.fullName} size={30} />
+      <div style={{ minWidth: 150 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+      </div>
+      <div style={{ flex: 1, minWidth: 100 }}>
+        <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${fillPct}%`, borderRadius: 4, background: 'var(--ok)' }} />
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
+        {entry.percentage.toFixed(0)}% on time · {entry.onTimeDays}/{entry.expectedWorkingDays} days
+      </div>
+    </div>
+  );
+}
+
+function PunctualitySection({ from, to, token }: { from: string; to: string; token: string }) {
+  const { showToast } = useToast();
+  const [data, setData] = useState<TeamPunctualityResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    attendanceApi.teamPunctuality(from, to, token)
+      .then(setData)
+      .catch(e => showToast('error', e instanceof Error ? e.message : 'Failed to load team punctuality'))
+      .finally(() => setLoading(false));
+  }, [token, from, to]);
+
+  if (loading || !data) {
+    return <div style={{ ...panelStyle, padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>;
+  }
+
+  if (data.leaderboard.length === 0) {
+    return (
+      <div style={panelStyle}>
+        <div style={panelHeadStyle}><span style={panelTitleStyle}>On-Time Leaderboard</span></div>
+        <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No employees with working days in this period.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Avg. on time / day"
+          value={data.summary.averageEmployeesOnTime.toFixed(1)} note="employees, this range" />
+        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--risk)" label="Min. on time / day"
+          value={data.summary.minimumEmployeesOnTime} note="lowest single day" />
+        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Max. on time / day"
+          value={data.summary.maximumEmployeesOnTime} note="highest single day" />
+      </div>
+      <div style={panelStyle}>
+        <div style={panelHeadStyle}>
+          <span style={panelTitleStyle}>On-Time Leaderboard</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
+          <div>{data.leaderboard.map(e => <PunctualityRow key={e.employeeUserId} entry={e} />)}</div>
+          <div style={{ borderLeft: '1px solid var(--line)' }}>
+            <DailyBarChart data={data.daily.map(d => ({ date: d.date, count: d.employeesOnTime }))} color="var(--ok)" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EffortTab({ token }: { token: string }) {
   const { showToast } = useToast();
   const { from, setFrom, to, setTo } = useTeamDateRange(7);
@@ -348,19 +426,22 @@ function EffortTab({ token }: { token: string }) {
   }, [token, from, to]);
 
   return (
-    <div style={panelStyle}>
-      <div style={panelHeadStyle}>
-        <span style={panelTitleStyle}>Avg. Work Hours Leaderboard</span>
-        <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={panelStyle}>
+        <div style={panelHeadStyle}>
+          <span style={panelTitleStyle}>Avg. Work Hours Leaderboard</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+        </div>
+        <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
+        {loading ? (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
+        ) : entries.length === 0 ? (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
+        ) : (
+          entries.map(e => <EffortRow key={e.employeeUserId} entry={e} />)
+        )}
       </div>
-      <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
-      {loading ? (
-        <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
-      ) : entries.length === 0 ? (
-        <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
-      ) : (
-        entries.map(e => <EffortRow key={e.employeeUserId} entry={e} />)
-      )}
+      <PunctualitySection from={from} to={to} token={token} />
     </div>
   );
 }
@@ -1021,6 +1102,99 @@ function ReportsTab({ token }: { token: string }) {
   );
 }
 
+/* ── "Appreciate your lead" / peer kudos (ONEHR-73) ── */
+interface KudosTarget { userId: string; name: string; }
+
+function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
+  const small = size === 'small';
+  return (
+    <button onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: small ? 5 : 6,
+      fontSize: small ? 11.5 : 12.5, fontWeight: small ? 600 : 700, whiteSpace: 'nowrap', cursor: 'pointer',
+      color: small ? 'var(--txt-mut)' : '#fff',
+      background: small ? 'var(--raised2)' : 'var(--brand)',
+      border: 'none', borderRadius: small ? 6 : 8, padding: small ? '6px 10px' : '9px 14px',
+    }}>
+      <Sparkles size={small ? 12 : 14} /> {label}
+    </button>
+  );
+}
+
+const KUDOS_CATEGORIES = ['Great Work', 'Teamwork', 'Leadership', 'Extra Mile'];
+
+function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
+  const { showToast } = useToast();
+  const [category, setCategory] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (target) { setCategory(null); setNote(''); setSending(false); }
+  }, [target]);
+
+  if (!target) return null;
+
+  async function send() {
+    if (!category || !target) return;
+    setSending(true);
+    try {
+      await kudosApi.send({ toUserId: target.userId, category, note: note.trim() || undefined }, token);
+      showToast('success', `🎉 Kudos sent to ${target.name}`);
+      onClose();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Could not send kudos');
+      setSending(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={modalStyle} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+          <Avatar name={target.name} size={36} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>Appreciating</div>
+            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={labelStyle}>What for?</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {KUDOS_CATEGORIES.map(c => (
+                <button key={c} onClick={() => setCategory(c)} style={{
+                  fontSize: 12, fontWeight: 600, padding: '8px 12px', borderRadius: 9, cursor: 'pointer',
+                  border: category === c ? '1px solid var(--brand-bright)' : '1px solid var(--line2)',
+                  background: category === c ? 'rgba(228,55,61,.10)' : 'var(--raised)',
+                  color: category === c ? 'var(--txt)' : 'var(--txt-mut)',
+                }}>{c}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Note (optional)</div>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="e.g. Thanks for jumping on the prod issue last night — huge help!"
+              style={{ ...inputStyle, minHeight: 72, resize: 'vertical', fontFamily: 'inherit' }}
+            />
+          </div>
+          <button onClick={send} disabled={!category || sending} style={{
+            width: '100%', padding: 11, borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13,
+            cursor: !category || sending ? 'not-allowed' : 'pointer',
+            background: !category || sending ? 'var(--raised2)' : 'var(--brand)',
+            color: !category || sending ? 'var(--txt-dim)' : '#fff',
+          }}>
+            {sending ? 'Sending…' : 'Send Kudos'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── My Team: Peers view (ONEHR-73) ── employee-facing, scoped to colleagues who currently
  * share the caller's manager, not direct reports. Self-contained: fetches its own data so it
  * doesn't disturb MyTeamPage's existing (manager-facing) state below. */
@@ -1028,6 +1202,7 @@ function PeersView({ token }: { token: string }) {
   const today = todayIsoDate();
 
   const [peers, setPeers] = useState<DirectoryEntry[]>([]);
+  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
   const [todayLeave, setTodayLeave] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1038,9 +1213,13 @@ function PeersView({ token }: { token: string }) {
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
 
   const [search, setSearch] = useState('');
+  const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
+    directoryApi.myManager(token)
+      .then(m => setManager(m ? { userId: m.userId, name: m.fullName } : null))
+      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -1176,13 +1355,26 @@ function PeersView({ token }: { token: string }) {
         </div>
       </div>
 
-      {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+      {/* KPI row — fixed 4-column grid (not auto-fit) so 4 cards always fill one row evenly,
+       * instead of auto-fit computing more tracks than there are cards and leaving a gap. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
         <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
       </div>
+
+      {/* Reporting manager — "Appreciate your lead" */}
+      {manager && (
+        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Avatar name={manager.name} size={38} />
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{manager.name}</div>
+          </div>
+          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
+        </div>
+      )}
 
       {/* Team calendar */}
       <div style={{ ...panelStyle, marginBottom: 16 }}>
@@ -1304,10 +1496,332 @@ function PeersView({ token }: { token: string }) {
                 <Mail size={11} style={{ flexShrink: 0 }} />
                 <a href={`mailto:${row.peer.email}`} style={{ color: 'var(--txt-mut)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.peer.email}</a>
               </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
+              </div>
             </div>
           ))}
         </div>
       </div>
+
+      <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
+    </div>
+  );
+}
+
+/* ══ Regularize & Cancel Penalties ══ */
+const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED'];
+const PENALTY_STATUS_LABEL: Record<AttendancePenaltyStatus, string> = {
+  PENDING_REVIEW: 'Pending Review', APPLIED: 'Applied', CANCELLED: 'Cancelled', REVERSED: 'Reversed',
+};
+const PENALTY_STATUS_STYLE: Record<AttendancePenaltyStatus, { bg: string; fg: string }> = {
+  PENDING_REVIEW: { bg: 'rgba(224,169,59,.16)', fg: 'var(--warn)' },
+  APPLIED: { bg: 'rgba(228,55,61,.15)', fg: 'var(--risk)' },
+  CANCELLED: { bg: 'var(--raised2)', fg: 'var(--txt-dim)' },
+  REVERSED: { bg: 'rgba(76,141,214,.16)', fg: 'var(--info)' },
+};
+
+function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
+  const s = PENALTY_STATUS_STYLE[status];
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '4px 9px 4px 7px', borderRadius: 20, background: s.bg, color: s.fg, whiteSpace: 'nowrap' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.fg, flexShrink: 0 }} />
+      {PENALTY_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+// Approved discrepancy/anomaly identifiers (ExceptionType constants) — not every one has a
+// detector wired up yet, but all six are valid values a future policy engine may produce.
+const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH', 'LEAVE_ATTENDANCE_CONFLICT'];
+const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
+  NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
+  EARLY_DEPARTURE: 'Early Departure', MISSING_PUNCH: 'Missing Punch', LEAVE_ATTENDANCE_CONFLICT: 'Leave/Attendance Conflict',
+};
+
+function fmtDateTimeShort(iso?: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Read-only — reuses the same regularization data every other approval screen shows. */
+function RegularizationHistoryModal({ employeeUserId, employeeName, attendanceDate, token, onClose }: {
+  employeeUserId: string; employeeName: string; attendanceDate: string; token: string; onClose: () => void;
+}) {
+  const { showToast } = useToast();
+  const [records, setRecords] = useState<RegularizationRecord[] | null>(null);
+
+  useEffect(() => {
+    penaltiesApi.regularizationHistory(employeeUserId, attendanceDate, token)
+      .then(setRecords)
+      .catch(e => { showToast('error', e instanceof Error ? e.message : 'Failed to load history'); setRecords([]); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeUserId, attendanceDate, token]);
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>Regularization History</div>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{employeeName} · {fmtDateShort(attendanceDate)}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+        </div>
+        <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+          {records === null ? (
+            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
+          ) : records.length === 0 ? (
+            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No regularization requests on file for this date.</div>
+          ) : records.map(r => (
+            <div key={r.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.status.replace('_', ' ')}</span>
+                <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Filed {fmtDateTimeShort(r.createdAt)}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{r.reason}</div>
+              {r.requestedCheckIn && <Row label="Requested check-in" value={fmtTime(r.requestedCheckIn)} />}
+              {r.requestedCheckOut && <Row label="Requested check-out" value={fmtTime(r.requestedCheckOut)} />}
+              {r.reviewedByName && <Row label="Reviewed by" value={r.reviewedByName} />}
+              {r.reviewComment && <Row label="Comment" value={r.reviewComment} />}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PenaltiesTab({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const { from, setFrom, to, setTo } = useTeamDateRange(30);
+  const [rows, setRows] = useState<PenaltyRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<AttendancePenaltyStatus | ''>('');
+  const [discrepancyType, setDiscrepancyType] = useState('');
+  const [department, setDepartment] = useState('');
+  const [location, setLocation] = useState('');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [lastResult, setLastResult] = useState<{ succeeded: number; failures: { label: string; reason: string }[] } | null>(null);
+  const [historyFor, setHistoryFor] = useState<PenaltyRow | null>(null);
+
+  // Department/location option lists — reuses the same manager-scoped lookups endpoint the
+  // Employee Assignments tab already calls, rather than a new lookup just for this filter.
+  const [lookups, setLookups] = useState<AssignmentLookups | null>(null);
+  useEffect(() => {
+    employeeAssignmentsApi.lookups(token).then(setLookups).catch(() => {});
+  }, [token]);
+
+  const filters: PenaltyFilters = useMemo(() => ({
+    from, to,
+    status: status || undefined,
+    discrepancyType: discrepancyType || undefined,
+    department: department.trim() || undefined,
+    location: location.trim() || undefined,
+    search: search.trim() || undefined,
+  }), [from, to, status, discrepancyType, department, location, search]);
+
+  function reload() {
+    setLoading(true);
+    return penaltiesApi.list(filters, token)
+      .then(r => { setRows(r); setSelected(new Set()); })
+      .catch(e => showToast('error', e instanceof Error ? e.message : 'Failed to load penalties'))
+      .finally(() => setLoading(false));
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); }, [token, filters]);
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  const cancellableRows = rows.filter(r => r.cancellable);
+  function toggleSelectAll() {
+    setSelected(prev => prev.size === cancellableRows.length
+      ? new Set()
+      : new Set(cancellableRows.map(r => r.id)));
+  }
+
+  async function submitCancel() {
+    if (!cancelReason.trim() || selected.size === 0) return;
+    setCancelBusy(true);
+    try {
+      const result = await penaltiesApi.cancel(Array.from(selected), cancelReason.trim(), token);
+      showToast(result.failed.length === 0 ? 'success' : 'error',
+        `${result.succeededIds.length} cancelled${result.failed.length ? `, ${result.failed.length} failed` : ''}`);
+      setLastResult({
+        succeeded: result.succeededIds.length,
+        failures: result.failed.map(f => ({ label: rows.find(r => r.id === f.id)?.fullName ?? f.id, reason: f.reason })),
+      });
+      setCancelOpen(false);
+      setCancelReason('');
+      await reload();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Cancellation failed');
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
+  return (
+    <div style={panelStyle}>
+      <div style={panelHeadStyle}>
+        <span style={panelTitleStyle}>Regularize &amp; Cancel Penalties</span>
+        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'penalty' : 'penalties'}</span>
+      </div>
+
+      <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
+
+      <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <label style={labelStyle}>Status</label>
+          <select value={status} onChange={e => setStatus(e.target.value as AttendancePenaltyStatus | '')} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All statuses</option>
+            {PENALTY_STATUS_OPTIONS.map(s => <option key={s} value={s}>{PENALTY_STATUS_LABEL[s]}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Attendance discrepancy</label>
+          <select value={discrepancyType} onChange={e => setDiscrepancyType(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All discrepancies</option>
+            {DISCREPANCY_TYPE_OPTIONS.map(d => <option key={d} value={d}>{DISCREPANCY_TYPE_LABEL[d]}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Department</label>
+          <select value={department} onChange={e => setDepartment(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All departments</option>
+            {lookups?.departments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Location</label>
+          <select value={location} onChange={e => setLocation(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
+            <option value="">All locations</option>
+            {lookups?.locations.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+          <Search size={13} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+        </div>
+      </div>
+
+      <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <BulkButton label="Cancel Penalty" disabled={selected.size === 0} onClick={() => { setCancelOpen(true); setCancelReason(''); }} />
+        <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+          Total: <b style={{ color: 'var(--txt)' }}>{rows.length}</b>{selected.size > 0 && <> · {selected.size} selected</>}
+        </span>
+      </div>
+
+      {lastResult && (
+        <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
+            Cancellation — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+          </div>
+          {lastResult.failures.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {lastResult.failures.map((f, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: 'var(--risk)' }}>{f.label}: {f.reason}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 12px', textAlign: 'left' }}>
+                <input type="checkbox" checked={cancellableRows.length > 0 && selected.size === cancellableRows.length} onChange={toggleSelectAll} />
+              </th>
+              {['Employee', 'Incident Date', 'Penalized On', 'Status', 'Location', 'Department', 'Attendance Discrepancy', ''].map(h => (
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties found for the selected filters.</td></tr>
+            ) : rows.map(r => (
+              <tr key={r.id}>
+                <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+                  <input type="checkbox" checked={selected.has(r.id)} disabled={!r.cancellable} onChange={() => toggleSelect(r.id)} />
+                </td>
+                <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Avatar name={r.fullName} size={26} />
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.fullName}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+                    </div>
+                  </div>
+                </td>
+                <td style={assignmentCellStyle}>{fmtDateShort(r.incidentDate)}</td>
+                <td style={assignmentCellStyle}>{fmtDateTimeShort(r.penalizedOn)}</td>
+                <td style={assignmentCellStyle}><PenaltyStatusBadge status={r.status} /></td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{DISCREPANCY_TYPE_LABEL[r.discrepancyType] ?? r.discrepancyType}</td>
+                <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>
+                  <KebabMenu items={[{ label: 'View Regularization History', onClick: () => setHistoryFor(r) }]} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {cancelOpen && (
+        <div style={overlayStyle} onClick={() => !cancelBusy && setCancelOpen(false)}>
+          <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>
+              Cancel {selected.size} {selected.size === 1 ? 'Penalty' : 'Penalties'}
+            </div>
+            <div style={{ padding: 18 }}>
+              <label style={labelStyle}>Reason (required)</label>
+              <textarea
+                autoFocus
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                placeholder="Why are these penalties being cancelled?"
+                style={{ ...inputStyle, minHeight: 72, resize: 'vertical', fontFamily: 'inherit' }}
+              />
+            </div>
+            <div style={{ padding: 18, display: 'flex', gap: 8, borderTop: '1px solid var(--line)' }}>
+              <button onClick={() => setCancelOpen(false)} disabled={cancelBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>Dismiss</button>
+              <button onClick={submitCancel} disabled={!cancelReason.trim() || cancelBusy} style={{
+                flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6,
+                cursor: !cancelReason.trim() || cancelBusy ? 'not-allowed' : 'pointer', border: 'none',
+                background: cancelReason.trim() ? 'var(--brand)' : 'var(--raised2)', color: cancelReason.trim() ? '#fff' : 'var(--txt-dim)',
+              }}>
+                {cancelBusy ? 'Cancelling…' : 'Confirm Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {historyFor && (
+        <RegularizationHistoryModal
+          employeeUserId={historyFor.employeeUserId}
+          employeeName={historyFor.fullName}
+          attendanceDate={historyFor.incidentDate}
+          token={token}
+          onClose={() => setHistoryFor(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1318,7 +1832,7 @@ export default function MyTeamPage() {
   const [searchParams] = useSearchParams();
   const rosterRef = useRef<HTMLDivElement>(null);
 
-  const [tab, setTab] = useState<'overview' | 'effort' | 'negligence' | 'assignments' | 'reports'>('overview');
+  const [tab, setTab] = useState<'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports'>('overview');
 
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [directReportCount, setDirectReportCount] = useState(0);
@@ -1499,6 +2013,7 @@ export default function MyTeamPage() {
           ['overview', 'Overview'],
           ['effort', 'Efforts / Punctuality'],
           ['negligence', 'Negligence'],
+          ['penalties', 'Regularize & Cancel Penalties'],
           ['assignments', 'Employee Assignments'],
           ['reports', 'Reports'],
         ] as const).map(([key, label]) => (
@@ -1551,8 +2066,10 @@ export default function MyTeamPage() {
         </div>
       </div>
 
-      {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+      {/* KPI row — fixed 6-column grid (not auto-fit) so all 6 cards always fill one row evenly;
+       * auto-fit was computing 5 tracks (fit for the viewport), so the 6th card wrapped alone
+       * onto its own row and left the rest of that row empty. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={directReportCount} note="direct reports" />
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
@@ -1745,6 +2262,7 @@ export default function MyTeamPage() {
 
       {tab === 'effort' && <EffortTab token={token} />}
       {tab === 'negligence' && <NegligenceTab token={token} />}
+      {tab === 'penalties' && <PenaltiesTab token={token} />}
       {tab === 'assignments' && <AssignmentsTab token={token} />}
       {tab === 'reports' && <ReportsTab token={token} />}
       </>
