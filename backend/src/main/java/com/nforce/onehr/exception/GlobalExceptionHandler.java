@@ -13,6 +13,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
@@ -68,6 +69,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(e.getMessage()));
+    }
+
+    // Thrown by the multipart resolver itself (spring.servlet.multipart.max-file-size/
+    // max-request-size) before a file ever reaches a controller method — without this handler
+    // it falls through to the generic 500 below, which is indistinguishable from a real server
+    // error and defeats the point of a clear "file too large" message.
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("The uploaded file(s) exceed the maximum allowed size"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

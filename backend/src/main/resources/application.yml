@@ -4,7 +4,9 @@ spring:
   servlet:
     multipart:
       max-file-size: 10MB
-      max-request-size: 12MB
+      # Help content attachments allow up to 5 files per upload (HelpContentService
+      # .MAX_ATTACHMENTS_PER_CONTENT) at up to 10MB each in one multipart request.
+      max-request-size: 55MB
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}

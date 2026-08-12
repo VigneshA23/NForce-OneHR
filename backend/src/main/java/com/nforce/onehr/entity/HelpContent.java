@@ -11,8 +11,13 @@ import java.util.UUID;
  * document — managed by HR Admin/Super Admin and read-only for employees. {@code type} stays a
  * plain String (see {@link com.nforce.onehr.service.HelpContentType}), matching this codebase's
  * established convention for status/discriminator fields (see {@link HelpdeskTicket#getStatus()},
- * {@link DocumentType}). The optional attachment mirrors {@link HelpdeskReply}'s byte-in-Postgres
- * storage exactly — no new file-storage mechanism.
+ * {@link DocumentType}). Attachments live in {@link HelpContentAttachment} (multiple, ordered) —
+ * see that class for the byte-in-Postgres storage convention.
+ *
+ * <p>{@code status} is the sole lifecycle field — DRAFT | PENDING_APPROVAL | APPROVED |
+ * PUBLISHED | UNPUBLISHED | ARCHIVED (see {@code HelpContentService} for the transition rules).
+ * It replaces the old {@code published}/{@code active} booleans, which couldn't express the
+ * six-state lifecycle without ambiguity.
  */
 @Entity
 @Table(name = "help_content")
@@ -39,30 +44,24 @@ public class HelpContent {
     @Column(length = 80)
     private String category;
 
-    @Column(name = "attachment_name", length = 255)
-    private String attachmentName;
-
-    @Column(name = "attachment_type", length = 100)
-    private String attachmentType;
-
-    @Column(name = "attachment_size")
-    private Long attachmentSize;
-
-    @Column(name = "attachment_data", columnDefinition = "BYTEA")
-    private byte[] attachmentData;
-
-    @Column(nullable = false)
+    // DRAFT | PENDING_APPROVAL | APPROVED | PUBLISHED | UNPUBLISHED | ARCHIVED
+    @Column(nullable = false, length = 20)
     @Builder.Default
-    private boolean published = false;
+    private String status = "DRAFT";
 
     @Column(name = "published_at", columnDefinition = "TIMESTAMPTZ")
     private Instant publishedAt;
 
-    // Archive = false. Kept separate from `published` so unpublishing (draft) and archiving
-    // (retired/hidden for good) are distinct actions, matching Policy/Announcement's precedent.
-    @Column(nullable = false)
-    @Builder.Default
-    private boolean active = true;
+    // Set only when this row is a draft revision of a still-PUBLISHED row — editing published
+    // content forks a new row rather than mutating the employee-visible one directly (see
+    // HelpContentService.prepareForEdit). Publishing this row archives the row it supersedes.
+    @Column(name = "supersedes_id")
+    private UUID supersedesId;
+
+    // Mirrors the latest rejection so the HR author sees why on the Draft — cleared on any
+    // fresh submission or approval. Same convention as RegularizationRequest.reviewComment.
+    @Column(name = "rejection_reason", columnDefinition = "TEXT")
+    private String rejectionReason;
 
     @Column(name = "is_featured", nullable = false)
     @Builder.Default
