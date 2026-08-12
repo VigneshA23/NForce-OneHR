@@ -37,7 +37,9 @@ class ExceptionServiceTest {
     @Mock private AttendanceExceptionRepository attendanceExceptionRepository;
     @Mock private AttendanceRepository attendanceRepository;
     @Mock private LeaveRequestRepository leaveRequestRepository;
+    @Mock private RegularizationRequestRepository regularizationRequestRepository;
     @Mock private AttendanceProperties attendanceProperties;
+    @Mock private AttendancePenaltyEvaluationService attendancePenaltyEvaluationService;
 
     @InjectMocks private ExceptionService exceptionService;
 
