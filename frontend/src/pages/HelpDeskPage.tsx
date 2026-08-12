@@ -1100,7 +1100,7 @@ export default function HelpDeskPage() {
       ) : (
         /* 3b. FAQ + Quick Help & Guides — side by side on desktop, stacking only when the
            viewport is too narrow for both (see minmax below), per the required layout. */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, marginBottom: 32, alignItems: 'start' }}>
+        <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, marginBottom: 32, alignItems: 'start' }}>
           <div>
             <SectionHeader
               title="Frequently Asked Questions"

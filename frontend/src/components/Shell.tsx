@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings, CheckCheck, HelpCircle, KeyRound, UserPlus } from 'lucide-react';
+import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings, CheckCheck, HelpCircle, KeyRound, UserPlus, Menu, X as CloseIcon } from 'lucide-react';
 import { NAV, toShellRole, type Role } from '../lib/nav.config';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
@@ -60,6 +60,7 @@ function ProfileDropdown({ name, role, initials, onClose }: {
 
   return (
     <div
+      className="nf-dropdown-panel"
       style={{
         position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 220,
         background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10,
@@ -164,7 +165,7 @@ function NotificationDropdown({ token, onClose }: { token: string; onClose: () =
   const unread = items.filter(n => !n.read).length;
 
   return (
-    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 340, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
+    <div className="nf-dropdown-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 340, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', borderBottom: '1px solid #2A2E37' }}>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: '#E8EAED' }}>Notifications {unread > 0 && <span style={{ color: '#e4373d' }}>({unread})</span>}</span>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -212,6 +213,10 @@ export function Shell() {
   const [dropdownOpen, setDropdownOpen]   = useState(false);
   const [bellOpen, setBellOpen]           = useState(false);
   const [unreadCount, setUnreadCount]     = useState(0);
+  // Mobile-only off-canvas nav toggle (≤767px). Defaults closed; the CSS that
+  // reads this className only exists inside the ≤767px media query, so this
+  // state never affects rendering at tablet/desktop widths.
+  const [navOpen, setNavOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const bellRef     = useRef<HTMLDivElement>(null);
 
@@ -250,11 +255,21 @@ export function Shell() {
     }
   }, [dropdownOpen, bellOpen]);
 
+  // Close the mobile off-canvas nav whenever the route changes.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
   return (
     <div style={{ display: 'flex', minHeight: '100dvh' }}>
+      {/* Mobile-only scrim behind the off-canvas sidebar; no desktop/tablet equivalent */}
+      {navOpen && (
+        <div className="nf-nav-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      )}
+
       {/* Sidebar */}
       <aside
-        className="shell-sidebar"
+        className={`shell-sidebar${navOpen ? ' shell-sidebar--open' : ''}`}
         style={{
           width: 236, flexShrink: 0, background: '#0B0C0F', borderRight: '1px solid #23262D',
           display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, bottom: 0, left: 0,
@@ -319,7 +334,7 @@ export function Shell() {
       </aside>
 
       {/* Main area */}
-      <div style={{ marginLeft: 236, marginTop: 0, flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div className="nf-main-area" style={{ marginLeft: 236, marginTop: 0, flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         {/* Topbar */}
         <header
           style={{
@@ -330,11 +345,22 @@ export function Shell() {
             display: 'flex', alignItems: 'center', padding: '0 18px', gap: 10,
           }}
         >
+          {/* Hamburger — hidden by default, shown only ≤767px to open the off-canvas sidebar */}
+          <button
+            className="nf-hamburger-btn"
+            onClick={() => setNavOpen((v) => !v)}
+            aria-label={navOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={navOpen}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 7, borderRadius: 6, alignItems: 'center', color: '#E8EAED' }}
+          >
+            {navOpen ? <CloseIcon size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
+          </button>
+
           <div style={{ color: '#9BA1AC', fontSize: 13 }}>
             NForce OneHR / <b style={{ color: '#E8EAED', fontWeight: 600 }}>{current.label}</b>
           </div>
           <div style={{ flex: 1 }} />
-          <div style={{ maxWidth: 260, width: 260, background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8, color: '#6B7280', fontSize: 12 }}>
+          <div className="nf-topbar-search" style={{ maxWidth: 260, width: 260, background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8, color: '#6B7280', fontSize: 12 }}>
             <Search size={13} aria-hidden="true" /> Search this workspace…
           </div>
 
@@ -415,7 +441,7 @@ export function Shell() {
           </div>
         </header>
 
-        <main style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
+        <main className="nf-main-content" style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
           <ComplianceBanner />
           {current.phase > 1 ? <ComingInPhase label={current.label} phase={current.phase} /> : <Outlet />}
         </main>

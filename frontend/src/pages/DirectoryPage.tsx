@@ -51,7 +51,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
   ];
 
   return (
-    <div style={{
+    <div className="nf-drawer-responsive" style={{
       position: 'fixed', top: 0, right: 0, bottom: 0, width: 360,
       background: 'var(--panel)', borderLeft: '1px solid var(--line)',
       boxShadow: '-8px 0 32px rgba(0,0,0,.35)', zIndex: 200,

@@ -47,6 +47,18 @@ class AuditLogControllerTest {
     }
 
     @Test
+    void list_managerRole_passesIsSuperAdminFalse() {
+        // Manager must be treated identically to HR Admin here — never elevated to the
+        // Super Admin (ACCESS_CONTROL-visible) scope.
+        when(auditQueryService.search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com")))
+                .thenReturn(Page.empty());
+
+        controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_MANAGER"));
+
+        verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com"));
+    }
+
+    @Test
     void list_superAdminRole_passesIsSuperAdminTrue() {
         when(auditQueryService.search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com")))
                 .thenReturn(Page.empty());
@@ -59,6 +71,13 @@ class AuditLogControllerTest {
     @Test
     void stats_hrAdminRole_passesIsSuperAdminFalse() {
         controller.stats(null, null, null, null, authWithRole("ROLE_HR_ADMIN"));
+
+        verify(auditQueryService).stats(any(), any(), any(), any(), eq(false), eq("user@test.com"));
+    }
+
+    @Test
+    void stats_managerRole_passesIsSuperAdminFalse() {
+        controller.stats(null, null, null, null, authWithRole("ROLE_MANAGER"));
 
         verify(auditQueryService).stats(any(), any(), any(), any(), eq(false), eq("user@test.com"));
     }

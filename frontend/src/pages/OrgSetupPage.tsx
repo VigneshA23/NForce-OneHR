@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, Plus, Search, X } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -10,8 +10,9 @@ import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
 } from '../api/documents';
+import PenalizationPolicySection from './penalization/PenalizationPolicySection';
 
-type OrgTab = 'departments' | 'designations' | 'locations' | 'doctypes';
+type OrgTab = 'departments' | 'designations' | 'locations' | 'doctypes' | 'penalization';
 
 interface TabDef {
   label: string;
@@ -47,6 +48,13 @@ const TABS: Record<OrgTab, TabDef> = {
     columns: ['Name', 'Needs Verification', 'Needs Expiry', 'Employment Types', 'Locations', 'Usage', 'Status'],
     addLabel: 'Add Document Type',
     emptyLine: 'No document types configured yet. Add one to start collecting employee documents.',
+  },
+  // Not a row-per-item table like the other tabs above — one configuration document with four
+  // sections, rendered by PenalizationPolicySection. columns/addLabel/emptyLine are unused for
+  // this tab (see the search/add-button and table-vs-section guards below).
+  penalization: {
+    label: 'Penalization Policy', icon: ShieldAlert,
+    columns: [], addLabel: '', emptyLine: '',
   },
 };
 
@@ -317,7 +325,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
 
           {tab === 'locations' && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <label style={labelStyle}>
                   <span style={labelTextStyle}>City</span>
                   <input value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. Chennai" style={inputStyle} />
@@ -327,7 +335,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
                   <input value={state} onChange={e => setState(e.target.value)} placeholder="e.g. Tamil Nadu" style={inputStyle} />
                 </label>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <label style={labelStyle}>
                   <span style={labelTextStyle}>Country</span>
                   <input value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. India" style={inputStyle} />
@@ -712,35 +720,44 @@ export default function OrgSetupPage() {
               );
             })}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={12} aria-hidden="true" style={{
-                position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-                color: 'var(--txt-dim)', pointerEvents: 'none',
-              }} />
-              <input
-                type="search" value={search} onChange={e => setSearch(e.target.value)}
-                placeholder={`Search ${tab.label.toLowerCase()}…`}
-                aria-label={`Search ${tab.label}`}
-                style={{
-                  background: 'var(--raised)', border: '1px solid var(--line2)',
-                  borderRadius: 6, padding: '5px 10px 5px 26px',
-                  fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
-                }}
-              />
+          {activeTab !== 'penalization' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={12} aria-hidden="true" style={{
+                  position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                  color: 'var(--txt-dim)', pointerEvents: 'none',
+                }} />
+                <input
+                  type="search" value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder={`Search ${tab.label.toLowerCase()}…`}
+                  aria-label={`Search ${tab.label}`}
+                  style={{
+                    background: 'var(--raised)', border: '1px solid var(--line2)',
+                    borderRadius: 6, padding: '5px 10px 5px 26px',
+                    fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
+                  }}
+                />
+              </div>
+              <button onClick={openAdd} aria-label={tab.addLabel} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>
+                <Plus size={13} aria-hidden="true" />
+                {tab.addLabel}
+              </button>
             </div>
-            <button onClick={openAdd} aria-label={tab.addLabel} style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-            }}>
-              <Plus size={13} aria-hidden="true" />
-              {tab.addLabel}
-            </button>
-          </div>
+          )}
         </div>
 
-        {/* Table */}
+        {/* Penalization Policy is one configuration document, not a row-per-item table —
+            rendered by PenalizationPolicySection, reusing this page's shell/tab-bar/toast/
+            loading/error patterns but not the generic table below. */}
+        {activeTab === 'penalization' ? (
+          <div style={{ padding: 18 }}>
+            <PenalizationPolicySection token={token} />
+          </div>
+        ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead>
@@ -848,6 +865,7 @@ export default function OrgSetupPage() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );
