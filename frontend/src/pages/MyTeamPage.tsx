@@ -17,6 +17,7 @@ import {
 } from '../api/employeeAssignments';
 import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestReportRow } from '../api/reports';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
+import { kudosApi } from '../api/kudos';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -1021,6 +1022,99 @@ function ReportsTab({ token }: { token: string }) {
   );
 }
 
+/* ── "Appreciate your lead" / peer kudos (ONEHR-73) ── */
+interface KudosTarget { userId: string; name: string; }
+
+function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
+  const small = size === 'small';
+  return (
+    <button onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: small ? 5 : 6,
+      fontSize: small ? 11.5 : 12.5, fontWeight: small ? 600 : 700, whiteSpace: 'nowrap', cursor: 'pointer',
+      color: small ? 'var(--txt-mut)' : '#fff',
+      background: small ? 'var(--raised2)' : 'var(--brand)',
+      border: 'none', borderRadius: small ? 6 : 8, padding: small ? '6px 10px' : '9px 14px',
+    }}>
+      <Sparkles size={small ? 12 : 14} /> {label}
+    </button>
+  );
+}
+
+const KUDOS_CATEGORIES = ['Great Work', 'Teamwork', 'Leadership', 'Extra Mile'];
+
+function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
+  const { showToast } = useToast();
+  const [category, setCategory] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (target) { setCategory(null); setNote(''); setSending(false); }
+  }, [target]);
+
+  if (!target) return null;
+
+  async function send() {
+    if (!category || !target) return;
+    setSending(true);
+    try {
+      await kudosApi.send({ toUserId: target.userId, category, note: note.trim() || undefined }, token);
+      showToast('success', `🎉 Kudos sent to ${target.name}`);
+      onClose();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Could not send kudos');
+      setSending(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={modalStyle} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+          <Avatar name={target.name} size={36} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>Appreciating</div>
+            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={labelStyle}>What for?</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {KUDOS_CATEGORIES.map(c => (
+                <button key={c} onClick={() => setCategory(c)} style={{
+                  fontSize: 12, fontWeight: 600, padding: '8px 12px', borderRadius: 9, cursor: 'pointer',
+                  border: category === c ? '1px solid var(--brand-bright)' : '1px solid var(--line2)',
+                  background: category === c ? 'rgba(228,55,61,.10)' : 'var(--raised)',
+                  color: category === c ? 'var(--txt)' : 'var(--txt-mut)',
+                }}>{c}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Note (optional)</div>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="e.g. Thanks for jumping on the prod issue last night — huge help!"
+              style={{ ...inputStyle, minHeight: 72, resize: 'vertical', fontFamily: 'inherit' }}
+            />
+          </div>
+          <button onClick={send} disabled={!category || sending} style={{
+            width: '100%', padding: 11, borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13,
+            cursor: !category || sending ? 'not-allowed' : 'pointer',
+            background: !category || sending ? 'var(--raised2)' : 'var(--brand)',
+            color: !category || sending ? 'var(--txt-dim)' : '#fff',
+          }}>
+            {sending ? 'Sending…' : 'Send Kudos'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── My Team: Peers view (ONEHR-73) ── employee-facing, scoped to colleagues who currently
  * share the caller's manager, not direct reports. Self-contained: fetches its own data so it
  * doesn't disturb MyTeamPage's existing (manager-facing) state below. */
@@ -1028,6 +1122,7 @@ function PeersView({ token }: { token: string }) {
   const today = todayIsoDate();
 
   const [peers, setPeers] = useState<DirectoryEntry[]>([]);
+  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
   const [todayLeave, setTodayLeave] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1038,9 +1133,13 @@ function PeersView({ token }: { token: string }) {
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
 
   const [search, setSearch] = useState('');
+  const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
+    directoryApi.myManager(token)
+      .then(m => setManager(m ? { userId: m.userId, name: m.fullName } : null))
+      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -1176,13 +1275,26 @@ function PeersView({ token }: { token: string }) {
         </div>
       </div>
 
-      {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+      {/* KPI row — fixed 4-column grid (not auto-fit) so 4 cards always fill one row evenly,
+       * instead of auto-fit computing more tracks than there are cards and leaving a gap. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
         <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
       </div>
+
+      {/* Reporting manager — "Appreciate your lead" */}
+      {manager && (
+        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Avatar name={manager.name} size={38} />
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{manager.name}</div>
+          </div>
+          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
+        </div>
+      )}
 
       {/* Team calendar */}
       <div style={{ ...panelStyle, marginBottom: 16 }}>
@@ -1304,10 +1416,15 @@ function PeersView({ token }: { token: string }) {
                 <Mail size={11} style={{ flexShrink: 0 }} />
                 <a href={`mailto:${row.peer.email}`} style={{ color: 'var(--txt-mut)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.peer.email}</a>
               </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
+              </div>
             </div>
           ))}
         </div>
       </div>
+
+      <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
     </div>
   );
 }
@@ -1551,8 +1668,10 @@ export default function MyTeamPage() {
         </div>
       </div>
 
-      {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+      {/* KPI row — fixed 6-column grid (not auto-fit) so all 6 cards always fill one row evenly;
+       * auto-fit was computing 5 tracks (fit for the viewport), so the 6th card wrapped alone
+       * onto its own row and left the rest of that row empty. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={directReportCount} note="direct reports" />
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
