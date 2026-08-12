@@ -63,7 +63,7 @@ function RequestLeaveModal({ types, onClose, onCreated, token }: { types: LeaveT
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <ModalHeader title="Request Leave" onClose={onClose} />
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Leave Type *">
@@ -434,7 +434,7 @@ export default function LeavePage() {
           </div>
         )}
 
-        <div style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
+        <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
           {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
 
           <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>

@@ -56,7 +56,7 @@ function AudiencePicker({ value, onChange }: { value: string[]; onChange(v: stri
         <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ width: 15, height: 15, cursor: 'pointer' }} />
         All (every role)
       </label>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, paddingLeft: 4 }}>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, paddingLeft: 4 }}>
         {AUDIENCE_OPTIONS.map(opt => (
           <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--txt)' }}>
             <input type="checkbox" checked={value.includes(opt.value)} onChange={() => toggle(opt.value)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
