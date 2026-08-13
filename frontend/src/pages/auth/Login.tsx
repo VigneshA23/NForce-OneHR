@@ -77,8 +77,8 @@ export default function Login() {
 
   return (
     <AuthLayout
-      leftHeadline="One home for every person, policy, and approval."
-      leftSubtext="Check in, request leave, and get approvals moving — without a spreadsheet or a scattered email thread in sight."
+      leftHeadline="Your people. One place."
+      leftSubtext="Manage leave, approvals, attendance, and everyday HR tasks in one place — without spreadsheets or manual follow-ups."
       showStats
     >
       <motion.div variants={reduced ? undefined : containerVariants} initial={reduced ? undefined : 'hidden'} animate={reduced ? undefined : 'show'}>
