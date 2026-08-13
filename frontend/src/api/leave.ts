@@ -73,6 +73,10 @@ export const leaveApi = {
   team: (from: string, to: string, token: string) =>
     fetch(`${BASE}/team?from=${from}&to=${to}`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
 
+  /** Approved leave org-wide overlapping [from, to] — HR/Super Admin's On Leave KPI. */
+  organization: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/organization?from=${from}&to=${to}`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
+
   /** Approved leave for the caller's current peers overlapping [from, to] — Peers view (ONEHR-73). */
   peers: (from: string, to: string, token: string) =>
     fetch(`${BASE}/peers?from=${from}&to=${to}`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),

@@ -16,8 +16,10 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -92,8 +94,10 @@ public class AuditQueryService {
 
         Specification<AuditLog> spec = baseSpec.get();
         long totalCount = auditLogRepository.count(spec);
-        LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
-        long todayCount = auditLogRepository.count(spec.and(occurredBetween(startOfToday, LocalDateTime.now())));
+        // Pinned to UTC, not the JVM default zone — occurredAt is now an unambiguous UTC Instant,
+        // so the "today" boundary compared against it needs to be computed the same way.
+        Instant startOfToday = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
+        long todayCount = auditLogRepository.count(spec.and(occurredBetween(startOfToday, Instant.now())));
 
         Map<String, Long> byGroup = new LinkedHashMap<>();
         for (AuditActionGroup g : AuditActionGroup.values()) {
@@ -126,7 +130,14 @@ public class AuditQueryService {
         Specification<AuditLog> spec = Specification.where(actionIn(allowedActions))
                 .and(actorIdIn(Set.of(callerId)));
         if (from != null || to != null) {
-            spec = spec.and(occurredBetween(from, to));
+            // from/to arrive as zone-naive LocalDateTime (the frontend sends bare
+            // "yyyy-MM-ddTHH:mm:ss" day boundaries) — converted here, in plain Java, to the
+            // Instant occurredAt is now stored as. Deliberately UTC: this is the same convention
+            // occurredAt itself uses, so a "from" of midnight still means midnight, just now
+            // unambiguously.
+            Instant fromInstant = from != null ? from.toInstant(ZoneOffset.UTC) : null;
+            Instant toInstant = to != null ? to.toInstant(ZoneOffset.UTC) : null;
+            spec = spec.and(occurredBetween(fromInstant, toInstant));
         }
         if (targetSearch != null && !targetSearch.isBlank()) {
             Set<UUID> targetIds = targetResolver.resolveTargetIdsMatching(targetSearch);

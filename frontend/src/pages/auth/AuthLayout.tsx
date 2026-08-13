@@ -65,22 +65,28 @@ const panelGradient = [
   'linear-gradient(160deg, #0a0b0e 0%, #12141a 100%)',
 ].join(', ');
 
+function BrandingBlock({ size }: { size: 'sm' | 'lg' }) {
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14 }}>
+      <BrandMark size={size} />
+      <div>
+        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
+          NFORCE ONEHR
+        </div>
+        <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: 3 }}>
+          People &amp; Operations Platform
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, children }: AuthLayoutProps) {
   return (
-    <div data-theme="dark" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: '100dvh' }} className="max-[900px]:block">
-      <div className="max-[900px]:hidden" style={{ position: 'relative', overflow: 'hidden', background: panelGradient, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 48px' }}>
+    <div data-theme="dark" className="nf-auth-shell" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: '100dvh' }}>
+      <div className="nf-auth-left-panel" style={{ position: 'relative', overflow: 'hidden', background: panelGradient, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 48px' }}>
         <SpeedStreaks />
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14 }}>
-          <BrandMark size="lg" />
-          <div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
-              NForce OneHR
-            </div>
-            <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: 3 }}>
-              Built for modern people teams
-            </div>
-          </div>
-        </div>
+        <BrandingBlock size="lg" />
 
         {leftHeadline && (
           <div style={{ position: 'relative', maxWidth: 420 }}>
@@ -111,14 +117,11 @@ export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, child
         ) : <div />}
       </div>
 
-      <div style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: '100dvh' }}>
-        <div className="hidden max-[900px]:flex" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 80, background: panelGradient, alignItems: 'center', justifyContent: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
-          <BrandMark size="sm" />
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, letterSpacing: '0.03em' }}>
-            NForce OneHR
-          </span>
+      <div className="nf-auth-right-panel max-[900px]:flex-col" style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: '100dvh' }}>
+        <div className="hidden max-[900px]:flex" style={{ width: '100%', maxWidth: 440, marginBottom: 32 }}>
+          <BrandingBlock size="lg" />
         </div>
-        <div className="max-[900px]:mt-20" style={{ width: '100%', maxWidth: 440 }}>
+        <div style={{ width: '100%', maxWidth: 440 }}>
           {children}
         </div>
       </div>

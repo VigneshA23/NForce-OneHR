@@ -3,7 +3,7 @@ package com.nforce.onehr.repository;
 import com.nforce.onehr.entity.AuditLog;
 import org.springframework.data.jpa.domain.Specification;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.UUID;
 
@@ -43,7 +43,7 @@ public final class AuditLogSpecifications {
         return (root, query, cb) -> root.get("targetId").in(targetIds);
     }
 
-    public static Specification<AuditLog> occurredBetween(LocalDateTime from, LocalDateTime to) {
+    public static Specification<AuditLog> occurredBetween(Instant from, Instant to) {
         return (root, query, cb) -> {
             if (from != null && to != null) return cb.between(root.get("occurredAt"), from, to);
             if (from != null) return cb.greaterThanOrEqualTo(root.get("occurredAt"), from);

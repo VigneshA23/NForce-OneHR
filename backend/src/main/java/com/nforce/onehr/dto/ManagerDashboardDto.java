@@ -19,6 +19,8 @@ public class ManagerDashboardDto {
         private String designationName;
         private String departmentName;
         private boolean active;
+        /** Only populated on the HR (organization-wide) dashboard — null for the Manager view. */
+        private String roleCode;
     }
 
     /** One EmployeeManagerHistory row (a team-join event) for the "Team Joiners per Month" chart. */
