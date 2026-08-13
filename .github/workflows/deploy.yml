@@ -1,0 +1,86 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, dev]
+
+# VERCEL_ORG_ID and VERCEL_PROJECT_ID replace .vercel/project.json in CI.
+# Add both to GitHub repository secrets (alongside VERCEL_TOKEN):
+#   VERCEL_ORG_ID  → Vercel dashboard → Team Settings → General → Team ID
+#   VERCEL_PROJECT_ID → Vercel dashboard → Project Settings → General → Project ID
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      # Pull Vercel project settings + env vars for the target environment.
+      # This is what links the runner to the correct project without project.json.
+
+      - name: Pull Vercel environment info (production)
+        if: github.ref_name == 'main'
+        run: |
+          vercel pull --yes \
+            --environment=production \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --cwd frontend
+
+      - name: Pull Vercel environment info (preview)
+        if: github.ref_name == 'dev'
+        run: |
+          vercel pull --yes \
+            --environment=preview \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --cwd frontend
+
+      # Build locally using Vercel's build pipeline.
+      # --prod tells vercel build to load Production env vars.
+
+      - name: Build (production)
+        if: github.ref_name == 'main'
+        run: |
+          vercel build --prod \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --cwd frontend
+
+      - name: Build (preview)
+        if: github.ref_name == 'dev'
+        run: |
+          vercel build \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --cwd frontend
+
+      # PRODUCTION: vercel deploy --prod automatically promotes the production
+      # domain (confirmed by --skip-domain flag existing to disable this behavior).
+      # No alias step needed.
+
+      - name: Deploy to production
+        if: github.ref_name == 'main'
+        run: |
+          vercel deploy --prebuilt --prod \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --cwd frontend
+
+      # PREVIEW: capture the unique deployment URL from stdout, then alias it
+      # to the stable QA link so nforce-one-hr-git-dev-nforce-one.vercel.app
+      # always points to the latest dev build.
+
+      - name: Deploy preview and alias to stable QA URL
+        if: github.ref_name == 'dev'
+        run: |
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --cwd frontend)
+          echo "Deployed to: $DEPLOYMENT_URL"
+          vercel alias set "$DEPLOYMENT_URL" nforce-one-hr-git-dev-nforce-one.vercel.app \
+            --token=${{ secrets.VERCEL_TOKEN }}
