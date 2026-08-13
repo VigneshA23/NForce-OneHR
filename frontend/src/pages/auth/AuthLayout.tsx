@@ -47,10 +47,10 @@ function SpeedStreaks() {
   );
 }
 
-const STATS = [
-  { value: '4',    label: 'Roles at launch' },
-  { value: '8h',   label: 'Session length' },
-  { value: '100%', label: 'Auditable' },
+const CAPABILITIES = [
+  { label: 'Role-based access',      detail: 'Secure access by responsibility' },
+  { label: 'Full audit trail',       detail: 'Every action tracked'            },
+  { label: 'Policy-driven workflows', detail: 'Standardised HR processes'      },
 ] as const;
 
 interface AuthLayoutProps {
@@ -100,15 +100,17 @@ export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, child
         )}
 
         {showStats ? (
-          <div style={{ position: 'relative', display: 'flex', gap: 36, paddingTop: leftHeadline ? 0 : 80 }}>
-            {STATS.map((s) => (
-              <div key={s.label}>
-                <div style={{ fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', fontSize: 28, fontWeight: 600, color: 'var(--txt)', letterSpacing: '-0.02em' }}>
-                  {s.value}
-                </div>
-                <div style={{ fontSize: 11, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: 4 }}>
-                  {s.label}
-                </div>
+          <div style={{ position: 'relative', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 24, display: 'flex' }}>
+            {CAPABILITIES.map((cap, i) => (
+              <div key={cap.label} style={{
+                flex: 1,
+                paddingRight: i < CAPABILITIES.length - 1 ? 24 : 0,
+                paddingLeft: i > 0 ? 24 : 0,
+                borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
+              }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', marginBottom: 10 }} />
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', letterSpacing: '0.01em', lineHeight: 1.3, marginBottom: 4 }}>{cap.label}</div>
+                <div style={{ fontSize: 10, letterSpacing: '0.06em', color: 'var(--txt-dim)', lineHeight: 1.4 }}>{cap.detail}</div>
               </div>
             ))}
           </div>
