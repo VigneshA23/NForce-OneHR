@@ -8,6 +8,10 @@ on:
 # Add both to GitHub repository secrets (alongside VERCEL_TOKEN):
 #   VERCEL_ORG_ID  → Vercel dashboard → Team Settings → General → Team ID
 #   VERCEL_PROJECT_ID → Vercel dashboard → Project Settings → General → Project ID
+#
+# Do NOT pass --cwd frontend to vercel commands. The Vercel project already
+# has Root Directory = "frontend" in its dashboard settings; adding --cwd
+# would double the path to frontend/frontend and break the deploy.
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -24,7 +28,7 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
-      # vercel pull links the runner to the correct project (writes project.json)
+      # Pull links the runner to the correct project (writes .vercel/project.json)
       # and downloads env vars for the target environment.
 
       - name: Pull Vercel environment info (production)
@@ -32,38 +36,29 @@ jobs:
         run: |
           vercel pull --yes \
             --environment=production \
-            --token=${{ secrets.VERCEL_TOKEN }} \
-            --cwd frontend
+            --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Pull Vercel environment info (preview)
         if: github.ref_name == 'dev'
         run: |
           vercel pull --yes \
             --environment=preview \
-            --token=${{ secrets.VERCEL_TOKEN }} \
-            --cwd frontend
-
-      # vercel deploy (without --prebuilt) sends source to Vercel and lets
-      # their servers run the build. Avoids the local PATH issue where
-      # `vercel build` invokes `vite build` as a raw shell command that cannot
-      # find the binary in node_modules/.bin.
+            --token=${{ secrets.VERCEL_TOKEN }}
 
       # PRODUCTION: --prod automatically promotes the production domain.
-      # --skip-domain exists to disable that; we omit it, so promotion is automatic.
+      # --skip-domain would disable that; we omit it, so promotion is automatic.
       - name: Deploy to production
         if: github.ref_name == 'main'
         run: |
           vercel deploy --prod \
-            --token=${{ secrets.VERCEL_TOKEN }} \
-            --cwd frontend
+            --token=${{ secrets.VERCEL_TOKEN }}
 
       # PREVIEW: capture deployment URL from stdout, alias to stable QA link.
       - name: Deploy preview and alias to stable QA URL
         if: github.ref_name == 'dev'
         run: |
           DEPLOYMENT_URL=$(vercel deploy \
-            --token=${{ secrets.VERCEL_TOKEN }} \
-            --cwd frontend)
+            --token=${{ secrets.VERCEL_TOKEN }})
           echo "Deployed to: $DEPLOYMENT_URL"
           vercel alias set "$DEPLOYMENT_URL" nforce-one-hr-git-dev-nforce-one.vercel.app \
             --token=${{ secrets.VERCEL_TOKEN }}
