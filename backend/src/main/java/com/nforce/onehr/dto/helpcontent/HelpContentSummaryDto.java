@@ -15,13 +15,12 @@ public class HelpContentSummaryDto {
     private String title;
     private String description;
     private String category;
-    private boolean published;
-    private boolean active;
+    private String status;
     private boolean featured;
     private int displayOrder;
     private long viewCount;
-    private boolean hasAttachment;
-    private String attachmentName;
+    private int attachmentCount;
+    private String rejectionReason;
     private Instant createdAt;
     private Instant updatedAt;
 }

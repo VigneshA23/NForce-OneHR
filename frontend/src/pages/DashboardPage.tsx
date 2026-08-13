@@ -133,7 +133,7 @@ function TeamJoinersModal({ joiners, onClose }: { joiners: TeamJoiner[]; onClose
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px' }}>
+        <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px' }}>
           <div style={{ padding: 20, borderRight: '1px solid var(--line)' }}>
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -513,7 +513,7 @@ function ManagerDashboardView() {
       </div>
 
       {/* Team list + chart */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Direct reports table */}
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>

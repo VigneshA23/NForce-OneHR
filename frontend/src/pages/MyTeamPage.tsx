@@ -594,7 +594,7 @@ function NegligenceTab({ token }: { token: string }) {
         {data.lateArrivals.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No late arrivals in this range.</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
+          <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
             <div>{data.lateArrivals.map(e => <LateArrivalRow key={e.employeeUserId} entry={e} />)}</div>
             <div style={{ borderLeft: '1px solid var(--line)' }}>
               <DailyBarChart data={data.dailyLateCounts.map(d => ({ date: d.date, count: d.count }))} color="var(--risk)" />
@@ -611,7 +611,7 @@ function NegligenceTab({ token }: { token: string }) {
         {data.leastHoursWorked.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
+          <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
             <div>{data.leastHoursWorked.slice(0, 5).map(e => <LeastHoursRow key={e.employeeUserId} entry={e} />)}</div>
             <div style={{ borderLeft: '1px solid var(--line)' }}>
               <HoursDonut buckets={data.hoursHistogram} />
@@ -628,7 +628,7 @@ function NegligenceTab({ token }: { token: string }) {
         {data.frequentBreaks.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No breaks recorded in this range.</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 0 }}>
+          <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 0 }}>
             <div>{data.frequentBreaks.map(e => <FrequentBreaksRow key={e.employeeUserId} entry={e} />)}</div>
             <div style={{ borderLeft: '1px solid var(--line)' }}>
               <BreaksTrend data={data.breaksTrend} />
@@ -1052,7 +1052,7 @@ function ReportsTab({ token }: { token: string }) {
 
   return (
     <div style={panelStyle}>
-      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)' }}>
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)' }}>
         <div style={{ borderRight: '1px solid var(--line)', padding: '14px 10px' }}>
           {REPORT_CATEGORIES.map(cat => (
             <div key={cat} onClick={() => setCategory(cat)} style={{
@@ -1305,7 +1305,7 @@ function PeersView({ token }: { token: string }) {
       </div>
 
       {/* Who's on leave / Not in yet */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
           <div style={panelHeadStyle}>
             <span style={panelTitleStyle}>Who's on leave today</span>
@@ -2028,7 +2028,7 @@ export default function MyTeamPage() {
 
       {tab === 'overview' && (<>
       {/* Who's on leave / Not in yet */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
           <div style={panelHeadStyle}>
             <span style={panelTitleStyle}>Who's on leave today</span>
@@ -2150,7 +2150,7 @@ export default function MyTeamPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
         {/* Roster */}
         <div ref={rosterRef} style={panelStyle}>
           <div style={panelHeadStyle}>

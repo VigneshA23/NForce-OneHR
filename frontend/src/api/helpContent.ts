@@ -20,27 +20,56 @@ async function handle<T>(res: Response): Promise<T> {
 
 export type HelpContentType = 'FAQ' | 'QUICK_HELP' | 'GUIDE' | 'DOCUMENT';
 
+// Mirrors HelpContentService's MAX_ATTACHMENTS_PER_CONTENT / MAX_ATTACHMENT_SIZE_BYTES /
+// ALLOWED_ATTACHMENT_EXTENSIONS — kept here as the single frontend source so client-side
+// validation gives immediate feedback, with the backend as the authoritative enforcement.
+export const MAX_ATTACHMENTS_PER_CONTENT = 5;
+export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
+export const ALLOWED_ATTACHMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'png', 'jpg', 'jpeg', 'gif', 'txt', 'csv'];
+
+export function validateAttachmentFile(file: File): string | null {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (!ALLOWED_ATTACHMENT_EXTENSIONS.includes(ext)) {
+    return `"${file.name}": unsupported file type (.${ext || 'unknown'})`;
+  }
+  if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+    return `"${file.name}" exceeds the ${MAX_ATTACHMENT_SIZE_BYTES / (1024 * 1024)}MB attachment size limit`;
+  }
+  return null;
+}
+
+// Six-state lifecycle — see HelpContentService for the transition rules. Employees only ever
+// see PUBLISHED; every other status is HR/Super Admin-only.
+export type HelpContentStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'PUBLISHED' | 'UNPUBLISHED' | 'ARCHIVED';
+
+export interface Attachment {
+  id: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number | null;
+  displayOrder: number;
+}
+
 export interface HelpContentSummary {
   id: string;
   type: HelpContentType;
   title: string;
   description: string | null;
   category: string | null;
-  published: boolean;
-  active: boolean;
+  status: HelpContentStatus;
   featured: boolean;
   displayOrder: number;
   viewCount: number;
-  hasAttachment: boolean;
-  attachmentName: string | null;
+  attachmentCount: number;
+  rejectionReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface HelpContentDetail extends HelpContentSummary {
+export interface HelpContentDetail extends Omit<HelpContentSummary, 'attachmentCount'> {
   body: string | null;
   publishedAt: string | null;
-  attachmentUrl: string | null;
+  attachments: Attachment[];
   createdByName: string;
   updatedByName: string | null;
 }
@@ -60,7 +89,9 @@ function qs(params: Record<string, string | number | undefined>) {
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
-// ── Employee-facing (read-only: search/browse published content) ──────────
+// ── Employee-facing (read-only: search/browse published content, plus approval decisions —
+//    see backend HelpContentController javadoc for why approve/reject live on this API surface
+//    rather than the HR-admin-only one: the resolved approver is often a plain manager) ──────
 
 export const helpContentApi = {
   list: (token: string, opts: { type?: string; category?: string; search?: string; sort?: 'popular' | 'recent'; page?: number; size?: number } = {}) =>
@@ -73,16 +104,19 @@ export const helpContentApi = {
   trackView: (id: string, token: string) =>
     fetch(`${BASE}/${id}/view`, { method: 'POST', headers: authHeaders(token) }).catch(() => { /* best-effort */ }),
 
-  attachmentUrl: (id: string) => `${BASE}/${id}/attachment`,
+  listAttachments: (id: string, token: string) =>
+    fetch(`${BASE}/${id}/attachments`, { headers: authHeaders(token) }).then(handle<Attachment[]>),
 
-  downloadAttachment: async (id: string, token: string) => {
-    const res = await fetch(`${BASE}/${id}/attachment`, { headers: bearerOnly(token) });
+  attachmentUrl: (id: string, attachmentId: string) => `${BASE}/${id}/attachments/${attachmentId}`,
+
+  downloadAttachment: async (id: string, attachmentId: string, token: string) => {
+    const res = await fetch(`${BASE}/${id}/attachments/${attachmentId}`, { headers: bearerOnly(token) });
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
     return res.blob();
   },
 };
 
-// ── HR Admin (content management) ──────────────────────────────────────────
+// ── HR Admin (content authoring/lifecycle management) ──────────────────────
 
 export const hrHelpContentApi = {
   list: (token: string, opts: { type?: string; category?: string; search?: string; page?: number; size?: number } = {}) =>
@@ -98,6 +132,12 @@ export const hrHelpContentApi = {
   update: (id: string, payload: { title: string; description?: string; body?: string; category?: string; featured?: boolean; displayOrder?: number }, token: string) =>
     fetch(`${HR_BASE}/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<HelpContentDetail>),
 
+  submit: (id: string, token: string) =>
+    fetch(`${HR_BASE}/${id}/submit`, { method: 'POST', headers: authHeaders(token) }).then(handle<HelpContentDetail>),
+
+  withdraw: (id: string, reason: string, token: string) =>
+    fetch(`${HR_BASE}/${id}/withdraw`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }) }).then(handle<HelpContentDetail>),
+
   publish: (id: string, token: string) =>
     fetch(`${HR_BASE}/${id}/publish`, { method: 'POST', headers: authHeaders(token) }).then(handle<HelpContentDetail>),
 
@@ -107,17 +147,36 @@ export const hrHelpContentApi = {
   archive: (id: string, token: string) =>
     fetch(`${HR_BASE}/${id}/archive`, { method: 'POST', headers: authHeaders(token) }).then(handle<HelpContentDetail>),
 
-  reactivate: (id: string, token: string) =>
-    fetch(`${HR_BASE}/${id}/reactivate`, { method: 'POST', headers: authHeaders(token) }).then(handle<HelpContentDetail>),
+  restore: (id: string, token: string) =>
+    fetch(`${HR_BASE}/${id}/restore`, { method: 'POST', headers: authHeaders(token) }).then(handle<HelpContentDetail>),
 
   remove: (id: string, token: string) =>
     fetch(`${HR_BASE}/${id}`, { method: 'DELETE', headers: authHeaders(token) }).then(res => {
       if (!res.ok) throw new Error(`Delete failed (${res.status})`);
     }),
 
-  uploadAttachment: (id: string, file: File, token: string) => {
+  addAttachment: (id: string, file: File, token: string) => {
     const form = new FormData();
     form.append('file', file);
-    return fetch(`${HR_BASE}/${id}/attachment`, { method: 'POST', headers: bearerOnly(token), body: form }).then(handle<HelpContentDetail>);
+    return fetch(`${HR_BASE}/${id}/attachments`, { method: 'POST', headers: bearerOnly(token), body: form }).then(handle<HelpContentDetail>);
   },
+
+  /** Multiple files selected/uploaded in one action. */
+  addAttachments: (id: string, files: File[], token: string) => {
+    const form = new FormData();
+    files.forEach(f => form.append('files', f));
+    return fetch(`${HR_BASE}/${id}/attachments/batch`, { method: 'POST', headers: bearerOnly(token), body: form }).then(handle<HelpContentDetail>);
+  },
+
+  removeAttachment: (id: string, attachmentId: string, token: string) =>
+    fetch(`${HR_BASE}/${id}/attachments/${attachmentId}`, { method: 'DELETE', headers: authHeaders(token) }).then(handle<HelpContentDetail>),
+
+  replaceAttachment: (id: string, attachmentId: string, file: File, token: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${HR_BASE}/${id}/attachments/${attachmentId}`, { method: 'PUT', headers: bearerOnly(token), body: form }).then(handle<HelpContentDetail>);
+  },
+
+  reorderAttachments: (id: string, attachmentIds: string[], token: string) =>
+    fetch(`${HR_BASE}/${id}/attachments/order`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ attachmentIds }) }).then(handle<HelpContentDetail>),
 };

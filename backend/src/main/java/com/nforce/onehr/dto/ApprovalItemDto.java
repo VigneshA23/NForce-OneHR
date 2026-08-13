@@ -14,7 +14,7 @@ import java.util.UUID;
  * All approve/reject decisions for EVERY request type happen ONLY via Approval Center —
  * no other page may issue approval decisions.
  *
- * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST
+ * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST | HELP_CONTENT
  */
 @Data
 @Builder
@@ -55,4 +55,15 @@ public class ApprovalItemDto {
     private String requestedCategoryName;
     private String assetRequestReason;
     private String assetRequestStatus; // PENDING | APPROVED — drives Approval Center button set
+
+    // ── Help Content (FAQ/Guide) — id above is the *attempt* id (what Approve/Reject act on),
+    //    not the content id, since a content row may accumulate several attempts over time ──
+    private String helpContentId;
+    private String helpContentType; // FAQ | QUICK_HELP | GUIDE | DOCUMENT
+    private String helpContentTitle;
+    private String helpContentDescription;
+    private String helpContentBody;
+    private String helpContentCategory;
+    private int helpContentAttemptNumber;
+    private boolean helpContentModifiedSincePrevious;
 }
