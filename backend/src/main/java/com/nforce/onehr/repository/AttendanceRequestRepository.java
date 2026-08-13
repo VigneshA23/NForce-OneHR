@@ -4,6 +4,7 @@ import com.nforce.onehr.entity.AttendanceRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,4 +14,8 @@ public interface AttendanceRequestRepository extends JpaRepository<AttendanceReq
     List<AttendanceRequest> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
 
     List<AttendanceRequest> findByStatus(String status);
+
+    // Backs the Partial Day monthly-hours cap — see AttendanceRequestService.resolvePartialDayHours.
+    List<AttendanceRequest> findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(
+            UUID employeeUserId, String requestType, LocalDate from, LocalDate to);
 }

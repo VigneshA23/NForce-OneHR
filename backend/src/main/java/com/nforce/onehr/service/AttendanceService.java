@@ -11,8 +11,6 @@ import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
-import com.nforce.onehr.entity.LeaveBalance;
-import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.WeeklyOffPolicy;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
@@ -20,15 +18,12 @@ import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
-import com.nforce.onehr.repository.LeaveBalanceRepository;
-import com.nforce.onehr.repository.LeaveTypeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -62,12 +57,6 @@ public class AttendanceService {
 
     private static final int DEFAULT_HISTORY_DAYS = 30;
 
-    // Attendance policy: every 3rd late arrival in a calendar month costs a half-day, deducted
-    // from Casual Leave — see applyLatePenaltyIfDue.
-    private static final int LATE_PENALTY_EVERY_N = 3;
-    private static final BigDecimal LATE_PENALTY_DAYS = new BigDecimal("0.5");
-    private static final String LATE_PENALTY_LEAVE_TYPE_CODE = "CASUAL";
-
     private final AttendanceRepository attendanceRepository;
     private final AttendancePunchRepository attendancePunchRepository;
     private final AttendanceExceptionRepository attendanceExceptionRepository;
@@ -76,9 +65,9 @@ public class AttendanceService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties props;
-    private final LeaveBalanceRepository leaveBalanceRepository;
-    private final LeaveTypeRepository leaveTypeRepository;
-    private final NotificationService notificationService;
+    // Shared with WebClockInService so the every-3rd-late-arrival penalty applies identically
+    // regardless of which check-in entry point was used — see LatePenaltyService.
+    private final LatePenaltyService latePenaltyService;
 
     // ---------------------------------------------------------------- self-service
 
@@ -253,56 +242,11 @@ public class AttendanceService {
                 .build());
         openPunch(record.getId(), now);
         if (isLate) {
-            applyLatePenaltyIfDue(employee, today);
+            latePenaltyService.applyIfDue(employee, today);
         }
 
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", record.getId());
         return toResponse(record, employee);
-    }
-
-    /**
-     * Policy: every LATE_PENALTY_EVERY_N'th late arrival in a calendar month (3rd, 6th, 9th...)
-     * costs LATE_PENALTY_DAYS, deducted from the employee's Casual Leave balance the moment it
-     * happens. Only called for a genuine new late arrival — never for a lunch-break resume,
-     * since lateness is a once-per-day fact tied to the day's first check-in.
-     * A missing Casual Leave balance for the year is logged and skipped rather than thrown —
-     * a leave-balance misconfiguration must never block someone from checking in.
-     */
-    private void applyLatePenaltyIfDue(Employee employee, LocalDate workDate) {
-        LocalDate monthStart = workDate.withDayOfMonth(1);
-        LocalDate monthEnd = workDate.withDayOfMonth(workDate.lengthOfMonth());
-        long lateCountThisMonth = attendanceRepository.countByEmployeeUserIdAndWorkDateBetweenAndStatus(
-                employee.getUserId(), monthStart, monthEnd, STATUS_LATE);
-        if (lateCountThisMonth == 0 || lateCountThisMonth % LATE_PENALTY_EVERY_N != 0) {
-            return;
-        }
-
-        Optional<LeaveType> leaveType = leaveTypeRepository.findByCode(LATE_PENALTY_LEAVE_TYPE_CODE);
-        if (leaveType.isEmpty()) {
-            log.warn("Late-arrival penalty skipped for employee {}: leave type {} not configured",
-                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE_CODE);
-            return;
-        }
-        Optional<LeaveBalance> balanceOpt = leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(
-                employee.getUserId(), leaveType.get().getId(), workDate.getYear());
-        if (balanceOpt.isEmpty()) {
-            log.warn("Late-arrival penalty skipped for employee {}: no {} balance configured for {}",
-                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE_CODE, workDate.getYear());
-            return;
-        }
-
-        LeaveBalance balance = balanceOpt.get();
-        String before = auditSnapshot.toJson(Map.of("usedDays", balance.getUsedDays()));
-        balance.setUsedDays(balance.getUsedDays().add(LATE_PENALTY_DAYS));
-        leaveBalanceRepository.save(balance);
-        String after = auditSnapshot.toJson(Map.of("usedDays", balance.getUsedDays(), "lateCountThisMonth", lateCountThisMonth));
-        auditService.log(employee.getUserId(), "LATE_ARRIVAL_PENALTY_APPLIED", balance.getId(), before, after);
-
-        notificationService.send(employee.getUserId(), "ATTENDANCE",
-                "Half-day deducted for late arrivals",
-                "You've been late " + lateCountThisMonth + " times this month, so " + LATE_PENALTY_DAYS
-                        + " day has been deducted from your Casual Leave balance.",
-                "/attendance");
     }
 
     private void openPunch(UUID attendanceRecordId, LocalDateTime checkInAt) {
@@ -325,6 +269,13 @@ public class AttendanceService {
                 .findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("You have not checked in today"));
 
+        // A forgotten checkout can leave a session open for a day or more before the employee
+        // actually clicks Check-out; count worked time only up to this shift's own natural end
+        // (not the stale click's real clock time), so it can never inflate into something like
+        // "27h 8m" for what is supposed to be a single shift/day.
+        LocalDateTime cutoff = shiftEndCutoff(employee, record.getWorkDate());
+        LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
+
         // Sessions accumulate: only this session's minutes are added to whatever was
         // already worked earlier today, so a lunch break isn't counted as worked time.
         // Rounded to the nearest minute, not truncated: Duration.toMinutes() floors, so several
@@ -333,11 +284,12 @@ public class AttendanceService {
         // precision on the total once.
         LocalDateTime sessionStart = record.getSessionStartedAt() != null
                 ? record.getSessionStartedAt() : record.getCheckInAt();
-        int sessionMinutes = (int) Math.round(Duration.between(sessionStart, now).getSeconds() / 60.0);
+        long sessionSeconds = Math.max(0, Duration.between(sessionStart, effectiveCheckOut).getSeconds());
+        int sessionMinutes = (int) Math.round(sessionSeconds / 60.0);
         int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
         String before = auditSnapshot.toJson(Map.of(
                 "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
-        record.setCheckOutAt(now);
+        record.setCheckOutAt(effectiveCheckOut);
         record.setWorkedMinutes(workedMinutes);
 
         // A short day overrides LATE — the shortfall is the more significant fact for payroll.
@@ -350,13 +302,33 @@ public class AttendanceService {
         Attendance saved = attendanceRepository.save(record);
         attendancePunchRepository.findByAttendanceRecordIdAndCheckOutAtIsNull(saved.getId())
                 .ifPresent(punch -> {
-                    punch.setCheckOutAt(now);
+                    punch.setCheckOutAt(effectiveCheckOut);
                     attendancePunchRepository.save(punch);
                 });
         String after = auditSnapshot.toJson(Map.of(
-                "checkOutAt", now.toString(), "workedMinutes", workedMinutes, "status", saved.getStatus()));
+                "checkOutAt", effectiveCheckOut.toString(), "workedMinutes", workedMinutes, "status", saved.getStatus()));
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId(), before, after);
         return toResponse(saved, employee);
+    }
+
+    /**
+     * Natural end of the shift covering workDate, crossing into the next calendar day when the
+     * configured end time is earlier than the start (e.g. 3:30 PM - 12:30 AM). Worked-minutes
+     * calculations are bounded to this so a checkout that arrives a day (or more) late — a
+     * forgotten session — can't be counted as if the employee worked continuously the whole
+     * time in between.
+     */
+    private LocalDateTime shiftEndCutoff(Employee employee, LocalDate workDate) {
+        LocalTime shiftStart = resolveShiftStart(employee);
+        Shift shift = employee.getShift();
+        LocalTime shiftEnd = shift != null ? shift.getEndTime() : null;
+        if (shiftEnd == null) {
+            // No shift end configured — fall back to a generous full day from shift start
+            // rather than leaving worked-hours completely unbounded.
+            return LocalDateTime.of(workDate, shiftStart).plusHours(24);
+        }
+        LocalDate endDate = !shiftEnd.isAfter(shiftStart) ? workDate.plusDays(1) : workDate;
+        return LocalDateTime.of(endDate, shiftEnd);
     }
 
     /** Every check-in/check-out session for a single day — e.g. to show a lunch-break gap. */

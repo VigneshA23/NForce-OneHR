@@ -18,10 +18,13 @@ public class AttendanceRequestResponse {
     private String requestType;
     private LocalDate requestDate;
     private BigDecimal partialDayHours;
+    private String partialDayMode;
     private String reason;
     private String status;
     private UUID assignedApproverId;
     private String assignedApproverName;
+    private UUID notifyUserId;
+    private String notifyUserName;
     private String reviewedByName;
     private LocalDateTime reviewedAt;
     private String reviewComment;

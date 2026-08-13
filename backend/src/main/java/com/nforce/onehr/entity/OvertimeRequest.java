@@ -31,6 +31,11 @@ public class OvertimeRequest {
     @Column(name = "requested_end", nullable = false)
     private LocalDateTime requestedEnd;
 
+    // A specific colleague to alert about this request — distinct from assignedApproverId, which
+    // drives actual approval; purely informational.
+    @Column(name = "notify_user_id")
+    private UUID notifyUserId;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String reason;
 

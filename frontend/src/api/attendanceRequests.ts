@@ -14,6 +14,8 @@ async function handle<T>(res: Response): Promise<T> {
 
 export type AttendanceRequestType = 'WFH' | 'PARTIAL_DAY';
 export type AttendanceRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+/** Only meaningful for PARTIAL_DAY (Keka reference: one radio choice within the same request). */
+export type PartialDayMode = 'LATE_ARRIVE' | 'INTERVENING_TIMEOFF' | 'LEAVING_EARLY';
 
 export interface AttendanceRequestRecord {
   id: string;
@@ -25,10 +27,14 @@ export interface AttendanceRequestRecord {
   requestDate: string;
   /** Only meaningful for PARTIAL_DAY — null for WFH. */
   partialDayHours: number | null;
+  partialDayMode: PartialDayMode | null;
   reason: string;
   status: AttendanceRequestStatus;
   assignedApproverId: string | null;
   assignedApproverName: string | null;
+  /** A colleague notified about this request — informational only, not an approver. */
+  notifyUserId: string | null;
+  notifyUserName: string | null;
   reviewedByName: string | null;
   reviewedAt: string | null;
   reviewComment: string | null;
@@ -39,8 +45,16 @@ export interface SubmitAttendanceRequestPayload {
   requestType: AttendanceRequestType;
   requestDate: string;
   partialDayHours?: number;
+  partialDayMode?: PartialDayMode;
   reason: string;
   managerUserId?: string;
+  notifyUserId?: string;
+}
+
+export interface PartialDayBalance {
+  usedHours: number;
+  limitHours: number;
+  remainingHours: number;
 }
 
 export const attendanceRequestApi = {
@@ -65,4 +79,9 @@ export const attendanceRequestApi = {
     fetch(`${BASE}/${id}/reject`, {
       method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ comment }),
     }).then(r => handle<AttendanceRequestRecord>(r)),
+
+  /** "View Available Balance" — hours already committed in `date`'s month vs. the monthly cap. */
+  partialDayBalance: (date: string, token: string) =>
+    fetch(`${BASE}/partial-day-balance?date=${date}`, { headers: authHeaders(token) })
+      .then(r => handle<PartialDayBalance>(r)),
 };

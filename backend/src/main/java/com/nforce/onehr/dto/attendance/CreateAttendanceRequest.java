@@ -21,9 +21,17 @@ public class CreateAttendanceRequest {
     // see AttendanceRequestService.submit.
     private BigDecimal partialDayHours;
 
+    // Required when requestType=PARTIAL_DAY: LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY.
+    // Ignored/forced null for WFH — see AttendanceRequestService.submit.
+    private String partialDayMode;
+
     @NotBlank(message = "Reason is required")
     private String reason;
 
     // Optional — if omitted, the employee's current manager (EmployeeManagerHistory) is used.
     private UUID managerUserId;
+
+    // Optional — a specific colleague to alert about this request (purely informational, not an
+    // approver).
+    private UUID notifyUserId;
 }

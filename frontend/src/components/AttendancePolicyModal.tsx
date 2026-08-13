@@ -59,8 +59,8 @@ const PENALISATION_POLICY_BLOCKS: PolicyBlock[] = [
 const TIME_TRACKING_POLICY_BLOCKS: PolicyBlock[] = [
   { type: 'text', text: 'Below are the details of the time tracking policy assigned to you' },
 
-  { type: 'heading', text: 'Web Check-In' },
-  { type: 'text', text: 'Your attendance is tracked via check-in/check-out on this page, or via Web Check-in when working remotely (subject to approval).' },
+  { type: 'heading', text: 'Check-in' },
+  { type: 'text', text: 'Your attendance is tracked via check-in/check-out on this page, or via Check-in when working remotely (subject to approval).' },
 
   { type: 'heading', text: 'Work from Home (WFH)' },
   { type: 'text', text: 'You are allowed to take 2 day(s) of WFH in a Month.' },

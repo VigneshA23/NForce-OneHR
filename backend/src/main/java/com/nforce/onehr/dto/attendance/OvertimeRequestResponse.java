@@ -23,6 +23,8 @@ public class OvertimeRequestResponse {
     private String status;
     private UUID assignedApproverId;
     private String assignedApproverName;
+    private UUID notifyUserId;
+    private String notifyUserName;
     private String reviewedByName;
     private LocalDateTime reviewedAt;
     private String reviewComment;

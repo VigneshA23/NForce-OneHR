@@ -175,42 +175,36 @@ function TeamJoinersModal({ joiners, onClose }: { joiners: TeamJoiner[]; onClose
   );
 }
 
-function WebClockInRow() {
-  const token = useAuthStore(s => s.token) ?? '';
-  const { showToast } = useToast();
-  const [today, setToday] = useState<WebClockInRecord | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * Working-remotely trigger for AttendanceStatusCard's own Check In/Check Out — driven by the
+ * exact same shared `today: TodayAttendance` (not a separate WebClockInRecord fetch), so it
+ * can never show a state that contradicts the Check In/Check Out button above it. Checkout is
+ * handled solely by that shared button once Web Clock-In opens the day; this row never renders
+ * its own checkout action.
+ */
+function WebClockInRow({ today, loading, onSubmitted }: {
+  today: TodayAttendance | null;
+  loading: boolean;
+  onSubmitted: () => Promise<unknown>;
+}) {
   const [showModal, setShowModal] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [legacy, setLegacy] = useState<WebClockInRecord | null>(null);
+  const token = useAuthStore(s => s.token) ?? '';
 
-  const refresh = () =>
-    webClockInApi.mine(token).then(list => {
-      setToday(list.find(r => r.workDate === todayIsoDate()) ?? null);
-    });
-
+  // Only for the legacy pre-self-approval PENDING/REJECTED messaging below — every new
+  // submission is approved instantly (see WebClockInService.submit), so this is dead for any
+  // web clock-in made after that change.
   useEffect(() => {
-    refresh().catch(() => setToday(null)).finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    webClockInApi.mine(token).then(list => {
+      setLegacy(list.find(r => r.workDate === todayIsoDate() && r.status !== 'APPROVED') ?? null);
+    }).catch(() => setLegacy(null));
   }, [token]);
-
-  async function handleWebClockOut() {
-    setSubmitting(true);
-    try {
-      await webClockInApi.checkOut(token);
-      await refresh();
-      showToast('success', 'Web clocked out successfully');
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   if (loading) return null;
 
   return (
     <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      {!today && (
+      {today?.canCheckIn && !legacy && (
         <button
           onClick={() => setShowModal(true)}
           style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
@@ -218,12 +212,12 @@ function WebClockInRow() {
           Working remotely? Web Clock In →
         </button>
       )}
-      {today?.status === 'PENDING' && (
+      {legacy?.status === 'PENDING' && (
         <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Web clock-in pending approval.</span>
       )}
-      {today?.status === 'REJECTED' && (
+      {legacy?.status === 'REJECTED' && (
         <>
-          <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{today.reviewComment ? `: ${today.reviewComment}` : '.'}</span>
+          <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{legacy.reviewComment ? `: ${legacy.reviewComment}` : '.'}</span>
           <button
             onClick={() => setShowModal(true)}
             style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
@@ -232,20 +226,8 @@ function WebClockInRow() {
           </button>
         </>
       )}
-      {today?.status === 'APPROVED' && !today.checkedOutAt && (
-        <button
-          onClick={handleWebClockOut}
-          disabled={submitting}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-        >
-          {submitting ? 'Clocking out…' : 'Web Clock Out'}
-        </button>
-      )}
-      {today?.status === 'APPROVED' && today.checkedOutAt && (
-        <span style={{ fontSize: 12, color: 'var(--ok)' }}>Web clocked out at {formatClockTime(today.checkedOutAt)}.</span>
-      )}
       {showModal && (
-        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={(r) => setToday(r)} />
+        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => { onSubmitted(); }} />
       )}
     </div>
   );
@@ -336,7 +318,7 @@ function AttendanceStatusCard() {
           View attendance →
         </button>
       </div>
-      <WebClockInRow />
+      <WebClockInRow today={today} loading={loading} onSubmitted={refresh} />
     </div>
   );
 }

@@ -46,6 +46,11 @@ export const webClockInApi = {
     fetch(`${BASE}/checkout`, { method: 'POST', headers: authHeaders(token) })
       .then(r => handle<WebClockInRecord>(r)),
 
+  /** Undoes today's still-open check-in (before check-out) — no approval needed. */
+  cancel: (token: string) =>
+    fetch(`${BASE}/cancel`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handle<void>(r)),
+
   approve: (id: string, token: string, comment?: string) =>
     fetch(`${BASE}/${id}/approve`, {
       method: 'PATCH', headers: authHeaders(token),

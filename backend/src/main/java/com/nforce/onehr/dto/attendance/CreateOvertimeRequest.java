@@ -25,4 +25,8 @@ public class CreateOvertimeRequest {
 
     // Optional — if omitted, the employee's current manager (EmployeeManagerHistory) is used.
     private UUID managerUserId;
+
+    // Optional — a specific colleague to alert about this request (purely informational, not an
+    // approver).
+    private UUID notifyUserId;
 }

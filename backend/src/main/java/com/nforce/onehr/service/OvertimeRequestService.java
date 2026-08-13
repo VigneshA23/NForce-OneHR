@@ -47,6 +47,7 @@ public class OvertimeRequestService {
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     @Transactional
     public OvertimeRequestResponse submit(CreateOvertimeRequest req, String actorEmail) {
@@ -59,6 +60,7 @@ public class OvertimeRequestService {
                 && !req.getRequestedEnd().toLocalDate().equals(req.getWorkDate())) {
             throw new IllegalArgumentException("Requested start/end must fall on the work date");
         }
+        UUID notifyUserId = resolveNotifyUser(req.getNotifyUserId());
 
         OvertimeRequest entity = OvertimeRequest.builder()
                 .employeeUserId(actor.getId())
@@ -66,13 +68,30 @@ public class OvertimeRequestService {
                 .workDate(req.getWorkDate())
                 .requestedStart(req.getRequestedStart())
                 .requestedEnd(req.getRequestedEnd())
+                .notifyUserId(notifyUserId)
                 .reason(req.getReason().trim())
                 .status(STATUS_PENDING)
                 .build();
         entity = requestRepository.save(entity);
 
         auditService.log(actor.getId(), "OVERTIME_REQUESTED", entity.getId());
+        if (notifyUserId != null) {
+            Employee requester = employeeRepository.findById(actor.getId()).orElse(null);
+            String requesterName = requester != null ? requester.getFullName() : "A colleague";
+            notificationService.send(notifyUserId, "ATTENDANCE",
+                    "Overtime request submitted",
+                    requesterName + " submitted an overtime request for " + req.getWorkDate() + " and wanted you to know.",
+                    "/attendance");
+        }
         return toResponse(entity);
+    }
+
+    private UUID resolveNotifyUser(UUID notifyUserId) {
+        if (notifyUserId == null) return null;
+        if (!userRepository.existsById(notifyUserId)) {
+            throw new IllegalArgumentException("Selected employee to notify was not found");
+        }
+        return notifyUserId;
     }
 
     @Transactional(readOnly = true)
@@ -193,6 +212,8 @@ public class OvertimeRequestService {
                 : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
         String assignedApproverName = req.getAssignedApproverId() == null ? null
                 : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
+        String notifyUserName = req.getNotifyUserId() == null ? null
+                : employeeRepository.findById(req.getNotifyUserId()).map(Employee::getFullName).orElse(null);
         Long requestedMinutes = Duration.between(req.getRequestedStart(), req.getRequestedEnd()).toMinutes();
 
         return OvertimeRequestResponse.builder()
@@ -209,6 +230,8 @@ public class OvertimeRequestService {
                 .status(req.getStatus())
                 .assignedApproverId(req.getAssignedApproverId())
                 .assignedApproverName(assignedApproverName)
+                .notifyUserId(req.getNotifyUserId())
+                .notifyUserName(notifyUserName)
                 .reviewedByName(reviewerName)
                 .reviewedAt(req.getReviewedAt())
                 .reviewComment(req.getReviewComment())

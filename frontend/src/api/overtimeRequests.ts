@@ -28,6 +28,9 @@ export interface OvertimeRequestRecord {
   status: OvertimeRequestStatus;
   assignedApproverId: string | null;
   assignedApproverName: string | null;
+  /** A colleague notified about this request — informational only, not an approver. */
+  notifyUserId: string | null;
+  notifyUserName: string | null;
   reviewedByName: string | null;
   reviewedAt: string | null;
   reviewComment: string | null;
@@ -40,6 +43,7 @@ export interface SubmitOvertimeRequestPayload {
   requestedEnd: string;
   reason: string;
   managerUserId?: string;
+  notifyUserId?: string;
 }
 
 export const overtimeRequestApi = {

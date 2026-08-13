@@ -35,6 +35,16 @@ public class AttendanceRequest {
     @Column(name = "partial_day_hours")
     private BigDecimal partialDayHours;
 
+    // Only meaningful for PARTIAL_DAY: LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY — see
+    // AttendanceRequestService for how each mode's duration is interpreted.
+    @Column(name = "partial_day_mode", length = 30)
+    private String partialDayMode;
+
+    // A specific colleague to alert about this request — distinct from assignedApproverId, which
+    // drives actual approval; purely informational.
+    @Column(name = "notify_user_id")
+    private UUID notifyUserId;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String reason;
 

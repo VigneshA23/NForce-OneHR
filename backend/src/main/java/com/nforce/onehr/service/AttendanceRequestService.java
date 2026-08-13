@@ -16,8 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -43,18 +45,28 @@ public class AttendanceRequestService {
     private static final String STATUS_REJECTED = "REJECTED";
     private static final String TYPE_WFH = "WFH";
     private static final String TYPE_PARTIAL_DAY = "PARTIAL_DAY";
+    private static final Set<String> PARTIAL_DAY_MODES = Set.of("LATE_ARRIVE", "INTERVENING_TIMEOFF", "LEAVING_EARLY");
+
+    // Partial Day's advisory allowance per calendar month, spendable on any day(s) within that
+    // month. Not enforced as a hard cap in submit() — see resolvePartialDayHours — the employee
+    // sees usage-vs-allowance via getPartialDayBalance, and the frontend asks them to confirm
+    // before submitting past it; the assigned approver makes the actual call.
+    private static final BigDecimal PARTIAL_DAY_MONTHLY_LIMIT_HOURS = new BigDecimal("2");
 
     private final AttendanceRequestRepository requestRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     @Transactional
     public AttendanceRequestResponse submit(CreateAttendanceRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
         String type = normalizeType(req.getRequestType());
         BigDecimal partialDayHours = resolvePartialDayHours(type, req.getPartialDayHours());
+        String partialDayMode = resolvePartialDayMode(type, req.getPartialDayMode());
+        UUID notifyUserId = resolveNotifyUser(req.getNotifyUserId());
 
         AttendanceRequest entity = AttendanceRequest.builder()
                 .employeeUserId(actor.getId())
@@ -62,12 +74,23 @@ public class AttendanceRequestService {
                 .requestType(type)
                 .requestDate(req.getRequestDate())
                 .partialDayHours(partialDayHours)
+                .partialDayMode(partialDayMode)
+                .notifyUserId(notifyUserId)
                 .reason(req.getReason().trim())
                 .status(STATUS_PENDING)
                 .build();
         entity = requestRepository.save(entity);
 
         auditService.log(actor.getId(), "ATTENDANCE_REQUEST_SUBMITTED", entity.getId());
+        if (notifyUserId != null) {
+            Employee requester = employeeRepository.findById(actor.getId()).orElse(null);
+            String requesterName = requester != null ? requester.getFullName() : "A colleague";
+            notificationService.send(notifyUserId, "ATTENDANCE",
+                    "Attendance request submitted",
+                    requesterName + " submitted a " + (TYPE_WFH.equals(type) ? "Work From Home" : "Partial Day")
+                            + " request for " + req.getRequestDate() + " and wanted you to know.",
+                    "/attendance");
+        }
         return toResponse(entity);
     }
 
@@ -79,6 +102,43 @@ public class AttendanceRequestService {
         return type;
     }
 
+    /** LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY — required for PARTIAL_DAY, ignored for WFH. */
+    private String resolvePartialDayMode(String type, String partialDayMode) {
+        if (TYPE_WFH.equals(type)) {
+            return null;
+        }
+        String mode = partialDayMode == null ? "" : partialDayMode.trim().toUpperCase();
+        if (!PARTIAL_DAY_MODES.contains(mode)) {
+            throw new IllegalArgumentException("partialDayMode must be one of " + PARTIAL_DAY_MODES);
+        }
+        return mode;
+    }
+
+    private UUID resolveNotifyUser(UUID notifyUserId) {
+        if (notifyUserId == null) return null;
+        if (!userRepository.existsById(notifyUserId)) {
+            throw new IllegalArgumentException("Selected employee to notify was not found");
+        }
+        return notifyUserId;
+    }
+
+    /** For the "View Available Balance" line: hours already committed this month vs. the cap. */
+    @Transactional(readOnly = true)
+    public PartialDayBalance getPartialDayBalance(String actorEmail, LocalDate forDate) {
+        User actor = requireActor(actorEmail);
+        BigDecimal used = partialDayHoursUsedInMonth(actor.getId(), forDate);
+        return new PartialDayBalance(used, PARTIAL_DAY_MONTHLY_LIMIT_HOURS, PARTIAL_DAY_MONTHLY_LIMIT_HOURS.subtract(used).max(BigDecimal.ZERO));
+    }
+
+    public record PartialDayBalance(BigDecimal usedHours, BigDecimal limitHours, BigDecimal remainingHours) {}
+
+    /**
+     * The monthly cap (PARTIAL_DAY_MONTHLY_LIMIT_HOURS) is advisory, not enforced here — the
+     * employee sees it via getPartialDayBalance and the frontend's "View Available Balance" /
+     * over-balance confirmation, but submitting past it is still allowed (it just stays PENDING
+     * for the assigned approver to judge, same as any other request). Only a structurally invalid
+     * amount (zero or negative) is rejected.
+     */
     private BigDecimal resolvePartialDayHours(String type, BigDecimal partialDayHours) {
         if (TYPE_WFH.equals(type)) {
             return null;
@@ -87,6 +147,24 @@ public class AttendanceRequestService {
             throw new IllegalArgumentException("Partial day hours must be greater than zero");
         }
         return partialDayHours;
+    }
+
+    /**
+     * Sum of partialDayHours across every non-rejected Partial Day request the employee has for
+     * the calendar month requestDate falls in — PENDING requests count too (not just APPROVED),
+     * since otherwise several simultaneously-pending requests could individually pass this check
+     * and later all be approved past the monthly cap.
+     */
+    private BigDecimal partialDayHoursUsedInMonth(UUID employeeUserId, LocalDate requestDate) {
+        LocalDate monthStart = requestDate.withDayOfMonth(1);
+        LocalDate monthEnd = requestDate.withDayOfMonth(requestDate.lengthOfMonth());
+        return requestRepository
+                .findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(employeeUserId, TYPE_PARTIAL_DAY, monthStart, monthEnd)
+                .stream()
+                .filter(r -> !STATUS_REJECTED.equals(r.getStatus()))
+                .map(AttendanceRequest::getPartialDayHours)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     @Transactional(readOnly = true)
@@ -208,6 +286,8 @@ public class AttendanceRequestService {
                 : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
         String assignedApproverName = req.getAssignedApproverId() == null ? null
                 : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
+        String notifyUserName = req.getNotifyUserId() == null ? null
+                : employeeRepository.findById(req.getNotifyUserId()).map(Employee::getFullName).orElse(null);
 
         return AttendanceRequestResponse.builder()
                 .id(req.getId())
@@ -218,10 +298,13 @@ public class AttendanceRequestService {
                 .requestType(req.getRequestType())
                 .requestDate(req.getRequestDate())
                 .partialDayHours(req.getPartialDayHours())
+                .partialDayMode(req.getPartialDayMode())
                 .reason(req.getReason())
                 .status(req.getStatus())
                 .assignedApproverId(req.getAssignedApproverId())
                 .assignedApproverName(assignedApproverName)
+                .notifyUserId(req.getNotifyUserId())
+                .notifyUserName(notifyUserName)
                 .reviewedByName(reviewerName)
                 .reviewedAt(req.getReviewedAt())
                 .reviewComment(req.getReviewComment())
