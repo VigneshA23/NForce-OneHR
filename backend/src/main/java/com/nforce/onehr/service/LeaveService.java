@@ -171,6 +171,20 @@ public class LeaveService {
     }
 
     /**
+     * Approved leave overlapping [from, to], organization-wide — HR's "On Leave" KPI, the
+     * org-scoped equivalent of {@link #listTeamLeave} (which is confined to the caller's direct
+     * reports). Access is restricted to HR Admin/Super Admin at the controller.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveRequestResponse> listOrgLeave(LocalDate from, LocalDate to) {
+        return leaveRequestRepository
+                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from)
+                .stream()
+                .map(this::toRequestResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Approved leave for the caller's current peers (same-manager siblings) overlapping
      * [from, to] — backs the Peers view's "who's on leave today" panel and calendar (ONEHR-73).
      * Mirrors {@link #listTeamLeave} exactly, swapping direct-report resolution for peer resolution.
