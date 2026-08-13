@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.attendance.TeamEffortEntry;
 import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
+import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
@@ -20,6 +21,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,6 +45,7 @@ class AttendanceServiceTeamStatsTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties props;
+    @Mock private WorkingDayService workingDayService;
 
     @InjectMocks private AttendanceService attendanceService;
 
@@ -67,6 +71,13 @@ class AttendanceServiceTeamStatsTest {
         // lenient: the "no direct reports" test overrides this to an empty list.
         lenient().when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(emp1Id, emp2Id));
         lenient().when(employeeRepository.findAllById(List.of(emp1Id, emp2Id))).thenReturn(List.of(emp1, emp2));
+        lenient().when(employeeRepository.findAllByIdWithScheduleDetails(List.of(emp1Id, emp2Id))).thenReturn(List.of(emp1, emp2));
+        // Both test employees have no location/weeklyOffPolicy/joiningDate set, so their
+        // "working days" over day1..day2 is exactly those two weekdays — same result the old
+        // flat countWeekdays(from, to) calculation gave, keeping avgHoursPerDay unaffected.
+        lenient().when(workingDayService.computeExpectedWorkingDaysBulk(any(), any(), any())).thenReturn(Map.of(
+                emp1Id, WorkingDaySchedule.builder().employeeUserId(emp1Id).workingDates(Set.of(day1, day2)).build(),
+                emp2Id, WorkingDaySchedule.builder().employeeUserId(emp2Id).workingDates(Set.of(day1, day2)).build()));
     }
 
     private Attendance record(UUID id, UUID employeeId, LocalDate date, int workedMinutes, String status) {
@@ -99,6 +110,28 @@ class AttendanceServiceTeamStatsTest {
         assertEquals(emp1Id, result.get(1).getEmployeeUserId());
         assertEquals(8.3, result.get(0).getAvgHoursPerDay(), 0.05);
         assertEquals(7.5, result.get(1).getAvgHoursPerDay(), 0.05);
+    }
+
+    @Test
+    void getTeamEffort_expectedHours_comesFromWorkingDayServiceSchedule_notAFlatWeekdayCount() {
+        // Override the default 2-day setUp() schedule with a 1-day schedule for emp1 only —
+        // if getTeamEffort still used a flat countWeekdays(from, to), this would be ignored and
+        // expectedHours would come out as 2*8=16 for both employees instead of employee-specific.
+        when(workingDayService.computeExpectedWorkingDaysBulk(any(), any(), any())).thenReturn(Map.of(
+                emp1Id, WorkingDaySchedule.builder().employeeUserId(emp1Id).workingDates(Set.of(day1)).build(),
+                emp2Id, WorkingDaySchedule.builder().employeeUserId(emp2Id).workingDates(Set.of(day1, day2)).build()));
+        List<Attendance> records = List.of(
+                record(UUID.randomUUID(), emp1Id, day1, 480, "PRESENT"),
+                record(UUID.randomUUID(), emp2Id, day1, 480, "PRESENT"));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(emp1Id, emp2Id), day1, day2))
+                .thenReturn(records);
+
+        List<TeamEffortEntry> result = attendanceService.getTeamEffort(managerEmail, day1, day2);
+
+        TeamEffortEntry emp1Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp1Id)).findFirst().orElseThrow();
+        TeamEffortEntry emp2Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp2Id)).findFirst().orElseThrow();
+        assertEquals(8.0, emp1Entry.getExpectedHours(), 0.01); // 1 working day * 8h — same schedule Punctuality would use
+        assertEquals(16.0, emp2Entry.getExpectedHours(), 0.01); // 2 working days * 8h
     }
 
     @Test

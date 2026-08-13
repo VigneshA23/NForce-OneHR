@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -16,6 +17,13 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     @Query("SELECT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH e.department LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.location WHERE u.deletedAt IS NULL")
     List<Employee> findAllWithDetails();
+
+    // Backs WorkingDayService callers (Team Effort, Team Punctuality) and the Penalty list —
+    // joins the associations those read (location, weeklyOffPolicy, designation, department) in
+    // one query instead of one lazy-load per employee.
+    @Query("SELECT e FROM Employee e LEFT JOIN FETCH e.location LEFT JOIN FETCH e.weeklyOffPolicy "
+         + "LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
+    List<Employee> findAllByIdWithScheduleDetails(@Param("ids") Collection<UUID> ids);
 
     boolean existsByEmployeeCode(String employeeCode);
 

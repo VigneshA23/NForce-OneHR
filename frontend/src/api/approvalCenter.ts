@@ -14,7 +14,7 @@ async function handle<T>(res: Response): Promise<T> {
 
 export type RequestType =
   | 'LEAVE' | 'REGULARIZATION' | 'WEB_CLOCK_IN' | 'EXPENSE' | 'ASSET_REQUEST'
-  | 'WFH' | 'PARTIAL_DAY' | 'OVERTIME';
+  | 'WFH' | 'PARTIAL_DAY' | 'OVERTIME' | 'HELP_CONTENT';
 
 export interface ApprovalItem {
   id: string;
@@ -51,6 +51,17 @@ export interface ApprovalItem {
   requestedCategoryName?: string;
   assetRequestReason?: string;
   assetRequestStatus?: string; // 'PENDING' | 'APPROVED'
+
+  // Help Content (FAQ/Guide) — `id` above is the *approval attempt* id (what Approve/Reject
+  // act on via helpContentApprovalApi), not the content id.
+  helpContentId?: string;
+  helpContentType?: 'FAQ' | 'QUICK_HELP' | 'GUIDE' | 'DOCUMENT';
+  helpContentTitle?: string;
+  helpContentDescription?: string;
+  helpContentBody?: string;
+  helpContentCategory?: string;
+  helpContentAttemptNumber?: number;
+  helpContentModifiedSincePrevious?: boolean;
 }
 
 export const approvalCenterApi = {

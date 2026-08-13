@@ -7,6 +7,7 @@ import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.asset.AssetRequestResponse;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.dto.helpcontent.ApprovalAttemptDto;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
@@ -14,6 +15,7 @@ import com.nforce.onehr.dto.attendance.WebClockInResponse;
 import com.nforce.onehr.service.AssetService;
 import com.nforce.onehr.service.AttendanceRequestService;
 import com.nforce.onehr.service.ExpenseService;
+import com.nforce.onehr.service.HelpContentService;
 import com.nforce.onehr.service.LeaveService;
 import com.nforce.onehr.service.OvertimeRequestService;
 import com.nforce.onehr.service.RegularizationService;
@@ -48,6 +50,7 @@ public class ApprovalCenterController {
     private final AssetService assetService;
     private final AttendanceRequestService attendanceRequestService;
     private final OvertimeRequestService overtimeRequestService;
+    private final HelpContentService helpContentService;
     private final UserRepository userRepo;
 
     /**
@@ -88,6 +91,9 @@ public class ApprovalCenterController {
             // Overtime — managers see own reports' pending requests
             overtimeRequestService.listPendingForApprover(email).stream()
                     .map(this::overtimeToApprovalItem).forEach(items::add);
+            // FAQs & Guides — manager sees only attempts resolved to them
+            helpContentService.listPendingApprovalsForApprover(email).stream()
+                    .map(this::helpContentToApprovalItem).forEach(items::add);
         }
 
         if (isAdmin) {
@@ -110,6 +116,10 @@ public class ApprovalCenterController {
             // Overtime — HR/SA see all pending
             overtimeRequestService.listPendingForApprover(email).stream()
                     .map(this::overtimeToApprovalItem).forEach(items::add);
+            // FAQs & Guides — Super Admin has blanket fallback-authority visibility, same
+            // convention as every other request type's admin branch here.
+            helpContentService.listPendingApprovalsForApprover(email).stream()
+                    .map(this::helpContentToApprovalItem).forEach(items::add);
         }
 
         // De-duplicate by (id + requestType) in case manager and admin roles overlap
@@ -224,6 +234,24 @@ public class ApprovalCenterController {
                 .requestedCheckIn(r.getRequestedStart())
                 .requestedCheckOut(r.getRequestedEnd())
                 .regularizationReason(r.getReason())
+                .build();
+    }
+
+    private ApprovalItemDto helpContentToApprovalItem(ApprovalAttemptDto a) {
+        return ApprovalItemDto.builder()
+                .id(a.getId().toString())
+                .requestType("HELP_CONTENT")
+                .employeeUserId(a.getSubmittedByUserId())
+                .employeeName(a.getSubmittedByName())
+                .createdAt(a.getSubmittedAt())
+                .helpContentId(a.getContentId().toString())
+                .helpContentType(a.getContentType())
+                .helpContentTitle(a.getSnapshotTitle())
+                .helpContentDescription(a.getSnapshotDescription())
+                .helpContentBody(a.getSnapshotBody())
+                .helpContentCategory(a.getSnapshotCategory())
+                .helpContentAttemptNumber(a.getAttemptNumber())
+                .helpContentModifiedSincePrevious(a.isModifiedSincePrevious())
                 .build();
     }
 }

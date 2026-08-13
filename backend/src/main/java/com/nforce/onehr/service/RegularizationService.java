@@ -301,6 +301,23 @@ public class RegularizationService {
                 .orElse(null);
     }
 
+    /**
+     * "View Regularization History" from the Penalties kebab menu — every request ever filed
+     * for one employee/date. A plain Manager may only view a current direct report's history;
+     * HR/Super Admin may view anyone's, same override as {@link #getEmployeeHistory}-style checks
+     * elsewhere in this workstream.
+     */
+    @Transactional(readOnly = true)
+    public List<RegularizationResponse> getHistoryForManager(String managerEmail, UUID employeeUserId, LocalDate attendanceDate) {
+        User actor = requireActor(managerEmail);
+        if (!hasOverrideRole(actor)
+                && !historyRepository.findCurrentDirectReportIds(actor.getId()).contains(employeeUserId)) {
+            throw new AccessDeniedException("You can only view regularization history for your direct reports");
+        }
+        return regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(employeeUserId, attendanceDate)
+                .stream().map(this::toResponse).toList();
+    }
+
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listMine(String actorEmail) {
         User actor = requireActor(actorEmail);
