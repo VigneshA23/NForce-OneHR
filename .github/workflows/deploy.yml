@@ -43,6 +43,11 @@ jobs:
             --token=${{ secrets.VERCEL_TOKEN }} \
             --cwd frontend
 
+      # vercel build runs the build on the Actions runner (not on Vercel servers),
+      # so node_modules must exist before it can invoke vite.
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
       # Build locally using Vercel's build pipeline.
       # --prod tells vercel build to load Production env vars.
 
