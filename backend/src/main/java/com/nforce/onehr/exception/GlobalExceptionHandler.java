@@ -2,6 +2,7 @@ package com.nforce.onehr.exception;
 
 import com.nforce.onehr.dto.ApiError;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -103,6 +104,17 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(message));
+    }
+
+    // Safety net for uniqueness/constraint violations that slip past an application-level
+    // pre-check (e.g. a race between two concurrent requests, or a check that doesn't match
+    // the DB's collation) — without this, it falls through to the generic 500 below and looks
+    // like a server error instead of a simple "that value is already taken".
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        log.warn("Data integrity violation", e);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError("That value conflicts with an existing record. Please use a different value."));
     }
 
     @ExceptionHandler(Exception.class)
