@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { AuthLayout } from './AuthLayout';
-import { authApi } from '../../api/auth';
+import { authApi, INVALID_EMAIL_MESSAGE } from '../../api/auth';
 
 const containerVariants = { hidden: {}, show: { transition: { staggerChildren: 0.04 } } };
 const itemVariants = {
@@ -16,7 +16,6 @@ export default function ForgotPasswordPage() {
   const [email,      setEmail]      = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted,  setSubmitted]  = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
   const [error,      setError]      = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -25,13 +24,17 @@ export default function ForgotPasswordPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await authApi.forgotPassword(email.trim());
-      setSuccessMessage(res.message);
+      await authApi.forgotPassword(email.trim());
       setSubmitted(true);
     } catch (err) {
-      // Account status (not found / deactivated / deleted) is reported back explicitly —
-      // see AuthService.forgotPassword.
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      // Backend returns this exact text for both a malformed email (400) and a well-formed
+      // but unregistered one (404) — everything else (network hiccup, 500, etc.) still
+      // silently shows success, per existing behavior.
+      if (err instanceof Error && err.message === INVALID_EMAIL_MESSAGE) {
+        setError(err.message);
+        return;
+      }
+      setSubmitted(true);
     } finally {
       setSubmitting(false);
     }
@@ -71,7 +74,7 @@ export default function ForgotPasswordPage() {
             }}>
               <div style={{ fontWeight: 700, color: 'var(--ok)', marginBottom: 6, fontSize: 14 }}>Check your inbox</div>
               <p style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.6, margin: 0 }}>
-                {successMessage} Check your spam folder if it doesn't arrive within a minute.
+                If <span style={{ color: 'var(--txt)', fontFamily: 'monospace' }}>{email}</span> is registered and active, we've sent a temporary password. Check your spam folder if it doesn't arrive within a minute.
               </p>
             </div>
             <Link
@@ -83,24 +86,6 @@ export default function ForgotPasswordPage() {
           </motion.div>
         ) : (
           <form onSubmit={handleSubmit} noValidate>
-            {error && (
-              <motion.div
-                initial={reduced ? undefined : { opacity: 0, y: -6 }}
-                animate={reduced ? undefined : { opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-                role="alert"
-                style={{
-                  background: 'rgba(228,55,61,.08)',
-                  border: '1px solid rgba(228,55,61,.3)',
-                  borderRadius: 10,
-                  padding: '16px 18px',
-                  marginBottom: 20,
-                }}
-              >
-                <div style={{ fontWeight: 700, color: '#E4373D', marginBottom: 4, fontSize: 14 }}>Unable to reset password</div>
-                <p style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.6, margin: 0 }}>{error}</p>
-              </motion.div>
-            )}
             <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 18 }}>
               <label htmlFor={emailId} style={{ display: 'block', fontSize: 12, fontWeight: 550, color: 'var(--txt-mut)', marginBottom: 6 }}>
                 Work email
@@ -125,6 +110,9 @@ export default function ForgotPasswordPage() {
                   boxSizing: 'border-box',
                 }}
               />
+              {error && (
+                <p style={{ marginTop: 6, fontSize: 12, color: 'var(--risk)' }}>{error}</p>
+              )}
             </motion.div>
 
             <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 18 }}>

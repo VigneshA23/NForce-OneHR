@@ -37,6 +37,12 @@ public class GlobalExceptionHandler {
                         e.getLockedUntil()));
     }
 
+    @ExceptionHandler(AccountNotFoundException.class)
+    public ResponseEntity<ApiError> handleAccountNotFound(AccountNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError(e.getMessage(), "ACCOUNT_NOT_FOUND", null));
+    }
+
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<ApiError> handleDisabled(DisabledException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)

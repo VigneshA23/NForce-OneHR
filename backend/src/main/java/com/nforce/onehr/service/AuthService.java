@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.exception.AccountLockedException;
+import com.nforce.onehr.exception.AccountNotFoundException;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
@@ -161,42 +162,40 @@ public class AuthService {
     }
 
     /**
-     * Forgot-password flow: validates the account status up front and reports it back
-     * distinctly (no account found / deactivated / deleted / reset sent) rather than a single
-     * generic response — a deliberate product decision to prioritize clear self-service
-     * feedback over email-enumeration hardening for this flow.
+     * Forgot-password flow. Per product requirements, any email that isn't both well-formed and
+     * registered is reported to the caller as "Invalid E-mail" — malformed input is rejected by
+     * {@code @Email} on {@link com.nforce.onehr.dto.ForgotPasswordRequest} before this method
+     * ever runs, and an unregistered-but-well-formed email is reported here via
+     * {@link AccountNotFoundException} using the same message, rather than masked as generic
+     * success. For an email that IS registered (active or not), the response stays the same
+     * generic success message regardless of account state, so inactive/soft-deleted status is
+     * still not leaked.
      */
     @Transactional
     public ForgotPasswordResponse forgotPassword(String email) {
         String normalizedEmail = email.toLowerCase().trim();
         User user = userRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new IllegalArgumentException("No account found with this email address"));
+                .orElseThrow(() -> new AccountNotFoundException("Invalid E-mail"));
 
-        if (user.getDeletedAt() != null) {
-            throw new DisabledException("This account has been deleted. Please contact your HR administrator");
+        if (user.isActive() && user.getDeletedAt() == null) {
+            String tempPassword = generateTempPassword();
+            user.setPasswordHash(passwordEncoder.encode(tempPassword));
+            user.setMustChangePassword(true);
+            userRepository.save(user);
+
+            String fullName = employeeRepository.findById(user.getId())
+                    .map(com.nforce.onehr.entity.Employee::getFullName)
+                    .orElse(user.getEmail());
+
+            emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+            auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+            notificationService.send(user.getId(), "SECURITY",
+                    "Password Reset",
+                    "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
+                    "/change-password");
         }
-        if (!user.isActive()) {
-            throw new DisabledException("This account has been deactivated. Please contact your HR administrator");
-        }
-
-        String tempPassword = generateTempPassword();
-        user.setPasswordHash(passwordEncoder.encode(tempPassword));
-        user.setMustChangePassword(true);
-        userRepository.save(user);
-
-        String fullName = employeeRepository.findById(user.getId())
-                .map(com.nforce.onehr.entity.Employee::getFullName)
-                .orElse(user.getEmail());
-
-        emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
-        auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
-        notificationService.send(user.getId(), "SECURITY",
-                "Password Reset",
-                "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
-                "/change-password");
-
         return ForgotPasswordResponse.builder()
-                .message("Password reset instructions have been sent to your email")
+                .message("If that email is registered, we've sent password reset instructions.")
                 .build();
     }
 
