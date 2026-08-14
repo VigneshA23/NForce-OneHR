@@ -1395,8 +1395,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [showBalance, setShowBalance] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Over-balance is confirmed at submit time, not blocked while typing — see handleSubmit.
-  const [overBalanceConfirm, setOverBalanceConfirm] = useState<{ requestedMinutes: number; remainingMinutes: number } | null>(null);
 
   useEffect(() => {
     regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty */ });
@@ -1464,7 +1462,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       showToast('error', msg);
     } finally {
       setSubmitting(false);
-      setOverBalanceConfirm(null);
     }
   }
 
@@ -1480,11 +1477,13 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       setError('Duration must be greater than zero');
       return;
     }
-    // A hard, per-request ceiling — distinct from the monthly balance below, which is a soft,
-    // overridable confirmation. This one never has an override: Keka never allows a single
-    // Partial Day request past this many minutes, regardless of remaining balance.
-    if (requestType === 'PARTIAL_DAY' && Number(partialDayMinutes) > PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60) {
-      setError(`You are not allowed to raise a request for more than ${PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60} minutes`);
+    // The block is based on the monthly allowance already being fully used, not on the
+    // requested value itself — a request of exactly (or under) the cap is always allowed as
+    // long as some balance remains; once the 120-minute allowance is fully used, any further
+    // request is blocked regardless of how many minutes it asks for.
+    const partialDayLimitMinutes = PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60;
+    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && remainingMinutes <= 0) {
+      setError(`You have used your ${partialDayLimitMinutes} minutes. You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
       return;
     }
     if (partialDayMode === 'INTERVENING_TIMEOFF' && requestType === 'PARTIAL_DAY') {
@@ -1495,18 +1494,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       }
     }
     setError(null);
-
-    // Balance is checked only now, at submit time, not live while typing — and it's a
-    // confirmation, not a hard block: the employee can still choose to submit over it, same as
-    // Keka. The server never rejects for this either (see AttendanceRequestService); the
-    // assigned approver makes the actual call.
-    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null) {
-      const requestedMinutes = Number(partialDayMinutes);
-      if (requestedMinutes > remainingMinutes) {
-        setOverBalanceConfirm({ requestedMinutes, remainingMinutes });
-        return;
-      }
-    }
     await doSubmit();
   }
 
@@ -1651,34 +1638,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
           </div>
         </div>
       </div>
-      {overBalanceConfirm && (
-        <div style={overlayStyle}>
-          <div style={{ ...modalStyle, maxWidth: 400 }}>
-            <ModalHeader title="Confirm submission" onClose={() => !submitting && setOverBalanceConfirm(null)} />
-            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-                Your partial time of {overBalanceConfirm.requestedMinutes} mins has been fully utilized. Remaining balance: {overBalanceConfirm.remainingMinutes} mins. Do you still want to submit?
-              </p>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setOverBalanceConfirm(null)}
-                  disabled={submitting}
-                  style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: submitting ? 'not-allowed' : 'pointer' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={doSubmit}
-                  disabled={submitting}
-                  style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting…' : 'Submit'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
