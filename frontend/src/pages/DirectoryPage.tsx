@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
@@ -131,6 +132,7 @@ export default function DirectoryPage() {
   const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('asc');
   const [page, setPage]         = useState(0);
   const [selected, setSelected] = useState<DirectoryEntry | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     directoryApi.list(token)
@@ -138,6 +140,24 @@ export default function DirectoryPage() {
       .catch(e => setLoadError(e instanceof Error ? e.message : 'Failed to load directory'))
       .finally(() => setLoading(false));
   }, [token]);
+
+  // Deep-link support: other pages (e.g. Dashboard's Present Today / On Leave modals) link
+  // here as /directory?userId=<id> to open a specific employee's detail panel directly.
+  useEffect(() => {
+    const userId = searchParams.get('userId');
+    if (!userId || all.length === 0) return;
+    const match = all.find(e => e.userId === userId);
+    if (match) setSelected(match);
+  }, [searchParams, all]);
+
+  function closeDetail() {
+    setSelected(null);
+    if (searchParams.has('userId')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('userId');
+      setSearchParams(next, { replace: true });
+    }
+  }
 
   /* Unique filter options from real data */
   const departments  = useMemo(() => [...new Set(all.map(e => e.departmentName).filter(Boolean))].sort() as string[], [all]);
@@ -378,8 +398,8 @@ export default function DirectoryPage() {
       {/* Detail drawer */}
       {selected && (
         <>
-          <div onClick={() => setSelected(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 199 }} />
-          <DetailPanel entry={selected} onClose={() => setSelected(null)} />
+          <div onClick={closeDetail} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 199 }} />
+          <DetailPanel entry={selected} onClose={closeDetail} />
         </>
       )}
     </div>
