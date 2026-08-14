@@ -1,11 +1,13 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.MutableClock;
+import com.nforce.onehr.dto.ForgotPasswordResponse;
 import com.nforce.onehr.dto.LoginRequest;
 import com.nforce.onehr.dto.LoginResponse;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.exception.AccountLockedException;
+import com.nforce.onehr.exception.AccountNotFoundException;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
@@ -226,5 +228,43 @@ class AuthServiceTest {
         assertEquals(0, user.getFailedLoginAttempts());
         assertNull(user.getLockedUntil());
         verify(auditService).log(user.getId(), "LOGIN_BLOCKED", user.getId());
+    }
+
+    @Test
+    void forgotPassword_registeredActiveEmail_sendsResetEmailAndReturnsGenericMessage() {
+        when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        ForgotPasswordResponse response = authService.forgotPassword(EMAIL);
+
+        assertEquals("If that email is registered, we've sent password reset instructions.",
+                response.getMessage());
+        assertTrue(user.isMustChangePassword());
+        verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString());
+        verify(auditService).log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+    }
+
+    @Test
+    void forgotPassword_unregisteredEmail_throwsAccountNotFound() {
+        when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());
+
+        AccountNotFoundException ex = assertThrows(AccountNotFoundException.class,
+                () -> authService.forgotPassword("nobody@test.com"));
+
+        assertEquals("Invalid E-mail", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void forgotPassword_deactivatedAccount_returnsGenericMessageWithoutSendingEmail() {
+        user.setActive(false);
+
+        ForgotPasswordResponse response = authService.forgotPassword(EMAIL);
+
+        assertEquals("If that email is registered, we've sent password reset instructions.",
+                response.getMessage());
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(notificationService);
     }
 }

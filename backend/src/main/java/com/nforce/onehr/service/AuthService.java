@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.exception.AccountLockedException;
+import com.nforce.onehr.exception.AccountNotFoundException;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
@@ -161,31 +162,38 @@ public class AuthService {
     }
 
     /**
-     * Forgot-password flow: always returns generic success regardless of whether the email exists.
-     * Prevents email enumeration — response shape and timing must not reveal account existence.
+     * Forgot-password flow. Per product requirements, any email that isn't both well-formed and
+     * registered is reported to the caller as "Invalid E-mail" — malformed input is rejected by
+     * {@code @Email} on {@link com.nforce.onehr.dto.ForgotPasswordRequest} before this method
+     * ever runs, and an unregistered-but-well-formed email is reported here via
+     * {@link AccountNotFoundException} using the same message, rather than masked as generic
+     * success. For an email that IS registered (active or not), the response stays the same
+     * generic success message regardless of account state, so inactive/soft-deleted status is
+     * still not leaked.
      */
     @Transactional
     public ForgotPasswordResponse forgotPassword(String email) {
         String normalizedEmail = email.toLowerCase().trim();
-        userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
-            if (user.isActive() && user.getDeletedAt() == null) {
-                String tempPassword = generateTempPassword();
-                user.setPasswordHash(passwordEncoder.encode(tempPassword));
-                user.setMustChangePassword(true);
-                userRepository.save(user);
+        User user = userRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new AccountNotFoundException("Invalid E-mail"));
 
-                String fullName = employeeRepository.findById(user.getId())
-                        .map(com.nforce.onehr.entity.Employee::getFullName)
-                        .orElse(user.getEmail());
+        if (user.isActive() && user.getDeletedAt() == null) {
+            String tempPassword = generateTempPassword();
+            user.setPasswordHash(passwordEncoder.encode(tempPassword));
+            user.setMustChangePassword(true);
+            userRepository.save(user);
 
-                emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
-                auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
-                notificationService.send(user.getId(), "SECURITY",
-                        "Password Reset",
-                        "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
-                        "/change-password");
-            }
-        });
+            String fullName = employeeRepository.findById(user.getId())
+                    .map(com.nforce.onehr.entity.Employee::getFullName)
+                    .orElse(user.getEmail());
+
+            emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+            auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+            notificationService.send(user.getId(), "SECURITY",
+                    "Password Reset",
+                    "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
+                    "/change-password");
+        }
         return ForgotPasswordResponse.builder()
                 .message("If that email is registered, we've sent password reset instructions.")
                 .build();
