@@ -28,4 +28,13 @@ public class PolicyDecision {
     private Integer policyVersion;
     private BigDecimal deductionDays;
     private String reason;
+
+    // ── Deduction routing — set alongside deductionDays whenever type is APPLY_PENALTY ──
+    // "LOSS_OF_PAY" or "PAID_LEAVE" — resolved from the matched version's deductionMethod, unless
+    // the notice-period override applies (see ConfiguredAttendancePolicyEngine), in which case
+    // this is always "LOSS_OF_PAY" regardless of the configured method.
+    private String deductionMethod;
+    // Comma-separated LeaveType.code values in priority order — carried through so
+    // PenaltyDeductionService doesn't need to re-fetch the policy version.
+    private String leavePriorityOrder;
 }

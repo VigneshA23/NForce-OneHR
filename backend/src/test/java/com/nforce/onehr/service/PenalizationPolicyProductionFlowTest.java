@@ -45,10 +45,16 @@ class PenalizationPolicyProductionFlowTest {
     @Mock private RegularizationRequestRepository regularizationRequestRepository;
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private EmailService emailService;
+    @Mock private HolidayRepository holidayRepository;
+    @Mock private LeaveTypeRepository leaveTypeRepository;
+    @Mock private LeaveBalanceRepository leaveBalanceRepository;
 
     @Mock private PenalizationPolicyVersionRepository versionRepository;
     @Mock private PenalizationPolicyWorkHoursTierRepository tierRepository;
+    @Mock private PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private PenalisationPolicyRepository penalisationPolicyRepository;
+    @Mock private AuditService auditService;
 
     private ExceptionService exceptionService;
 
@@ -60,12 +66,18 @@ class PenalizationPolicyProductionFlowTest {
     void setUp() {
         // Real objects — not mocks — for every layer between the production trigger and the
         // engine. Only repositories/EmailService are mocked.
-        AttendancePolicyEngine policyEngine = new ConfiguredAttendancePolicyEngine(versionRepository, tierRepository);
+        AttendancePolicyEngine policyEngine = new ConfiguredAttendancePolicyEngine(versionRepository, tierRepository, lateHoursTierRepository);
+        AuditSnapshotSerializer snapshotSerializer = new AuditSnapshotSerializer(new com.fasterxml.jackson.databind.ObjectMapper());
+        PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, snapshotSerializer);
         AttendancePenaltyEvaluationService penaltyEvaluationService =
-                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository);
+                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService);
+        WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
+        PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
+                lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer, attendanceProperties);
         exceptionService = new ExceptionService(userRepository, employeeRepository, historyRepository,
                 attendanceExceptionRepository, attendanceRepository, leaveRequestRepository,
-                regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService);
+                regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
+                workingDayService, versionRepository, holidayRepository, penalizationPolicyService);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
@@ -78,6 +90,10 @@ class PenalizationPolicyProductionFlowTest {
         lenient().when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
                 any(), any(), any())).thenReturn(List.of());
         lenient().when(attendancePenaltyRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        // detectNoAttendanceAndShortage's WorkingDayService pass — an empty schedule for every
+        // employee means it contributes no NO_ATTENDANCE/WORK_HOURS_SHORTAGE occurrences, leaving
+        // this test class free to focus purely on the LATE_ARRIVAL flow it was written for.
+        lenient().when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of());
     }
 
     private User hrUser() {

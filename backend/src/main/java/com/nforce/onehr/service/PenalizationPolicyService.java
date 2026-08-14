@@ -2,9 +2,13 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.penalization.*;
+import com.nforce.onehr.entity.PenalisationPolicy;
+import com.nforce.onehr.entity.PenalizationPolicyLateHoursTier;
 import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.entity.PenalizationPolicyWorkHoursTier;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.PenalisationPolicyRepository;
+import com.nforce.onehr.repository.PenalizationPolicyLateHoursTierRepository;
 import com.nforce.onehr.repository.PenalizationPolicyVersionRepository;
 import com.nforce.onehr.repository.PenalizationPolicyWorkHoursTierRepository;
 import com.nforce.onehr.repository.UserRepository;
@@ -14,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +37,11 @@ import java.util.stream.Collectors;
  * save becomes effective from the 1st of the calendar month after the save date ("saved during
  * July → effective from August 1"). No weekly-cycle variant is implemented — the screenshots
  * never show one operating, only a monthly one, repeated identically three times.
+ *
+ * <p>Phase 2: every method accepts an optional {@code policyId} — the specific
+ * {@link PenalisationPolicy} (Section 5's Policy List) this configuration belongs to. Passing
+ * {@code null} resolves to {@link #resolveDefaultPolicyId()} (the org's original single policy),
+ * preserving every Phase 1 caller's behavior unchanged.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,19 +49,21 @@ public class PenalizationPolicyService {
 
     private final PenalizationPolicyVersionRepository versionRepository;
     private final PenalizationPolicyWorkHoursTierRepository tierRepository;
+    private final PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
+    private final PenalisationPolicyRepository penalisationPolicyRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer snapshotSerializer;
     private final AttendanceProperties attendanceProperties;
 
     @Transactional(readOnly = true)
-    public Optional<PenalizationPolicyResponse> getCurrent() {
-        return versionRepository.findByEffectiveToIsNull().map(this::toResponse);
+    public Optional<PenalizationPolicyResponse> getCurrent(UUID policyId) {
+        return versionRepository.findByPolicyIdAndEffectiveToIsNull(resolvePolicyId(policyId)).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
-    public List<PenalizationPolicyVersionSummary> getVersionHistory() {
-        return versionRepository.findAllByOrderByVersionDesc().stream()
+    public List<PenalizationPolicyVersionSummary> getVersionHistory(UUID policyId) {
+        return versionRepository.findByPolicyIdOrderByVersionDesc(resolvePolicyId(policyId)).stream()
                 .map(v -> PenalizationPolicyVersionSummary.builder()
                         .id(v.getId()).version(v.getVersion())
                         .effectiveFrom(v.getEffectiveFrom()).effectiveTo(v.getEffectiveTo())
@@ -68,12 +80,15 @@ public class PenalizationPolicyService {
     }
 
     @Transactional
-    public PenalizationPolicyResponse save(PenalizationPolicyRequest request, String actorEmail) {
+    public PenalizationPolicyResponse save(UUID policyId, PenalizationPolicyRequest request, String actorEmail) {
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        validateBasicInfo(request);
+        validateTiers(request);
+        validateLateHoursTiers(request);
 
-        Optional<PenalizationPolicyVersion> current = versionRepository.findByEffectiveToIsNull();
-        UUID policyId = current.map(PenalizationPolicyVersion::getPolicyId).orElseGet(UUID::randomUUID);
+        UUID resolvedPolicyId = resolvePolicyId(policyId);
+        Optional<PenalizationPolicyVersion> current = versionRepository.findByPolicyIdAndEffectiveToIsNull(resolvedPolicyId);
         int nextVersion = current.map(v -> v.getVersion() + 1).orElse(1);
 
         LocalDateTime now = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone()));
@@ -88,13 +103,21 @@ public class PenalizationPolicyService {
         });
 
         PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
-                .policyId(policyId)
+                .policyId(resolvedPolicyId)
                 .version(nextVersion)
                 .effectiveFrom(effectiveFrom)
                 .noAttendanceEnabled(request.getNoAttendance().isEnabled())
                 .naDeductionDays(request.getNoAttendance().getDeductionDays())
                 .naNoShowEnabled(request.getNoAttendance().isNoShowEnabled())
                 .naNoShowThresholdHours(request.getNoAttendance().getNoShowThresholdHours())
+                .naAdjoiningHolidayEnabled(request.getNoAttendance().isAdjoiningHolidayEnabled())
+                .naAdjoiningHolidayCondition(request.getNoAttendance().getAdjoiningHolidayCondition())
+                .naAdjoiningHolidayCalendarDayThreshold(request.getNoAttendance().getAdjoiningHolidayCalendarDayThreshold())
+                .naAdjoiningHolidayIgnoreHalfDayLeave(request.getNoAttendance().isAdjoiningHolidayIgnoreHalfDayLeave())
+                .naAdjoiningWeekoffEnabled(request.getNoAttendance().isAdjoiningWeekoffEnabled())
+                .naAdjoiningWeekoffCondition(request.getNoAttendance().getAdjoiningWeekoffCondition())
+                .naAdjoiningWeekoffCalendarDayThreshold(request.getNoAttendance().getAdjoiningWeekoffCalendarDayThreshold())
+                .naAdjoiningWeekoffIgnoreHalfDayLeave(request.getNoAttendance().isAdjoiningWeekoffIgnoreHalfDayLeave())
                 .lateArrivalEnabled(request.getLateArrival().isEnabled())
                 .laBasis(request.getLateArrival().getBasis())
                 .laGracePeriodMinutes(request.getLateArrival().getGracePeriodMinutes())
@@ -103,6 +126,9 @@ public class PenalizationPolicyService {
                 .laDeductionDays(request.getLateArrival().getDeductionDays())
                 .laDeductionPerShifts(request.getLateArrival().getDeductionPerShifts())
                 .laIgnoreWhenEffectiveHoursMetEnabled(request.getLateArrival().isIgnoreWhenEffectiveHoursMetEnabled())
+                .laAllowedHours(request.getLateArrival().getAllowedHours())
+                .laCombinedRuleBehavior(request.getLateArrival().getCombinedRuleBehavior())
+                .laPenaliseWhenCausedByMissingLogEnabled(request.getLateArrival().isPenaliseWhenCausedByMissingLogEnabled())
                 .workHoursShortageEnabled(request.getWorkHoursShortage().isEnabled())
                 .whsDeductionBasis(request.getWorkHoursShortage().getDeductionBasis())
                 .whsDeductionPeriod(request.getWorkHoursShortage().getDeductionPeriod())
@@ -116,6 +142,12 @@ public class PenalizationPolicyService {
                 .mlDeductionPerShifts(request.getMissingLogs().getDeductionPerShifts())
                 .mlIgnoreRuleEnabled(request.getMissingLogs().isIgnoreRuleEnabled())
                 .mlIgnoreRuleThresholdPercent(request.getMissingLogs().getIgnoreRuleThresholdPercent())
+                .deductionMethod(request.getBasicInfo().getDeductionMethod())
+                .leavePriorityOrder(request.getBasicInfo().getLeavePriorityOrder() == null
+                        || request.getBasicInfo().getLeavePriorityOrder().isEmpty() ? null
+                        : String.join(",", request.getBasicInfo().getLeavePriorityOrder()))
+                .bufferPeriodDays(request.getBasicInfo().getBufferPeriodDays())
+                .noticePeriodForcesLopEnabled(request.getBasicInfo().isNoticePeriodForcesLopEnabled())
                 .createdBy(actor.getId())
                 .build();
         version = versionRepository.save(version);
@@ -126,6 +158,17 @@ public class PenalizationPolicyService {
             tierRepository.save(PenalizationPolicyWorkHoursTier.builder()
                     .policyVersionId(version.getId())
                     .thresholdPercent(t.getThresholdPercent())
+                    .deductionDays(t.getDeductionDays())
+                    .sortOrder(i)
+                    .build());
+        }
+
+        List<LateHoursTierDto> lateHoursTierDtos = request.getLateArrival().getLateHoursTiers();
+        for (int i = 0; i < lateHoursTierDtos.size(); i++) {
+            LateHoursTierDto t = lateHoursTierDtos.get(i);
+            lateHoursTierRepository.save(PenalizationPolicyLateHoursTier.builder()
+                    .policyVersionId(version.getId())
+                    .thresholdHours(t.getThresholdHours())
                     .deductionDays(t.getDeductionDays())
                     .sortOrder(i)
                     .build());
@@ -145,13 +188,21 @@ public class PenalizationPolicyService {
         fields.put("effectiveFrom", v.getEffectiveFrom());
         fields.put("noAttendanceEnabled", v.isNoAttendanceEnabled());
         fields.put("naDeductionDays", v.getNaDeductionDays());
+        fields.put("naAdjoiningHolidayEnabled", v.isNaAdjoiningHolidayEnabled());
+        fields.put("naAdjoiningWeekoffEnabled", v.isNaAdjoiningWeekoffEnabled());
         fields.put("lateArrivalEnabled", v.isLateArrivalEnabled());
+        fields.put("laBasis", v.getLaBasis());
         fields.put("laGracePeriodMinutes", v.getLaGracePeriodMinutes());
         fields.put("laExemptCount", v.getLaExemptCount());
         fields.put("laDeductionDays", v.getLaDeductionDays());
+        fields.put("laAllowedHours", v.getLaAllowedHours());
         fields.put("workHoursShortageEnabled", v.isWorkHoursShortageEnabled());
         fields.put("missingLogsEnabled", v.isMissingLogsEnabled());
         fields.put("mlExemptDays", v.getMlExemptDays());
+        fields.put("deductionMethod", v.getDeductionMethod());
+        fields.put("leavePriorityOrder", v.getLeavePriorityOrder());
+        fields.put("bufferPeriodDays", v.getBufferPeriodDays());
+        fields.put("noticePeriodForcesLopEnabled", v.isNoticePeriodForcesLopEnabled());
         return fields;
     }
 
@@ -165,11 +216,28 @@ public class PenalizationPolicyService {
                 })
                 .collect(Collectors.toList());
 
+        List<LateHoursTierDto> lateHoursTiers = lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(v.getId()).stream()
+                .map(t -> {
+                    LateHoursTierDto dto = new LateHoursTierDto();
+                    dto.setThresholdHours(t.getThresholdHours());
+                    dto.setDeductionDays(t.getDeductionDays());
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
         NoAttendanceConfigDto noAttendance = new NoAttendanceConfigDto();
         noAttendance.setEnabled(v.isNoAttendanceEnabled());
         noAttendance.setDeductionDays(v.getNaDeductionDays());
         noAttendance.setNoShowEnabled(v.isNaNoShowEnabled());
         noAttendance.setNoShowThresholdHours(v.getNaNoShowThresholdHours());
+        noAttendance.setAdjoiningHolidayEnabled(v.isNaAdjoiningHolidayEnabled());
+        noAttendance.setAdjoiningHolidayCondition(v.getNaAdjoiningHolidayCondition());
+        noAttendance.setAdjoiningHolidayCalendarDayThreshold(v.getNaAdjoiningHolidayCalendarDayThreshold());
+        noAttendance.setAdjoiningHolidayIgnoreHalfDayLeave(v.isNaAdjoiningHolidayIgnoreHalfDayLeave());
+        noAttendance.setAdjoiningWeekoffEnabled(v.isNaAdjoiningWeekoffEnabled());
+        noAttendance.setAdjoiningWeekoffCondition(v.getNaAdjoiningWeekoffCondition());
+        noAttendance.setAdjoiningWeekoffCalendarDayThreshold(v.getNaAdjoiningWeekoffCalendarDayThreshold());
+        noAttendance.setAdjoiningWeekoffIgnoreHalfDayLeave(v.isNaAdjoiningWeekoffIgnoreHalfDayLeave());
 
         LateArrivalConfigDto lateArrival = new LateArrivalConfigDto();
         lateArrival.setEnabled(v.isLateArrivalEnabled());
@@ -180,6 +248,10 @@ public class PenalizationPolicyService {
         lateArrival.setDeductionDays(v.getLaDeductionDays());
         lateArrival.setDeductionPerShifts(v.getLaDeductionPerShifts());
         lateArrival.setIgnoreWhenEffectiveHoursMetEnabled(v.isLaIgnoreWhenEffectiveHoursMetEnabled());
+        lateArrival.setAllowedHours(v.getLaAllowedHours());
+        lateArrival.setLateHoursTiers(lateHoursTiers);
+        lateArrival.setCombinedRuleBehavior(v.getLaCombinedRuleBehavior());
+        lateArrival.setPenaliseWhenCausedByMissingLogEnabled(v.isLaPenaliseWhenCausedByMissingLogEnabled());
 
         WorkHoursShortageConfigDto workHours = new WorkHoursShortageConfigDto();
         workHours.setEnabled(v.isWorkHoursShortageEnabled());
@@ -199,12 +271,64 @@ public class PenalizationPolicyService {
         missingLogs.setIgnoreRuleEnabled(v.isMlIgnoreRuleEnabled());
         missingLogs.setIgnoreRuleThresholdPercent(v.getMlIgnoreRuleThresholdPercent());
 
+        BasicInfoConfigDto basicInfo = new BasicInfoConfigDto();
+        basicInfo.setDeductionMethod(v.getDeductionMethod());
+        basicInfo.setLeavePriorityOrder(v.getLeavePriorityOrder() == null || v.getLeavePriorityOrder().isBlank()
+                ? List.of() : List.of(v.getLeavePriorityOrder().split(",")));
+        basicInfo.setBufferPeriodDays(v.getBufferPeriodDays());
+        basicInfo.setNoticePeriodForcesLopEnabled(v.isNoticePeriodForcesLopEnabled());
+
         return PenalizationPolicyResponse.builder()
                 .id(v.getId()).policyId(v.getPolicyId()).version(v.getVersion())
                 .effectiveFrom(v.getEffectiveFrom()).effectiveTo(v.getEffectiveTo())
+                .basicInfo(basicInfo)
                 .noAttendance(noAttendance).lateArrival(lateArrival)
                 .workHoursShortage(workHours).missingLogs(missingLogs)
                 .createdBy(v.getCreatedBy()).createdAt(v.getCreatedAt())
                 .build();
+    }
+
+    private UUID resolvePolicyId(UUID policyId) {
+        return policyId != null ? policyId : resolveDefaultPolicyId();
+    }
+
+    /** The original single policy every employee was assigned to before Policy List existed. */
+    UUID resolveDefaultPolicyId() {
+        return penalisationPolicyRepository.findAll().stream()
+                .min(Comparator.comparing(PenalisationPolicy::getCreatedAt))
+                .map(PenalisationPolicy::getId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No Penalisation Policy exists to attach this configuration to"));
+    }
+
+    private void validateBasicInfo(PenalizationPolicyRequest request) {
+        BasicInfoConfigDto basicInfo = request.getBasicInfo();
+        if ("PAID_LEAVE".equals(basicInfo.getDeductionMethod())
+                && (basicInfo.getLeavePriorityOrder() == null || basicInfo.getLeavePriorityOrder().isEmpty())) {
+            throw new IllegalArgumentException(
+                    "At least one leave type must be configured in priority order when deduction method is Paid Leave");
+        }
+    }
+
+    /** Section 21: tier thresholds must be distinct — two rules for "less than 50%" is ambiguous. */
+    private void validateTiers(PenalizationPolicyRequest request) {
+        List<WorkHoursTierDto> tiers = request.getWorkHoursShortage().getTiers();
+        long distinctThresholds = tiers.stream().map(WorkHoursTierDto::getThresholdPercent).distinct().count();
+        if (distinctThresholds != tiers.size()) {
+            throw new IllegalArgumentException("Work Hours Shortage tier thresholds must be distinct");
+        }
+        boolean anyOver100 = tiers.stream().anyMatch(t -> t.getThresholdPercent().compareTo(new java.math.BigDecimal("100")) > 0);
+        if (anyOver100) {
+            throw new IllegalArgumentException("Work Hours Shortage tier thresholds cannot exceed 100%");
+        }
+    }
+
+    /** Section 31: total-late-hours tier thresholds must be distinct and non-negative. */
+    private void validateLateHoursTiers(PenalizationPolicyRequest request) {
+        List<LateHoursTierDto> tiers = request.getLateArrival().getLateHoursTiers();
+        long distinctThresholds = tiers.stream().map(LateHoursTierDto::getThresholdHours).distinct().count();
+        if (distinctThresholds != tiers.size()) {
+            throw new IllegalArgumentException("Total Late Hours tier thresholds must be distinct");
+        }
     }
 }

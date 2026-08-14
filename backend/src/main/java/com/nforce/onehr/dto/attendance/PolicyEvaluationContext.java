@@ -41,6 +41,20 @@ public class PolicyEvaluationContext {
     private LocalDate attendanceDate;
     private String discrepancyType;
 
+    // The employee's assigned PenalisationPolicy.id (Employee.penalisationPolicy) — lets the
+    // engine scope its effective-version lookup to this specific policy instead of "whichever
+    // version is effective anywhere" (see ConfiguredAttendancePolicyEngine). Null falls back to
+    // the legacy global lookup, so existing single-policy callers/tests are unaffected.
+    private UUID assignedPolicyId;
+
+    // "Today" per the caller's configured timezone — needed to evaluate the buffer period
+    // (Section 8) against attendanceDate without the engine re-deriving "now" itself.
+    private LocalDate evaluationDate;
+
+    // True when the employee's lastWorkingDay is on/after attendanceDate — backs the
+    // notice-period override (Section 9).
+    private boolean underNoticePeriod;
+
     // A pending/approved regularization for this employee+date is grounds for EXEMPT under a
     // real policy — carried here so a future policy engine doesn't need to re-query for it.
     private boolean hasPendingRegularization;
@@ -54,4 +68,14 @@ public class PolicyEvaluationContext {
     private Integer missingLogCountInPeriod;
     private boolean lateArrivalAlsoOccurredSameDay;
     private boolean workHoursShortageAlsoOccurredSameDay;
+
+    // ── Phase 2 ──
+    // Sum of grace-excluded late minutes across every LATE_ARRIVAL occurrence in the policy's
+    // configured cycle, inclusive of this occurrence — backs Late Arrival's Total Hours basis
+    // (Section 25/29). Null when the fact wasn't computed (e.g. basis is NUMBER_OF_INCIDENTS).
+    private Integer lateMinutesTotalInPeriod;
+
+    // True when this late arrival coincides with an unresolved missing-log occurrence for the
+    // employee (Section 33) — set by the caller, never re-derived by the engine.
+    private boolean lateArrivalCausedByMissingLog;
 }
