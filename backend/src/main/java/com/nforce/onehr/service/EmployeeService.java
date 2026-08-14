@@ -105,9 +105,13 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listEmployees() {
         List<Employee> emps = employeeRepository.findAllWithDetails();
-        return emps.stream()
+        List<Employee> staff = emps.stream()
                 .filter(e -> e.getUser().getRoles().stream().anyMatch(r -> r.getCode().equals("EMPLOYEE")))
-                .map(e -> toResponse(e, findCurrentManager(e.getUserId()), e.getUser(), null))
+                .toList();
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                findCurrentManagersBulk(staff.stream().map(Employee::getUserId).toList());
+        return staff.stream()
+                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
                 .collect(Collectors.toList());
     }
 
@@ -182,9 +186,11 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<DirectoryEntryDto> listDirectory() {
         List<Employee> emps = employeeRepository.findAllWithDetails();
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                findCurrentManagersBulk(emps.stream().map(Employee::getUserId).toList());
         return emps.stream()
                 .map(e -> {
-                    var mgr = findCurrentManager(e.getUserId());
+                    var mgr = managersByEmployeeId.get(e.getUserId());
                     return DirectoryEntryDto.builder()
                             .userId(e.getUserId().toString())
                             .employeeCode(e.getEmployeeCode())
@@ -367,6 +373,37 @@ public class EmployeeService {
                             .build();
                 })
                 .orElse(null);
+    }
+
+    /**
+     * Batch equivalent of {@link #findCurrentManager} for whole-org listings (listDirectory,
+     * listEmployees) — those used to call findCurrentManager once per employee, each doing 3
+     * separate round trips (history lookup, manager User lookup, manager Employee lookup). For
+     * ~90 employees that's ~270 sequential queries against a remote DB, easily a minute or more.
+     * This does the same lookup in exactly 3 queries total regardless of employee count.
+     */
+    private Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
+        Map<UUID, UUID> managerIdByEmployeeId = historyRepository.findByEffectiveToIsNull().stream()
+                .filter(h -> employeeIds.contains(h.getEmployeeUserId()))
+                .collect(Collectors.toMap(EmployeeManagerHistory::getEmployeeUserId, EmployeeManagerHistory::getManagerUserId));
+
+        Set<UUID> managerIds = new HashSet<>(managerIdByEmployeeId.values());
+        Map<UUID, User> managerUsersById = userRepository.findAllById(managerIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+        Map<UUID, String> managerNamesById = employeeRepository.findAllById(managerIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, Employee::getFullName));
+
+        Map<UUID, EmployeeResponse.ManagerRef> result = new HashMap<>();
+        managerIdByEmployeeId.forEach((employeeId, managerId) -> {
+            User mgr = managerUsersById.get(managerId);
+            if (mgr == null) return;
+            result.put(employeeId, EmployeeResponse.ManagerRef.builder()
+                    .userId(mgr.getId().toString())
+                    .fullName(managerNamesById.getOrDefault(managerId, mgr.getEmail()))
+                    .email(mgr.getEmail())
+                    .build());
+        });
+        return result;
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {
