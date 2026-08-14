@@ -319,8 +319,9 @@ public class EmployeeService {
         if (historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(self.getUserId()).isEmpty()) {
             return List.of();
         }
-        List<UUID> teamIds = new ArrayList<>(historyRepository.findCurrentPeerIds(self.getUserId()));
-        teamIds.add(self.getUserId());
+        // findCurrentPeerIds already includes the caller themself (see its own doc comment) — no
+        // need to add self.getUserId() again here.
+        List<UUID> teamIds = historyRepository.findCurrentPeerIds(self.getUserId());
 
         return employeeRepository.findAllById(teamIds).stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)

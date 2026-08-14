@@ -441,8 +441,9 @@ public class AttendanceService {
         if (managerHistoryRepository.findByEmployeeUserIdAndEffectiveToIsNull(self.getUserId()).isEmpty()) {
             return List.of();
         }
-        List<UUID> teamIds = new ArrayList<>(managerHistoryRepository.findCurrentPeerIds(self.getUserId()));
-        teamIds.add(self.getUserId());
+        // findCurrentPeerIds already includes the caller themself (see its own doc comment) — no
+        // need to add self.getUserId() again here.
+        List<UUID> teamIds = managerHistoryRepository.findCurrentPeerIds(self.getUserId());
 
         List<Employee> team = employeeRepository.findAllById(teamIds).stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
@@ -459,8 +460,9 @@ public class AttendanceService {
         if (managerHistoryRepository.findByEmployeeUserIdAndEffectiveToIsNull(self.getUserId()).isEmpty()) {
             return List.of();
         }
-        List<UUID> teamIds = new ArrayList<>(managerHistoryRepository.findCurrentPeerIds(self.getUserId()));
-        teamIds.add(self.getUserId());
+        // findCurrentPeerIds already includes the caller themself (see its own doc comment) — no
+        // need to add self.getUserId() again here.
+        List<UUID> teamIds = managerHistoryRepository.findCurrentPeerIds(self.getUserId());
 
         Map<UUID, Employee> byId = employeeRepository.findAllById(teamIds).stream()
                 .collect(Collectors.toMap(Employee::getUserId, Function.identity()));

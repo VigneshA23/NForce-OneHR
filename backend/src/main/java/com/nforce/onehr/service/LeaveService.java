@@ -25,7 +25,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -199,8 +198,9 @@ public class LeaveService {
         if (historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId()).isEmpty()) {
             return List.of();
         }
-        List<UUID> teamIds = new ArrayList<>(historyRepository.findCurrentPeerIds(actor.getId()));
-        teamIds.add(actor.getId());
+        // findCurrentPeerIds already includes the caller themself (see its own doc comment) — no
+        // need to add actor.getId() again here.
+        List<UUID> teamIds = historyRepository.findCurrentPeerIds(actor.getId());
 
         return leaveRequestRepository
                 .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from)

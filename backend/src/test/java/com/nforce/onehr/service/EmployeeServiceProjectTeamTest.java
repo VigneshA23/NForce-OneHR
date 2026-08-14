@@ -2,6 +2,7 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
@@ -67,9 +68,15 @@ class EmployeeServiceProjectTeamTest {
         lenient().when(employeeRepository.findByUser_Email(selfEmail))
                 .thenReturn(Optional.of(employee(selfId, selfEmail, "Self Employee")));
         // findCurrentManager() is exercised as a side effect of listPeers — no manager data is
-        // under test here, so it's stubbed to "no manager" for every id.
+        // under test here, so it's stubbed to "no manager" for every id EXCEPT the caller: both
+        // tests below simulate a caller who currently has a manager (that's what puts them in a
+        // Project Team at all — see listPeers' own "no manager → no team" guard, which reuses
+        // this same repository call).
         lenient().when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Optional.empty());
+        lenient().when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(selfId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder()
+                        .employeeUserId(selfId).managerUserId(UUID.randomUUID()).build()));
     }
 
     @Test
