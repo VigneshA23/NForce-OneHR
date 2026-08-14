@@ -28,6 +28,15 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(e.getMessage()));
     }
 
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ApiError> handleAccountLocked(AccountLockedException e) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .body(new ApiError(
+                        "The account has been temporarily blocked for security reasons. Please try again after 4 hours.",
+                        "ACCOUNT_LOCKED",
+                        e.getLockedUntil()));
+    }
+
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<ApiError> handleDisabled(DisabledException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
