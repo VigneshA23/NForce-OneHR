@@ -1395,8 +1395,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [showBalance, setShowBalance] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Over-balance is confirmed at submit time, not blocked while typing — see handleSubmit.
-  const [overBalanceConfirm, setOverBalanceConfirm] = useState<{ requestedMinutes: number; remainingMinutes: number } | null>(null);
 
   useEffect(() => {
     regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty */ });
@@ -1464,7 +1462,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       showToast('error', msg);
     } finally {
       setSubmitting(false);
-      setOverBalanceConfirm(null);
     }
   }
 
@@ -1480,11 +1477,13 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       setError('Duration must be greater than zero');
       return;
     }
-    // A hard, per-request ceiling — distinct from the monthly balance below, which is a soft,
-    // overridable confirmation. This one never has an override: Keka never allows a single
-    // Partial Day request past this many minutes, regardless of remaining balance.
-    if (requestType === 'PARTIAL_DAY' && Number(partialDayMinutes) > PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60) {
-      setError(`You are not allowed to raise a request for more than ${PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60} minutes`);
+    // The block is based on the monthly allowance already being fully used, not on the
+    // requested value itself — a request of exactly (or under) the cap is always allowed as
+    // long as some balance remains; once the 120-minute allowance is fully used, any further
+    // request is blocked regardless of how many minutes it asks for.
+    const partialDayLimitMinutes = PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60;
+    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && remainingMinutes <= 0) {
+      setError(`You have used your ${partialDayLimitMinutes} minutes. You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
       return;
     }
     if (partialDayMode === 'INTERVENING_TIMEOFF' && requestType === 'PARTIAL_DAY') {
@@ -1495,18 +1494,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       }
     }
     setError(null);
-
-    // Balance is checked only now, at submit time, not live while typing — and it's a
-    // confirmation, not a hard block: the employee can still choose to submit over it, same as
-    // Keka. The server never rejects for this either (see AttendanceRequestService); the
-    // assigned approver makes the actual call.
-    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null) {
-      const requestedMinutes = Number(partialDayMinutes);
-      if (requestedMinutes > remainingMinutes) {
-        setOverBalanceConfirm({ requestedMinutes, remainingMinutes });
-        return;
-      }
-    }
     await doSubmit();
   }
 
@@ -1651,34 +1638,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
           </div>
         </div>
       </div>
-      {overBalanceConfirm && (
-        <div style={overlayStyle}>
-          <div style={{ ...modalStyle, maxWidth: 400 }}>
-            <ModalHeader title="Confirm submission" onClose={() => !submitting && setOverBalanceConfirm(null)} />
-            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-                Your partial time of {overBalanceConfirm.requestedMinutes} mins has been fully utilized. Remaining balance: {overBalanceConfirm.remainingMinutes} mins. Do you still want to submit?
-              </p>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setOverBalanceConfirm(null)}
-                  disabled={submitting}
-                  style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: submitting ? 'not-allowed' : 'pointer' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={doSubmit}
-                  disabled={submitting}
-                  style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting…' : 'Submit'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -3975,11 +3934,19 @@ function AttendancePageInner() {
   const role = toShellRole(useAuthStore((s) => s.user?.role));
   const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
 
+  // Super Admin is a system/oversight role only — no personal attendance record, no
+  // self-service Check In/Check Out (see UserManagementService.rolesFor). They get the
+  // organization-wide roster below, not the "My Attendance" personal dashboard everyone
+  // else (including HR Admin, who is staff too) sees.
+  const isSuperAdmin = role === 'Super Admin';
+
   const subtitle = role === 'Manager'
     ? 'Review daily attendance for the selected month, and your team’s attendance for any day.'
-    : role === 'HR Admin' || role === 'Super Admin'
+    : role === 'HR Admin'
       ? 'Review daily attendance for the selected month, and attendance across the organization.'
-      : 'Review daily attendance for the selected month.';
+      : isSuperAdmin
+        ? 'Attendance across the organization.'
+        : 'Review daily attendance for the selected month.';
 
   const myAttendanceRef = useRef<MyAttendanceHandle>(null);
   const regularizationRef = useRef<RegularizationSectionHandle>(null);
@@ -4004,67 +3971,71 @@ function AttendancePageInner() {
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
             color: 'var(--txt)', margin: 0,
-          }}>My Attendance</h1>
+          }}>{isSuperAdmin ? 'Attendance Administration' : 'My Attendance'}</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            onClick={() => myAttendanceRef.current?.exportMonth()}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <Download size={14} /> Export selected month
-          </button>
-          <button
-            onClick={() => {
-              if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
-                regularizationRef.current?.openNewRequest();
-              } else {
-                pendingOpenRequest.current = true;
-                setLogsTab('ATTENDANCE_REQUESTS');
-                setRequestsSubTab('REGULARIZATION');
-              }
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <CalendarPlus size={14} /> Request Regularization
-          </button>
-        </div>
+        {!isSuperAdmin && (
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => myAttendanceRef.current?.exportMonth()}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <Download size={14} /> Export selected month
+            </button>
+            <button
+              onClick={() => {
+                if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
+                  regularizationRef.current?.openNewRequest();
+                } else {
+                  pendingOpenRequest.current = true;
+                  setLogsTab('ATTENDANCE_REQUESTS');
+                  setRequestsSubTab('REGULARIZATION');
+                }
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <CalendarPlus size={14} /> Request Regularization
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
-        <MyAttendance
-          ref={myAttendanceRef}
-          isSuperAdmin={role === 'Super Admin'}
-          logsTab={logsTab}
-          onLogsTabChange={setLogsTab}
-          otherTabContent={
-            logsTab === 'ATTENDANCE_REQUESTS' ? (
-              <div>
-                <div style={{ marginBottom: 16 }}>
-                  <FilterTabs
-                    value={requestsSubTab}
-                    onChange={setRequestsSubTab}
-                    options={[
-                      { value: 'REGULARIZATION', label: 'Regularization' },
-                      { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
-                    ]}
-                  />
+        {!isSuperAdmin && (
+          <MyAttendance
+            ref={myAttendanceRef}
+            isSuperAdmin={isSuperAdmin}
+            logsTab={logsTab}
+            onLogsTabChange={setLogsTab}
+            otherTabContent={
+              logsTab === 'ATTENDANCE_REQUESTS' ? (
+                <div>
+                  <div style={{ marginBottom: 16 }}>
+                    <FilterTabs
+                      value={requestsSubTab}
+                      onChange={setRequestsSubTab}
+                      options={[
+                        { value: 'REGULARIZATION', label: 'Regularization' },
+                        { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
+                      ]}
+                    />
+                  </div>
+                  {requestsSubTab === 'REGULARIZATION' && (
+                    <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={isSuperAdmin} isManager={role === 'Manager'} />
+                  )}
+                  {requestsSubTab === 'WFH_PARTIAL_DAY' && (
+                    <AttendanceRequestsSection token={token} canApprove={canApprove} />
+                  )}
                 </div>
-                {requestsSubTab === 'REGULARIZATION' && (
-                  <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
-                )}
-                {requestsSubTab === 'WFH_PARTIAL_DAY' && (
-                  <AttendanceRequestsSection token={token} canApprove={canApprove} />
-                )}
-              </div>
-            ) : logsTab === 'OVERTIME' ? (
-              <OvertimeRequestsSection token={token} canApprove={canApprove} />
-            ) : null
-          }
-        />
+              ) : logsTab === 'OVERTIME' ? (
+                <OvertimeRequestsSection token={token} canApprove={canApprove} />
+              ) : null
+            }
+          />
+        )}
 
         {role === 'Manager' && <DayRoster scope="team" />}
-        {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
+        {(role === 'HR Admin' || isSuperAdmin) && <DayRoster scope="all" />}
       </div>
     </div>
   );
