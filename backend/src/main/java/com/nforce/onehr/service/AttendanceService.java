@@ -18,11 +18,13 @@ import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.WebClockInRequestRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
@@ -67,6 +69,7 @@ public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final AttendancePunchRepository attendancePunchRepository;
+    private final WebClockInRequestRepository webClockInRequestRepository;
     private final AttendanceExceptionRepository attendanceExceptionRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
@@ -110,7 +113,7 @@ public class AttendanceService {
                         .canCheckIn(true)
                         .canCheckOut(false)
                         .record(toResponse(record, employee))
-                        .breakUsedMinutes(computeBreakMinutes(record.getId()))
+                        .breakUsedMinutes(computeBreakMinutes(employee.getUserId(), record.getId(), today))
                         .breakBudgetMinutes(props.getDailyBreakBudgetMinutes())
                         .build())
                 .orElseGet(() -> TodayAttendanceResponse.builder()
@@ -124,10 +127,18 @@ public class AttendanceService {
                         .build());
     }
 
-    /** Sum of the gaps between consecutive closed punch sessions — an open (unclosed) session contributes nothing yet. */
-    private int computeBreakMinutes(UUID attendanceRecordId) {
-        List<AttendancePunch> punches = attendancePunchRepository
-                .findByAttendanceRecordIdOrderByCheckInAtAsc(attendanceRecordId);
+    /**
+     * Sum of the gaps between consecutive closed punch sessions — an open (unclosed) session
+     * contributes nothing yet. Spans BOTH punch sources (normal Check-In/Out and Web Check-In/
+     * Out): a gap between, say, a Web Check-Out and a later normal Check-In is still a break,
+     * so it must not be missed just because the two sessions came from different entry points.
+     * See {@link #collectPunches}.
+     */
+    private int computeBreakMinutes(UUID employeeId, UUID attendanceRecordId, LocalDate workDate) {
+        return sumGapMinutes(collectPunches(employeeId, attendanceRecordId, workDate));
+    }
+
+    private int sumGapMinutes(List<PunchResponse> punches) {
         int breakMinutes = 0;
         for (int i = 0; i < punches.size() - 1; i++) {
             LocalDateTime gapStart = punches.get(i).getCheckOutAt();
@@ -137,6 +148,36 @@ public class AttendanceService {
             }
         }
         return breakMinutes;
+    }
+
+    /**
+     * Every check-in/check-out session for one employee/day, from BOTH entry points — normal
+     * Check-In/Out ({@link AttendancePunch}, source SYSTEM) and Web Check-In/Out
+     * ({@link WebClockInRequest}, source WEB_REMOTE, at most one per day — see
+     * WebClockInService#submit) — merged and sorted chronologically by check-in time. Used for
+     * both the punch-history display and the break/gross/effective-hours math, so a session
+     * started one way and continued the other still contributes correctly to each.
+     */
+    private List<PunchResponse> collectPunches(UUID employeeId, UUID attendanceRecordId, LocalDate workDate) {
+        List<PunchResponse> punches = new ArrayList<>();
+        if (attendanceRecordId != null) {
+            attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(attendanceRecordId)
+                    .forEach(p -> punches.add(PunchResponse.builder()
+                            .id(p.getId())
+                            .checkInAt(p.getCheckInAt())
+                            .checkOutAt(p.getCheckOutAt())
+                            .source("SYSTEM")
+                            .build()));
+        }
+        webClockInRequestRepository.findByEmployeeUserIdAndWorkDateAndStatus(employeeId, workDate, "APPROVED")
+                .ifPresent(req -> punches.add(PunchResponse.builder()
+                        .id(req.getId())
+                        .checkInAt(req.getRequestedCheckIn())
+                        .checkOutAt(req.getCheckedOutAt())
+                        .source("WEB_REMOTE")
+                        .build()));
+        punches.sort(Comparator.comparing(PunchResponse::getCheckInAt));
+        return punches;
     }
 
     /** Read-only mirror of AttendanceProperties for the Today's Timings panel — no shiftEnd exists (ONEHR-108 not built). */
@@ -340,20 +381,18 @@ public class AttendanceService {
         return LocalDateTime.of(endDate, shiftEnd);
     }
 
-    /** Every check-in/check-out session for a single day — e.g. to show a lunch-break gap. */
+    /**
+     * Every check-in/check-out session for a single day — e.g. to show a lunch-break gap.
+     * Includes both normal Check-In/Out and Web Check-In/Out sessions, merged chronologically —
+     * see {@link #collectPunches}.
+     */
     @Transactional(readOnly = true)
     public List<PunchResponse> getPunches(String actorEmail, LocalDate date) {
         Employee employee = resolveEmployee(actorEmail);
-        return attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), date)
-                .map(record -> attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(record.getId())
-                        .stream()
-                        .map(p -> PunchResponse.builder()
-                                .id(p.getId())
-                                .checkInAt(p.getCheckInAt())
-                                .checkOutAt(p.getCheckOutAt())
-                                .build())
-                        .toList())
-                .orElse(List.of());
+        UUID attendanceRecordId = attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), date)
+                .map(Attendance::getId)
+                .orElse(null);
+        return collectPunches(employee.getUserId(), attendanceRecordId, date);
     }
 
     @Transactional(readOnly = true)

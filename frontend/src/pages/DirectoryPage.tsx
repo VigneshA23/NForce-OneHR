@@ -89,7 +89,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
 }
 
 /* ── Sort indicator ───────────────────────────────── */
-type SortKey = 'fullName' | 'departmentName' | 'designationName' | 'locationName' | 'workMode' | 'employmentType';
+type SortKey = 'fullName' | 'email' | 'departmentName' | 'designationName' | 'locationName' | 'workMode' | 'employmentType';
 
 function SortIcon({ col, sortKey, dir }: { col: SortKey; sortKey: SortKey; dir: 'asc' | 'desc' }) {
   if (col !== sortKey) return <ChevronUp size={11} style={{ opacity: 0.3 }} />;
@@ -314,6 +314,9 @@ export default function DirectoryPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Name <SortIcon col="fullName" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
                       <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Code</th>
+                      <th style={thStyle('email')} onClick={() => handleSort('email')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Email <SortIcon col="email" sortKey={sortKey} dir={sortDir} /></div>
+                      </th>
                       <th style={thStyle('departmentName')} onClick={() => handleSort('departmentName')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Department <SortIcon col="departmentName" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
@@ -322,6 +325,9 @@ export default function DirectoryPage() {
                       </th>
                       <th style={thStyle('locationName')} onClick={() => handleSort('locationName')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Location <SortIcon col="locationName" sortKey={sortKey} dir={sortDir} /></div>
+                      </th>
+                      <th style={thStyle('workMode')} onClick={() => handleSort('workMode')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Work Mode <SortIcon col="workMode" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
                       <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Status</th>
                       <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Manager</th>
@@ -343,9 +349,11 @@ export default function DirectoryPage() {
                           </div>
                         </td>
                         <td style={{ ...TD, color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5 }}>{e.employeeCode}</td>
+                        <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.email ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.departmentName ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.designationName ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.locationName ?? '—'}</td>
+                        <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.workMode?.replace('_', ' ') ?? '—'}</td>
                         <td style={TD}><StatusChip active={e.active} /></td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.managerName ?? '—'}</td>
                       </tr>
