@@ -40,11 +40,14 @@ public class AttendanceProperties {
     private LocalTime shiftDayCutover = LocalTime.of(7, 0);
 
     /** Minutes past shiftStart that are forgiven before a punch counts as LATE. */
-    private int lateGraceMinutes = 15;
+    private int lateGraceMinutes = 10;
 
     /** A day with fewer worked hours than this is HALF_DAY. */
     private int halfDayMaxHours = 4;
 
     /** Worked hours required for the day to count as a full day. */
     private int fullDayMinHours = 8;
+
+    /** Daily break allowance before it starts eating into worked hours. Provisional — pending PO/final confirmation. */
+    private int dailyBreakBudgetMinutes = 60;
 }

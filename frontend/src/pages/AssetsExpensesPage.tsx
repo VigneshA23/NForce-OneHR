@@ -398,7 +398,7 @@ function EmployeeView({ token }: { token: string }) {
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Acknowledge Asset Receipt</div>
             <div style={{ padding: 20 }}>
               <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px' }}>
+                <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px' }}>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Asset Tag</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{ackTarget.assetTag ?? '—'}</div>
@@ -1102,7 +1102,7 @@ function AddAssetModal({ token, onClose, onCreated }: { token: string; onClose: 
 
   return (
     <Modal title="Add Asset" onClose={onClose}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
         <FormRow><label style={labelStyle}>Asset Tag *</label><input style={inputStyle} value={form.assetTag} onChange={e => set('assetTag', e.target.value)} placeholder="e.g. LT-2024-001" /></FormRow>
         <FormRow><label style={labelStyle}>Category *</label><select style={inputStyle} value={form.categoryId} onChange={e => set('categoryId', e.target.value)}><option value="">Select…</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></FormRow>
         <FormRow><label style={labelStyle}>Brand</label><input style={inputStyle} value={form.brand} onChange={e => set('brand', e.target.value)} placeholder="e.g. Dell" /></FormRow>

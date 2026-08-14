@@ -24,4 +24,9 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
 
     List<LeaveRequest> findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
             Collection<UUID> employeeUserIds, String status, LocalDate to, LocalDate from);
+
+    // Organization-wide equivalent of the above — no employeeUserId scoping. Backs the HR
+    // dashboard's "On Leave" KPI (see LeaveService#listOrgLeave).
+    List<LeaveRequest> findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+            String status, LocalDate to, LocalDate from);
 }

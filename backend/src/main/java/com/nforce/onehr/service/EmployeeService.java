@@ -255,6 +255,52 @@ public class EmployeeService {
     }
 
     /**
+     * HR dashboard — organization-wide equivalent of {@link #getManagerDashboard}. "Team" for HR
+     * means every user in the org (any role), so this reuses the same {@link ManagerDashboardDto}
+     * shape but sources it from {@link #listDirectory} data instead of a manager's direct reports,
+     * and keys the joiners chart off {@code Employee.joiningDate} (org joining date) rather than
+     * an {@link EmployeeManagerHistory} team-join event — HR's "team" has no such event.
+     */
+    @Transactional(readOnly = true)
+    public ManagerDashboardDto getOrgDashboard() {
+        List<Employee> all = employeeRepository.findAllWithDetails();
+
+        List<ManagerDashboardDto.DirectReport> reports = all.stream()
+                .map(emp -> ManagerDashboardDto.DirectReport.builder()
+                        .userId(emp.getUserId().toString())
+                        .employeeCode(emp.getEmployeeCode())
+                        .fullName(emp.getFullName())
+                        .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                        .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                        .active(emp.getUser().isActive())
+                        .roleCode(RoleUtils.primaryRoleCode(emp.getUser().getRoles(), "EMPLOYEE"))
+                        .build())
+                .collect(Collectors.toList());
+
+        // Trailing 12 calendar months (including the current one) — same window as
+        // getManagerDashboard's teamJoiners, just keyed off joiningDate instead of effectiveFrom.
+        LocalDate since = LocalDate.now().withDayOfMonth(1).minusMonths(11);
+        List<ManagerDashboardDto.TeamJoiner> orgJoiners = all.stream()
+                .filter(emp -> emp.getJoiningDate() != null && !emp.getJoiningDate().isBefore(since))
+                .map(emp -> ManagerDashboardDto.TeamJoiner.builder()
+                        .userId(emp.getUserId().toString())
+                        .employeeCode(emp.getEmployeeCode())
+                        .fullName(emp.getFullName())
+                        .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                        .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                        .active(emp.getUser().isActive())
+                        .joinedTeamOn(emp.getJoiningDate().toString())
+                        .build())
+                .collect(Collectors.toList());
+
+        return ManagerDashboardDto.builder()
+                .directReportCount(reports.size())
+                .directReports(reports)
+                .teamJoiners(orgJoiners)
+                .build();
+    }
+
+    /**
      * Directory entries for the caller's current Project Team — everyone (including the caller)
      * who presently shares the caller's manager. Interim "peer group" definition (see
      * {@link com.nforce.onehr.repository.EmployeeManagerHistoryRepository#findCurrentPeerIds});

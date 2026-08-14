@@ -14,14 +14,14 @@ import java.util.UUID;
  * Read-only tracking view — no approve/reject decisions happen here (those
  * belong exclusively to the Approval Center, see ApprovalItemDto).
  *
- * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN
+ * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | WFH | PARTIAL_DAY | OVERTIME
  */
 @Data
 @Builder
 public class MyRequestItemDto {
 
-    private String id;          // UUID.toString() for Leave, Regularization, and Web Clock-In
-    private String requestType; // LEAVE | REGULARIZATION | WEB_CLOCK_IN
+    private String id;          // UUID.toString() for every type below
+    private String requestType; // see class Javadoc for the full discriminator list
     private UUID employeeUserId;
     private String employeeName;
     private Instant createdAt;
@@ -41,9 +41,13 @@ public class MyRequestItemDto {
     private Boolean leaveHalfDay;
     private String leaveReason;
 
-    // ── Attendance Regularization ─────────────────────────
+    // ── Attendance Regularization / WFH / Partial Day / Overtime (shared fields — see
+    //    ApprovalItemDto's equivalent comment for the same reuse across these types) ──
     private LocalDate attendanceDate;
     private LocalDateTime requestedCheckIn;
     private LocalDateTime requestedCheckOut;
     private String regularizationReason;
+
+    // ── WFH / Partial Day (PARTIAL_DAY only; null for WFH) ──
+    private BigDecimal partialDayHours;
 }

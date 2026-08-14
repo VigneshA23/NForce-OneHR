@@ -4,26 +4,31 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
+import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
+import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
+import com.nforce.onehr.dto.attendance.DailyPunctuality;
+import com.nforce.onehr.dto.attendance.PunctualityLeaderboardEntry;
+import com.nforce.onehr.dto.attendance.PunctualitySummary;
 import com.nforce.onehr.dto.attendance.TeamEffortEntry;
 import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
+import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
+import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
-import com.nforce.onehr.entity.LeaveBalance;
-import com.nforce.onehr.entity.LeaveType;
+import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
-import com.nforce.onehr.repository.LeaveBalanceRepository;
-import com.nforce.onehr.repository.LeaveTypeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -31,11 +36,15 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -56,22 +65,18 @@ public class AttendanceService {
 
     private static final int DEFAULT_HISTORY_DAYS = 30;
 
-    // Attendance policy: every 3rd late arrival in a calendar month costs a half-day, deducted
-    // from Casual Leave — see applyLatePenaltyIfDue.
-    private static final int LATE_PENALTY_EVERY_N = 3;
-    private static final BigDecimal LATE_PENALTY_DAYS = new BigDecimal("0.5");
-    private static final String LATE_PENALTY_LEAVE_TYPE_CODE = "CASUAL";
-
     private final AttendanceRepository attendanceRepository;
     private final AttendancePunchRepository attendancePunchRepository;
+    private final AttendanceExceptionRepository attendanceExceptionRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties props;
-    private final LeaveBalanceRepository leaveBalanceRepository;
-    private final LeaveTypeRepository leaveTypeRepository;
-    private final NotificationService notificationService;
+    // Shared with WebClockInService so the every-3rd-late-arrival penalty applies identically
+    // regardless of which check-in entry point was used — see LatePenaltyService.
+    private final LatePenaltyService latePenaltyService;
+    private final WorkingDayService workingDayService;
 
     // ---------------------------------------------------------------- self-service
 
@@ -105,6 +110,8 @@ public class AttendanceService {
                         .canCheckIn(true)
                         .canCheckOut(false)
                         .record(toResponse(record, employee))
+                        .breakUsedMinutes(computeBreakMinutes(record.getId()))
+                        .breakBudgetMinutes(props.getDailyBreakBudgetMinutes())
                         .build())
                 .orElseGet(() -> TodayAttendanceResponse.builder()
                         .workDate(today)
@@ -112,7 +119,72 @@ public class AttendanceService {
                         .canCheckIn(true)
                         .canCheckOut(false)
                         .record(null)
+                        .breakUsedMinutes(null)
+                        .breakBudgetMinutes(props.getDailyBreakBudgetMinutes())
                         .build());
+    }
+
+    /** Sum of the gaps between consecutive closed punch sessions — an open (unclosed) session contributes nothing yet. */
+    private int computeBreakMinutes(UUID attendanceRecordId) {
+        List<AttendancePunch> punches = attendancePunchRepository
+                .findByAttendanceRecordIdOrderByCheckInAtAsc(attendanceRecordId);
+        int breakMinutes = 0;
+        for (int i = 0; i < punches.size() - 1; i++) {
+            LocalDateTime gapStart = punches.get(i).getCheckOutAt();
+            LocalDateTime gapEnd = punches.get(i + 1).getCheckInAt();
+            if (gapStart != null && gapEnd != null) {
+                breakMinutes += (int) Duration.between(gapStart, gapEnd).toMinutes();
+            }
+        }
+        return breakMinutes;
+    }
+
+    /** Read-only mirror of AttendanceProperties for the Today's Timings panel — no shiftEnd exists (ONEHR-108 not built). */
+    @Transactional(readOnly = true)
+    public AttendanceConfigResponse getConfig(String actorEmail) {
+        Employee employee = resolveEmployee(actorEmail);
+        Shift shift = employee.getShift();
+        WeeklyOffPolicy weeklyOffPolicy = employee.getWeeklyOffPolicy();
+
+        return AttendanceConfigResponse.builder()
+                .shiftName(shift != null ? shift.getName() : null)
+                .shiftStart(resolveShiftStart(employee))
+                .shiftEnd(shift != null ? shift.getEndTime() : null)
+                .lateGraceMinutes(props.getLateGraceMinutes())
+                .halfDayMaxHours(props.getHalfDayMaxHours())
+                .fullDayMinHours(props.getFullDayMinHours())
+                .dailyBreakBudgetMinutes(props.getDailyBreakBudgetMinutes())
+                .weeklyOffDays(weeklyOffPolicy != null
+                        ? Arrays.stream(weeklyOffPolicy.getOffDays().split(",")).map(String::trim).toList()
+                        : List.of("SATURDAY", "SUNDAY"))
+                .build();
+    }
+
+    /** The employee's actually-assigned Shift start (ONEHR-108) if present, else the global fallback. */
+    private LocalTime resolveShiftStart(Employee employee) {
+        Shift shift = employee.getShift();
+        return shift != null ? shift.getStartTime() : props.getShiftStart();
+    }
+
+    /**
+     * Always empty today — see AttendanceExceptionResponse's Javadoc. Passive read only, no
+     * detection logic added here.
+     */
+    @Transactional(readOnly = true)
+    public List<AttendanceExceptionResponse> getMyExceptions(String actorEmail, LocalDate from, LocalDate to) {
+        Employee employee = resolveEmployee(actorEmail);
+        return attendanceExceptionRepository
+                .findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                        List.of(employee.getUserId()), from, to)
+                .stream()
+                .map(e -> AttendanceExceptionResponse.builder()
+                        .id(e.getId())
+                        .exceptionDate(e.getExceptionDate())
+                        .exceptionType(e.getExceptionType())
+                        .status(e.getStatus())
+                        .minutesLate(e.getMinutesLate())
+                        .build())
+                .toList();
     }
 
     @Transactional
@@ -158,10 +230,15 @@ public class AttendanceService {
         //    doesn't count as an official late arrival. The grace period is an HR/admin
         //    forgiveness concept for whether a check-in gets penalized — it is not something
         //    that should ever appear in what an employee is told about their own punctuality.
-        LocalTime deadline = props.getShiftStart().plusMinutes(props.getLateGraceMinutes());
+        //
+        // Both are measured against the employee's actually-assigned Shift (ONEHR-108) when
+        // present — falling back to the global shiftStart would judge lateness against the
+        // wrong time of day entirely.
+        LocalTime shiftStart = resolveShiftStart(employee);
+        LocalTime deadline = shiftStart.plusMinutes(props.getLateGraceMinutes());
         boolean isLate = now.toLocalTime().isAfter(deadline);
-        int lateByMinutes = now.toLocalTime().isAfter(props.getShiftStart())
-                ? (int) Math.ceil(Duration.between(props.getShiftStart(), now.toLocalTime()).getSeconds() / 60.0)
+        int lateByMinutes = now.toLocalTime().isAfter(shiftStart)
+                ? (int) Math.ceil(Duration.between(shiftStart, now.toLocalTime()).getSeconds() / 60.0)
                 : 0;
 
         Attendance record = attendanceRepository.save(Attendance.builder()
@@ -174,56 +251,11 @@ public class AttendanceService {
                 .build());
         openPunch(record.getId(), now);
         if (isLate) {
-            applyLatePenaltyIfDue(employee, today);
+            latePenaltyService.applyIfDue(employee, today);
         }
 
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", record.getId());
         return toResponse(record, employee);
-    }
-
-    /**
-     * Policy: every LATE_PENALTY_EVERY_N'th late arrival in a calendar month (3rd, 6th, 9th...)
-     * costs LATE_PENALTY_DAYS, deducted from the employee's Casual Leave balance the moment it
-     * happens. Only called for a genuine new late arrival — never for a lunch-break resume,
-     * since lateness is a once-per-day fact tied to the day's first check-in.
-     * A missing Casual Leave balance for the year is logged and skipped rather than thrown —
-     * a leave-balance misconfiguration must never block someone from checking in.
-     */
-    private void applyLatePenaltyIfDue(Employee employee, LocalDate workDate) {
-        LocalDate monthStart = workDate.withDayOfMonth(1);
-        LocalDate monthEnd = workDate.withDayOfMonth(workDate.lengthOfMonth());
-        long lateCountThisMonth = attendanceRepository.countByEmployeeUserIdAndWorkDateBetweenAndStatus(
-                employee.getUserId(), monthStart, monthEnd, STATUS_LATE);
-        if (lateCountThisMonth == 0 || lateCountThisMonth % LATE_PENALTY_EVERY_N != 0) {
-            return;
-        }
-
-        Optional<LeaveType> leaveType = leaveTypeRepository.findByCode(LATE_PENALTY_LEAVE_TYPE_CODE);
-        if (leaveType.isEmpty()) {
-            log.warn("Late-arrival penalty skipped for employee {}: leave type {} not configured",
-                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE_CODE);
-            return;
-        }
-        Optional<LeaveBalance> balanceOpt = leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(
-                employee.getUserId(), leaveType.get().getId(), workDate.getYear());
-        if (balanceOpt.isEmpty()) {
-            log.warn("Late-arrival penalty skipped for employee {}: no {} balance configured for {}",
-                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE_CODE, workDate.getYear());
-            return;
-        }
-
-        LeaveBalance balance = balanceOpt.get();
-        String before = auditSnapshot.toJson(Map.of("usedDays", balance.getUsedDays()));
-        balance.setUsedDays(balance.getUsedDays().add(LATE_PENALTY_DAYS));
-        leaveBalanceRepository.save(balance);
-        String after = auditSnapshot.toJson(Map.of("usedDays", balance.getUsedDays(), "lateCountThisMonth", lateCountThisMonth));
-        auditService.log(employee.getUserId(), "LATE_ARRIVAL_PENALTY_APPLIED", balance.getId(), before, after);
-
-        notificationService.send(employee.getUserId(), "ATTENDANCE",
-                "Half-day deducted for late arrivals",
-                "You've been late " + lateCountThisMonth + " times this month, so " + LATE_PENALTY_DAYS
-                        + " day has been deducted from your Casual Leave balance.",
-                "/attendance");
     }
 
     private void openPunch(UUID attendanceRecordId, LocalDateTime checkInAt) {
@@ -246,6 +278,13 @@ public class AttendanceService {
                 .findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("You have not checked in today"));
 
+        // A forgotten checkout can leave a session open for a day or more before the employee
+        // actually clicks Check-out; count worked time only up to this shift's own natural end
+        // (not the stale click's real clock time), so it can never inflate into something like
+        // "27h 8m" for what is supposed to be a single shift/day.
+        LocalDateTime cutoff = shiftEndCutoff(employee, record.getWorkDate());
+        LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
+
         // Sessions accumulate: only this session's minutes are added to whatever was
         // already worked earlier today, so a lunch break isn't counted as worked time.
         // Rounded to the nearest minute, not truncated: Duration.toMinutes() floors, so several
@@ -254,11 +293,12 @@ public class AttendanceService {
         // precision on the total once.
         LocalDateTime sessionStart = record.getSessionStartedAt() != null
                 ? record.getSessionStartedAt() : record.getCheckInAt();
-        int sessionMinutes = (int) Math.round(Duration.between(sessionStart, now).getSeconds() / 60.0);
+        long sessionSeconds = Math.max(0, Duration.between(sessionStart, effectiveCheckOut).getSeconds());
+        int sessionMinutes = (int) Math.round(sessionSeconds / 60.0);
         int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
         String before = auditSnapshot.toJson(Map.of(
                 "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
-        record.setCheckOutAt(now);
+        record.setCheckOutAt(effectiveCheckOut);
         record.setWorkedMinutes(workedMinutes);
 
         // A short day overrides LATE — the shortfall is the more significant fact for payroll.
@@ -271,13 +311,33 @@ public class AttendanceService {
         Attendance saved = attendanceRepository.save(record);
         attendancePunchRepository.findByAttendanceRecordIdAndCheckOutAtIsNull(saved.getId())
                 .ifPresent(punch -> {
-                    punch.setCheckOutAt(now);
+                    punch.setCheckOutAt(effectiveCheckOut);
                     attendancePunchRepository.save(punch);
                 });
         String after = auditSnapshot.toJson(Map.of(
-                "checkOutAt", now.toString(), "workedMinutes", workedMinutes, "status", saved.getStatus()));
+                "checkOutAt", effectiveCheckOut.toString(), "workedMinutes", workedMinutes, "status", saved.getStatus()));
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId(), before, after);
         return toResponse(saved, employee);
+    }
+
+    /**
+     * Natural end of the shift covering workDate, crossing into the next calendar day when the
+     * configured end time is earlier than the start (e.g. 3:30 PM - 12:30 AM). Worked-minutes
+     * calculations are bounded to this so a checkout that arrives a day (or more) late — a
+     * forgotten session — can't be counted as if the employee worked continuously the whole
+     * time in between.
+     */
+    private LocalDateTime shiftEndCutoff(Employee employee, LocalDate workDate) {
+        LocalTime shiftStart = resolveShiftStart(employee);
+        Shift shift = employee.getShift();
+        LocalTime shiftEnd = shift != null ? shift.getEndTime() : null;
+        if (shiftEnd == null) {
+            // No shift end configured — fall back to a generous full day from shift start
+            // rather than leaving worked-hours completely unbounded.
+            return LocalDateTime.of(workDate, shiftStart).plusHours(24);
+        }
+        LocalDate endDate = !shiftEnd.isAfter(shiftStart) ? workDate.plusDays(1) : workDate;
+        return LocalDateTime.of(endDate, shiftEnd);
     }
 
     /** Every check-in/check-out session for a single day — e.g. to show a lunch-break gap. */
@@ -443,15 +503,21 @@ public class AttendanceService {
         }
 
         List<Attendance> records = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(reportIds, from, to);
-        Map<UUID, Employee> byId = employeeRepository.findAllById(reportIds).stream()
+        Map<UUID, Employee> byId = employeeRepository.findAllByIdWithScheduleDetails(reportIds).stream()
                 .collect(Collectors.toMap(Employee::getUserId, Function.identity()));
-        double expectedHours = countWeekdays(from, to) * EXPECTED_HOURS_PER_WORKDAY;
+        // Working-days-per-employee (joining date, weekly off, holidays, approved leave) —
+        // NOT a flat weekday count: two direct reports can have different expected hours in the
+        // same range (e.g. one joined mid-range, or is on a non-Sat/Sun weekly-off policy).
+        Map<UUID, WorkingDaySchedule> schedules =
+                workingDayService.computeExpectedWorkingDaysBulk(new ArrayList<>(byId.values()), from, to);
 
         return groupByEmployee(records).entrySet().stream()
                 .filter(e -> e.getValue().activeDays > 0)
                 .map(e -> {
                     TeamStat stat = e.getValue();
                     Employee employee = byId.get(e.getKey());
+                    WorkingDaySchedule schedule = schedules.get(e.getKey());
+                    double expectedHours = (schedule != null ? schedule.getExpectedWorkingDays() : 0) * EXPECTED_HOURS_PER_WORKDAY;
                     return TeamEffortEntry.builder()
                             .employeeUserId(e.getKey())
                             .fullName(employee != null ? employee.getFullName() : null)
@@ -464,6 +530,84 @@ public class AttendanceService {
                 })
                 .sorted(Comparator.comparingDouble(TeamEffortEntry::getAvgHoursPerDay).reversed())
                 .toList();
+    }
+
+    /**
+     * Team Punctuality / On-Time Leaderboard — "on time" is defined solely as
+     * {@code attendance.status == PRESENT}; LATE, HALF_DAY, and no record at all (ABSENT) never
+     * count. Ranked desc by percentage, ties left in whatever order the underlying stream
+     * produces (no invented secondary tie-break). Direct reports with zero expected working
+     * days in the range are excluded from the leaderboard entirely, not shown as 0%.
+     */
+    @Transactional(readOnly = true)
+    public TeamPunctualityResponse getTeamPunctuality(String managerEmail, LocalDate from, LocalDate to) {
+        Employee manager = resolveEmployee(managerEmail);
+        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+        if (reportIds.isEmpty()) {
+            return TeamPunctualityResponse.builder()
+                    .leaderboard(List.of()).daily(List.of())
+                    .summary(PunctualitySummary.builder().averageEmployeesOnTime(0).minimumEmployeesOnTime(0).maximumEmployeesOnTime(0).build())
+                    .build();
+        }
+
+        List<Employee> reports = employeeRepository.findAllByIdWithScheduleDetails(reportIds);
+        List<Attendance> records = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(reportIds, from, to);
+        Map<UUID, WorkingDaySchedule> schedules = workingDayService.computeExpectedWorkingDaysBulk(reports, from, to);
+
+        Map<UUID, Set<LocalDate>> onTimeDatesByEmployee = records.stream()
+                .filter(r -> STATUS_PRESENT.equals(r.getStatus()))
+                .collect(Collectors.groupingBy(Attendance::getEmployeeUserId,
+                        Collectors.mapping(Attendance::getWorkDate, Collectors.toSet())));
+
+        List<PunctualityLeaderboardEntry> leaderboard = new ArrayList<>();
+        // Union of every direct report's working dates — a date only belongs on the daily chart
+        // if it was a working day for at least one of them.
+        Map<LocalDate, Integer> onTimeCountByDate = new TreeMap<>();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            onTimeCountByDate.put(d, 0);
+        }
+        Set<LocalDate> anyWorkingDate = new HashSet<>();
+
+        for (Employee employee : reports) {
+            WorkingDaySchedule schedule = schedules.get(employee.getUserId());
+            if (schedule == null || schedule.getExpectedWorkingDays() == 0) {
+                continue;
+            }
+            Set<LocalDate> onTimeDates = onTimeDatesByEmployee.getOrDefault(employee.getUserId(), Set.of());
+            int onTimeDays = 0;
+            for (LocalDate workingDate : schedule.getWorkingDates()) {
+                anyWorkingDate.add(workingDate);
+                if (onTimeDates.contains(workingDate)) {
+                    onTimeDays++;
+                    onTimeCountByDate.merge(workingDate, 1, Integer::sum);
+                }
+            }
+            leaderboard.add(PunctualityLeaderboardEntry.builder()
+                    .employeeUserId(employee.getUserId())
+                    .fullName(employee.getFullName())
+                    .designationName(designationOf(employee))
+                    .onTimeDays(onTimeDays)
+                    .expectedWorkingDays(schedule.getExpectedWorkingDays())
+                    .percentage(round1(onTimeDays * 100.0 / schedule.getExpectedWorkingDays()))
+                    .build());
+        }
+        leaderboard.sort(Comparator.comparingDouble(PunctualityLeaderboardEntry::getPercentage).reversed());
+
+        List<DailyPunctuality> daily = onTimeCountByDate.entrySet().stream()
+                .filter(e -> anyWorkingDate.contains(e.getKey()))
+                .map(e -> DailyPunctuality.builder().date(e.getKey()).employeesOnTime(e.getValue()).build())
+                .toList();
+
+        List<Integer> applicableCounts = daily.stream().map(DailyPunctuality::getEmployeesOnTime).toList();
+        PunctualitySummary summary = applicableCounts.isEmpty()
+                ? PunctualitySummary.builder().averageEmployeesOnTime(0).minimumEmployeesOnTime(0).maximumEmployeesOnTime(0).build()
+                : PunctualitySummary.builder()
+                        .averageEmployeesOnTime(round1(applicableCounts.stream().mapToInt(Integer::intValue).average().orElse(0)))
+                        .minimumEmployeesOnTime(applicableCounts.stream().min(Integer::compareTo).orElse(0))
+                        .maximumEmployeesOnTime(applicableCounts.stream().max(Integer::compareTo).orElse(0))
+                        .build();
+
+        return TeamPunctualityResponse.builder().leaderboard(leaderboard).daily(daily).summary(summary).build();
     }
 
     /** The three Negligence panels: Late Arrivals, Least Hours Worked, Frequent Breaks (ONEHR-107). */
@@ -556,12 +700,6 @@ public class AttendanceService {
             stat.totalWorkedMinutes += r.getWorkedMinutes() != null ? r.getWorkedMinutes() : 0;
         }
         return stats;
-    }
-
-    private long countWeekdays(LocalDate from, LocalDate to) {
-        return from.datesUntil(to.plusDays(1))
-                .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY)
-                .count();
     }
 
     private List<TeamNegligenceResponse.HoursBucket> buildHoursHistogram(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  BookOpen, CheckCircle2, ChevronDown, Download, FileText, FolderOpen, HelpCircle, Paperclip,
+  BookOpen, CheckCircle2, ChevronDown, FileText, FolderOpen, HelpCircle, Paperclip,
   Plus, Search, Send, X,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -17,11 +17,15 @@ import {
 import {
   helpContentApi,
   hrHelpContentApi,
+  type Attachment,
   type HelpContentDetail,
+  type HelpContentStatus,
   type HelpContentSummary,
   type HelpContentType,
 } from '../api/helpContent';
-import { ContentFormModal, StatusChip } from '../components/helpContent/ContentFormModal';
+import { ContentFormModal, StatusChip, ConfirmModal } from '../components/helpContent/ContentFormModal';
+import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
+import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -331,22 +335,138 @@ const CONTENT_TYPE_LABEL: Record<HelpContentType, string> = {
 
 // Inline management controls (HR Admin/Super Admin only) — deliberately plain text links, not
 // icon buttons or a toolbar, so Help & Guidance keeps reading as a help center with a couple of
-// extra actions rather than turning into a separate admin dashboard.
-const adminLinkStyle: React.CSSProperties = { background: 'none', border: 'none', color: 'var(--brand)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', padding: 0 };
-const adminLinkMutedStyle: React.CSSProperties = { ...adminLinkStyle, color: 'var(--txt-mut)' };
+// extra actions rather than turning into a separate admin dashboard. Which links appear is
+// driven entirely by `item.status` — see HelpContentService for the six-state lifecycle these
+// mirror (DRAFT/PENDING_APPROVAL/APPROVED/PUBLISHED/UNPUBLISHED/ARCHIVED).
 const addContentBtnStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 
-/** Edit/Archive links + Draft/Archived chips shown under an FAQ or guide row, admins only. */
-function AdminItemControls({ item, onEdit, onArchiveToggle }: {
-  item: HelpContentSummary; onEdit: (item: HelpContentSummary) => void; onArchiveToggle: (item: HelpContentSummary) => void;
-}) {
+const STATUS_LABEL: Record<HelpContentStatus, string> = {
+  DRAFT: 'Draft', PENDING_APPROVAL: 'Pending Approval', APPROVED: 'Approved',
+  PUBLISHED: 'Published', UNPUBLISHED: 'Unpublished', ARCHIVED: 'Archived',
+};
+const STATUS_TONE: Record<HelpContentStatus, 'ok' | 'warn' | 'dim'> = {
+  DRAFT: 'warn', PENDING_APPROVAL: 'warn', APPROVED: 'ok', PUBLISHED: 'ok', UNPUBLISHED: 'dim', ARCHIVED: 'dim',
+};
+
+interface ContentAdminActions {
+  onEdit: (item: HelpContentSummary) => void;
+  onView: (item: HelpContentSummary) => void;
+  onSubmit: (item: HelpContentSummary) => void;
+  onWithdraw: (item: HelpContentSummary) => void;
+  onPublish: (item: HelpContentSummary) => void;
+  onUnpublish: (item: HelpContentSummary) => void;
+  onArchive: (item: HelpContentSummary) => void;
+  onRestore: (item: HelpContentSummary) => void;
+  onDelete: (item: HelpContentSummary) => void;
+}
+
+/**
+ * Action availability per status — mirrors HelpContentService's ARCHIVABLE_STATUSES /
+ * DELETABLE_STATUSES / PUBLISHABLE_STATUSES. A DRAFT hasn't been through approval yet, so
+ * there's nothing worth retaining via Archive (Delete only); every other status except the
+ * locked PENDING_APPROVAL may be permanently deleted.
+ */
+function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions): KebabItem[] {
+  const { onEdit, onView, onSubmit, onWithdraw, onPublish, onUnpublish, onArchive, onRestore, onDelete } = actions;
+  switch (item.status) {
+    case 'DRAFT':
+      return [
+        { label: 'Edit', onClick: () => onEdit(item) },
+        { label: 'Submit for Approval', onClick: () => onSubmit(item) },
+        { label: 'Delete', onClick: () => onDelete(item), danger: true, dividerBefore: true },
+      ];
+    case 'PENDING_APPROVAL':
+      return [
+        { label: 'View', onClick: () => onView(item) },
+        { label: 'Withdraw', onClick: () => onWithdraw(item), dividerBefore: true },
+      ];
+    case 'APPROVED':
+      return [
+        { label: 'Edit', onClick: () => onEdit(item) },
+        { label: 'Publish', onClick: () => onPublish(item) },
+        { label: 'Archive', onClick: () => onArchive(item), dividerBefore: true },
+        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+      ];
+    case 'PUBLISHED':
+      return [
+        { label: 'View', onClick: () => onView(item) },
+        { label: 'Edit', onClick: () => onEdit(item) },
+        { label: 'Unpublish', onClick: () => onUnpublish(item), dividerBefore: true },
+        { label: 'Archive', onClick: () => onArchive(item) },
+        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+      ];
+    case 'UNPUBLISHED':
+      return [
+        { label: 'View', onClick: () => onView(item) },
+        { label: 'Edit', onClick: () => onEdit(item) },
+        { label: 'Publish', onClick: () => onPublish(item), dividerBefore: true },
+        { label: 'Archive', onClick: () => onArchive(item) },
+        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+      ];
+    default: // ARCHIVED
+      return [
+        { label: 'View', onClick: () => onView(item) },
+        { label: 'Restore', onClick: () => onRestore(item), dividerBefore: true },
+        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+      ];
+  }
+}
+
+/**
+ * Status chip + a kebab action menu, shown under an FAQ or Guide row, admins only. A portal-
+ * based dropdown (not inline text links) so opening it never reflows the row — the trigger is a
+ * fixed 30×30 button regardless of how many actions the current status has, which keeps FAQ and
+ * Guide rows visually consistent and never shifts the page underneath an open menu.
+ */
+function AdminItemControls({ item, actions, busy }: { item: HelpContentSummary; actions: ContentAdminActions; busy?: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      {!item.published && <StatusChip label="Draft" tone="warn" />}
-      {!item.active && <StatusChip label="Archived" tone="dim" />}
-      <button onClick={() => onEdit(item)} style={adminLinkStyle}>Edit</button>
-      <span style={{ color: 'var(--line2)', fontSize: 11 }}>|</span>
-      <button onClick={() => onArchiveToggle(item)} style={adminLinkMutedStyle}>{item.active ? 'Archive' : 'Unarchive'}</button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 30 }}>
+      <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />
+      {busy ? (
+        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>Working…</span>
+      ) : (
+        <KebabMenu items={actionsForStatus(item, actions)} />
+      )}
+    </div>
+  );
+}
+
+/** Confirming a Withdraw/Reject-style action that requires a typed reason — same shape as ApprovalsPage's reject textarea. */
+function ReasonPromptModal({ title, label, onConfirm, onClose }: {
+  title: string; label: string; onConfirm: (reason: string) => Promise<void>; onClose: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleConfirm() {
+    if (!reason.trim() || submitting) return;
+    setSubmitting(true); setError(null);
+    try {
+      await onConfirm(reason.trim());
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 460 }}>
+        <ModalHeader title={title} onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          <label style={labelStyle}>{label} *</label>
+          <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit', marginBottom: 14 }} value={reason} onChange={e => setReason(e.target.value)} autoFocus disabled={submitting} />
+          {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '9px 13px', fontSize: 12.5, marginBottom: 14 }}>{error}</div>}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} disabled={submitting} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>Cancel</button>
+            <button onClick={handleConfirm} disabled={!reason.trim() || submitting} style={{ background: reason.trim() ? 'var(--brand)' : 'var(--raised2)', color: reason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: (!reason.trim() || submitting) ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? 'Processing…' : 'Confirm'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -364,37 +484,83 @@ function SectionHeader({ title, description, action }: { title: string; descript
 }
 
 /**
+ * "This FAQ/Guide has attachments — would you like to take a look?" prompt, shared by the FAQ
+ * accordion's expanded panel and the Guide row — clicking View Attachments reuses the same
+ * blob-fetch viewer both surfaces need, fetching the attachment list lazily so collapsed FAQ
+ * rows don't pay for it up front.
+ */
+function AttachmentIndicator({ contentId, count, token, kind }: { contentId: string; count: number; token: string; kind: string }) {
+  const [viewing, setViewing] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[] | null>(null);
+
+  async function open() {
+    setViewing(true);
+    if (!attachments) setAttachments(await helpContentApi.listAttachments(contentId, token));
+  }
+
+  if (count === 0) return null;
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+          📎 This {kind} has {count} attachment{count === 1 ? '' : 's'}. Would you like to take a look?
+        </span>
+        <button onClick={open} style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '3px 10px', color: 'var(--brand)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          View Attachments
+        </button>
+      </div>
+      {viewing && attachments && (
+        <AttachmentViewerModal
+          title="Attachments"
+          attachments={attachments}
+          fetchBlob={attachmentId => helpContentApi.downloadAttachment(contentId, attachmentId, token)}
+          onClose={() => setViewing(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
  * One row in the Quick Help & Guides list — deliberately a row, not a card, so this column
  * reads with the same rhythm as the FAQ accordion sitting next to it.
  */
-function GuideListItem({ item, onOpen, isAdmin, onEdit, onArchiveToggle }: {
-  item: HelpContentSummary; onOpen: () => void;
-  isAdmin?: boolean; onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void;
+function GuideListItem({ item, onOpen, token, isAdmin, actions, busy }: {
+  item: HelpContentSummary; onOpen: () => void; token: string;
+  isAdmin?: boolean; actions?: ContentAdminActions; busy?: boolean;
 }) {
   const Icon = CONTENT_TYPE_ICON[item.type];
+  // DRAFT has no published content yet — there's nothing to Open, and showing the button would
+  // either 404 or spin forever on employee-facing endpoints that only ever resolve PUBLISHED ids.
+  const canOpen = item.status !== 'DRAFT';
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 18px' }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 18px', minHeight: 56 }}>
       <Icon size={16} style={{ color: 'var(--brand)', flexShrink: 0, marginTop: 2 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{item.title}</div>
         {item.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>{item.description}</div>}
-        {isAdmin && onEdit && onArchiveToggle && (
-          <div style={{ marginTop: 7 }}><AdminItemControls item={item} onEdit={onEdit} onArchiveToggle={onArchiveToggle} /></div>
+        {item.attachmentCount > 0 && (
+          <div style={{ marginTop: 5 }}><AttachmentIndicator contentId={item.id} count={item.attachmentCount} token={token} kind={CONTENT_TYPE_LABEL[item.type]} /></div>
+        )}
+        {isAdmin && actions && (
+          <div style={{ marginTop: 7 }}><AdminItemControls item={item} actions={actions} busy={busy} /></div>
         )}
       </div>
-      <button
-        onClick={onOpen}
-        style={{ alignSelf: 'center', background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 6, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
-      >
-        Open
-      </button>
+      {canOpen && (
+        <button
+          onClick={onOpen}
+          style={{ alignSelf: 'center', background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 6, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+        >
+          Open
+        </button>
+      )}
     </div>
   );
 }
 
-function GuideList({ items, onOpen, isAdmin, onEdit, onArchiveToggle }: {
-  items: HelpContentSummary[]; onOpen: (id: string) => void;
-  isAdmin?: boolean; onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void;
+function GuideList({ items, onOpen, token, isAdmin, actions, busyIds }: {
+  items: HelpContentSummary[]; onOpen: (id: string) => void; token: string;
+  isAdmin?: boolean; actions?: ContentAdminActions; busyIds?: Set<string>;
 }) {
   if (items.length === 0) {
     return <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No guides published yet.</div>;
@@ -403,41 +569,24 @@ function GuideList({ items, onOpen, isAdmin, onEdit, onArchiveToggle }: {
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
       {items.map((item, i) => (
         <div key={item.id} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
-          <GuideListItem item={item} onOpen={() => onOpen(item.id)} isAdmin={isAdmin} onEdit={onEdit} onArchiveToggle={onArchiveToggle} />
+          <GuideListItem item={item} onOpen={() => onOpen(item.id)} token={token} isAdmin={isAdmin} actions={actions} busy={busyIds?.has(item.id)} />
         </div>
       ))}
     </div>
   );
 }
 
-/** Full-content view for any content item — fetches its own detail and, if present, previews/downloads its attachment. */
+/** Full-content view for any content item — fetches its own detail and, if present, offers the shared attachment viewer. */
 function ContentModal({ id, token, onClose, onContactHR }: {
   id: string; token: string; onClose: () => void; onContactHR: () => void;
 }) {
   const [item, setItem] = useState<HelpContentDetail | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [viewingAttachments, setViewingAttachments] = useState(false);
 
   useEffect(() => {
     helpContentApi.getOne(id, token).then(setItem);
     helpContentApi.trackView(id, token);
   }, [id, token]);
-
-  useEffect(() => {
-    if (!item?.hasAttachment) return;
-    let objectUrl: string | null = null;
-    helpContentApi.downloadAttachment(id, token).then(blob => {
-      objectUrl = URL.createObjectURL(blob);
-      setPreviewUrl(objectUrl);
-    }).catch(() => { /* preview is best-effort; download button still won't render without a blob */ });
-    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [item?.hasAttachment, id, token]);
-
-  function download() {
-    if (!previewUrl || !item) return;
-    const a = document.createElement('a');
-    a.href = previewUrl; a.download = item.attachmentName ?? 'download';
-    a.click();
-  }
 
   if (!item) {
     return (
@@ -447,10 +596,6 @@ function ContentModal({ id, token, onClose, onContactHR }: {
     );
   }
 
-  const ext = (item.attachmentName ?? '').split('.').pop()?.toLowerCase();
-  const isImage = ext === 'png' || ext === 'jpg' || ext === 'jpeg';
-  const isPdf = ext === 'pdf';
-
   return (
     <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...modalStyle, maxWidth: 620 }}>
@@ -459,25 +604,21 @@ function ContentModal({ id, token, onClose, onContactHR }: {
           {item.description && <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 0, marginBottom: 14 }}>{item.description}</p>}
           {item.body && <div style={{ fontSize: 13, color: 'var(--txt)', whiteSpace: 'pre-wrap', lineHeight: 1.6, marginBottom: 16 }}>{item.body}</div>}
 
-          {item.hasAttachment && (
-            <div style={{ marginBottom: 16 }}>
-              {previewUrl && isPdf && (
-                <iframe src={previewUrl} title={item.attachmentName ?? 'preview'} style={{ width: '100%', height: 380, border: '1px solid var(--line)', borderRadius: 8 }} />
-              )}
-              {previewUrl && isImage && (
-                <img src={previewUrl} alt={item.attachmentName ?? ''} style={{ maxWidth: '100%', borderRadius: 8, border: '1px solid var(--line)' }} />
-              )}
+          {item.attachments.length > 0 && (
+            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+                📎 This {CONTENT_TYPE_LABEL[item.type]} has {item.attachments.length} attachment{item.attachments.length === 1 ? '' : 's'}. Would you like to take a look?
+              </span>
               <button
-                onClick={download}
-                disabled={!previewUrl}
-                style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: previewUrl ? 'pointer' : 'not-allowed' }}
+                onClick={() => setViewingAttachments(true)}
+                style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 12px', fontSize: 11.5, fontWeight: 600, color: 'var(--brand)', cursor: 'pointer', whiteSpace: 'nowrap' }}
               >
-                <Download size={13} /> {item.attachmentName ?? 'Download attachment'}
+                View Attachments
               </button>
             </div>
           )}
 
-          {!item.body && !item.hasAttachment && (
+          {!item.body && item.attachments.length === 0 && (
             <div style={{ background: 'var(--raised)', border: '1px dashed var(--line2)', borderRadius: 8, padding: '28px 18px', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13, marginBottom: 16 }}>
               Detailed content for this item is being finalized and will appear here soon.
             </div>
@@ -493,14 +634,22 @@ function ContentModal({ id, token, onClose, onContactHR }: {
           </div>
         </div>
       </div>
+      {viewingAttachments && (
+        <AttachmentViewerModal
+          title={item.title}
+          attachments={item.attachments}
+          fetchBlob={attachmentId => helpContentApi.downloadAttachment(id, attachmentId, token)}
+          onClose={() => setViewingAttachments(false)}
+        />
+      )}
     </div>
   );
 }
 
 /** Answers render straight from the list payload's `description` — no per-item fetch needed. */
-function FAQAccordion({ items, token, isAdmin, onEdit, onArchiveToggle }: {
+function FAQAccordion({ items, token, isAdmin, actions, busyIds }: {
   items: HelpContentSummary[]; token: string;
-  isAdmin?: boolean; onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void;
+  isAdmin?: boolean; actions?: ContentAdminActions; busyIds?: Set<string>;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const viewedRef = useRef<Set<string>>(new Set());
@@ -539,10 +688,13 @@ function FAQAccordion({ items, token, isAdmin, onEdit, onArchiveToggle }: {
             {isOpen && (
               <div style={{ padding: '0 18px 16px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.6 }}>
                 {faq.description || 'No further detail available.'}
+                {faq.attachmentCount > 0 && (
+                  <div style={{ marginTop: 8 }}><AttachmentIndicator contentId={faq.id} count={faq.attachmentCount} token={token} kind="FAQ" /></div>
+                )}
               </div>
             )}
-            {isAdmin && onEdit && onArchiveToggle && (
-              <div style={{ padding: '0 18px 12px' }}><AdminItemControls item={faq} onEdit={onEdit} onArchiveToggle={onArchiveToggle} /></div>
+            {isAdmin && actions && (
+              <div style={{ padding: '0 18px 12px' }}><AdminItemControls item={faq} actions={actions} busy={busyIds?.has(faq.id)} /></div>
             )}
           </div>
         );
@@ -551,15 +703,47 @@ function FAQAccordion({ items, token, isAdmin, onEdit, onArchiveToggle }: {
   );
 }
 
-function AllFaqsModal({ token, isAdmin, refreshToken, onEdit, onArchiveToggle, onClose }: {
-  token: string; isAdmin: boolean; refreshToken: number;
-  onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void; onClose: () => void;
+const STATUS_FILTER_OPTIONS: Array<HelpContentStatus | 'ALL'> = ['ALL', 'DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PUBLISHED', 'UNPUBLISHED', 'ARCHIVED'];
+
+/**
+ * Admin-only status filter pills — lets HR narrow the "View all" list straight to, say,
+ * Archived or Pending Approval instead of scanning the whole catalog. Archived deliberately
+ * stays a filter here rather than a separate page (see item 8 of the Help & Guidance approval
+ * workflow requirements) — no extra surface to maintain, and it composes with the type split
+ * (FAQ vs Guide) for free since each modal already only lists its own type.
+ */
+function StatusFilterBar({ value, onChange, counts }: { value: HelpContentStatus | 'ALL'; onChange: (v: HelpContentStatus | 'ALL') => void; counts: Record<string, number> }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+      {STATUS_FILTER_OPTIONS.map(s => (
+        <button key={s} onClick={() => onChange(s)} style={{
+          padding: '5px 12px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: 'none',
+          background: value === s ? 'var(--brand)' : 'var(--raised)',
+          color: value === s ? '#fff' : 'var(--txt-mut)',
+        }}>
+          {s === 'ALL' ? 'All' : STATUS_LABEL[s]} {(counts[s] ?? 0) > 0 && <span style={{ marginLeft: 4, opacity: 0.8 }}>{counts[s]}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function statusCounts(items: HelpContentSummary[]): Record<string, number> {
+  const counts: Record<string, number> = { ALL: items.length };
+  for (const s of STATUS_FILTER_OPTIONS) counts[s] = items.filter(i => i.status === s).length;
+  return counts;
+}
+
+function AllFaqsModal({ token, isAdmin, refreshToken, actions, busyIds, onClose }: {
+  token: string; isAdmin: boolean; refreshToken: number; actions?: ContentAdminActions; busyIds?: Set<string>; onClose: () => void;
 }) {
   const [items, setItems] = useState<HelpContentSummary[] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<HelpContentStatus | 'ALL'>('ALL');
   useEffect(() => {
     const call = isAdmin ? hrHelpContentApi.list(token, { type: 'FAQ', size: 100 }) : helpContentApi.list(token, { type: 'FAQ', size: 100 });
     call.then(res => setItems(res.content));
   }, [token, isAdmin, refreshToken]);
+  const filtered = items === null ? null : statusFilter === 'ALL' ? items : items.filter(i => i.status === statusFilter);
   return (
     <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...modalStyle, maxWidth: 620 }}>
@@ -568,7 +752,10 @@ function AllFaqsModal({ token, isAdmin, refreshToken, onEdit, onArchiveToggle, o
           {items === null ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
           ) : (
-            <FAQAccordion items={items} token={token} isAdmin={isAdmin} onEdit={onEdit} onArchiveToggle={onArchiveToggle} />
+            <>
+              {isAdmin && <StatusFilterBar value={statusFilter} onChange={setStatusFilter} counts={statusCounts(items)} />}
+              <FAQAccordion items={filtered ?? []} token={token} isAdmin={isAdmin} actions={actions} busyIds={busyIds} />
+            </>
           )}
         </div>
       </div>
@@ -576,15 +763,17 @@ function AllFaqsModal({ token, isAdmin, refreshToken, onEdit, onArchiveToggle, o
   );
 }
 
-function AllGuidesModal({ token, isAdmin, refreshToken, onOpenItem, onEdit, onArchiveToggle, onClose }: {
+function AllGuidesModal({ token, isAdmin, refreshToken, onOpenItem, actions, busyIds, onClose }: {
   token: string; isAdmin: boolean; refreshToken: number; onOpenItem: (id: string) => void;
-  onEdit?: (item: HelpContentSummary) => void; onArchiveToggle?: (item: HelpContentSummary) => void; onClose: () => void;
+  actions?: ContentAdminActions; busyIds?: Set<string>; onClose: () => void;
 }) {
   const [items, setItems] = useState<HelpContentSummary[] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<HelpContentStatus | 'ALL'>('ALL');
   useEffect(() => {
     const call = isAdmin ? hrHelpContentApi.list(token, { size: 100 }) : helpContentApi.list(token, { size: 100 });
     call.then(res => setItems(res.content.filter(c => c.type !== 'FAQ')));
   }, [token, isAdmin, refreshToken]);
+  const filtered = items === null ? null : statusFilter === 'ALL' ? items : items.filter(i => i.status === statusFilter);
   return (
     <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...modalStyle, maxWidth: 620 }}>
@@ -593,7 +782,10 @@ function AllGuidesModal({ token, isAdmin, refreshToken, onOpenItem, onEdit, onAr
           {items === null ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
           ) : (
-            <GuideList items={items} onOpen={onOpenItem} isAdmin={isAdmin} onEdit={onEdit} onArchiveToggle={onArchiveToggle} />
+            <>
+              {isAdmin && <StatusFilterBar value={statusFilter} onChange={setStatusFilter} counts={statusCounts(items)} />}
+              <GuideList items={filtered ?? []} onOpen={onOpenItem} token={token} isAdmin={isAdmin} actions={actions} busyIds={busyIds} />
+            </>
           )}
         </div>
       </div>
@@ -620,6 +812,13 @@ export default function HelpDeskPage() {
   const [activeContentId, setActiveContentId] = useState<string | null>(null);
   const [showAllFaqs, setShowAllFaqs] = useState(false);
   const [showAllGuides, setShowAllGuides] = useState(false);
+  const [withdrawing, setWithdrawing] = useState<HelpContentSummary | null>(null);
+  // Ids currently mid-action (Submit/Publish/Archive/etc.) — drives the "Working…" state and
+  // blocks a second click on the same row while its request is in flight.
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string; body: string; confirmLabel: string; danger?: boolean; run: () => Promise<void>;
+  } | null>(null);
 
   // Curated Help & Guidance content (FAQ/Quick Help/Guide/Document), split client-side.
   // Employees only ever see published+active content; admins see everything (incl. drafts and
@@ -669,6 +868,37 @@ export default function HelpDeskPage() {
     setContentVersion(v => v + 1);
   }
 
+  /**
+   * Patches the acted-on row in place from the mutation's own response instead of waiting on a
+   * full refetch — this is the actual fix for actions "taking several seconds to update":
+   * there was no correctness reason for the delay, just a full-list refetch (sometimes two, see
+   * refreshContent's contentVersion bump) standing between the API resolving and the UI
+   * reflecting it. `refreshContent()` still runs in the background afterward (not awaited) to
+   * reconcile any side-effected sibling row — e.g. publishing a forked revision archives the
+   * row it supersedes, which this optimistic patch can't see since it only touches `updated.id`.
+   */
+  function applyContentUpdate(updated: HelpContentDetail) {
+    setAllContent(prev => prev.map(c => c.id === updated.id
+      ? { ...c, status: updated.status, rejectionReason: updated.rejectionReason, attachmentCount: updated.attachments.length, updatedAt: updated.updatedAt }
+      : c));
+  }
+
+  function applyContentRemoval(id: string) {
+    setAllContent(prev => prev.filter(c => c.id !== id));
+  }
+
+  /** Guards against duplicate/overlapping clicks on the same row and drives the busy indicator. */
+  async function runAction(id: string, fn: () => Promise<void>) {
+    if (busyIds.has(id)) return;
+    setBusyIds(prev => new Set(prev).add(id));
+    try {
+      await fn();
+      refreshContent();
+    } finally {
+      setBusyIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  }
+
   useEffect(() => { helpdeskApi.listCategories(token).then(setCategories); }, [token]);
   useEffect(refreshContent, [token, isAdmin]);
   useEffect(() => { loadTickets(0); }, [token, statusFilter, search, showAllRequests]);
@@ -685,15 +915,102 @@ export default function HelpDeskPage() {
     setFormOpen(true);
   }
 
-  async function handleArchiveToggle(item: HelpContentSummary) {
-    try {
-      await (item.active ? hrHelpContentApi.archive(item.id, token) : hrHelpContentApi.reactivate(item.id, token));
-      showToast('success', item.active ? 'Archived' : 'Unarchived');
-      refreshContent();
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Failed to update');
-    }
+  function handleSubmitForApproval(item: HelpContentSummary) {
+    setConfirmAction({
+      title: 'Submit for Approval',
+      body: `Submit "${item.title}" for approval? It will be locked from editing until your manager decides.`,
+      confirmLabel: 'Submit',
+      run: () => runAction(item.id, async () => {
+        const updated = await hrHelpContentApi.submit(item.id, token);
+        applyContentUpdate(updated);
+        showToast('success', 'Submitted for approval');
+      }),
+    });
   }
+
+  async function handleWithdrawConfirmed(reason: string) {
+    if (!withdrawing) return;
+    const item = withdrawing;
+    await runAction(item.id, async () => {
+      const updated = await hrHelpContentApi.withdraw(item.id, reason, token);
+      applyContentUpdate(updated);
+    });
+    showToast('success', 'Withdrawn — back to Draft');
+    setWithdrawing(null);
+  }
+
+  function handlePublish(item: HelpContentSummary) {
+    runAction(item.id, async () => {
+      const updated = await hrHelpContentApi.publish(item.id, token);
+      applyContentUpdate(updated);
+      showToast('success', 'Published');
+    }).catch(err => showToast('error', err instanceof Error ? err.message : 'Failed to publish'));
+  }
+
+  function handleUnpublish(item: HelpContentSummary) {
+    setConfirmAction({
+      title: 'Unpublish',
+      body: `Unpublish "${item.title}"? Employees will no longer be able to see it until it's published again.`,
+      confirmLabel: 'Unpublish',
+      run: () => runAction(item.id, async () => {
+        const updated = await hrHelpContentApi.unpublish(item.id, token);
+        applyContentUpdate(updated);
+        showToast('success', 'Unpublished');
+      }),
+    });
+  }
+
+  function handleArchive(item: HelpContentSummary) {
+    setConfirmAction({
+      title: 'Archive',
+      body: `Archive "${item.title}"? It will be hidden from employees and moved to Archived — you can restore it later.`,
+      confirmLabel: 'Archive',
+      run: () => runAction(item.id, async () => {
+        const updated = await hrHelpContentApi.archive(item.id, token);
+        applyContentUpdate(updated);
+        showToast('success', 'Archived');
+      }),
+    });
+  }
+
+  function handleRestore(item: HelpContentSummary) {
+    setConfirmAction({
+      title: 'Restore',
+      body: `Restore "${item.title}" to Draft? It will need to be submitted and approved again before it can be published.`,
+      confirmLabel: 'Restore',
+      run: () => runAction(item.id, async () => {
+        const updated = await hrHelpContentApi.restore(item.id, token);
+        applyContentUpdate(updated);
+        showToast('success', 'Restored to Draft — submit for approval again when ready');
+      }),
+    });
+  }
+
+  function handleDelete(item: HelpContentSummary) {
+    setConfirmAction({
+      title: 'Delete',
+      body: `Permanently delete "${item.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      run: () => runAction(item.id, async () => {
+        await hrHelpContentApi.remove(item.id, token);
+        applyContentRemoval(item.id);
+        showToast('success', 'Deleted');
+      }),
+    });
+  }
+
+  const contentActions: ContentAdminActions = {
+    onEdit: openEditContent,
+    onView: item => setActiveContentId(item.id),
+    onSubmit: handleSubmitForApproval,
+    onWithdraw: item => setWithdrawing(item),
+    onPublish: handlePublish,
+    onUnpublish: handleUnpublish,
+    onArchive: handleArchive,
+    onRestore: handleRestore,
+    onDelete: handleDelete,
+  };
 
   // Debounced content search — fires 300ms after typing stops, clears back to the curated view when empty.
   useEffect(() => {
@@ -783,7 +1100,7 @@ export default function HelpDeskPage() {
       ) : (
         /* 3b. FAQ + Quick Help & Guides — side by side on desktop, stacking only when the
            viewport is too narrow for both (see minmax below), per the required layout. */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, marginBottom: 32, alignItems: 'start' }}>
+        <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, marginBottom: 32, alignItems: 'start' }}>
           <div>
             <SectionHeader
               title="Frequently Asked Questions"
@@ -801,7 +1118,7 @@ export default function HelpDeskPage() {
                 </div>
               }
             />
-            <FAQAccordion items={faqs.slice(0, 5)} token={token} isAdmin={isAdmin} onEdit={openEditContent} onArchiveToggle={handleArchiveToggle} />
+            <FAQAccordion items={faqs.slice(0, 5)} token={token} isAdmin={isAdmin} actions={contentActions} busyIds={busyIds} />
           </div>
 
           <div>
@@ -821,7 +1138,7 @@ export default function HelpDeskPage() {
                 </div>
               }
             />
-            <GuideList items={guides.slice(0, 5)} onOpen={id => setActiveContentId(id)} isAdmin={isAdmin} onEdit={openEditContent} onArchiveToggle={handleArchiveToggle} />
+            <GuideList items={guides.slice(0, 5)} onOpen={id => setActiveContentId(id)} token={token} isAdmin={isAdmin} actions={contentActions} busyIds={busyIds} />
           </div>
         </div>
       )}
@@ -926,8 +1243,8 @@ export default function HelpDeskPage() {
           token={token}
           isAdmin={isAdmin}
           refreshToken={contentVersion}
-          onEdit={isAdmin ? openEditContent : undefined}
-          onArchiveToggle={isAdmin ? handleArchiveToggle : undefined}
+          actions={isAdmin ? contentActions : undefined}
+          busyIds={busyIds}
           onClose={() => setShowAllFaqs(false)}
         />
       )}
@@ -938,8 +1255,8 @@ export default function HelpDeskPage() {
           isAdmin={isAdmin}
           refreshToken={contentVersion}
           onOpenItem={id => { setShowAllGuides(false); setActiveContentId(id); }}
-          onEdit={isAdmin ? openEditContent : undefined}
-          onArchiveToggle={isAdmin ? handleArchiveToggle : undefined}
+          actions={isAdmin ? contentActions : undefined}
+          busyIds={busyIds}
           onClose={() => setShowAllGuides(false)}
         />
       )}
@@ -951,6 +1268,26 @@ export default function HelpDeskPage() {
           token={token}
           onClose={() => setFormOpen(false)}
           onSaved={refreshContent}
+        />
+      )}
+
+      {withdrawing && (
+        <ReasonPromptModal
+          title={`Withdraw "${withdrawing.title}"`}
+          label="Withdrawal reason"
+          onConfirm={handleWithdrawConfirmed}
+          onClose={() => setWithdrawing(null)}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          body={confirmAction.body}
+          confirmLabel={confirmAction.confirmLabel}
+          danger={confirmAction.danger}
+          onConfirm={confirmAction.run}
+          onClose={() => setConfirmAction(null)}
         />
       )}
     </div>

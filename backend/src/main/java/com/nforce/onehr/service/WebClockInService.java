@@ -8,6 +8,7 @@ import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceRepository;
@@ -32,10 +33,12 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Web Clock-In: any employee working remotely can self-declare a check-in with a reason,
- * routed via EmployeeManagerHistory to their current manager (or HR/Super Admin) for
- * approval — same shape as {@link RegularizationService}. Approval upserts the day's
- * {@link Attendance} row (source WEB_REMOTE); check-out afterward needs no approval.
+ * Web Clock-In / Check-in: any employee working remotely can self-declare a check-in — no
+ * manager approval needed, it upserts the day's {@link Attendance} row (source WEB_REMOTE)
+ * immediately. {@code approve}/{@code reject} remain only to let a manager clear out any
+ * pre-existing PENDING rows from before this changed; nothing new is ever submitted as
+ * PENDING anymore, so those two paths are otherwise dead going forward. Check-out and cancel
+ * (undo today's check-in before checking out) both need no approval either.
  */
 @Service
 @RequiredArgsConstructor
@@ -56,6 +59,9 @@ public class WebClockInService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
+    // Shared with AttendanceService so the every-3rd-late-arrival penalty applies identically
+    // regardless of check-in entry point — see LatePenaltyService.
+    private final LatePenaltyService latePenaltyService;
 
     @Transactional
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
@@ -63,25 +69,48 @@ public class WebClockInService {
         LocalDateTime now = now(actor.getId());
         LocalDate today = shiftDayOf(now);
 
-        if (webClockInRepository.existsByEmployeeUserIdAndWorkDateAndStatus(actor.getId(), today, "PENDING")) {
-            throw new IllegalArgumentException("A pending web clock-in request already exists for today");
-        }
         if (webClockInRepository.existsByEmployeeUserIdAndWorkDateAndStatus(actor.getId(), today, "APPROVED")) {
-            throw new IllegalArgumentException("You have already clocked in today");
+            throw new IllegalArgumentException("You have already checked in today");
         }
 
+        // No manager approval needed — self-approved the moment it's submitted.
         WebClockInRequest entity = WebClockInRequest.builder()
                 .employeeUserId(actor.getId())
                 .assignedApproverId(resolveAssignedApprover(actor.getId()))
                 .workDate(today)
                 .requestedCheckIn(now)
                 .reason(req.getReason().trim())
-                .status("PENDING")
+                .status("APPROVED")
+                .reviewedBy(actor.getId())
+                .reviewedAt(now)
                 .build();
         entity = webClockInRepository.save(entity);
 
-        auditService.log(actor.getId(), "WEB_CLOCK_IN_REQUESTED", entity.getId());
+        applyCheckInToAttendance(entity);
+
+        auditService.log(actor.getId(), "WEB_CLOCK_IN_CHECKED_IN", entity.getId());
         return toResponse(entity);
+    }
+
+    /**
+     * Undoes today's still-open check-in (before check-out) — deletes both the request and the
+     * Attendance row it created, as if the check-in never happened. Only ever touches a row this
+     * same flow created (source WEB_REMOTE, not yet checked out); if the employee had already
+     * checked out, there's nothing left to cancel (checkOut clears the lookup this relies on).
+     */
+    @Transactional
+    public void cancel(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        WebClockInRequest req = webClockInRepository
+                .findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId(), "APPROVED")
+                .orElseThrow(() -> new IllegalArgumentException("No active check-in to cancel"));
+
+        attendanceRepository.findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
+                .filter(a -> SOURCE_WEB_REMOTE.equals(a.getSource()) && a.getCheckOutAt() == null)
+                .ifPresent(attendanceRepository::delete);
+
+        auditService.log(actor.getId(), "WEB_CLOCK_IN_CANCELLED", req.getId());
+        webClockInRepository.delete(req);
     }
 
     @Transactional(readOnly = true)
@@ -106,27 +135,17 @@ public class WebClockInService {
                 .toList();
     }
 
+    /**
+     * Only reachable for a PENDING row that predates the no-approval-needed change — nothing
+     * new is ever submitted as PENDING anymore, see {@link #submit}.
+     */
     @Transactional
     public WebClockInResponse approve(UUID requestId, String comment, String actorEmail) {
         User actor = requireActor(actorEmail);
         WebClockInRequest req = requirePending(requestId);
         assertCanReview(req, actor);
 
-        Attendance record = attendanceRepository
-                .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getWorkDate())
-                .orElse(null);
-        if (record == null) {
-            record = Attendance.builder()
-                    .employeeUserId(req.getEmployeeUserId())
-                    .workDate(req.getWorkDate())
-                    .checkInAt(req.getRequestedCheckIn())
-                    .build();
-        } else {
-            record.setCheckInAt(req.getRequestedCheckIn());
-        }
-        record.setSource(SOURCE_WEB_REMOTE);
-        recomputeDerivedFields(record);
-        attendanceRepository.save(record);
+        applyCheckInToAttendance(req);
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("APPROVED");
@@ -178,27 +197,97 @@ public class WebClockInService {
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
 
         LocalDateTime now = now(actor.getId());
+        // A forgotten checkout can leave a session open for a day or more before the employee
+        // actually clicks Check-out; count worked time only up to this shift's own natural end
+        // (not the stale click's real clock time), so it can never inflate into something like
+        // "27h 8m" for what is supposed to be a single shift/day — mirrors
+        // AttendanceService.checkOut's cap.
+        LocalDateTime cutoff = shiftEndCutoff(actor.getId(), req.getWorkDate());
+        LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
+
         String before = auditSnapshot.toJson(Map.of("checkedOutAt", "null"));
-        req.setCheckedOutAt(now);
+        req.setCheckedOutAt(effectiveCheckOut);
         webClockInRepository.save(req);
 
-        record.setCheckOutAt(now);
-        int workedMinutes = (int) Duration.between(record.getCheckInAt(), now).toMinutes();
+        // Sessions accumulate exactly like AttendanceService.checkOut: only this session's
+        // minutes are added to whatever was already worked earlier today (e.g. an office
+        // session before this remote one), so switching to Web Check-in mid-day doesn't lose
+        // or double count time already logged.
+        LocalDateTime sessionStart = record.getSessionStartedAt() != null
+                ? record.getSessionStartedAt() : record.getCheckInAt();
+        long sessionSeconds = Math.max(0, Duration.between(sessionStart, effectiveCheckOut).getSeconds());
+        int sessionMinutes = (int) Math.round(sessionSeconds / 60.0);
+        int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
+        record.setCheckOutAt(effectiveCheckOut);
         record.setWorkedMinutes(workedMinutes);
         record.setStatus(workedMinutes < attendanceProps.getHalfDayMaxHours() * 60
                 ? STATUS_HALF_DAY
                 : (record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT));
         attendanceRepository.save(record);
 
-        String after = auditSnapshot.toJson(Map.of("checkedOutAt", now.toString(), "workedMinutes", workedMinutes));
+        String after = auditSnapshot.toJson(Map.of("checkedOutAt", effectiveCheckOut.toString(), "workedMinutes", workedMinutes));
         auditService.log(actor.getId(), "WEB_CLOCK_OUT", req.getId(), before, after);
         return toResponse(req);
     }
 
     // ---------------------------------------------------------------- internals
 
-    private LocalDateTime now() {
-        return LocalDateTime.now(ZoneId.of(attendanceProps.getZone()));
+    /**
+     * Upserts the day's Attendance row from a (now-always-approved) request's requestedCheckIn.
+     * If a record already exists for the day, this is a same-day resume (e.g. the employee
+     * already worked an office session earlier and checked out, then later needs to check in
+     * again remotely) — mirrors AttendanceService.checkIn's resume path: the day's original
+     * checkInAt, late status, and worked-minutes-so-far all stay put, only a new session opens
+     * for checkOut to pick back up. Overwriting checkInAt here would silently erase whatever was
+     * already recorded for the day.
+     */
+    private void applyCheckInToAttendance(WebClockInRequest req) {
+        Attendance record = attendanceRepository
+                .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getWorkDate())
+                .orElse(null);
+        boolean isFreshCheckIn = record == null;
+        if (isFreshCheckIn) {
+            record = Attendance.builder()
+                    .employeeUserId(req.getEmployeeUserId())
+                    .workDate(req.getWorkDate())
+                    .checkInAt(req.getRequestedCheckIn())
+                    .sessionStartedAt(req.getRequestedCheckIn())
+                    .build();
+            record.setSource(SOURCE_WEB_REMOTE);
+            recomputeDerivedFields(record, req.getEmployeeUserId());
+        } else {
+            record.setSource(SOURCE_WEB_REMOTE);
+            record.setSessionStartedAt(req.getRequestedCheckIn());
+            record.setCheckOutAt(null);
+        }
+        Attendance saved = attendanceRepository.save(record);
+
+        // Same penalty as AttendanceService.checkIn — a fresh late arrival costs a half-day
+        // every 3rd time in the month, regardless of whether the check-in was in-office or
+        // remote. Never fires on a same-day resume (isFreshCheckIn false): lateness is a
+        // once-per-day fact tied to the day's first check-in.
+        if (isFreshCheckIn && STATUS_LATE.equals(saved.getStatus())) {
+            employeeRepository.findById(req.getEmployeeUserId())
+                    .ifPresent(employee -> latePenaltyService.applyIfDue(employee, req.getWorkDate()));
+        }
+    }
+
+    /**
+     * Natural end of the shift covering workDate, crossing into the next calendar day when the
+     * configured end time is earlier than the start (e.g. 3:30 PM - 12:30 AM) — see
+     * AttendanceService.shiftEndCutoff.
+     */
+    private LocalDateTime shiftEndCutoff(UUID employeeUserId, LocalDate workDate) {
+        LocalTime shiftStart = resolveShiftStart(employeeUserId);
+        LocalTime shiftEnd = employeeRepository.findById(employeeUserId)
+                .map(Employee::getShift)
+                .map(Shift::getEndTime)
+                .orElse(null);
+        if (shiftEnd == null) {
+            return LocalDateTime.of(workDate, shiftStart).plusHours(24);
+        }
+        LocalDate endDate = !shiftEnd.isAfter(shiftStart) ? workDate.plusDays(1) : workDate;
+        return LocalDateTime.of(endDate, shiftEnd);
     }
 
     /**
@@ -235,8 +324,16 @@ public class WebClockInService {
                 .orElse(null);
     }
 
-    private void recomputeDerivedFields(Attendance record) {
-        LocalTime deadline = attendanceProps.getShiftStart().plusMinutes(attendanceProps.getLateGraceMinutes());
+    /** The employee's actually-assigned Shift start (ONEHR-108) if present, else the global fallback. */
+    private LocalTime resolveShiftStart(UUID employeeUserId) {
+        return employeeRepository.findById(employeeUserId)
+                .map(Employee::getShift)
+                .map(Shift::getStartTime)
+                .orElse(attendanceProps.getShiftStart());
+    }
+
+    private void recomputeDerivedFields(Attendance record, UUID employeeUserId) {
+        LocalTime deadline = resolveShiftStart(employeeUserId).plusMinutes(attendanceProps.getLateGraceMinutes());
         int lateByMinutes = record.getCheckInAt().toLocalTime().isAfter(deadline)
                 ? (int) Duration.between(deadline, record.getCheckInAt().toLocalTime()).toMinutes()
                 : 0;

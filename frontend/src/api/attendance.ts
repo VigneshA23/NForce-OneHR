@@ -50,6 +50,50 @@ export interface TodayAttendance {
   canCheckOut: boolean;
   /** Null until the employee has punched in today. */
   record: AttendanceRecord | null;
+  /** Minutes spent on breaks so far today. Null until the employee has punched in. */
+  breakUsedMinutes: number | null;
+  breakBudgetMinutes: number;
+}
+
+/** One side of the Me-vs-My-Team comparison. Null averages mean presentDays === 0. */
+export interface AttendanceStatBucket {
+  presentDays: number;
+  avgHoursPerDay: number | null;
+  onTimeArrivalPercent: number | null;
+}
+
+export interface AttendanceStats {
+  me: AttendanceStatBucket;
+  team: AttendanceStatBucket;
+  teamSize: number;
+}
+
+/**
+ * Read-only shift/break config, resolved per-caller: shiftStart/shiftEnd/weeklyOffDays reflect
+ * the caller's assigned Shift/WeeklyOffPolicy (ONEHR-108) when one exists, else fall back to
+ * global defaults (shiftEnd null, weeklyOffDays Sat/Sun) — see AttendanceService.getConfig.
+ */
+export interface AttendanceConfig {
+  /** Null only if the caller has no Shift assigned. */
+  shiftName: string | null;
+  shiftStart: string; // "HH:mm:ss"
+  /** Null only if the caller has no Shift assigned — every employee is seeded with one, so this is normally always set. */
+  shiftEnd: string | null;
+  lateGraceMinutes: number;
+  halfDayMaxHours: number;
+  fullDayMinHours: number;
+  dailyBreakBudgetMinutes: number;
+  /** java.time.DayOfWeek names, e.g. ["SATURDAY", "SUNDAY"]. */
+  weeklyOffDays: string[];
+}
+
+/** Always empty today — see backend AttendanceExceptionResponse's Javadoc. */
+export interface AttendanceExceptionRecord {
+  id: string;
+  exceptionDate: string;
+  exceptionType: string;
+  status: string;
+  minutesLate: number | null;
 }
 
 // PARTIALLY_APPROVED: the Manager stage has approved, awaiting HR/Super Admin final approval.
@@ -160,6 +204,68 @@ export interface TeamNegligenceResponse {
   breaksTrend: TeamDailyAverage[];
 }
 
+/** One row of the On-Time Leaderboard — "on time" means attendance.status == PRESENT. */
+export interface PunctualityLeaderboardEntry {
+  employeeUserId: string;
+  fullName: string;
+  designationName: string | null;
+  onTimeDays: number;
+  expectedWorkingDays: number;
+  percentage: number;
+}
+
+export interface DailyPunctuality {
+  date: string;
+  employeesOnTime: number;
+}
+
+/** Computed from applicable daily values only (dates that were a working day for someone). */
+export interface PunctualitySummary {
+  averageEmployeesOnTime: number;
+  minimumEmployeesOnTime: number;
+  maximumEmployeesOnTime: number;
+}
+
+export interface TeamPunctualityResponse {
+  leaderboard: PunctualityLeaderboardEntry[];
+  daily: DailyPunctuality[];
+  summary: PunctualitySummary;
+}
+
+export type AttendancePenaltyStatus = 'PENDING_REVIEW' | 'APPLIED' | 'CANCELLED' | 'REVERSED';
+
+/** One row of the Regularize & Cancel Penalties table. */
+export interface PenaltyRow {
+  id: string;
+  employeeUserId: string;
+  fullName: string;
+  employeeCode: string;
+  incidentDate: string;
+  penalizedOn: string;
+  status: AttendancePenaltyStatus;
+  locationName: string | null;
+  departmentName: string | null;
+  discrepancyType: string;
+  /** The matched Penalization Policy rule's configured deduction amount at evaluation time. */
+  deductionDays: number | null;
+  cancellable: boolean;
+}
+
+export interface PenaltyFilters {
+  from: string;
+  to: string;
+  status?: AttendancePenaltyStatus;
+  discrepancyType?: string;
+  department?: string;
+  location?: string;
+  search?: string;
+}
+
+export interface PenaltyCancelResult {
+  succeededIds: string[];
+  failed: { id: string; reason: string }[];
+}
+
 export interface SubmitRegularizationPayload {
   attendanceDate: string;
   requestedCheckIn?: string;
@@ -235,6 +341,19 @@ export const attendanceApi = {
     fetch(`${BASE}/attendance/punches/${date}`, { headers: authHeaders(token) })
       .then(handle<Punch[]>),
 
+  /** "Me vs My Team" (peers under the employee's own current manager) for the selected range. */
+  stats: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/stats?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<AttendanceStats>),
+
+  config: (token: string) =>
+    fetch(`${BASE}/attendance/config`, { headers: authHeaders(token) }).then(handle<AttendanceConfig>),
+
+  /** Always resolves to an empty array today — see AttendanceExceptionRecord's doc comment. */
+  exceptions: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/exceptions?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<AttendanceExceptionRecord[]>),
+
   /** Avg. Work Hours Leaderboard for the manager's direct reports over a date range (ONEHR-106). */
   teamEffort: (from: string, to: string, token: string) =>
     fetch(`${BASE}/attendance/team-effort?from=${from}&to=${to}`, { headers: authHeaders(token) })
@@ -244,6 +363,36 @@ export const attendanceApi = {
   teamNegligence: (from: string, to: string, token: string) =>
     fetch(`${BASE}/attendance/team-negligence?from=${from}&to=${to}`, { headers: authHeaders(token) })
       .then(handle<TeamNegligenceResponse>),
+
+  /** On-Time Leaderboard for the manager's direct reports over a date range. */
+  teamPunctuality: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/team-punctuality?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<TeamPunctualityResponse>),
+};
+
+export const penaltiesApi = {
+  // Because there is no active attendance penalty policy today, an empty list is expected.
+  list: (filters: PenaltyFilters, token: string) => {
+    const params = new URLSearchParams({ from: filters.from, to: filters.to });
+    if (filters.status) params.set('status', filters.status);
+    if (filters.discrepancyType) params.set('discrepancyType', filters.discrepancyType);
+    if (filters.department) params.set('department', filters.department);
+    if (filters.location) params.set('location', filters.location);
+    if (filters.search) params.set('search', filters.search);
+    return fetch(`${BASE}/attendance/penalties?${params.toString()}`, { headers: authHeaders(token) })
+      .then(handle<PenaltyRow[]>);
+  },
+
+  // Each id is independently re-validated server-side — one failure doesn't affect the rest.
+  cancel: (penaltyIds: string[], reason: string, token: string) =>
+    fetch(`${BASE}/attendance/penalties/cancel`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ penaltyIds, reason }),
+    }).then(r => handle<PenaltyCancelResult>(r)),
+
+  // Read-only — every regularization request ever filed for one employee/date, newest first.
+  regularizationHistory: (employeeUserId: string, attendanceDate: string, token: string) =>
+    fetch(`${BASE}/attendance/regularization/history?employeeUserId=${employeeUserId}&attendanceDate=${attendanceDate}`,
+      { headers: authHeaders(token) }).then(r => handle<RegularizationRecord[]>(r)),
 };
 
 export const regularizationApi = {

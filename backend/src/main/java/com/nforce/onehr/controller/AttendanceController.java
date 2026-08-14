@@ -5,15 +5,24 @@ import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.dto.attendance.ApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.ApproverOptionDto;
+import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
+import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
+import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
+import com.nforce.onehr.dto.attendance.AttendanceStatsResponse;
 import com.nforce.onehr.dto.attendance.BulkApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.BulkRegularizationResultResponse;
 import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
+import com.nforce.onehr.dto.attendance.PenaltyCancelRequest;
+import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.attendance.RejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.TeamEffortEntry;
 import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
+import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
+import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceService;
+import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.RegularizationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +50,9 @@ import java.util.UUID;
 public class AttendanceController {
 
     private final AttendanceService attendanceService;
+    private final AttendanceStatsService attendanceStatsService;
     private final RegularizationService regularizationService;
+    private final AttendancePenaltyService attendancePenaltyService;
 
     // Gated on the base EMPLOYEE role, which every account holds alongside whatever admin role
     // it's assigned (see UserManagementService.rolesFor) — Manager/HR Admin/Super Admin are
@@ -91,6 +102,36 @@ public class AttendanceController {
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             Principal principal) {
         return attendanceService.getPunches(principal.getName(), date);
+    }
+
+    /** "Me vs My Team" (peers under the employee's own current manager) for the selected range. */
+    @GetMapping("/stats")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public AttendanceStatsResponse stats(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceStatsService.getStats(principal.getName(), from, to);
+    }
+
+    /**
+     * Shift/break config for the Today's Timings panel — no @PreAuthorize, same as /punch/{date}.
+     * Resolved per-caller: shiftStart/shiftEnd/weeklyOffDays reflect the caller's assigned
+     * Shift/WeeklyOffPolicy (ONEHR-108) if any, else fall back to global defaults.
+     */
+    @GetMapping("/config")
+    public AttendanceConfigResponse config(Principal principal) {
+        return attendanceService.getConfig(principal.getName());
+    }
+
+    /** Always empty today — see AttendanceExceptionResponse's Javadoc. */
+    @GetMapping("/exceptions")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public List<AttendanceExceptionResponse> exceptions(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceService.getMyExceptions(principal.getName(), from, to);
     }
 
     @GetMapping("/day")
@@ -156,6 +197,16 @@ public class AttendanceController {
         return attendanceService.getMonthForPeers(principal.getName(), from, to);
     }
 
+    /** On-Time Leaderboard — "on time" == PRESENT — direct reports only. */
+    @GetMapping("/team-punctuality")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public TeamPunctualityResponse teamPunctuality(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceService.getTeamPunctuality(principal.getName(), from, to);
+    }
+
     @GetMapping("/employee/{userId}")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
     public List<AttendanceResponse> employeeHistory(
@@ -199,6 +250,19 @@ public class AttendanceController {
     @GetMapping("/regularization/approvers")
     public List<ApproverOptionDto> approvers() {
         return regularizationService.listApprovers();
+    }
+
+    /**
+     * "View Regularization History" — Manager (direct report only), HR Admin, or Super Admin.
+     * Backs the read-only history modal opened from the Penalties table's kebab menu.
+     */
+    @GetMapping("/regularization/history")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public List<RegularizationResponse> regularizationHistory(
+            @RequestParam UUID employeeUserId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate attendanceDate,
+            Principal principal) {
+        return regularizationService.getHistoryForManager(principal.getName(), employeeUserId, attendanceDate);
     }
 
     /** Super Admin: full history org-wide, with optional filters. */
@@ -289,5 +353,37 @@ public class AttendanceController {
             }
         }
         return BulkRegularizationResultResponse.builder().succeededIds(succeeded).failed(failed).build();
+    }
+
+    // ── Attendance Penalties: Regularize & Cancel Penalties (Manager scope; HR/Super Admin too) ──
+
+    /**
+     * An empty list here means no configured Penalization Policy section currently matches
+     * anything in range for this scope — the expected, correct result, not a bug — see
+     * {@code ExceptionService.upsertException} for where evaluation actually happens.
+     */
+    @GetMapping("/penalties")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public List<AttendancePenaltyResponse> penalties(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String discrepancyType,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String location,
+            @RequestParam(required = false) String search,
+            Principal principal) {
+        return attendancePenaltyService.list(principal.getName(), from, to, status, discrepancyType, department, location, search);
+    }
+
+    /**
+     * Bulk cancel — each id is independently re-validated server-side (exists, still a direct
+     * report, still cancellable, no active regularization) rather than trusting the frontend's
+     * "cancellable" flag; one id's failure doesn't affect the rest of the batch.
+     */
+    @PostMapping("/penalties/cancel")
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public PenaltyCancelResultResponse cancelPenalties(@Valid @RequestBody PenaltyCancelRequest req, Principal principal) {
+        return attendancePenaltyService.cancelBulk(principal.getName(), req.getPenaltyIds(), req.getReason());
     }
 }

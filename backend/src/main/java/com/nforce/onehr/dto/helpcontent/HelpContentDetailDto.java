@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -15,15 +16,13 @@ public class HelpContentDetailDto {
     private String description;
     private String body;
     private String category;
-    private boolean published;
+    private String status;
     private Instant publishedAt;
-    private boolean active;
     private boolean featured;
     private int displayOrder;
     private long viewCount;
-    private boolean hasAttachment;
-    private String attachmentName;
-    private String attachmentUrl;
+    private List<AttachmentDto> attachments;
+    private String rejectionReason;
     private String createdByName;
     private Instant createdAt;
     private String updatedByName;

@@ -3,11 +3,15 @@ import { useSearchParams } from 'react-router-dom';
 import { Check, X, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
+import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
+import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
 import { leaveApi } from '../api/leave';
 import { regularizationApi } from '../api/attendance';
 import { webClockInApi } from '../api/webClockIn';
 import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
+import { attendanceRequestApi } from '../api/attendanceRequests';
+import { overtimeRequestApi } from '../api/overtimeRequests';
 import { useToast } from '../context/ToastContext';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
@@ -23,6 +27,10 @@ const TYPE_LABELS: Record<RequestType, string> = {
   WEB_CLOCK_IN: 'Web Clock-In',
   EXPENSE: 'Expense',
   ASSET_REQUEST: 'Asset Request',
+  WFH: 'Work From Home',
+  PARTIAL_DAY: 'Partial Day',
+  OVERTIME: 'Overtime',
+  HELP_CONTENT: 'FAQs & Guides',
 };
 
 const TYPE_COLORS: Record<RequestType, string> = {
@@ -31,6 +39,10 @@ const TYPE_COLORS: Record<RequestType, string> = {
   WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
   EXPENSE: 'rgba(16,185,129,.18)',
   ASSET_REQUEST: 'rgba(139,92,246,.18)',
+  WFH: 'rgba(76,141,214,.18)',
+  PARTIAL_DAY: 'rgba(224,169,59,.18)',
+  OVERTIME: 'rgba(236,72,153,.18)',
+  HELP_CONTENT: 'rgba(20,184,166,.18)',
 };
 
 const TYPE_TEXT: Record<RequestType, string> = {
@@ -39,6 +51,10 @@ const TYPE_TEXT: Record<RequestType, string> = {
   WEB_CLOCK_IN: '#4C8DD6',
   EXPENSE: '#10B981',
   ASSET_REQUEST: '#8B5CF6',
+  WFH: '#4C8DD6',
+  PARTIAL_DAY: '#E0A93B',
+  OVERTIME: '#EC4899',
+  HELP_CONTENT: '#14B8A6',
 };
 
 function TypeBadge({ type }: { type: RequestType }) {
@@ -108,7 +124,130 @@ function ItemDetail({ item }: { item: ApprovalItem }) {
       </div>
     );
   }
+  if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${item.partialDayHours}h` : ''}
+      </div>
+    );
+  }
+  if (item.requestType === 'OVERTIME') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
+      </div>
+    );
+  }
+  if (item.requestType === 'HELP_CONTENT') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{item.helpContentTitle}</span>
+        {' · '}attempt #{item.helpContentAttemptNumber}
+        {item.helpContentModifiedSincePrevious && (
+          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: 'rgba(245,158,11,.15)', color: '#F59E0B' }}>Modified</span>
+        )}
+      </div>
+    );
+  }
   return null;
+}
+
+/** "View Changes" — field-level diff plus attachment changes vs. the immediately preceding attempt. */
+function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => void }) {
+  const changedFields = diff.fieldChanges.filter(f => f.changed);
+  const attachmentChanges = diff.attachmentChanges.filter(c => c.changeType !== 'UNCHANGED');
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 620, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Changes vs. previous submission</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: 20 }}>
+          {changedFields.length === 0 && attachmentChanges.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No changes detected versus the previous submission.</div>
+          ) : (
+            <>
+              {changedFields.map(f => (
+                <div key={f.fieldName} style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>{f.fieldName}</div>
+                  <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                    {f.segments.map((s, i) => (
+                      <span key={i} style={{
+                        background: s.type === 'ADDED' ? 'rgba(16,185,129,.18)' : s.type === 'REMOVED' ? 'rgba(228,55,61,.18)' : 'transparent',
+                        textDecoration: s.type === 'REMOVED' ? 'line-through' : 'none',
+                        color: s.type === 'REMOVED' ? 'var(--txt-dim)' : 'var(--txt)',
+                      }}>{s.text}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {attachmentChanges.map((c, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 6 }}>
+                  <strong style={{ color: 'var(--txt)' }}>{c.changeType}:</strong>{' '}
+                  {c.changeType === 'ADDED' && c.fileName}
+                  {c.changeType === 'REMOVED' && c.previousFileName}
+                  {c.changeType === 'REPLACED' && `${c.previousFileName} → ${c.fileName}`}
+                  {c.changeType === 'REORDERED' && `${c.fileName} (position ${(c.previousDisplayOrder ?? 0) + 1} → ${(c.displayOrder ?? 0) + 1})`}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** FAQ/Guide review section — snapshot fields, attachments (shared viewer), and the change-vs-previous-submission callout. */
+function HelpContentReviewSection({ item, token }: { item: ApprovalItem; token: string }) {
+  const [diff, setDiff] = useState<ApprovalDiff | null>(null);
+  const [viewingAttachments, setViewingAttachments] = useState(false);
+  const [showChanges, setShowChanges] = useState(false);
+
+  useEffect(() => { helpContentApprovalApi.getDiff(item.id, token).then(setDiff); }, [item.id, token]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+      <Row label="Type" value={item.helpContentType} />
+      <Row label="Title" value={item.helpContentTitle} />
+      {item.helpContentDescription && <Row label="Description" value={item.helpContentDescription} />}
+      {item.helpContentBody && <Row label="Body" value={item.helpContentBody} />}
+      {item.helpContentCategory && <Row label="Category" value={item.helpContentCategory} />}
+      <Row label="Attempt" value={`#${item.helpContentAttemptNumber}`} />
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {(diff?.current.attachments.length ?? 0) > 0 && (
+          <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+            📎 This submission has {diff?.current.attachments.length} attachment{(diff?.current.attachments.length ?? 0) === 1 ? '' : 's'}. Would you like to take a look?
+          </span>
+        )}
+        <button
+          onClick={() => setViewingAttachments(true)}
+          disabled={!diff || (diff?.current.attachments.length ?? 0) === 0}
+          style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 12px', fontSize: 11.5, fontWeight: 600, color: 'var(--brand)', cursor: diff && (diff?.current.attachments.length ?? 0) > 0 ? 'pointer' : 'not-allowed', opacity: diff && (diff?.current.attachments.length ?? 0) > 0 ? 1 : 0.5 }}
+        >
+          View Attachments
+        </button>
+        {item.helpContentModifiedSincePrevious && (
+          <>
+            <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: 'rgba(245,158,11,.15)', color: '#F59E0B' }}>Modified since previous submission</span>
+            <button onClick={() => setShowChanges(true)} disabled={!diff} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12, fontWeight: 600, cursor: diff ? 'pointer' : 'not-allowed', padding: 0 }}>View Changes</button>
+          </>
+        )}
+      </div>
+
+      {viewingAttachments && diff && (
+        <AttachmentViewerModal
+          title={item.helpContentTitle ?? 'Attachments'}
+          attachments={diff.current.attachments}
+          fetchBlob={attachmentId => helpContentApprovalApi.downloadAttachment(item.id, attachmentId, token)}
+          onClose={() => setViewingAttachments(false)}
+        />
+      )}
+      {showChanges && diff && <ChangesModal diff={diff} onClose={() => setShowChanges(false)} />}
+    </div>
+  );
 }
 
 // ── Review modal ──────────────────────────────────────────
@@ -152,6 +291,12 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
         }
       } else if (item.requestType === 'ASSET_REQUEST') {
         await assetsApi.approveRequest(Number(item.id), token);
+      } else if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
+        await attendanceRequestApi.approve(item.id, token);
+      } else if (item.requestType === 'OVERTIME') {
+        await overtimeRequestApi.approve(item.id, token);
+      } else if (item.requestType === 'HELP_CONTENT') {
+        await helpContentApprovalApi.approve(item.id, token);
       }
       showToast('success', `Approved ${item.employeeName}'s request`);
       onApproved();
@@ -180,6 +325,12 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
         }
       } else if (item.requestType === 'ASSET_REQUEST') {
         await assetsApi.rejectRequest(Number(item.id), rejectReason.trim(), token);
+      } else if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
+        await attendanceRequestApi.reject(item.id, rejectReason.trim(), token);
+      } else if (item.requestType === 'OVERTIME') {
+        await overtimeRequestApi.reject(item.id, rejectReason.trim(), token);
+      } else if (item.requestType === 'HELP_CONTENT') {
+        await helpContentApprovalApi.reject(item.id, rejectReason.trim(), token);
       }
       showToast('success', `Rejected ${item.employeeName}'s request`);
       onRejected();
@@ -263,6 +414,25 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
             </div>
           )}
 
+          {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              <Row label="Date" value={item.attendanceDate} />
+              {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+              <Row label="Reason" value={item.regularizationReason} />
+            </div>
+          )}
+
+          {item.requestType === 'OVERTIME' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              <Row label="Work Date" value={item.attendanceDate} />
+              <Row label="Requested Start" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
+              <Row label="Requested End" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
+              <Row label="Reason" value={item.regularizationReason} />
+            </div>
+          )}
+
+          {item.requestType === 'HELP_CONTENT' && <HelpContentReviewSection item={item} token={token} />}
+
           {mode === 'reject' ? (
             <>
               <label style={labelStyle}>Rejection Reason *</label>
@@ -302,7 +472,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
 
 export default function ApprovalsPage() {
   const token = useAuthStore(s => s.token)!;

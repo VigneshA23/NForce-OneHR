@@ -157,3 +157,94 @@ input[type="date"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   Responsive — tablet ≤1024px, mobile ≤767px.
+   Every rule below is scoped inside a max-width media query,
+   so nothing here can ever apply at desktop widths (≥1025px).
+   Desktop (1920/1440/1366) is verified unaffected by construction.
+   ============================================================ */
+
+/* Two-column form/detail grid -> single column, tablet and below */
+@media (max-width: 1024px) {
+  .nf-grid-2col-collapse { grid-template-columns: 1fr !important; }
+}
+
+/* Fixed-px side-column grid (list + chart/detail) -> stack, tablet and below.
+   Handles both column orders (side col first or second) and both border
+   conventions seen in the codebase (border-right on non-last child,
+   border-left on last child). */
+@media (max-width: 1024px) {
+  .nf-grid-side-collapse { grid-template-columns: 1fr !important; }
+  .nf-grid-side-collapse > *:not(:last-child) { border-right: none !important; border-bottom: 1px solid var(--line); }
+  .nf-grid-side-collapse > *:last-child { border-left: none !important; border-top: 1px solid var(--line); }
+}
+
+/* Proportional split row (e.g. calendar + detail panel) -> stack, tablet and below */
+@media (max-width: 1024px) {
+  .nf-grid-proportional-collapse { grid-template-columns: 1fr !important; }
+}
+
+/* Fixed-width side drawer -> near-full-width, mobile only */
+@media (max-width: 767px) {
+  .nf-drawer-responsive { width: calc(100vw - 32px) !important; }
+}
+
+/* Shell header dropdown panel -> clamp to viewport, mobile only */
+@media (max-width: 767px) {
+  .nf-dropdown-panel { width: calc(100vw - 24px) !important; max-width: calc(100vw - 24px) !important; right: -6px !important; }
+}
+
+/* Shell hamburger button — hidden by default, shown only on mobile */
+.nf-hamburger-btn { display: none; }
+@media (max-width: 767px) {
+  .nf-hamburger-btn { display: flex !important; }
+}
+
+/* Shell sidebar -> off-canvas drawer, mobile only */
+@media (max-width: 767px) {
+  .shell-sidebar { transform: translateX(-100%); transition: transform 200ms ease; z-index: 100; }
+  .shell-sidebar--open { transform: translateX(0); }
+  .nf-main-area { margin-left: 0 !important; }
+  .nf-topbar-search { display: none !important; }
+}
+.nf-nav-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 90; }
+
+/* Main content padding reduction */
+@media (max-width: 1024px) { .nf-main-content { padding: 18px !important; } }
+@media (max-width: 767px)  { .nf-main-content { padding: 14px !important; } }
+
+/* Defensive: eliminate any missed horizontal-overflow source at phone widths only */
+@media (max-width: 767px) {
+  html, body { overflow-x: hidden; }
+}
+
+/* auto-fit/minmax rows whose px floor (e.g. 360px) can exceed the available
+   width on the narrowest phones even after wrapping to one column — drop the
+   floor to a plain 1fr at mobile only. Tablet/desktop keep the existing
+   auto-fit/minmax behavior untouched. */
+@media (max-width: 767px) {
+  .nf-autofit-mobile-safe { grid-template-columns: 1fr !important; }
+}
+
+/* Auth layout (Login / Forgot Password) -> single column, promo panel
+   hidden, mobile/tablet only (≤900px, matching the breakpoint used
+   throughout AuthLayout.tsx). Both the shell and the left panel set
+   `display` inline, so the collapse/hide has to be forced with
+   !important here rather than a plain Tailwind hidden/block utility. */
+@media (max-width: 900px) {
+  .nf-auth-shell { display: block !important; }
+  .nf-auth-left-panel { display: none !important; }
+}
+
+/* Auth layout right panel -> extend the left panel's gradient full-bleed
+   once the left promo panel is hidden, mobile/tablet only (matches the
+   900px collapse breakpoint used throughout AuthLayout.tsx). Desktop keeps
+   its flat var(--panel) background, set inline, untouched.
+   Keep this gradient string in sync with `panelGradient` in AuthLayout.tsx. */
+@media (max-width: 900px) {
+  .nf-auth-right-panel {
+    background: radial-gradient(120% 100% at 80% 10%, rgba(177,17,22,.26) 0%, transparent 55%),
+      linear-gradient(160deg, #0a0b0e 0%, #12141a 100%) !important;
+  }
+}
