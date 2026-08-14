@@ -64,6 +64,16 @@ public class Employee {
     @Column(name = "joining_date", nullable = false)
     private LocalDate joiningDate;
 
+    // Notice period (Section 9) — null lastWorkingDay means "not under notice". No richer
+    // offboarding workflow exists in this codebase; these are the minimal facts the Penalization
+    // Policy engine needs to decide "is this employee under notice on this attendance date"
+    // (noticePeriodStartDate <= date <= lastWorkingDay). See ExceptionService.isUnderNoticePeriod.
+    @Column(name = "notice_period_start_date")
+    private LocalDate noticePeriodStartDate;
+
+    @Column(name = "last_working_day")
+    private LocalDate lastWorkingDay;
+
     // Self-service profile fields — employee updates these themselves
     @Column(name = "phone", length = 30)
     private String phone;

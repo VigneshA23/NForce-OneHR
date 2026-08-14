@@ -60,4 +60,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     @Query("SELECT e.userId, e.fullName FROM Employee e WHERE e.userId IN :ids")
     List<Object[]> findNamesByUserIds(@Param("ids") Set<UUID> ids);
+
+    // Backs the Policy List's "Employee Count" column (Section 5).
+    long countByPenalisationPolicy_Id(UUID penalisationPolicyId);
 }
