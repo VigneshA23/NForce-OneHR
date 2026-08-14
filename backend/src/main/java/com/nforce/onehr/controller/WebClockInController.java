@@ -40,6 +40,13 @@ public class WebClockInController {
         return webClockInService.checkOut(principal.getName());
     }
 
+    /** Undoes today's still-open check-in (before check-out) — no approval needed, same as submit/checkout. */
+    @DeleteMapping("/cancel")
+    public ResponseEntity<Void> cancel(Principal principal) {
+        webClockInService.cancel(principal.getName());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/pending")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
     public List<WebClockInResponse> pending(Principal principal) {

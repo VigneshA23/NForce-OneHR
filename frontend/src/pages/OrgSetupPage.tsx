@@ -220,6 +220,12 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
     const trimmed = name.trim();
     if (!trimmed) { setError(`${primaryLabel} is required`); return; }
     if (/\d/.test(trimmed)) { setError(`${primaryLabel} cannot contain numbers`); return; }
+    if (tab === 'locations') {
+      if (/\d/.test(city.trim())) { setError('City cannot contain numbers'); return; }
+      if (/\d/.test(state.trim())) { setError('State / Province cannot contain numbers'); return; }
+      if (/\d/.test(country.trim())) { setError('Country cannot contain numbers'); return; }
+      if (/\d/.test(holidayRegion.trim())) { setError('Holiday Region cannot contain numbers'); return; }
+    }
     setLoading(true);
     try {
       if (isEdit && editRow) {

@@ -5,7 +5,10 @@ import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.dto.attendance.ApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.ApproverOptionDto;
+import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
+import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
+import com.nforce.onehr.dto.attendance.AttendanceStatsResponse;
 import com.nforce.onehr.dto.attendance.BulkApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.BulkRegularizationResultResponse;
 import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
@@ -19,6 +22,7 @@ import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
 import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
 import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceService;
+import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.RegularizationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +50,7 @@ import java.util.UUID;
 public class AttendanceController {
 
     private final AttendanceService attendanceService;
+    private final AttendanceStatsService attendanceStatsService;
     private final RegularizationService regularizationService;
     private final AttendancePenaltyService attendancePenaltyService;
 
@@ -96,6 +101,36 @@ public class AttendanceController {
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             Principal principal) {
         return attendanceService.getPunches(principal.getName(), date);
+    }
+
+    /** "Me vs My Team" (peers under the employee's own current manager) for the selected range. */
+    @GetMapping("/stats")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public AttendanceStatsResponse stats(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceStatsService.getStats(principal.getName(), from, to);
+    }
+
+    /**
+     * Shift/break config for the Today's Timings panel — no @PreAuthorize, same as /punch/{date}.
+     * Resolved per-caller: shiftStart/shiftEnd/weeklyOffDays reflect the caller's assigned
+     * Shift/WeeklyOffPolicy (ONEHR-108) if any, else fall back to global defaults.
+     */
+    @GetMapping("/config")
+    public AttendanceConfigResponse config(Principal principal) {
+        return attendanceService.getConfig(principal.getName());
+    }
+
+    /** Always empty today — see AttendanceExceptionResponse's Javadoc. */
+    @GetMapping("/exceptions")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public List<AttendanceExceptionResponse> exceptions(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceService.getMyExceptions(principal.getName(), from, to);
     }
 
     @GetMapping("/day")

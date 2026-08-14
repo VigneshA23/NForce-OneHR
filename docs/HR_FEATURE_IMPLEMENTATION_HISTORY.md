@@ -499,10 +499,10 @@ code changes needed (13-Aug-2026) ← current, uncommitted
 | `V103__create_attendance_penalties.sql` | 12-Aug-2026 (`39d7e80`) | Cancel Penalties | Originally authored as V98; renumbered |
 | `V104__create_penalization_policy_versions.sql` | 12-Aug-2026 (`39d7e80`) | Penalization Policy | Originally authored as V99; renumbered |
 | `V105__add_deduction_days_to_attendance_penalties.sql` | 12-Aug-2026 (`39d7e80`) | Cancel Penalties, Penalization Policy | Originally authored as V100; renumbered |
-| `V106__penalization_policy_phase1_enhancements.sql` | **13-Aug-2026, uncommitted** | Penalization Policy | Version↔Policy FK link, Basic Info fields, widened cycles, notice-period/deduction-outcome columns |
-| `V107__penalization_policy_phase2_enhancements.sql` | **13-Aug-2026, uncommitted** | Penalization Policy | Late Arrival Total-Hours fields, `penalization_policy_late_hours_tiers` table, holiday/week-off adjoining fields |
+| `V112__penalization_policy_phase1_enhancements.sql` | **13-Aug-2026, uncommitted** | Penalization Policy | Version↔Policy FK link, Basic Info fields, widened cycles, notice-period/deduction-outcome columns. Originally authored as V106; renumbered — `dev` had already taken V106/V107 for the kudos table and partial-day-mode/notify columns |
+| `V113__penalization_policy_phase2_enhancements.sql` | **13-Aug-2026, uncommitted** | Penalization Policy | Late Arrival Total-Hours fields, `penalization_policy_late_hours_tiers` table, holiday/week-off adjoining fields. Originally authored as V107; renumbered alongside V112 above |
 
-**Backward-compatibility note:** V106's FK link between policy version and policy is additive and resolves safely for pre-existing single-policy installations via a default-policy fallback — no destructive schema change or required backfill. V107's new tier table and columns are additive with defaults.
+**Backward-compatibility note:** V112's FK link between policy version and policy is additive and resolves safely for pre-existing single-policy installations via a default-policy fallback — no destructive schema change or required backfill. V113's new tier table and columns are additive with defaults.
 
 ## A.2 API Change History
 

@@ -63,6 +63,13 @@ public class EmployeeController {
         return employeeService.getManagerDashboard(principal.getName());
     }
 
+    /** HR dashboard — organization-wide equivalent of {@link #myReports}; every user in the org. */
+    @GetMapping("/org-dashboard")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public ManagerDashboardDto orgDashboard() {
+        return employeeService.getOrgDashboard();
+    }
+
     /** Peer directory — colleagues who currently share the caller's manager (My Team: Peers view, ONEHR-73). */
     @GetMapping("/my-peers")
     public List<DirectoryEntryDto> myPeers(Principal principal) {

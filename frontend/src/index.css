@@ -226,3 +226,25 @@ input[type="date"] {
 @media (max-width: 767px) {
   .nf-autofit-mobile-safe { grid-template-columns: 1fr !important; }
 }
+
+/* Auth layout (Login / Forgot Password) -> single column, promo panel
+   hidden, mobile/tablet only (≤900px, matching the breakpoint used
+   throughout AuthLayout.tsx). Both the shell and the left panel set
+   `display` inline, so the collapse/hide has to be forced with
+   !important here rather than a plain Tailwind hidden/block utility. */
+@media (max-width: 900px) {
+  .nf-auth-shell { display: block !important; }
+  .nf-auth-left-panel { display: none !important; }
+}
+
+/* Auth layout right panel -> extend the left panel's gradient full-bleed
+   once the left promo panel is hidden, mobile/tablet only (matches the
+   900px collapse breakpoint used throughout AuthLayout.tsx). Desktop keeps
+   its flat var(--panel) background, set inline, untouched.
+   Keep this gradient string in sync with `panelGradient` in AuthLayout.tsx. */
+@media (max-width: 900px) {
+  .nf-auth-right-panel {
+    background: radial-gradient(120% 100% at 80% 10%, rgba(177,17,22,.26) 0%, transparent 55%),
+      linear-gradient(160deg, #0a0b0e 0%, #12141a 100%) !important;
+  }
+}

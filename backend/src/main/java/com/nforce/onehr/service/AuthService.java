@@ -2,6 +2,8 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.exception.AccountLockedException;
+import com.nforce.onehr.exception.AccountNotFoundException;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
@@ -16,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -31,12 +36,23 @@ public class AuthService {
     private final AuditService auditService;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final Clock clock;
 
     private static final String GENERIC_CRED_ERROR = "Invalid credentials";
+    private static final int MAX_FAILED_ATTEMPTS = 7;
+    private static final Duration LOCK_DURATION = Duration.ofHours(4);
 
-    @Transactional
+    // Attempts 1-6 return the generic "Invalid credentials" 401; noRollbackFor is required
+    // because both branches persist failed-attempt/lockout state on the user row via
+    // userRepository.save(), and Spring would otherwise roll that back along with the rest of
+    // the transaction when the method exits via one of these exceptions.
+    @Transactional(noRollbackFor = {BadCredentialsException.class, AccountLockedException.class})
     public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
         User user = userRepository.findByEmail(request.getEmail().toLowerCase().trim()).orElse(null);
+
+        if (user != null && isCurrentlyLocked(user)) {
+            throw new AccountLockedException(user.getEmail(), user.getLockedUntil());
+        }
 
         // Always run bcrypt even when user not found — prevents timing-based user enumeration
         String candidateHash = user != null
@@ -46,7 +62,7 @@ public class AuthService {
 
         if (user == null || !credentialsValid) {
             if (user != null) {
-                auditService.log(user.getId(), "LOGIN_FAILED", user.getId());
+                registerFailedAttempt(user);
             }
             throw new BadCredentialsException(GENERIC_CRED_ERROR);
         }
@@ -55,6 +71,10 @@ public class AuthService {
             auditService.log(user.getId(), "LOGIN_BLOCKED", user.getId());
             throw new DisabledException("Account has been deactivated");
         }
+
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
 
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.isMustChangePassword());
         auditService.log(user.getId(), "LOGIN_SUCCESS", user.getId());
@@ -67,6 +87,39 @@ public class AuthService {
                 .email(user.getEmail())
                 .role(roleCode)
                 .build();
+    }
+
+    // Returns whether the user is still within an active lock window. A lock whose expiry has
+    // already passed is cleared here (and the attempt counter reset) so the very next login
+    // attempt after 4 hours is processed normally, per the auto-expiry requirement.
+    private boolean isCurrentlyLocked(User user) {
+        Instant lockedUntil = user.getLockedUntil();
+        if (lockedUntil == null) {
+            return false;
+        }
+        if (clock.instant().isBefore(lockedUntil)) {
+            return true;
+        }
+        user.setLockedUntil(null);
+        user.setFailedLoginAttempts(0);
+        userRepository.save(user);
+        return false;
+    }
+
+    private void registerFailedAttempt(User user) {
+        int attempts = user.getFailedLoginAttempts() + 1;
+        user.setFailedLoginAttempts(attempts);
+
+        if (attempts >= MAX_FAILED_ATTEMPTS) {
+            Instant lockedUntil = clock.instant().plus(LOCK_DURATION);
+            user.setLockedUntil(lockedUntil);
+            userRepository.save(user);
+            auditService.log(user.getId(), "LOGIN_LOCKED", user.getId());
+            throw new AccountLockedException(user.getEmail(), lockedUntil);
+        }
+
+        userRepository.save(user);
+        auditService.log(user.getId(), "LOGIN_FAILED", user.getId());
     }
 
     @Transactional
@@ -109,31 +162,38 @@ public class AuthService {
     }
 
     /**
-     * Forgot-password flow: always returns generic success regardless of whether the email exists.
-     * Prevents email enumeration — response shape and timing must not reveal account existence.
+     * Forgot-password flow. Per product requirements, any email that isn't both well-formed and
+     * registered is reported to the caller as "Invalid E-mail" — malformed input is rejected by
+     * {@code @Email} on {@link com.nforce.onehr.dto.ForgotPasswordRequest} before this method
+     * ever runs, and an unregistered-but-well-formed email is reported here via
+     * {@link AccountNotFoundException} using the same message, rather than masked as generic
+     * success. For an email that IS registered (active or not), the response stays the same
+     * generic success message regardless of account state, so inactive/soft-deleted status is
+     * still not leaked.
      */
     @Transactional
     public ForgotPasswordResponse forgotPassword(String email) {
         String normalizedEmail = email.toLowerCase().trim();
-        userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
-            if (user.isActive() && user.getDeletedAt() == null) {
-                String tempPassword = generateTempPassword();
-                user.setPasswordHash(passwordEncoder.encode(tempPassword));
-                user.setMustChangePassword(true);
-                userRepository.save(user);
+        User user = userRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new AccountNotFoundException("Invalid E-mail"));
 
-                String fullName = employeeRepository.findById(user.getId())
-                        .map(com.nforce.onehr.entity.Employee::getFullName)
-                        .orElse(user.getEmail());
+        if (user.isActive() && user.getDeletedAt() == null) {
+            String tempPassword = generateTempPassword();
+            user.setPasswordHash(passwordEncoder.encode(tempPassword));
+            user.setMustChangePassword(true);
+            userRepository.save(user);
 
-                emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
-                auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
-                notificationService.send(user.getId(), "SECURITY",
-                        "Password Reset",
-                        "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
-                        "/change-password");
-            }
-        });
+            String fullName = employeeRepository.findById(user.getId())
+                    .map(com.nforce.onehr.entity.Employee::getFullName)
+                    .orElse(user.getEmail());
+
+            emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+            auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+            notificationService.send(user.getId(), "SECURITY",
+                    "Password Reset",
+                    "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
+                    "/change-password");
+        }
         return ForgotPasswordResponse.builder()
                 .message("If that email is registered, we've sent password reset instructions.")
                 .build();

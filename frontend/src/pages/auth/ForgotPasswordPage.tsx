@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { AuthLayout } from './AuthLayout';
-import { authApi } from '../../api/auth';
+import { authApi, INVALID_EMAIL_MESSAGE } from '../../api/auth';
 
 const containerVariants = { hidden: {}, show: { transition: { staggerChildren: 0.04 } } };
 const itemVariants = {
@@ -26,8 +26,14 @@ export default function ForgotPasswordPage() {
     try {
       await authApi.forgotPassword(email.trim());
       setSubmitted(true);
-    } catch {
-      // Still show success — never reveal whether email exists
+    } catch (err) {
+      // Backend returns this exact text for both a malformed email (400) and a well-formed
+      // but unregistered one (404) — everything else (network hiccup, 500, etc.) still
+      // silently shows success, per existing behavior.
+      if (err instanceof Error && err.message === INVALID_EMAIL_MESSAGE) {
+        setError(err.message);
+        return;
+      }
       setSubmitted(true);
     } finally {
       setSubmitting(false);

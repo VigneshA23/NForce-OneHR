@@ -39,6 +39,14 @@ public class UserManagementController {
         return userManagementService.updateUser(userId, req, principal.getName());
     }
 
+    /** Joining date is deliberately not part of updateUser — see UserManagementService for why. */
+    @PatchMapping("/{userId}/joining-date")
+    public EmployeeResponse updateJoiningDate(@PathVariable UUID userId,
+                                              @Valid @RequestBody UpdateJoiningDateRequest req,
+                                              Principal principal) {
+        return userManagementService.updateJoiningDate(userId, req, principal.getName());
+    }
+
     @PostMapping("/{userId}/reset-password")
     public ResetPasswordResponse resetPassword(@PathVariable UUID userId, Principal principal) {
         return userManagementService.resetPassword(userId, principal.getName());

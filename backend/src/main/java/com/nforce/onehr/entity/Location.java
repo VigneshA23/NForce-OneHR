@@ -30,6 +30,14 @@ public class Location {
     @Column(name = "holiday_region", length = 100)
     private String holidayRegion;
 
+    /**
+     * IANA timezone id (e.g. "Asia/Kolkata", "Europe/London", "America/New_York") for
+     * employees assigned to this location. Null falls back to the global default
+     * (app.attendance.zone) at read time — see AttendanceService.zoneIdFor.
+     */
+    @Column(length = 50)
+    private String timezone;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private boolean active = true;
