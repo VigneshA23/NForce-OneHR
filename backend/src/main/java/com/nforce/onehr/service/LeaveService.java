@@ -185,19 +185,25 @@ public class LeaveService {
     }
 
     /**
-     * Approved leave for the caller's current peers (same-manager siblings) overlapping
-     * [from, to] — backs the Peers view's "who's on leave today" panel and calendar (ONEHR-73).
-     * Mirrors {@link #listTeamLeave} exactly, swapping direct-report resolution for peer resolution.
+     * Approved leave for the caller's "Project Team" — every employee (including the caller
+     * themselves) who currently reports to the same manager — overlapping [from, to]. Backs the
+     * Peers view's "who's on leave today" panel and calendar (ONEHR-73). Mirrors
+     * {@link #listTeamLeave} exactly, swapping direct-report resolution for same-manager
+     * resolution. Empty if the caller has no manager assigned at all — there's no "team" to
+     * belong to in that case.
      */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listPeerLeave(String actorEmail, LocalDate from, LocalDate to) {
         User actor = requireActor(actorEmail);
-        List<UUID> peerIds = historyRepository.findCurrentPeerIds(actor.getId());
-        if (peerIds.isEmpty()) {
+        if (historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId()).isEmpty()) {
             return List.of();
         }
+        // findCurrentPeerIds already includes the caller themself (see its own doc comment) — no
+        // need to add actor.getId() again here.
+        List<UUID> teamIds = historyRepository.findCurrentPeerIds(actor.getId());
+
         return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(peerIds, "APPROVED", to, from)
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from)
                 .stream()
                 .map(this::toRequestResponse)
                 .collect(Collectors.toList());

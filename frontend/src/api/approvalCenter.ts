@@ -12,7 +12,9 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type RequestType = 'LEAVE' | 'REGULARIZATION' | 'WEB_CLOCK_IN' | 'EXPENSE' | 'ASSET_REQUEST' | 'HELP_CONTENT';
+export type RequestType =
+  | 'LEAVE' | 'REGULARIZATION' | 'WEB_CLOCK_IN' | 'EXPENSE' | 'ASSET_REQUEST'
+  | 'WFH' | 'PARTIAL_DAY' | 'OVERTIME' | 'HELP_CONTENT';
 
 export interface ApprovalItem {
   id: string;
@@ -29,11 +31,13 @@ export interface ApprovalItem {
   leaveHalfDay?: boolean;
   leaveReason?: string;
 
-  // Regularization
+  // Regularization / WFH / Partial Day / Overtime (shared — see backend ApprovalItemDto)
   attendanceDate?: string;
   requestedCheckIn?: string;
   requestedCheckOut?: string;
   regularizationReason?: string;
+  /** PARTIAL_DAY only. */
+  partialDayHours?: number;
 
   // Expense
   expenseCategoryName?: string;

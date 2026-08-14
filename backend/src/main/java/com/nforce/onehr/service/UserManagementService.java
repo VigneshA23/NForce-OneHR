@@ -99,15 +99,16 @@ public class UserManagementService {
     }
 
     /**
-     * Employee/Manager/HR Admin are all staff first — they get the base EMPLOYEE role
-     * alongside whatever admin role they're assigned, so self-service features (attendance
-     * punch, leave, etc.) work for them too. Super Admin is the one deliberate exception:
-     * see AttendanceController's "never a punch clock of their own" comment.
+     * Every Phase 1 role is staff first — everyone gets the base EMPLOYEE role alongside
+     * whatever admin role they're assigned, so self-service features (attendance punch, leave,
+     * etc.) work for them too, Super Admin included.
      */
     private Set<Role> rolesFor(Role assignedRole) {
         Set<Role> roles = new HashSet<>();
         roles.add(assignedRole);
-        if (!"SUPER_ADMIN".equals(assignedRole.getCode()) && !"EMPLOYEE".equals(assignedRole.getCode())) {
+        // Every Phase 1 role is staff first — including Super Admin, who now has the same
+        // self-service Check In/Check Out as everyone else (see AttendanceController).
+        if (!"EMPLOYEE".equals(assignedRole.getCode())) {
             roleRepository.findByCode("EMPLOYEE").ifPresent(roles::add);
         }
         return roles;
@@ -180,6 +181,32 @@ public class UserManagementService {
         emp = employeeRepository.save(emp);
         String after = auditSnapshot.toJson(userSnapshot(emp, target));
         auditService.log(actor.getId(), "USER_UPDATED", userId, before, after);
+        return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /**
+     * Super Admin only (enforced at the controller). Joining date drives probation,
+     * leave accrual and seniority elsewhere in the system, so it's deliberately not
+     * part of the general updateUser fields — every change goes through here with a
+     * mandatory audit trail of the old date, new date, and the reason.
+     */
+    @Transactional
+    public EmployeeResponse updateJoiningDate(UUID userId, UpdateJoiningDateRequest req, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        Employee emp = employeeRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        User target = emp.getUser();
+
+        String before = auditSnapshot.toJson(Map.of("joiningDate", emp.getJoiningDate().toString()));
+        emp.setJoiningDate(req.getNewJoiningDate());
+        emp = employeeRepository.save(emp);
+
+        Map<String, Object> afterSnapshot = new LinkedHashMap<>();
+        afterSnapshot.put("joiningDate", emp.getJoiningDate().toString());
+        if (req.getNote() != null && !req.getNote().isBlank()) afterSnapshot.put("note", req.getNote().trim());
+        String after = auditSnapshot.toJson(afterSnapshot);
+
+        auditService.log(actor.getId(), "JOINING_DATE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 

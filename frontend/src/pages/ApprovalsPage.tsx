@@ -10,6 +10,8 @@ import { regularizationApi } from '../api/attendance';
 import { webClockInApi } from '../api/webClockIn';
 import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
+import { attendanceRequestApi } from '../api/attendanceRequests';
+import { overtimeRequestApi } from '../api/overtimeRequests';
 import { useToast } from '../context/ToastContext';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
@@ -25,6 +27,9 @@ const TYPE_LABELS: Record<RequestType, string> = {
   WEB_CLOCK_IN: 'Web Clock-In',
   EXPENSE: 'Expense',
   ASSET_REQUEST: 'Asset Request',
+  WFH: 'Work From Home',
+  PARTIAL_DAY: 'Partial Day',
+  OVERTIME: 'Overtime',
   HELP_CONTENT: 'FAQs & Guides',
 };
 
@@ -34,6 +39,9 @@ const TYPE_COLORS: Record<RequestType, string> = {
   WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
   EXPENSE: 'rgba(16,185,129,.18)',
   ASSET_REQUEST: 'rgba(139,92,246,.18)',
+  WFH: 'rgba(76,141,214,.18)',
+  PARTIAL_DAY: 'rgba(224,169,59,.18)',
+  OVERTIME: 'rgba(236,72,153,.18)',
   HELP_CONTENT: 'rgba(20,184,166,.18)',
 };
 
@@ -43,6 +51,9 @@ const TYPE_TEXT: Record<RequestType, string> = {
   WEB_CLOCK_IN: '#4C8DD6',
   EXPENSE: '#10B981',
   ASSET_REQUEST: '#8B5CF6',
+  WFH: '#4C8DD6',
+  PARTIAL_DAY: '#E0A93B',
+  OVERTIME: '#EC4899',
   HELP_CONTENT: '#14B8A6',
 };
 
@@ -110,6 +121,20 @@ function ItemDetail({ item }: { item: ApprovalItem }) {
     return (
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
         {item.requestedCategoryName}
+      </div>
+    );
+  }
+  if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${item.partialDayHours}h` : ''}
+      </div>
+    );
+  }
+  if (item.requestType === 'OVERTIME') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
       </div>
     );
   }
@@ -266,6 +291,10 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
         }
       } else if (item.requestType === 'ASSET_REQUEST') {
         await assetsApi.approveRequest(Number(item.id), token);
+      } else if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
+        await attendanceRequestApi.approve(item.id, token);
+      } else if (item.requestType === 'OVERTIME') {
+        await overtimeRequestApi.approve(item.id, token);
       } else if (item.requestType === 'HELP_CONTENT') {
         await helpContentApprovalApi.approve(item.id, token);
       }
@@ -296,6 +325,10 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
         }
       } else if (item.requestType === 'ASSET_REQUEST') {
         await assetsApi.rejectRequest(Number(item.id), rejectReason.trim(), token);
+      } else if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
+        await attendanceRequestApi.reject(item.id, rejectReason.trim(), token);
+      } else if (item.requestType === 'OVERTIME') {
+        await overtimeRequestApi.reject(item.id, rejectReason.trim(), token);
       } else if (item.requestType === 'HELP_CONTENT') {
         await helpContentApprovalApi.reject(item.id, rejectReason.trim(), token);
       }
@@ -381,6 +414,23 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
             </div>
           )}
 
+          {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              <Row label="Date" value={item.attendanceDate} />
+              {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+              <Row label="Reason" value={item.regularizationReason} />
+            </div>
+          )}
+
+          {item.requestType === 'OVERTIME' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              <Row label="Work Date" value={item.attendanceDate} />
+              <Row label="Requested Start" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
+              <Row label="Requested End" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
+              <Row label="Reason" value={item.regularizationReason} />
+            </div>
+          )}
+
           {item.requestType === 'HELP_CONTENT' && <HelpContentReviewSection item={item} token={token} />}
 
           {mode === 'reject' ? (
@@ -422,7 +472,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST', 'HELP_CONTENT'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
 
 export default function ApprovalsPage() {
   const token = useAuthStore(s => s.token)!;

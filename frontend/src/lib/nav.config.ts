@@ -72,7 +72,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   'Super Admin': [
-    item('dashboard', 'Admin Dashboard', Home, 1),
+    item('dashboard', 'My Dashboard', Home, 1),
     item('notifications', 'Notifications', Bell, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),

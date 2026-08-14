@@ -71,6 +71,11 @@ export interface UpdateUserPayload {
   managerId?: string;
 }
 
+export interface UpdateJoiningDatePayload {
+  newJoiningDate: string;
+  note?: string;
+}
+
 export interface ResetPasswordResult { tempPassword: string; message: string; }
 
 export const employeesApi = {
@@ -96,6 +101,9 @@ export const usersApi = {
 
   update: (userId: string, payload: UpdateUserPayload, token: string) =>
     fetch(`${BASE}/users/${userId}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeRecord>),
+
+  updateJoiningDate: (userId: string, payload: UpdateJoiningDatePayload, token: string) =>
+    fetch(`${BASE}/users/${userId}/joining-date`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeRecord>),
 
   resetPassword: (userId: string, token: string) =>
     fetch(`${BASE}/users/${userId}/reset-password`, { method: 'POST', headers: authHeaders(token) }).then(handle<ResetPasswordResult>),

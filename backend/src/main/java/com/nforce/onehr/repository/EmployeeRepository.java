@@ -60,4 +60,8 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     @Query("SELECT e.userId, e.fullName FROM Employee e WHERE e.userId IN :ids")
     List<Object[]> findNamesByUserIds(@Param("ids") Set<UUID> ids);
+
+    // Backs ShiftSeedCorrector's startup backfill for employees created after V95's one-time
+    // "assign everyone the Regular Shift" migration ran (e.g. anyone onboarded since).
+    List<Employee> findByShiftIsNull();
 }

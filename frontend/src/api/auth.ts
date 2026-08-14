@@ -13,14 +13,36 @@ export interface ChangePasswordResponse {
   message: string;
 }
 
+interface ApiErrorBody {
+  message?: string;
+  code?: string;
+  lockedUntil?: string;
+}
+
+// Thrown instead of a plain Error when the backend responds 423 Locked with
+// code: "ACCOUNT_LOCKED" (see GlobalExceptionHandler#handleAccountLocked), so the login
+// page can render a locked-account state instead of the generic invalid-credentials message.
+export class LoginLockedError extends Error {
+  lockedUntil: string;
+
+  constructor(message: string, lockedUntil: string) {
+    super(message);
+    this.name = 'LoginLockedError';
+    this.lockedUntil = lockedUntil;
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
-  let body: { message?: string } = {};
+  let body: ApiErrorBody = {};
   try {
     body = await res.json();
   } catch {
     // non-JSON response
   }
   if (!res.ok) {
+    if (res.status === 423 && body.code === 'ACCOUNT_LOCKED' && body.lockedUntil) {
+      throw new LoginLockedError(body.message ?? 'Account locked', body.lockedUntil);
+    }
     throw new Error(body.message ?? 'Request failed');
   }
   return body as T;

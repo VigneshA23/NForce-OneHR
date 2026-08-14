@@ -50,6 +50,50 @@ export interface TodayAttendance {
   canCheckOut: boolean;
   /** Null until the employee has punched in today. */
   record: AttendanceRecord | null;
+  /** Minutes spent on breaks so far today. Null until the employee has punched in. */
+  breakUsedMinutes: number | null;
+  breakBudgetMinutes: number;
+}
+
+/** One side of the Me-vs-My-Team comparison. Null averages mean presentDays === 0. */
+export interface AttendanceStatBucket {
+  presentDays: number;
+  avgHoursPerDay: number | null;
+  onTimeArrivalPercent: number | null;
+}
+
+export interface AttendanceStats {
+  me: AttendanceStatBucket;
+  team: AttendanceStatBucket;
+  teamSize: number;
+}
+
+/**
+ * Read-only shift/break config, resolved per-caller: shiftStart/shiftEnd/weeklyOffDays reflect
+ * the caller's assigned Shift/WeeklyOffPolicy (ONEHR-108) when one exists, else fall back to
+ * global defaults (shiftEnd null, weeklyOffDays Sat/Sun) — see AttendanceService.getConfig.
+ */
+export interface AttendanceConfig {
+  /** Null only if the caller has no Shift assigned. */
+  shiftName: string | null;
+  shiftStart: string; // "HH:mm:ss"
+  /** Null only if the caller has no Shift assigned — every employee is seeded with one, so this is normally always set. */
+  shiftEnd: string | null;
+  lateGraceMinutes: number;
+  halfDayMaxHours: number;
+  fullDayMinHours: number;
+  dailyBreakBudgetMinutes: number;
+  /** java.time.DayOfWeek names, e.g. ["SATURDAY", "SUNDAY"]. */
+  weeklyOffDays: string[];
+}
+
+/** Always empty today — see backend AttendanceExceptionResponse's Javadoc. */
+export interface AttendanceExceptionRecord {
+  id: string;
+  exceptionDate: string;
+  exceptionType: string;
+  status: string;
+  minutesLate: number | null;
 }
 
 // PARTIALLY_APPROVED: the Manager stage has approved, awaiting HR/Super Admin final approval.
@@ -296,6 +340,19 @@ export const attendanceApi = {
   punches: (date: string, token: string) =>
     fetch(`${BASE}/attendance/punches/${date}`, { headers: authHeaders(token) })
       .then(handle<Punch[]>),
+
+  /** "Me vs My Team" (peers under the employee's own current manager) for the selected range. */
+  stats: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/stats?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<AttendanceStats>),
+
+  config: (token: string) =>
+    fetch(`${BASE}/attendance/config`, { headers: authHeaders(token) }).then(handle<AttendanceConfig>),
+
+  /** Always resolves to an empty array today — see AttendanceExceptionRecord's doc comment. */
+  exceptions: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/exceptions?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<AttendanceExceptionRecord[]>),
 
   /** Avg. Work Hours Leaderboard for the manager's direct reports over a date range (ONEHR-106). */
   teamEffort: (from: string, to: string, token: string) =>
