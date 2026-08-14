@@ -78,8 +78,8 @@ public class AttendanceService {
     @Transactional(readOnly = true)
     public TodayAttendanceResponse getToday(String actorEmail) {
         Employee employee = resolveEmployee(actorEmail);
-        LocalDateTime now = now();
-        LocalDate today = now.toLocalDate();
+        LocalDateTime now = now(employee);
+        LocalDate today = shiftDayOf(now);
 
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session started
         // yesterday is still the actionable "today" state even once the calendar date has
@@ -120,8 +120,8 @@ public class AttendanceService {
         Employee employee = resolveEmployee(actorEmail);
 
         // Single clock read: the punch time and the work date it is attributed to can never disagree.
-        LocalDateTime now = now();
-        LocalDate today = now.toLocalDate();
+        LocalDateTime now = now(employee);
+        LocalDate today = shiftDayOf(now);
 
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session from
         // yesterday's work_date must block a fresh check-in exactly like an open session
@@ -237,7 +237,7 @@ public class AttendanceService {
     public AttendanceResponse checkOut(String actorEmail) {
         Employee employee = resolveEmployee(actorEmail);
 
-        LocalDateTime now = now();
+        LocalDateTime now = now(employee);
 
         // Looked up by open session, not by today's work_date — a shift that started before
         // midnight (e.g. 3:30 PM - 12:30 AM) is still open under *yesterday's* work_date once
@@ -321,7 +321,7 @@ public class AttendanceService {
     /** Full day roster for HR — one row per active employee, punched or not. */
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getDayForAll(LocalDate date) {
-        LocalDate day = date != null ? date : now().toLocalDate();
+        LocalDate day = date != null ? date : shiftDayOf(now());
         List<Employee> employees = employeeRepository.findAllWithDetails();
         return joinRoster(employees, attendanceRepository.findByWorkDate(day), day);
     }
@@ -329,7 +329,7 @@ public class AttendanceService {
     /** Day roster limited to the caller's current direct reports. */
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getDayForMyTeam(String managerEmail, LocalDate date) {
-        LocalDate day = date != null ? date : now().toLocalDate();
+        LocalDate day = date != null ? date : shiftDayOf(now());
         Employee manager = resolveEmployee(managerEmail);
 
         List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
@@ -372,33 +372,39 @@ public class AttendanceService {
      */
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getDayForPeers(String employeeEmail, LocalDate date) {
-        LocalDate day = date != null ? date : now().toLocalDate();
+        LocalDate day = date != null ? date : shiftDayOf(now());
         Employee self = resolveEmployee(employeeEmail);
 
-        List<UUID> peerIds = managerHistoryRepository.findCurrentPeerIds(self.getUserId());
-        if (peerIds.isEmpty()) {
+        // "Project Team" = every employee (including the caller) who currently reports to the
+        // same manager — empty if the caller has no manager assigned, since there's no team to
+        // belong to in that case.
+        if (managerHistoryRepository.findByEmployeeUserIdAndEffectiveToIsNull(self.getUserId()).isEmpty()) {
             return List.of();
         }
+        List<UUID> teamIds = new ArrayList<>(managerHistoryRepository.findCurrentPeerIds(self.getUserId()));
+        teamIds.add(self.getUserId());
 
-        List<Employee> peers = employeeRepository.findAllById(peerIds).stream()
+        List<Employee> team = employeeRepository.findAllById(teamIds).stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
                 .toList();
         List<Attendance> records =
-                attendanceRepository.findByWorkDateAndEmployeeUserIdIn(day, peerIds);
-        return joinRoster(peers, records, day);
+                attendanceRepository.findByWorkDateAndEmployeeUserIdIn(day, teamIds);
+        return joinRoster(team, records, day);
     }
 
-    /** Peer attendance across a date range — backs the Peers view calendar. Mirrors {@link #getMonthForMyTeam}. */
+    /** Project Team attendance across a date range — backs the Peers view calendar. Mirrors {@link #getMonthForMyTeam}. */
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getMonthForPeers(String employeeEmail, LocalDate from, LocalDate to) {
         Employee self = resolveEmployee(employeeEmail);
-        List<UUID> peerIds = managerHistoryRepository.findCurrentPeerIds(self.getUserId());
-        if (peerIds.isEmpty()) {
+        if (managerHistoryRepository.findByEmployeeUserIdAndEffectiveToIsNull(self.getUserId()).isEmpty()) {
             return List.of();
         }
-        Map<UUID, Employee> byId = employeeRepository.findAllById(peerIds).stream()
+        List<UUID> teamIds = new ArrayList<>(managerHistoryRepository.findCurrentPeerIds(self.getUserId()));
+        teamIds.add(self.getUserId());
+
+        Map<UUID, Employee> byId = employeeRepository.findAllById(teamIds).stream()
                 .collect(Collectors.toMap(Employee::getUserId, Function.identity()));
-        return attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(peerIds, from, to).stream()
+        return attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(teamIds, from, to).stream()
                 .map(r -> toResponse(r, byId.get(r.getEmployeeUserId())))
                 .toList();
     }
@@ -681,12 +687,49 @@ public class AttendanceService {
     // ---------------------------------------------------------------- internals
 
     /**
-     * Clock for every timestamp and work-date decision in this service. Reads the configured
-     * business zone rather than the JVM default so "today" is identical in local dev and on
-     * Railway (which runs UTC).
+     * Clock for HR/Manager roster views (getDayForAll/getDayForMyTeam/getDayForPeers) that span
+     * many employees at once — those stay on the single global business zone deliberately: with
+     * employees potentially in different timezones there's no single unambiguous "whose clock"
+     * answer for an aggregate view, so this is intentionally NOT per-employee. Reads the
+     * configured business zone rather than the JVM default so "today" is identical in local dev
+     * and on Railway (which runs UTC).
      */
     private LocalDateTime now() {
         return LocalDateTime.now(ZoneId.of(props.getZone()));
+    }
+
+    /**
+     * Clock for a specific employee's own self-service actions and history — check-in/out,
+     * "today" status, worked-hours/late-arrival math, and shift-day attribution are all computed
+     * in THIS employee's own configured location's timezone, not the single global business
+     * zone. Falls back to the global zone when the employee has no location assigned, or their
+     * location has no timezone configured — so behavior is unchanged for any employee HR hasn't
+     * explicitly set a location timezone for.
+     */
+    private LocalDateTime now(Employee employee) {
+        return LocalDateTime.now(zoneIdFor(employee));
+    }
+
+    private ZoneId zoneIdFor(Employee employee) {
+        String timezone = employee.getLocation() != null ? employee.getLocation().getTimezone() : null;
+        return (timezone != null && !timezone.isBlank()) ? ZoneId.of(timezone) : ZoneId.of(props.getZone());
+    }
+
+    /**
+     * The shift-day (work_date) a given instant belongs to. The shift runs 3:30 PM - 12:30 AM,
+     * crossing midnight — anything from midnight up to shiftDayCutover (7:00 AM by default)
+     * still belongs to the PREVIOUS calendar date's shift-day, not the new one. E.g. a fresh
+     * check-in at 2:00 AM on the 13th is attributed to the 12th; the same check-in at 7:01 AM
+     * is attributed to the 13th.
+     * Only relevant when there's no already-open session to resume: an open session is always
+     * found by findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc regardless of
+     * calendar date (see checkIn/checkOut/getToday), so this only decides the work_date for a
+     * genuinely fresh punch, or for "today" defaults in views with no open session in play.
+     */
+    private LocalDate shiftDayOf(LocalDateTime dateTime) {
+        return dateTime.toLocalTime().isBefore(props.getShiftDayCutover())
+                ? dateTime.toLocalDate().minusDays(1)
+                : dateTime.toLocalDate();
     }
 
     private Employee resolveEmployee(String actorEmail) {
@@ -696,7 +739,9 @@ public class AttendanceService {
     }
 
     private List<AttendanceResponse> historyFor(Employee employee, LocalDate from, LocalDate to) {
-        LocalDate end = to != null ? to : now().toLocalDate();
+        // Scoped to one specific employee (never an aggregate/roster view), so their own
+        // timezone unambiguously answers "what does 'today' mean" for defaulting the range end.
+        LocalDate end = to != null ? to : shiftDayOf(now(employee));
         LocalDate start = from != null ? from : end.minusDays(DEFAULT_HISTORY_DAYS);
         return attendanceRepository
                 .findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(

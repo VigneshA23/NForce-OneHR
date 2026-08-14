@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
+import { Fragment, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, AlarmClock } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -349,7 +349,7 @@ function LateBadge({ minutes }: { minutes: number | null | undefined }) {
   if (!minutes || minutes <= 0) return null;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#E0A93B' }}>
-      <span role="img" aria-label="Late" style={{ fontSize: 18, lineHeight: 1 }}>🐢</span> Late by {formatDuration(minutes)}
+      <AlarmClock size={14} aria-label="Late" /> Late by {formatDuration(minutes)}
     </div>
   );
 }
@@ -395,18 +395,24 @@ function PunchHistoryList({ date, token, refreshKey }: { date: string; token: st
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>
         <Clock size={11} /> Punch History
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {/* A grid (rather than one flex row per punch) so the Check In / arrow / Check Out cells
+          line up in the same columns across every row. `minmax(0,1fr)` on the time columns lets
+          them shrink instead of overflowing the panel — no horizontal scrollbar/drag ever
+          appears, even in a narrow side panel — while still centering their content. */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'auto auto minmax(0,1fr) auto auto minmax(0,1fr)',
+        columnGap: 6, rowGap: 4, alignItems: 'center', fontSize: 12.5, color: 'var(--txt-mut)',
+        maxWidth: '100%', overflow: 'hidden',
+      }}>
         {punches.map((p, i) => (
-          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--txt-mut)' }}>
-            {/* Every row uses the exact same icons/spacing (no per-row extras like the old
-                tortoise marker) so rows stay aligned regardless of lateness. */}
+          <Fragment key={p.id}>
             <span style={{ color: 'var(--txt-dim)', fontSize: 11 }}>{i + 1}.</span>
             <LogIn size={12} style={{ color: 'var(--txt-dim)' }} />
-            <span>{formatTime(p.checkInAt) ?? dash}</span>
-            <span style={{ color: 'var(--txt-dim)' }}>→</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatTime(p.checkInAt) ?? dash}</span>
+            <span style={{ color: 'var(--txt-dim)', textAlign: 'center' }}>→</span>
             <LogOut size={12} style={{ color: 'var(--txt-dim)' }} />
-            <span>{formatTime(p.checkOutAt) ?? 'still open'}</span>
-          </div>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatTime(p.checkOutAt) ?? 'still open'}</span>
+          </Fragment>
         ))}
       </div>
     </div>

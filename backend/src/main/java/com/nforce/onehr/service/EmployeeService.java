@@ -255,8 +255,8 @@ public class EmployeeService {
     }
 
     /**
-     * Directory entries for the caller's current peers — colleagues who presently share the
-     * caller's manager. Interim "peer group" definition (see
+     * Directory entries for the caller's current Project Team — everyone (including the caller)
+     * who presently shares the caller's manager. Interim "peer group" definition (see
      * {@link com.nforce.onehr.repository.EmployeeManagerHistoryRepository#findCurrentPeerIds});
      * shares the exact same {@link DirectoryEntryDto} shape as {@link #listDirectory()} so the
      * frontend can reuse the same card rendering for both.
@@ -267,11 +267,16 @@ public class EmployeeService {
                 .orElseThrow(() -> new IllegalStateException(
                         "No employee profile found for this account. Contact HR to complete your profile."));
 
-        List<UUID> peerIds = historyRepository.findCurrentPeerIds(self.getUserId());
-        if (peerIds.isEmpty()) {
+        // "Project Team" = every employee (including the caller) who currently reports to the
+        // same manager — empty if the caller has no manager assigned, since there's no team to
+        // belong to in that case.
+        if (historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(self.getUserId()).isEmpty()) {
             return List.of();
         }
-        return employeeRepository.findAllById(peerIds).stream()
+        List<UUID> teamIds = new ArrayList<>(historyRepository.findCurrentPeerIds(self.getUserId()));
+        teamIds.add(self.getUserId());
+
+        return employeeRepository.findAllById(teamIds).stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
                 .map(e -> {
                     var mgr = findCurrentManager(e.getUserId());

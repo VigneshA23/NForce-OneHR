@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.attendance.WebClockInResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
+import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WebClockInRequest;
@@ -59,8 +60,8 @@ public class WebClockInService {
     @Transactional
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
-        LocalDateTime now = now();
-        LocalDate today = now.toLocalDate();
+        LocalDateTime now = now(actor.getId());
+        LocalDate today = shiftDayOf(now);
 
         if (webClockInRepository.existsByEmployeeUserIdAndWorkDateAndStatus(actor.getId(), today, "PENDING")) {
             throw new IllegalArgumentException("A pending web clock-in request already exists for today");
@@ -176,7 +177,7 @@ public class WebClockInService {
                 .findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
 
-        LocalDateTime now = now();
+        LocalDateTime now = now(actor.getId());
         String before = auditSnapshot.toJson(Map.of("checkedOutAt", "null"));
         req.setCheckedOutAt(now);
         webClockInRepository.save(req);
@@ -198,6 +199,34 @@ public class WebClockInService {
 
     private LocalDateTime now() {
         return LocalDateTime.now(ZoneId.of(attendanceProps.getZone()));
+    }
+
+    /**
+     * Clock for a specific employee's own web clock-in actions — computed in THEIR configured
+     * location's timezone, not the single global business zone. Mirrors
+     * AttendanceService.now(Employee)/zoneIdFor. Falls back to the global zone when the
+     * employee has no location assigned, or their location has no timezone configured.
+     */
+    private LocalDateTime now(UUID employeeUserId) {
+        ZoneId zoneId = employeeRepository.findById(employeeUserId)
+                .map(Employee::getLocation)
+                .map(Location::getTimezone)
+                .filter(tz -> tz != null && !tz.isBlank())
+                .map(ZoneId::of)
+                .orElseGet(() -> ZoneId.of(attendanceProps.getZone()));
+        return LocalDateTime.now(zoneId);
+    }
+
+    /**
+     * The shift-day (work_date) a given instant belongs to — mirrors
+     * AttendanceService.shiftDayOf. The shift runs 3:30 PM - 12:30 AM, crossing midnight;
+     * anything from midnight up to shiftDayCutover (7:00 AM by default) still belongs to the
+     * previous calendar date's shift-day.
+     */
+    private LocalDate shiftDayOf(LocalDateTime dateTime) {
+        return dateTime.toLocalTime().isBefore(attendanceProps.getShiftDayCutover())
+                ? dateTime.toLocalDate().minusDays(1)
+                : dateTime.toLocalDate();
     }
 
     private UUID resolveAssignedApprover(UUID employeeId) {

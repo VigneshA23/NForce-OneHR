@@ -43,9 +43,10 @@ public class AttendanceController {
     private final AttendanceService attendanceService;
     private final RegularizationService regularizationService;
 
-    // Punching (and viewing your own punches) is an Employee-only action — Manager/HR Admin/
-    // Super Admin get oversight endpoints (/day, /team, /employee/{id}) instead, never a punch
-    // clock of their own.
+    // Gated on the base EMPLOYEE role, which every account holds alongside whatever admin role
+    // it's assigned (see UserManagementService.rolesFor) — Manager/HR Admin/Super Admin are
+    // staff too and punch in/out the same way, in ADDITION to the oversight endpoints further
+    // down (/day, /team, /employee/{id}) that only they can reach.
 
     @GetMapping("/today")
     @PreAuthorize("hasRole('EMPLOYEE')")

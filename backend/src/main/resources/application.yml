@@ -43,6 +43,10 @@ app:
     zone: ${ATTENDANCE_ZONE:Asia/Kolkata}
     # Provisional shift rules pending PO confirmation.
     shift-start: "15:30"
+    # Shift ends 12:30 AM, but a fresh punch anywhere from midnight up to this time still
+    # belongs to the shift-day that started the evening before — see
+    # AttendanceService.shiftDayOf.
+    shift-day-cutover: "07:00"
     late-grace-minutes: 15
     half-day-max-hours: 4
     full-day-min-hours: 8

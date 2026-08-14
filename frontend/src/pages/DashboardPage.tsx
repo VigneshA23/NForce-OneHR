@@ -636,8 +636,7 @@ function GenericDashboardView({ role }: { role: string }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        {/* Super Admin has no punch clock of their own — see AttendanceController */}
-        {role !== 'SUPER_ADMIN' && <AttendanceStatusCard />}
+        <AttendanceStatusCard />
         <PendingCard
           icon={Calendar}
           title="Leave & Holidays"

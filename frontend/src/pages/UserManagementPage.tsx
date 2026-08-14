@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { UserPlus, X, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type ResetPasswordResult } from '../api/employees';
+import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi } from '../api/org';
 import { onboardingApi } from '../api/onboarding';
 import { useToast } from '../context/ToastContext';
@@ -299,6 +299,14 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Joining date moved in from the old standalone "Update Date of Joining" modal — same
+  // usersApi.updateJoiningDate call and audit-trail note, just triggered from this form instead
+  // of a separate 3-dot menu entry. Kept as its own request (not part of `form`/usersApi.update)
+  // because the backend deliberately keeps it a separate endpoint with its own audit trail —
+  // see UserManagementService.updateJoiningDate.
+  const [joiningDate, setJoiningDate] = useState(user.joiningDate);
+  const [joiningDateNote, setJoiningDateNote] = useState('');
+
   useEffect(() => {
     Promise.all([
       orgApi.listDepartments(token),
@@ -312,7 +320,11 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     e.preventDefault();
     setSubmitting(true); setError(null);
     try {
-      const updated = await usersApi.update(user.userId, form, token);
+      let updated = await usersApi.update(user.userId, form, token);
+      if (joiningDate !== user.joiningDate) {
+        const payload: UpdateJoiningDatePayload = { newJoiningDate: joiningDate, note: joiningDateNote.trim() || undefined };
+        updated = await usersApi.updateJoiningDate(user.userId, payload, token);
+      }
       onUpdated(updated);
       showToast('success', `${updated.fullName} updated successfully`);
       onClose();
@@ -357,6 +369,21 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
               <option value="">— None —</option>{opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
+          <Field label="Date of Joining">
+            <input type="date" style={inputStyle} value={joiningDate} onChange={e => setJoiningDate(e.target.value)} />
+          </Field>
+          {joiningDate !== user.joiningDate && (
+            <div style={{ gridColumn: '1/-1' }}>
+              <Field label="Reason for date change">
+                <textarea
+                  style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+                  value={joiningDateNote}
+                  onChange={e => setJoiningDateNote(e.target.value)}
+                  placeholder="Reason for changing the date of joining…"
+                />
+              </Field>
+            </div>
+          )}
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Location">
               <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
@@ -381,6 +408,10 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     </div>
   );
 }
+
+// Date-of-joining update now lives inline in EditModal above (see its joiningDate/joiningDateNote
+// state) instead of this separate modal — same usersApi.updateJoiningDate call, just reached from
+// the "Edit" action instead of its own 3-dot menu entry.
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
 function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; onClose: () => void; token: string }) {
@@ -497,7 +528,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
   const [typed, setTyped] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const match = typed.trim().toLowerCase() === user.email.toLowerCase();
+  const match = typed === user.email;
 
   async function confirm() {
     if (!match) return;
