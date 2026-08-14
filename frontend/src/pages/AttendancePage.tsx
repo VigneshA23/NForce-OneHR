@@ -3934,11 +3934,19 @@ function AttendancePageInner() {
   const role = toShellRole(useAuthStore((s) => s.user?.role));
   const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
 
+  // Super Admin is a system/oversight role only — no personal attendance record, no
+  // self-service Check In/Check Out (see UserManagementService.rolesFor). They get the
+  // organization-wide roster below, not the "My Attendance" personal dashboard everyone
+  // else (including HR Admin, who is staff too) sees.
+  const isSuperAdmin = role === 'Super Admin';
+
   const subtitle = role === 'Manager'
     ? 'Review daily attendance for the selected month, and your team’s attendance for any day.'
-    : role === 'HR Admin' || role === 'Super Admin'
+    : role === 'HR Admin'
       ? 'Review daily attendance for the selected month, and attendance across the organization.'
-      : 'Review daily attendance for the selected month.';
+      : isSuperAdmin
+        ? 'Attendance across the organization.'
+        : 'Review daily attendance for the selected month.';
 
   const myAttendanceRef = useRef<MyAttendanceHandle>(null);
   const regularizationRef = useRef<RegularizationSectionHandle>(null);
@@ -3963,67 +3971,71 @@ function AttendancePageInner() {
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
             color: 'var(--txt)', margin: 0,
-          }}>My Attendance</h1>
+          }}>{isSuperAdmin ? 'Attendance Administration' : 'My Attendance'}</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            onClick={() => myAttendanceRef.current?.exportMonth()}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <Download size={14} /> Export selected month
-          </button>
-          <button
-            onClick={() => {
-              if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
-                regularizationRef.current?.openNewRequest();
-              } else {
-                pendingOpenRequest.current = true;
-                setLogsTab('ATTENDANCE_REQUESTS');
-                setRequestsSubTab('REGULARIZATION');
-              }
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <CalendarPlus size={14} /> Request Regularization
-          </button>
-        </div>
+        {!isSuperAdmin && (
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => myAttendanceRef.current?.exportMonth()}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <Download size={14} /> Export selected month
+            </button>
+            <button
+              onClick={() => {
+                if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
+                  regularizationRef.current?.openNewRequest();
+                } else {
+                  pendingOpenRequest.current = true;
+                  setLogsTab('ATTENDANCE_REQUESTS');
+                  setRequestsSubTab('REGULARIZATION');
+                }
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <CalendarPlus size={14} /> Request Regularization
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
-        <MyAttendance
-          ref={myAttendanceRef}
-          isSuperAdmin={role === 'Super Admin'}
-          logsTab={logsTab}
-          onLogsTabChange={setLogsTab}
-          otherTabContent={
-            logsTab === 'ATTENDANCE_REQUESTS' ? (
-              <div>
-                <div style={{ marginBottom: 16 }}>
-                  <FilterTabs
-                    value={requestsSubTab}
-                    onChange={setRequestsSubTab}
-                    options={[
-                      { value: 'REGULARIZATION', label: 'Regularization' },
-                      { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
-                    ]}
-                  />
+        {!isSuperAdmin && (
+          <MyAttendance
+            ref={myAttendanceRef}
+            isSuperAdmin={isSuperAdmin}
+            logsTab={logsTab}
+            onLogsTabChange={setLogsTab}
+            otherTabContent={
+              logsTab === 'ATTENDANCE_REQUESTS' ? (
+                <div>
+                  <div style={{ marginBottom: 16 }}>
+                    <FilterTabs
+                      value={requestsSubTab}
+                      onChange={setRequestsSubTab}
+                      options={[
+                        { value: 'REGULARIZATION', label: 'Regularization' },
+                        { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
+                      ]}
+                    />
+                  </div>
+                  {requestsSubTab === 'REGULARIZATION' && (
+                    <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={isSuperAdmin} isManager={role === 'Manager'} />
+                  )}
+                  {requestsSubTab === 'WFH_PARTIAL_DAY' && (
+                    <AttendanceRequestsSection token={token} canApprove={canApprove} />
+                  )}
                 </div>
-                {requestsSubTab === 'REGULARIZATION' && (
-                  <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
-                )}
-                {requestsSubTab === 'WFH_PARTIAL_DAY' && (
-                  <AttendanceRequestsSection token={token} canApprove={canApprove} />
-                )}
-              </div>
-            ) : logsTab === 'OVERTIME' ? (
-              <OvertimeRequestsSection token={token} canApprove={canApprove} />
-            ) : null
-          }
-        />
+              ) : logsTab === 'OVERTIME' ? (
+                <OvertimeRequestsSection token={token} canApprove={canApprove} />
+              ) : null
+            }
+          />
+        )}
 
         {role === 'Manager' && <DayRoster scope="team" />}
-        {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
+        {(role === 'HR Admin' || isSuperAdmin) && <DayRoster scope="all" />}
       </div>
     </div>
   );

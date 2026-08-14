@@ -227,4 +227,55 @@ class AuthServiceTest {
         assertNull(user.getLockedUntil());
         verify(auditService).log(user.getId(), "LOGIN_BLOCKED", user.getId());
     }
+
+    // ── forgotPassword: reports account status explicitly instead of a generic response ──
+
+    @Test
+    void forgotPassword_unknownEmail_throwsNotFoundAndSendsNoEmail() {
+        when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> authService.forgotPassword("nobody@test.com"));
+
+        assertEquals("No account found with this email address", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void forgotPassword_deactivatedAccount_throwsDisabledAndSendsNoEmail() {
+        user.setActive(false);
+
+        DisabledException ex = assertThrows(DisabledException.class,
+                () -> authService.forgotPassword(EMAIL));
+
+        assertEquals("This account has been deactivated. Please contact your HR administrator", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void forgotPassword_deletedAccount_throwsDisabledAndSendsNoEmail() {
+        user.setDeletedAt(Instant.now());
+
+        DisabledException ex = assertThrows(DisabledException.class,
+                () -> authService.forgotPassword(EMAIL));
+
+        assertEquals("This account has been deleted. Please contact your HR administrator", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void forgotPassword_activeAccount_sendsResetEmailAndReturnsSuccessMessage() {
+        when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
+
+        var response = authService.forgotPassword(EMAIL.toUpperCase());
+
+        assertEquals("Password reset instructions have been sent to your email", response.getMessage());
+        assertTrue(user.isMustChangePassword());
+        verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString());
+        verify(auditService).log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+        verify(notificationService).send(eq(user.getId()), eq("SECURITY"), anyString(), anyString(), anyString());
+    }
 }

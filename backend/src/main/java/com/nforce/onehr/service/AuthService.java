@@ -161,33 +161,42 @@ public class AuthService {
     }
 
     /**
-     * Forgot-password flow: always returns generic success regardless of whether the email exists.
-     * Prevents email enumeration — response shape and timing must not reveal account existence.
+     * Forgot-password flow: validates the account status up front and reports it back
+     * distinctly (no account found / deactivated / deleted / reset sent) rather than a single
+     * generic response — a deliberate product decision to prioritize clear self-service
+     * feedback over email-enumeration hardening for this flow.
      */
     @Transactional
     public ForgotPasswordResponse forgotPassword(String email) {
         String normalizedEmail = email.toLowerCase().trim();
-        userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
-            if (user.isActive() && user.getDeletedAt() == null) {
-                String tempPassword = generateTempPassword();
-                user.setPasswordHash(passwordEncoder.encode(tempPassword));
-                user.setMustChangePassword(true);
-                userRepository.save(user);
+        User user = userRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new IllegalArgumentException("No account found with this email address"));
 
-                String fullName = employeeRepository.findById(user.getId())
-                        .map(com.nforce.onehr.entity.Employee::getFullName)
-                        .orElse(user.getEmail());
+        if (user.getDeletedAt() != null) {
+            throw new DisabledException("This account has been deleted. Please contact your HR administrator");
+        }
+        if (!user.isActive()) {
+            throw new DisabledException("This account has been deactivated. Please contact your HR administrator");
+        }
 
-                emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
-                auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
-                notificationService.send(user.getId(), "SECURITY",
-                        "Password Reset",
-                        "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
-                        "/change-password");
-            }
-        });
+        String tempPassword = generateTempPassword();
+        user.setPasswordHash(passwordEncoder.encode(tempPassword));
+        user.setMustChangePassword(true);
+        userRepository.save(user);
+
+        String fullName = employeeRepository.findById(user.getId())
+                .map(com.nforce.onehr.entity.Employee::getFullName)
+                .orElse(user.getEmail());
+
+        emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+        auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+        notificationService.send(user.getId(), "SECURITY",
+                "Password Reset",
+                "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
+                "/change-password");
+
         return ForgotPasswordResponse.builder()
-                .message("If that email is registered, we've sent password reset instructions.")
+                .message("Password reset instructions have been sent to your email")
                 .build();
     }
 
