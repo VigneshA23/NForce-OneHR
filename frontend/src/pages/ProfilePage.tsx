@@ -8,6 +8,19 @@ import { useToast } from '../context/ToastContext';
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const digitsOnly = (v: string) => v.replace(/\D/g, '');
+
+function validateEmail(v: string): string | null {
+  if (!v) return null;
+  return EMAIL_RE.test(v) ? null : 'Enter a valid email address (e.g. name@example.com).';
+}
+
+function validatePhone(v: string, label: string): string | null {
+  if (!v) return null;
+  return digitsOnly(v).length === 10 ? null : `${label} must be exactly 10 digits.`;
+}
+
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',
   HR_ADMIN: 'HR Admin',
@@ -45,18 +58,44 @@ const INPUT_STYLE: React.CSSProperties = {
   borderRadius: 6, padding: '7px 10px', fontSize: 13, color: 'var(--txt)', outline: 'none',
 };
 
-function EditField({ label, value, onChange, type = 'text', placeholder }: {
+function EditField({ label, value, onChange, type = 'text', placeholder, error }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
+  error?: string | null;
 }) {
   return (
     <div>
       <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>{label}</label>
       <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        style={INPUT_STYLE} />
+        style={{ ...INPUT_STYLE, ...(error ? { borderColor: 'var(--risk)' } : {}) }} />
+      {error && <div style={{ fontSize: 11, color: 'var(--risk)', marginTop: 4 }}>{error}</div>}
+    </div>
+  );
+}
+
+function PhoneField({ label, value, onChange, placeholder, error }: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  error?: string | null;
+}) {
+  return (
+    <div>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>{label}</label>
+      <input
+        type="tel"
+        inputMode="numeric"
+        maxLength={10}
+        value={value}
+        onChange={e => onChange(digitsOnly(e.target.value).slice(0, 10))}
+        placeholder={placeholder}
+        style={{ ...INPUT_STYLE, ...(error ? { borderColor: 'var(--risk)' } : {}) }}
+      />
+      {error && <div style={{ fontSize: 11, color: 'var(--risk)', marginTop: 4 }}>{error}</div>}
     </div>
   );
 }
@@ -73,6 +112,13 @@ export default function ProfilePage() {
   const [saving, setSaving]     = useState(false);
   const [uploading, setUploading] = useState(false);
   const [form, setForm]         = useState<UpdateProfilePayload>({});
+
+  const errors = {
+    personalEmail: validateEmail(form.personalEmail ?? ''),
+    phone: validatePhone(form.phone ?? '', 'Phone number'),
+    emergencyContactPhone: validatePhone(form.emergencyContactPhone ?? '', 'Contact phone'),
+  };
+  const hasErrors = Object.values(errors).some(Boolean);
 
   useEffect(() => {
     profileApi.get(token)
@@ -95,29 +141,30 @@ export default function ProfilePage() {
   }
 
   async function handleSave() {
-    if (form.personalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.personalEmail)) {
-      showToast('error', 'Personal email format is invalid.');
+    if (errors.personalEmail) {
+      showToast('error', errors.personalEmail);
       return;
     }
-    const digitsOnly = (v: string) => v.replace(/\D/g, '');
-    if (form.phone && digitsOnly(form.phone).length !== 10) {
-      showToast('error', 'Phone number must be exactly 10 digits.');
+    if (errors.phone) {
+      showToast('error', errors.phone);
       return;
     }
-    if (form.emergencyContactPhone && digitsOnly(form.emergencyContactPhone).length !== 10) {
-      showToast('error', 'Contact phone must be exactly 10 digits.');
+    if (errors.emergencyContactPhone) {
+      showToast('error', errors.emergencyContactPhone);
       return;
     }
     setSaving(true);
     try {
+      // Phone fields are normalized to bare digits here so the payload matches
+      // the backend's `^\d{10}$` validation regardless of how the user typed it.
       const cleaned: UpdateProfilePayload = {};
-      if (form.phone !== undefined) cleaned.phone = form.phone;
+      if (form.phone) cleaned.phone = digitsOnly(form.phone);
       if (form.dateOfBirth) cleaned.dateOfBirth = form.dateOfBirth;
       if (form.gender) cleaned.gender = form.gender;
       if (form.personalEmail) cleaned.personalEmail = form.personalEmail;
       if (form.address) cleaned.address = form.address;
       if (form.emergencyContactName) cleaned.emergencyContactName = form.emergencyContactName;
-      if (form.emergencyContactPhone) cleaned.emergencyContactPhone = form.emergencyContactPhone;
+      if (form.emergencyContactPhone) cleaned.emergencyContactPhone = digitsOnly(form.emergencyContactPhone);
       if (form.workMode) cleaned.workMode = form.workMode;
 
       const updated = await profileApi.update(token, cleaned);
@@ -224,8 +271,8 @@ export default function ProfilePage() {
                   style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
                   Cancel
                 </button>
-                <button onClick={handleSave} disabled={saving}
-                  style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .7 : 1 }}>
+                <button onClick={handleSave} disabled={saving || hasErrors}
+                  style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: (saving || hasErrors) ? 'not-allowed' : 'pointer', opacity: (saving || hasErrors) ? .7 : 1 }}>
                   {saving ? 'Saving…' : 'Save Changes'}
                 </button>
               </>
@@ -245,7 +292,7 @@ export default function ProfilePage() {
           <SectionHeader title="Personal Information" />
           {editing ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <EditField label="Phone" value={field('phone')} onChange={set('phone')} placeholder="+91 99999 99999" />
+              <PhoneField label="Phone" value={field('phone')} onChange={set('phone')} placeholder="9876543210" error={errors.phone} />
               <EditField label="Date of Birth" value={field('dateOfBirth')} onChange={set('dateOfBirth')} type="date" />
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>Gender</label>
@@ -254,7 +301,7 @@ export default function ProfilePage() {
                   {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
               </div>
-              <EditField label="Personal Email" value={field('personalEmail')} onChange={set('personalEmail')} type="email" placeholder="personal@email.com" />
+              <EditField label="Personal Email" value={field('personalEmail')} onChange={set('personalEmail')} type="email" placeholder="personal@email.com" error={errors.personalEmail} />
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>Address</label>
                 <textarea value={field('address')} onChange={e => set('address')(e.target.value)}
@@ -306,7 +353,7 @@ export default function ProfilePage() {
         {editing ? (
           <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <EditField label="Contact Name" value={field('emergencyContactName')} onChange={set('emergencyContactName')} placeholder="Full name" />
-            <EditField label="Contact Phone" value={field('emergencyContactPhone')} onChange={set('emergencyContactPhone')} placeholder="+91 99999 99999" />
+            <PhoneField label="Contact Phone" value={field('emergencyContactPhone')} onChange={set('emergencyContactPhone')} placeholder="9876543210" error={errors.emergencyContactPhone} />
           </div>
         ) : (
           <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

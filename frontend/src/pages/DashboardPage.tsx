@@ -8,7 +8,7 @@ import { dashboardApi, type TeamJoiner, type ManagerDashboard } from '../api/das
 import { attendanceApi, type AttendanceRecord, type TodayAttendance } from '../api/attendance';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { WebClockInRequestModal } from '../components/WebClockInRequestModal';
-import { leaveApi } from '../api/leave';
+import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 
 function formatClockTime(iso: string | null): string | null {
   if (!iso) return null;
@@ -182,6 +182,134 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
               </div>
             ))}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Clickable employee name → existing People Directory detail panel (ONEHR dashboard drill-down) ── */
+function EmployeeLink({ userId, name }: { userId: string; name: string }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => navigate(`/directory?userId=${userId}`)}
+      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left', fontSize: 13, fontWeight: 600, color: 'var(--brand)', textDecoration: 'underline' }}
+    >
+      {name}
+    </button>
+  );
+}
+
+/* ── Present Today modal: who's currently checked in, same definition as the KPI count ── */
+function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
+  records: AttendanceRecord[];
+  loading: boolean;
+  scopeLabel: string;
+  onClose: () => void;
+}) {
+  // Same "checked in" definition as the Present Today KPI — do not diverge from it here.
+  const present = useMemo(() => records.filter(r => r.checkInAt), [records]);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            Present Today — {scopeLabel} ({present.length})
+          </span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>Loading…</div>
+          ) : present.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one has checked in yet today.</div>
+          ) : present.map(r => (
+            <div key={r.employeeUserId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <EmployeeLink userId={r.employeeUserId} name={r.fullName} />
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{r.employeeCode}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.checkInAt) ?? '—'}</div>
+                {r.status === 'LATE' && (
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
+                    Late{r.lateByMinutes ? ` by ${r.lateByMinutes}m` : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── One Full Day / Half Day group inside the On Leave modal ── */
+function LeaveSection({ title, accent, rows }: { title: string; accent: string; rows: LeaveRequestRecord[] }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+          {title} ({rows.length})
+        </span>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '2px 0 0' }}>None today.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rows.map(r => (
+            <div key={r.id} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
+              <EmployeeLink userId={r.employeeUserId} name={r.employeeName} />
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>
+                {r.leaveTypeName} · {new Date(r.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {r.startDate !== r.endDate ? ` – ${new Date(r.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── On Leave modal: employees on leave today, split Full Day / Half Day ── */
+function OnLeaveModal({ rows, loading, scopeLabel, onClose }: {
+  rows: LeaveRequestRecord[];
+  loading: boolean;
+  scopeLabel: string;
+  onClose: () => void;
+}) {
+  const fullDay = useMemo(() => rows.filter(r => !r.halfDay), [rows]);
+  const halfDay = useMemo(() => rows.filter(r => r.halfDay), [rows]);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            On Leave Today — {scopeLabel} ({rows.length})
+          </span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ padding: 20 }}>
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>Loading…</div>
+          ) : rows.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one is on leave today.</div>
+          ) : (
+            <>
+              <LeaveSection title="Full Day Leave" accent="#B11116" rows={fullDay} />
+              <LeaveSection title="Half Day Leave" accent="#E0A93B" rows={halfDay} />
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -370,8 +498,11 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState('');
   const { records: teamToday, loading: teamLoading } = useTeamAttendanceToday(token, scope);
-  const [onLeaveCount, setOnLeaveCount] = useState<number | null>(null);
+  const [onLeaveRows, setOnLeaveRows] = useState<LeaveRequestRecord[]>([]);
+  const [onLeaveLoading, setOnLeaveLoading] = useState(true);
   const [pendingLeaveCount, setPendingLeaveCount] = useState<number | null>(null);
+  const [showPresentModal, setShowPresentModal] = useState(false);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
 
   useEffect(() => {
     const fetchDashboard = isHr ? dashboardApi.hrDashboard : dashboardApi.managerDashboard;
@@ -385,9 +516,14 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
     const today = todayIsoDate();
     const fetchOnLeave = isHr ? leaveApi.organization : leaveApi.team;
     fetchOnLeave(today, today, token)
-      .then(rows => setOnLeaveCount(new Set(rows.map(r => r.employeeUserId)).size))
-      .catch(() => setOnLeaveCount(0));
+      .then(setOnLeaveRows)
+      .catch(() => setOnLeaveRows([]))
+      .finally(() => setOnLeaveLoading(false));
   }, [token, isHr]);
+
+  // Same dedup-by-employee logic the KPI has always used — just derived from the stored rows
+  // now that the modal also needs the underlying list.
+  const onLeaveCount = useMemo(() => new Set(onLeaveRows.map(r => r.employeeUserId)).size, [onLeaveRows]);
 
   useEffect(() => {
     // Same call for both scopes — it's scoped to "requests where the caller is the current
@@ -444,7 +580,10 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           </div>
         </div>
 
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
+        <button
+          onClick={() => setShowPresentModal(true)}
+          style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Clock size={14} style={{ color: 'var(--brand)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Present Today</span>
@@ -452,11 +591,11 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
             {teamLoading ? '—' : `${presentCount}/${teamToday.length}`}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today</div>
-        </div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today · view list →</div>
+        </button>
 
         <button
-          onClick={() => navigate(isHr ? '/employees' : '/my-team?status=LEAVE')}
+          onClick={() => setShowLeaveModal(true)}
           style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -464,10 +603,10 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>On Leave</span>
           </div>
           <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
-            {onLeaveCount === null ? '—' : onLeaveCount}
+            {onLeaveLoading ? '—' : onLeaveCount}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
-            on leave today · {isHr ? 'view employees →' : 'view roster →'}
+            on leave today · view list →
           </div>
         </button>
       </div>
@@ -602,6 +741,23 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           note="Goals and review cycles. Available once the Performance module is built."
         />
       </div>
+
+      {showPresentModal && (
+        <PresentTodayModal
+          records={teamToday}
+          loading={teamLoading}
+          scopeLabel={isHr ? 'Organization' : 'Your Team'}
+          onClose={() => setShowPresentModal(false)}
+        />
+      )}
+      {showLeaveModal && (
+        <OnLeaveModal
+          rows={onLeaveRows}
+          loading={onLeaveLoading}
+          scopeLabel={isHr ? 'Organization' : 'Your Team'}
+          onClose={() => setShowLeaveModal(false)}
+        />
+      )}
     </div>
   );
 }
