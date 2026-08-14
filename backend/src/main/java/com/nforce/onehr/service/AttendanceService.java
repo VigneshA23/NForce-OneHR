@@ -259,6 +259,19 @@ public class AttendanceService {
     }
 
     private void openPunch(UUID attendanceRecordId, LocalDateTime checkInAt) {
+        // Defensive: close out any punch(es) still open under this record before opening a new
+        // one. Should never happen in the normal flow — checkIn's own open-session guard blocks a
+        // second check-in while one is already in progress — but a duplicate/retried request that
+        // slips past that guard (e.g. a network-retry race) must not be allowed to leave more
+        // than one simultaneously-open punch: that ambiguity is exactly what used to crash
+        // checkOut with NonUniqueResultException. Closing any stragglers here, rather than only
+        // tolerating them at read time, stops the bad state from accumulating further.
+        attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(attendanceRecordId).stream()
+                .filter(p -> p.getCheckOutAt() == null)
+                .forEach(p -> {
+                    p.setCheckOutAt(checkInAt);
+                    attendancePunchRepository.save(p);
+                });
         attendancePunchRepository.save(AttendancePunch.builder()
                 .attendanceRecordId(attendanceRecordId)
                 .checkInAt(checkInAt)
@@ -309,7 +322,11 @@ public class AttendanceService {
         }
 
         Attendance saved = attendanceRepository.save(record);
-        attendancePunchRepository.findByAttendanceRecordIdAndCheckOutAtIsNull(saved.getId())
+        // findFirstBy...OrderByCheckInAtDesc, not a plain findBy: if more than one punch is ever
+        // left open under this record (a data slip, or two near-simultaneous check-ins racing
+        // past the open-session guard above), a plain findBy throws NonUniqueResultException and
+        // crashes the checkout instead of just closing the most recently opened session.
+        attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(saved.getId())
                 .ifPresent(punch -> {
                     punch.setCheckOutAt(effectiveCheckOut);
                     attendancePunchRepository.save(punch);

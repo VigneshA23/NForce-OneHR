@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
+import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -12,6 +12,9 @@ const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shel
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+// Holiday table only — compact, center-aligned, distinct from the Leave Requests table above.
+const holidayThStyle: React.CSSProperties = { ...thStyle, textAlign: 'center', padding: '8px 10px' };
+const holidayTdStyle: React.CSSProperties = { ...tdStyle, textAlign: 'center', padding: '8px 10px' };
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
@@ -132,7 +135,16 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   const totalDays = daysInMonth(year, month);
   const firstWeekday = new Date(year, month, 1).getDay();
   const todayIso = toISODate(today.getFullYear(), today.getMonth(), today.getDate());
-  const holidayByDate = new Map(holidays.map(h => [h.holidayDate, h]));
+  // Group by date rather than keying a single holiday per date — two or more
+  // holidays can legitimately fall on the same date (e.g. an admin viewing
+  // "All Locations", or duplicate entries), and a single-value Map would
+  // silently drop every holiday but the last one for that date.
+  const holidaysByDate = new Map<string, HolidayRow[]>();
+  for (const h of holidays) {
+    const list = holidaysByDate.get(h.holidayDate);
+    if (list) list.push(h);
+    else holidaysByDate.set(h.holidayDate, [h]);
+  }
 
   const cells: Array<{ day: number; iso: string } | null> = [];
   for (let i = 0; i < firstWeekday; i++) cells.push(null);
@@ -161,45 +173,56 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 4 }}>
         {WEEKDAY_LABELS.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em', padding: '2px 0' }}>
+          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em', padding: '2px 0' }}>
             {d[0]}
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
         {cells.map((c, i) => {
           if (!c) return <div key={i} />;
-          const holiday = holidayByDate.get(c.iso);
+          const dayHolidays = holidaysByDate.get(c.iso) ?? [];
+          const hasHoliday = dayHolidays.length > 0;
+          const visible = dayHolidays.slice(0, 2);
+          const extraCount = dayHolidays.length - visible.length;
           const isToday = c.iso === todayIso;
           return (
             <div
               key={i}
-              title={holiday?.holidayName}
+              title={dayHolidays.map(h => h.holidayName).join(', ') || undefined}
               style={{
-                minHeight: 42,
-                borderRadius: 7,
-                padding: '4px 4px',
-                background: holiday ? 'color-mix(in srgb, var(--warn) 14%, transparent)' : 'var(--raised)',
-                border: isToday ? '1.5px solid var(--brand)' : holiday ? '1px solid var(--warn)' : '1px solid var(--line)',
+                minHeight: 58,
+                borderRadius: 8,
+                padding: '6px 5px',
+                background: hasHoliday ? 'color-mix(in srgb, var(--warn) 16%, transparent)' : 'var(--raised)',
+                border: isToday ? '2px solid var(--brand)' : hasHoliday ? '1.5px solid var(--warn)' : '1px solid var(--line)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'flex-start',
                 gap: 3,
               }}
             >
-              <span style={{ fontSize: 10, fontWeight: isToday ? 700 : 500, color: holiday ? 'var(--warn)' : 'var(--txt)' }}>
+              <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 500, color: hasHoliday ? 'var(--warn)' : 'var(--txt)' }}>
                 {c.day}
               </span>
-              {holiday && (
-                <span style={{
-                  fontSize: 7, fontWeight: 700, color: '#fff', background: 'var(--warn)',
-                  borderRadius: 4, padding: '1px 4px', lineHeight: 1.4,
+              {visible.map(h => (
+                <span key={h.id} style={{
+                  fontSize: 9, fontWeight: 700, color: '#fff', background: 'var(--warn)',
+                  borderRadius: 5, padding: '2px 5px', lineHeight: 1.4,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
                 }}>
-                  {holiday.holidayName}
+                  {h.holidayName}
+                </span>
+              ))}
+              {extraCount > 0 && (
+                <span style={{
+                  fontSize: 8.5, fontWeight: 700, color: 'var(--warn)',
+                  lineHeight: 1.3,
+                }}>
+                  +{extraCount} more
                 </span>
               )}
             </div>
@@ -210,10 +233,10 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   );
 }
 
-function AddHolidayModal({ token, onClose, onCreated }: { token: string; onClose: () => void; onCreated: (locationId: string) => void }) {
-  const [holidayName, setHolidayName] = useState('');
-  const [holidayDate, setHolidayDate] = useState('');
-  const [locationId, setLocationId] = useState('');
+function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string; editing?: HolidayRow; onClose: () => void; onCreated: (locationId: string) => void }) {
+  const [holidayName, setHolidayName] = useState(editing?.holidayName ?? '');
+  const [holidayDate, setHolidayDate] = useState(editing?.holidayDate ?? '');
+  const [locationId, setLocationId] = useState(editing?.locationId ?? '');
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -234,7 +257,11 @@ function AddHolidayModal({ token, onClose, onCreated }: { token: string; onClose
 
     setLoading(true);
     try {
-      await holidaysApi.createHoliday(token, { holidayName: name, holidayDate, locationId });
+      if (editing) {
+        await holidaysApi.updateHoliday(token, editing.id, { holidayName: name, holidayDate, locationId });
+      } else {
+        await holidaysApi.createHoliday(token, { holidayName: name, holidayDate, locationId });
+      }
       onCreated(locationId);
       onClose();
     } catch (err) {
@@ -247,7 +274,7 @@ function AddHolidayModal({ token, onClose, onCreated }: { token: string; onClose
   return (
     <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={modalStyle}>
-        <ModalHeader title="Add Holiday" onClose={onClose} />
+        <ModalHeader title={editing ? 'Edit Holiday' : 'Add Holiday'} onClose={onClose} />
         {error && <div style={{ margin: '16px 20px 0', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
         <form onSubmit={submit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Field label="Holiday Name *">
@@ -285,6 +312,8 @@ export default function LeavePage() {
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
   const [holidayError, setHolidayError] = useState('');
   const [showAddHoliday, setShowAddHoliday] = useState(false);
+  const [editingHoliday, setEditingHoliday] = useState<HolidayRow | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [adminLocations, setAdminLocations] = useState<LocationRow[]>([]);
   const [locationFilter, setLocationFilter] = useState(''); // admin only; '' = All Locations
 
@@ -317,6 +346,37 @@ export default function LeavePage() {
   }
 
   useEffect(() => { if (token) fetchHolidays(); }, [token, isAdmin]);
+
+  // An employee's tab may already be open when HR Admin edits/deletes a
+  // holiday for their location — there's no push/websocket in this app, so
+  // without this the tab would only pick up the change on its next full
+  // navigation. Refetch when the tab regains focus/visibility instead of
+  // requiring a manual reload.
+  useEffect(() => {
+    if (!token) return;
+    function onFocus() { fetchHolidays(); }
+    function onVisibility() { if (document.visibilityState === 'visible') fetchHolidays(); }
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, isAdmin, locationFilter]);
+
+  async function handleDeleteHoliday(h: HolidayRow) {
+    if (!window.confirm(`Delete "${h.holidayName}"? This can't be undone from here.`)) return;
+    setDeletingId(h.id);
+    try {
+      await holidaysApi.deleteHoliday(token, h.id);
+      await fetchHolidays();
+    } catch (e) {
+      setHolidayError(e instanceof Error ? e.message : 'Failed to delete holiday');
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   function handleCreated(r: LeaveRequestRecord) {
     setRequests(prev => [r, ...prev]);
@@ -434,7 +494,7 @@ export default function LeavePage() {
           </div>
         )}
 
-        <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
+        <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(310px, 380px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
           {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
 
           <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
@@ -447,19 +507,57 @@ export default function LeavePage() {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                  <colgroup>
+                    {isAdmin ? (
+                      <>
+                        <col style={{ width: '28%' }} />
+                        <col style={{ width: '22%' }} />
+                        <col style={{ width: '20%' }} />
+                        <col style={{ width: '15%' }} />
+                        <col style={{ width: '15%' }} />
+                      </>
+                    ) : (
+                      <>
+                        <col style={{ width: '45%' }} />
+                        <col style={{ width: '35%' }} />
+                        <col style={{ width: '20%' }} />
+                      </>
+                    )}
+                  </colgroup>
                   <thead>
                     <tr>
-                      {(isAdmin ? ['Holiday Name', 'Date', 'Location', 'Status'] : ['Holiday Name', 'Date', 'Status']).map(h => <th key={h} style={thStyle}>{h}</th>)}
+                      {(isAdmin ? ['Holiday Name', 'Date', 'Location', 'Status', 'Actions'] : ['Holiday Name', 'Date', 'Status']).map(h => <th key={h} style={holidayThStyle}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {holidays.map(h => (
                       <tr key={h.id}>
-                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{h.holidayName}</td>
-                        <td style={tdStyle}>{formatHolidayDate(h.holidayDate)}</td>
-                        {isAdmin && <td style={tdStyle}>{h.locationName}</td>}
-                        <td style={tdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
+                        <td style={{ ...holidayTdStyle, color: 'var(--txt)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.holidayName}>{h.holidayName}</td>
+                        <td style={holidayTdStyle}>{formatHolidayDate(h.holidayDate)}</td>
+                        {isAdmin && <td style={{ ...holidayTdStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.locationName}>{h.locationName}</td>}
+                        <td style={holidayTdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
+                        {isAdmin && (
+                          <td style={holidayTdStyle}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              <button
+                                onClick={() => setEditingHoliday(h)}
+                                aria-label={`Edit ${h.holidayName}`}
+                                style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteHoliday(h)}
+                                disabled={deletingId === h.id}
+                                aria-label={`Delete ${h.holidayName}`}
+                                style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: deletingId === h.id ? 'not-allowed' : 'pointer', color: 'var(--risk)', opacity: deletingId === h.id ? 0.5 : 1 }}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -470,10 +568,11 @@ export default function LeavePage() {
         </div>
       </div>
 
-      {showAddHoliday && (
+      {(showAddHoliday || editingHoliday) && (
         <AddHolidayModal
           token={token}
-          onClose={() => setShowAddHoliday(false)}
+          editing={editingHoliday ?? undefined}
+          onClose={() => { setShowAddHoliday(false); setEditingHoliday(null); }}
           onCreated={(locId) => { setLocationFilter(locId); fetchHolidays(locId); }}
         />
       )}
