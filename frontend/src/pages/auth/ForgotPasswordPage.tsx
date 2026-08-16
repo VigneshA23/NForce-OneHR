@@ -74,7 +74,7 @@ export default function ForgotPasswordPage() {
             }}>
               <div style={{ fontWeight: 700, color: 'var(--ok)', marginBottom: 6, fontSize: 14 }}>Check your inbox</div>
               <p style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.6, margin: 0 }}>
-                If <span style={{ color: 'var(--txt)', fontFamily: 'monospace' }}>{email}</span> is registered and active, we've sent a temporary password. Check your spam folder if it doesn't arrive within a minute.
+                If <span style={{ color: 'var(--txt)', fontFamily: 'monospace' }}>{email}</span> is active, we've sent a temporary password. Check your spam folder if it doesn't arrive within a minute.
               </p>
             </div>
             <Link
