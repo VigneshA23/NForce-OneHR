@@ -65,15 +65,15 @@ const panelGradient = [
   'linear-gradient(160deg, #0a0b0e 0%, #12141a 100%)',
 ].join(', ');
 
-function BrandingBlock({ size }: { size: 'sm' | 'lg' }) {
+function BrandingBlock({ size, compact = false }: { size: 'sm' | 'md' | 'lg'; compact?: boolean }) {
   return (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14 }}>
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: compact ? 10 : 14 }}>
       <BrandMark size={size} />
       <div>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
+        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: compact ? 15 : 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
           NForce OneHR
         </div>
-        <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: 3 }}>
+        <div style={{ fontSize: compact ? 9 : 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: compact ? 2 : 3 }}>
           People &amp; Operations Platform
         </div>
       </div>
@@ -118,8 +118,8 @@ export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, child
       </div>
 
       <div className="nf-auth-right-panel max-[900px]:flex-col" style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: '100dvh' }}>
-        <div className="hidden max-[900px]:flex" style={{ width: '100%', maxWidth: 440, marginBottom: 32 }}>
-          <BrandingBlock size="lg" />
+        <div className="hidden max-[900px]:flex nf-auth-mobile-brand" style={{ width: '100%', maxWidth: 440, marginBottom: 32 }}>
+          <BrandingBlock size="md" compact />
         </div>
         <div style={{ width: '100%', maxWidth: 440 }}>
           {children}

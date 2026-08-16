@@ -543,12 +543,12 @@ export default function PoliciesPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+      <div className="nf-policy-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Policies & Announcements</h1>
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setShowAnnounce(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             <Megaphone size={14} /> New Announcement
@@ -561,15 +561,15 @@ export default function PoliciesPage() {
       </div>
 
       {/* KPI tiles */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+      <div className="nf-policy-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Active Policies', value: activePolicies, color: '#22c55e' },
           { label: 'Pending Acknowledgments', value: pendingAckTotal, color: '#eab308' },
           { label: 'Total Announcements', value: announcements.length, color: '#3b82f6' },
         ].map(k => (
-          <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: '"Space Grotesk", sans-serif' }}>{k.value}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
+          <div key={k.label} className="nf-policy-kpi-tile" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
+            <div className="nf-policy-kpi-value" style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: '"Space Grotesk", sans-serif' }}>{k.value}</div>
+            <div className="nf-policy-kpi-label" style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
           </div>
         ))}
       </div>
@@ -616,54 +616,56 @@ export default function PoliciesPage() {
             </select>
           </div>
           <div style={card}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={thS}>Title</th>
-                  <th style={thS}>Version</th>
-                  <th style={thS}>Audience</th>
-                  <th style={thS}>Published</th>
-                  <th style={thS}>Status</th>
-                  <th style={thS}>Actions</th>
-                  <th style={thS}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredPolicies.length === 0 ? (
-                  <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                    {pq || policyFilter !== 'all' || policyAudienceFilter ? 'No policies match the filter.' : 'No policies yet.'}
-                  </td></tr>
-                ) : filteredPolicies.map(p => (
-                  <tr key={p.id}>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>
-                      {p.title}
-                      {p.required && <span style={{ marginLeft: 8, fontSize: 10, background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>Required</span>}
-                    </td>
-                    <td style={tdS}>v{p.version}</td>
-                    <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(p.audience)}</span></td>
-                    <td style={tdS}>{new Date(p.publishedAt).toLocaleDateString()}</td>
-                    <td style={tdS}>
-                      {p.active
-                        ? <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>Active</span>
-                        : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Inactive</span>}
-                    </td>
-                    <td style={tdS}>
-                      <button onClick={() => setAckPolicy(p)}
-                        style={{ padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>
-                        View Acknowledgments
-                      </button>
-                    </td>
-                    <td style={{ ...tdS, width: 48 }}>
-                      <KebabMenu items={[
-                        { label: 'Edit', onClick: () => setEditPolicyTarget(p) },
-                        ...(p.active ? [{ label: 'Deactivate', onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', onClick: () => doReactivatePolicy(p.id) }]),
-                        { label: 'Delete', onClick: () => doDeletePolicy(p.id), danger: true },
-                      ]} />
-                    </td>
+            <div className="nf-doc-table-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thS}>Title</th>
+                    <th style={thS}>Version</th>
+                    <th style={thS}>Audience</th>
+                    <th style={thS}>Published</th>
+                    <th style={thS}>Status</th>
+                    <th style={thS}>Actions</th>
+                    <th style={thS}></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredPolicies.length === 0 ? (
+                    <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                      {pq || policyFilter !== 'all' || policyAudienceFilter ? 'No policies match the filter.' : 'No policies yet.'}
+                    </td></tr>
+                  ) : filteredPolicies.map(p => (
+                    <tr key={p.id}>
+                      <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>
+                        {p.title}
+                        {p.required && <span style={{ marginLeft: 8, fontSize: 10, background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>Required</span>}
+                      </td>
+                      <td style={tdS}>v{p.version}</td>
+                      <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(p.audience)}</span></td>
+                      <td style={tdS}>{new Date(p.publishedAt).toLocaleDateString()}</td>
+                      <td style={tdS}>
+                        {p.active
+                          ? <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>Active</span>
+                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Inactive</span>}
+                      </td>
+                      <td style={tdS}>
+                        <button onClick={() => setAckPolicy(p)}
+                          style={{ padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>
+                          View Acknowledgments
+                        </button>
+                      </td>
+                      <td style={{ ...tdS, width: 48 }}>
+                        <KebabMenu items={[
+                          { label: 'Edit', onClick: () => setEditPolicyTarget(p) },
+                          ...(p.active ? [{ label: 'Deactivate', onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', onClick: () => doReactivatePolicy(p.id) }]),
+                          { label: 'Delete', onClick: () => doDeletePolicy(p.id), danger: true },
+                        ]} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}
@@ -692,51 +694,53 @@ export default function PoliciesPage() {
             )}
           </div>
           <div style={card}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={thS}>Title</th>
-                  <th style={thS}>Audience</th>
-                  <th style={thS}>Created</th>
-                  <th style={thS}>Published</th>
-                  <th style={thS}>Visible</th>
-                  <th style={thS}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAnn.length === 0 ? (
-                  <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                    {aq || annStatusFilter !== 'all' || annAudienceFilter ? 'No announcements match the filter.' : 'No announcements yet.'}
-                  </td></tr>
-                ) : filteredAnn.map(a => (
-                  <tr key={a.id}>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', maxWidth: 220 }}>
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</div>
-                    </td>
-                    <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(a.audience)}</span></td>
-                    <td style={tdS}>{new Date(a.createdAt).toLocaleDateString()}</td>
-                    <td style={tdS}>
-                      {a.publishedAt
-                        ? <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>{new Date(a.publishedAt).toLocaleDateString()}</span>
-                        : <span style={{ color: '#eab308', fontSize: 12, fontWeight: 600 }}>Draft</span>}
-                    </td>
-                    <td style={tdS}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: a.active ? '#22c55e' : 'var(--txt-dim)' }}>
-                        {a.active ? 'Visible' : 'Hidden'}
-                      </span>
-                    </td>
-                    <td style={{ ...tdS, width: 48 }}>
-                      <KebabMenu items={[
-                        ...(!a.published ? [{ label: publishingAnn === a.id ? 'Publishing…' : 'Publish Now', onClick: () => doPublishAnn(a.id) }] : []),
-                        { label: 'Edit', onClick: () => setEditAnnouncement(a) },
-                        ...(a.active ? [{ label: 'Deactivate', onClick: () => doDeactivateAnn(a.id) }] : [{ label: 'Reactivate', onClick: () => doReactivateAnn(a.id) }]),
-                        { label: 'Delete', onClick: () => doDeleteAnn(a.id), danger: true },
-                      ]} />
-                    </td>
+            <div className="nf-doc-table-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thS}>Title</th>
+                    <th style={thS}>Audience</th>
+                    <th style={thS}>Created</th>
+                    <th style={thS}>Published</th>
+                    <th style={thS}>Visible</th>
+                    <th style={thS}></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredAnn.length === 0 ? (
+                    <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                      {aq || annStatusFilter !== 'all' || annAudienceFilter ? 'No announcements match the filter.' : 'No announcements yet.'}
+                    </td></tr>
+                  ) : filteredAnn.map(a => (
+                    <tr key={a.id}>
+                      <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', maxWidth: 220 }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</div>
+                      </td>
+                      <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(a.audience)}</span></td>
+                      <td style={tdS}>{new Date(a.createdAt).toLocaleDateString()}</td>
+                      <td style={tdS}>
+                        {a.publishedAt
+                          ? <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>{new Date(a.publishedAt).toLocaleDateString()}</span>
+                          : <span style={{ color: '#eab308', fontSize: 12, fontWeight: 600 }}>Draft</span>}
+                      </td>
+                      <td style={tdS}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: a.active ? '#22c55e' : 'var(--txt-dim)' }}>
+                          {a.active ? 'Visible' : 'Hidden'}
+                        </span>
+                      </td>
+                      <td style={{ ...tdS, width: 48 }}>
+                        <KebabMenu items={[
+                          ...(!a.published ? [{ label: publishingAnn === a.id ? 'Publishing…' : 'Publish Now', onClick: () => doPublishAnn(a.id) }] : []),
+                          { label: 'Edit', onClick: () => setEditAnnouncement(a) },
+                          ...(a.active ? [{ label: 'Deactivate', onClick: () => doDeactivateAnn(a.id) }] : [{ label: 'Reactivate', onClick: () => doReactivateAnn(a.id) }]),
+                          { label: 'Delete', onClick: () => doDeleteAnn(a.id), danger: true },
+                        ]} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

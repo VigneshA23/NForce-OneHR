@@ -341,7 +341,7 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
 function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
   const fillPct = Math.min(100, entry.percentage);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+    <div className="nf-team-leaderboard-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
       <Avatar name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
@@ -400,10 +400,12 @@ function PunctualitySection({ from, to, token }: { from: string; to: string; tok
           <span style={panelTitleStyle}>On-Time Leaderboard</span>
           <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
-          <div>{data.leaderboard.map(e => <PunctualityRow key={e.employeeUserId} entry={e} />)}</div>
-          <div style={{ borderLeft: '1px solid var(--line)' }}>
-            <DailyBarChart data={data.daily.map(d => ({ date: d.date, count: d.employeesOnTime }))} color="var(--ok)" />
+        <div className="nf-team-leaderboard-scroll">
+          <div className="nf-team-leaderboard-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
+            <div>{data.leaderboard.map(e => <PunctualityRow key={e.employeeUserId} entry={e} />)}</div>
+            <div style={{ borderLeft: '1px solid var(--line)' }}>
+              <DailyBarChart data={data.daily.map(d => ({ date: d.date, count: d.employeesOnTime }))} color="var(--ok)" />
+            </div>
           </div>
         </div>
       </div>
@@ -1356,8 +1358,10 @@ function PeersView({ token }: { token: string }) {
       </div>
 
       {/* KPI row — fixed 4-column grid (not auto-fit) so 4 cards always fill one row evenly,
-       * instead of auto-fit computing more tracks than there are cards and leaving a gap. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+       * instead of auto-fit computing more tracks than there are cards and leaving a gap.
+       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
+       * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
@@ -2068,8 +2072,10 @@ export default function MyTeamPage() {
 
       {/* KPI row — fixed 6-column grid (not auto-fit) so all 6 cards always fill one row evenly;
        * auto-fit was computing 5 tracks (fit for the viewport), so the 6th card wrapped alone
-       * onto its own row and left the rest of that row empty. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
+       * onto its own row and left the rest of that row empty.
+       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
+       * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={directReportCount} note="direct reports" />
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />

@@ -502,7 +502,7 @@ export default function OnboardingPage() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
         <Kpi icon={<Users size={14} />} label="Active flows" value={active.length} note="In progress right now" />
         <Kpi icon={<AlertTriangle size={14} />} label="Overdue tasks" value={overdueCount} note="Flows with a missed due date" danger={overdueCount > 0} />
         <Kpi icon={<Check size={14} />} label="Completed this month" value={archived.length} note="Archived onboarding flows" />
