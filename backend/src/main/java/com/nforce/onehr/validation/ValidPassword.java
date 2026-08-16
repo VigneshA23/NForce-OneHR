@@ -9,7 +9,7 @@ import java.lang.annotation.*;
 @Target({ElementType.FIELD})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ValidPassword {
-    String message() default "Password must include at least 3 of: uppercase letter, lowercase letter, number, special character";
+    String message() default PasswordPolicy.COMPLEXITY_MESSAGE;
     Class<?>[] groups() default {};
     Class<? extends Payload>[] payload() default {};
 }

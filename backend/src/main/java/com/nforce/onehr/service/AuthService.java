@@ -145,7 +145,11 @@ public class AuthService {
             throw new IllegalArgumentException("New password must differ from current password");
         }
 
-        validatePasswordStrength(request.getNewPassword());
+        // Minimum length, max length, whitespace, and character-class complexity are already
+        // enforced by @Valid on ChangePasswordRequest (see @Size + @ValidPassword on
+        // newPassword) before this method is ever invoked, so re-checking here would just be a
+        // second, driftable copy of the same policy. See PasswordPolicy for the single source
+        // of truth these annotations share.
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
@@ -202,22 +206,5 @@ public class AuthService {
     private String generateTempPassword() {
         int digits = 100000 + RANDOM.nextInt(900000);
         return "OneHR@" + digits;
-    }
-
-    private void validatePasswordStrength(String password) {
-        if (password.length() < 8) {
-            throw new IllegalArgumentException("Password must be at least 8 characters");
-        }
-
-        int score = 0;
-        if (password.chars().anyMatch(Character::isUpperCase)) score++;
-        if (password.chars().anyMatch(Character::isLowerCase)) score++;
-        if (password.chars().anyMatch(Character::isDigit)) score++;
-        if (password.chars().anyMatch(c -> "!@#$%^&*()_+-=[]{}|;':\",./<>?".indexOf(c) >= 0)) score++;
-
-        if (score < 3) {
-            throw new IllegalArgumentException(
-                    "Password must contain at least 3 of: uppercase letter, lowercase letter, number, special character");
-        }
     }
 }

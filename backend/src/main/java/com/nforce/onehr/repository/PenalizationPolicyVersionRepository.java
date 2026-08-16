@@ -28,4 +28,20 @@ public interface PenalizationPolicyVersionRepository extends JpaRepository<Penal
     @Query("SELECT v FROM PenalizationPolicyVersion v WHERE v.effectiveFrom <= :pointInTime "
             + "AND (v.effectiveTo IS NULL OR v.effectiveTo >= :pointInTime) ORDER BY v.version DESC")
     List<PenalizationPolicyVersion> findVersionsEffectiveAt(@Param("pointInTime") LocalDateTime pointInTime);
+
+    /**
+     * Same "effective at" contract as {@link #findVersionsEffectiveAt}, scoped to one specific
+     * policy — used once an employee's assigned {@code PenalisationPolicy} is known, so multiple
+     * named policies can each have their own independent, currently-effective version.
+     */
+    @Query("SELECT v FROM PenalizationPolicyVersion v WHERE v.policyId = :policyId AND v.effectiveFrom <= :pointInTime "
+            + "AND (v.effectiveTo IS NULL OR v.effectiveTo >= :pointInTime) ORDER BY v.version DESC")
+    List<PenalizationPolicyVersion> findVersionsEffectiveAtForPolicy(
+            @Param("policyId") UUID policyId, @Param("pointInTime") LocalDateTime pointInTime);
+
+    List<PenalizationPolicyVersion> findByPolicyIdOrderByVersionDesc(UUID policyId);
+
+    Optional<PenalizationPolicyVersion> findByPolicyIdAndEffectiveToIsNull(UUID policyId);
+
+    long countByPolicyId(UUID policyId);
 }

@@ -15,6 +15,10 @@ public class PenalizationPolicyRequest {
 
     @NotNull
     @Valid
+    private BasicInfoConfigDto basicInfo;
+
+    @NotNull
+    @Valid
     private NoAttendanceConfigDto noAttendance;
 
     @NotNull

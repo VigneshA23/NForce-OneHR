@@ -10,6 +10,7 @@ import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.WebClockInRequestRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,6 +39,7 @@ class AttendanceServiceTest {
 
     @Mock private AttendanceRepository attendanceRepository;
     @Mock private AttendancePunchRepository attendancePunchRepository;
+    @Mock private WebClockInRequestRepository webClockInRequestRepository;
     @Mock private AttendanceExceptionRepository attendanceExceptionRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository managerHistoryRepository;
@@ -54,7 +56,7 @@ class AttendanceServiceTest {
     @BeforeEach
     void setUp() {
         AttendanceProperties props = new AttendanceProperties();
-        service = new AttendanceService(attendanceRepository, attendancePunchRepository,
+        service = new AttendanceService(attendanceRepository, attendancePunchRepository, webClockInRequestRepository,
                 attendanceExceptionRepository, employeeRepository, managerHistoryRepository,
                 auditService, auditSnapshot, props, latePenaltyService, workingDayService);
 
@@ -62,7 +64,7 @@ class AttendanceServiceTest {
         Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(shift).build();
         lenient().when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
         lenient().when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(attendancePunchRepository.findByAttendanceRecordIdAndCheckOutAtIsNull(any()))
+        lenient().when(attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(any()))
                 .thenReturn(Optional.empty());
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
     }

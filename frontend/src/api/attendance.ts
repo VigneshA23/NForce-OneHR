@@ -40,6 +40,8 @@ export interface Punch {
   id: string;
   checkInAt: string;
   checkOutAt: string | null;
+  /** "SYSTEM" (normal Check-In/Check-Out) or "WEB_REMOTE" (Web Check-In/Check-Out). */
+  source: 'SYSTEM' | 'WEB_REMOTE';
 }
 
 export interface TodayAttendance {

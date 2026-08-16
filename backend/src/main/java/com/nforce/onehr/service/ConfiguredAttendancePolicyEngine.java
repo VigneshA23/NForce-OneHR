@@ -4,13 +4,16 @@ import com.nforce.onehr.dto.attendance.PolicyDecision;
 import com.nforce.onehr.dto.attendance.PolicyDecisionType;
 import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
 import com.nforce.onehr.entity.ExceptionType;
+import com.nforce.onehr.entity.PenalizationPolicyLateHoursTier;
 import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.entity.PenalizationPolicyWorkHoursTier;
+import com.nforce.onehr.repository.PenalizationPolicyLateHoursTierRepository;
 import com.nforce.onehr.repository.PenalizationPolicyVersionRepository;
 import com.nforce.onehr.repository.PenalizationPolicyWorkHoursTierRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -31,15 +34,17 @@ import java.util.Optional;
  * approved-screenshot example uses "per 1 shift", so no multi-shift batching is implemented — see
  * {@link PolicyDecision} class javadoc). No field is stored and silently ignored by this engine.
  *
- * <p>Two configured sub-rules are deliberately NOT implemented and are excluded from the
- * persisted schema entirely (not shipped-but-inert): No Attendance's adjoining-holiday/
- * adjoining-week-off sandwich rules (they require a new multi-day look-around detection algorithm
- * that exists nowhere in this codebase, not even as a stub — building it would mean inventing
- * exception-detection logic, not exposing an existing fact) and Late Arrival's "penalise if total
- * late hours are exceeded" / "apply penalty for late arrival caused by missing logs" checkboxes
- * (the first has no companion threshold number anywhere in the approved screenshots to compare
- * against; the second needs a "was this lateness caused by a missing log" fact that doesn't exist
- * and isn't cheaply derivable from {@code Attendance}).
+ * <p><b>Phase 2 note on "Total Late Hours in Shift" (Section 31) vs "Total Hours" basis (Section
+ * 25/29):</b> both are modeled as ONE mechanism here —
+ * {@link com.nforce.onehr.entity.PenalizationPolicyLateHoursTier} is evaluated against
+ * {@code lateMinutesTotalInPeriod} (the cycle-cumulative total), not a separate per-single-shift
+ * figure. This is a deliberate simplification, not a partial build: modeling both as genuinely
+ * distinct facts would need a second cumulative-vs-single-day tier table with no way to
+ * distinguish their approved-screenshot examples. "Combined Late Arrival Rules" (Section 32)
+ * "BOTH" behavior sums both matched amounts into the one persisted
+ * {@link com.nforce.onehr.entity.AttendancePenalty} row — {@code AttendancePenaltyEvaluationService}'s
+ * duplicate guard is keyed on (employee, date, discrepancy type) only, so two separate rows for
+ * the same Late Arrival occurrence isn't a change this phase makes.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -47,12 +52,15 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
 
     private final PenalizationPolicyVersionRepository versionRepository;
     private final PenalizationPolicyWorkHoursTierRepository tierRepository;
+    private final PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
 
     @Override
     public PolicyDecision evaluate(PolicyEvaluationContext context) {
-        Optional<PenalizationPolicyVersion> effective = versionRepository
-                .findVersionsEffectiveAt(context.getAttendanceDate().atStartOfDay())
-                .stream().findFirst();
+        List<PenalizationPolicyVersion> candidates = context.getAssignedPolicyId() != null
+                ? versionRepository.findVersionsEffectiveAtForPolicy(
+                        context.getAssignedPolicyId(), context.getAttendanceDate().atStartOfDay())
+                : versionRepository.findVersionsEffectiveAt(context.getAttendanceDate().atStartOfDay());
+        Optional<PenalizationPolicyVersion> effective = candidates.stream().findFirst();
         if (effective.isEmpty()) {
             return noMatch(null, null, "No Penalization Policy version is effective for this date.");
         }
@@ -78,7 +86,7 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         if (isRegularized(ctx)) {
             return exempt(v, "A pending or approved regularization covers this date.");
         }
-        return applyPenalty(v, v.getNaDeductionDays(), "No attendance was recorded for this working day.");
+        return decideApplyPenalty(v, ctx, v.getNaDeductionDays(), "No attendance was recorded for this working day.");
     }
 
     private PolicyDecision evaluateLateArrival(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
@@ -95,22 +103,94 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
                 && ctx.getEffectiveHoursPercent() != null && ctx.getEffectiveHoursPercent() >= 100.0) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Employee completed full effective hours despite late arrival.");
         }
-        // "Exempt N late arrival(s) in a Month" — lateArrivalCountInPeriod is this occurrence's
-        // running count for the period, inclusive of itself (see PolicyEvaluationContext javadoc);
-        // "Post N late arrivals, deduct..." means the (N+1)th occurrence is the first one penalized.
-        if (v.getLaExemptCount() != null && ctx.getLateArrivalCountInPeriod() != null
-                && ctx.getLateArrivalCountInPeriod() <= v.getLaExemptCount()) {
-            return noMatch(v.getPolicyId(), v.getVersion(), "Late arrival occurrence is within the exempt count for this period.");
-        }
         if (ctx.isWorkHoursShortageAlsoOccurredSameDay() && v.isWorkHoursShortageEnabled()
                 && !v.isWhsApplyPenaltyForLateArrivalEnabled()) {
             return noMatch(v.getPolicyId(), v.getVersion(),
                     "Work Hours Shortage also occurred the same day and Late Arrival penalty is suppressed by configuration.");
         }
+        // Section 33: a late arrival that's a byproduct of an unresolved missing log is exempt
+        // from its own Late Arrival penalty unless the org explicitly opts in to penalising it too
+        // (avoids double-penalising the same missing-punch incident under two sections).
+        if (ctx.isLateArrivalCausedByMissingLog() && !v.isLaPenaliseWhenCausedByMissingLogEnabled()) {
+            return noMatch(v.getPolicyId(), v.getVersion(),
+                    "Late arrival is caused by an unresolved missing log and this policy does not penalise that case.");
+        }
+
+        boolean incidentBasis = "NUMBER_OF_INCIDENTS".equals(v.getLaBasis()) || v.getLaBasis() == null;
+        if (incidentBasis) {
+            return evaluateLateArrivalByIncidents(v, ctx);
+        }
+        return evaluateLateArrivalByTotalHours(v, ctx);
+    }
+
+    private PolicyDecision evaluateLateArrivalByIncidents(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        // "Exempt N late arrival(s) in a Month" — lateArrivalCountInPeriod is this occurrence's
+        // running count for the period, inclusive of itself (see PolicyEvaluationContext javadoc);
+        // "Post N late arrivals, deduct..." means the (N+1)th occurrence is the first one penalized.
+        boolean incidentExceeded = v.getLaExemptCount() == null || ctx.getLateArrivalCountInPeriod() == null
+                || ctx.getLateArrivalCountInPeriod() > v.getLaExemptCount();
+        Optional<PenalizationPolicyLateHoursTier> matchedTotalHoursTier = matchTotalHoursTier(v, ctx);
+        boolean totalHoursExceeded = matchedTotalHoursTier.isPresent();
+
+        if (!incidentExceeded && !totalHoursExceeded) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Late arrival occurrence is within the exempt count for this period.");
+        }
         if (isRegularized(ctx)) {
             return exempt(v, "A pending or approved regularization covers this date.");
         }
-        return applyPenalty(v, v.getLaDeductionDays(), "Late minutes exceed the configured grace period.");
+
+        // Section 32: both the incident-count and total-hours thresholds are exceeded for the
+        // same occurrence — resolve per the configured combined-rule behavior. Only one
+        // AttendancePenalty row is ever recorded per (employee, date, discrepancy type)
+        // (AttendancePenaltyEvaluationService's duplicate guard), so "BOTH" combines both
+        // configured amounts into that one row rather than attempting two separate rows.
+        if (incidentExceeded && totalHoursExceeded) {
+            BigDecimal totalHoursAmount = matchedTotalHoursTier.get().getDeductionDays();
+            if ("BOTH".equals(v.getLaCombinedRuleBehavior())) {
+                BigDecimal combined = (v.getLaDeductionDays() == null ? BigDecimal.ZERO : v.getLaDeductionDays())
+                        .add(totalHoursAmount);
+                return decideApplyPenalty(v, ctx, combined,
+                        "Both the incident-count and total-late-hours thresholds are exceeded — combined per configuration.");
+            }
+            return decideApplyPenalty(v, ctx, totalHoursAmount,
+                    "Both thresholds exceeded — total-late-hours tier governs per configuration.");
+        }
+        if (totalHoursExceeded) {
+            return decideApplyPenalty(v, ctx, matchedTotalHoursTier.get().getDeductionDays(),
+                    "Total late hours in the period exceed a configured tier.");
+        }
+        return decideApplyPenalty(v, ctx, v.getLaDeductionDays(), "Late minutes exceed the configured grace period.");
+    }
+
+    private PolicyDecision evaluateLateArrivalByTotalHours(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        if (ctx.getLateMinutesTotalInPeriod() == null) {
+            return configurationRequired(v, "lateMinutesTotalInPeriod fact is required for the Total Hours basis.");
+        }
+        if (v.getLaAllowedHours() == null) {
+            return configurationRequired(v, "Allowed hours must be configured for the Total Hours basis.");
+        }
+        if (ctx.getLateMinutesTotalInPeriod() <= v.getLaAllowedHours().doubleValue() * 60) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Total late minutes for the period are within the allowed hours.");
+        }
+        Optional<PenalizationPolicyLateHoursTier> matched = matchTotalHoursTier(v, ctx);
+        if (matched.isEmpty()) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Total late hours do not fall within any configured tier.");
+        }
+        if (isRegularized(ctx)) {
+            return exempt(v, "A pending or approved regularization covers this date.");
+        }
+        return decideApplyPenalty(v, ctx, matched.get().getDeductionDays(), "Total late hours for the period exceed a configured tier.");
+    }
+
+    /** Most severe matching "greater than X hours" tier (highest threshold that still matches). */
+    private Optional<PenalizationPolicyLateHoursTier> matchTotalHoursTier(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        if (ctx.getLateMinutesTotalInPeriod() == null) {
+            return Optional.empty();
+        }
+        double totalHours = ctx.getLateMinutesTotalInPeriod() / 60.0;
+        return lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(v.getId()).stream()
+                .filter(t -> totalHours > t.getThresholdHours().doubleValue())
+                .max(Comparator.comparing(PenalizationPolicyLateHoursTier::getThresholdHours));
     }
 
     private PolicyDecision evaluateWorkHoursShortage(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
@@ -123,7 +203,7 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
             if (isRegularized(ctx)) {
                 return exempt(v, "A pending or approved regularization covers this date.");
             }
-            return applyPenalty(v, v.getNaDeductionDays(), "Worked hours are below the configured no-show threshold — treated as no attendance.");
+            return decideApplyPenalty(v, ctx, v.getNaDeductionDays(), "Worked hours are below the configured no-show threshold — treated as no attendance.");
         }
 
         if (!v.isWorkHoursShortageEnabled()) {
@@ -151,7 +231,7 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         }
         // The matched tier's own deduction, not a version-level field — a "less than 50%" match
         // deducts that tier's amount, not the "less than 90%" tier's.
-        return applyPenalty(v, matched.get().getDeductionDays(), "Effective hours percent is below a configured shortage tier.");
+        return decideApplyPenalty(v, ctx, matched.get().getDeductionDays(), "Effective hours percent is below a configured shortage tier.");
     }
 
     private PolicyDecision evaluateMissingLogs(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
@@ -169,7 +249,7 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         if (isRegularized(ctx)) {
             return exempt(v, "A pending or approved regularization covers this date.");
         }
-        return applyPenalty(v, v.getMlDeductionDays(), "Missing-log occurrences exceed the configured exempt days for this period.");
+        return decideApplyPenalty(v, ctx, v.getMlDeductionDays(), "Missing-log occurrences exceed the configured exempt days for this period.");
     }
 
     private boolean isRegularized(PolicyEvaluationContext ctx) {
@@ -186,9 +266,29 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
                 .policyId(v.getPolicyId()).policyVersion(v.getVersion()).reason(reason).build();
     }
 
-    private PolicyDecision applyPenalty(PenalizationPolicyVersion v, java.math.BigDecimal deductionDays, String reason) {
+    /**
+     * The final step before a match becomes a persisted penalty: gate on the configured buffer
+     * period (Section 8), then resolve which deduction method actually applies — the
+     * notice-period override (Section 9) always wins over the configured method.
+     */
+    private PolicyDecision decideApplyPenalty(PenalizationPolicyVersion v, PolicyEvaluationContext ctx,
+                                               java.math.BigDecimal deductionDays, String reason) {
+        if (v.getBufferPeriodDays() != null && v.getBufferPeriodDays() > 0
+                && ctx.getEvaluationDate() != null
+                && ctx.getEvaluationDate().isBefore(ctx.getAttendanceDate().plusDays(v.getBufferPeriodDays()))) {
+            return bufferPending(v, "Buffer period of " + v.getBufferPeriodDays() + " day(s) has not elapsed yet.");
+        }
+        String deductionMethod = ctx.isUnderNoticePeriod() && v.isNoticePeriodForcesLopEnabled()
+                ? "LOSS_OF_PAY" : v.getDeductionMethod();
         return PolicyDecision.builder().type(PolicyDecisionType.APPLY_PENALTY)
-                .policyId(v.getPolicyId()).policyVersion(v.getVersion()).deductionDays(deductionDays).reason(reason).build();
+                .policyId(v.getPolicyId()).policyVersion(v.getVersion()).deductionDays(deductionDays)
+                .deductionMethod(deductionMethod).leavePriorityOrder(v.getLeavePriorityOrder())
+                .reason(reason).build();
+    }
+
+    private PolicyDecision bufferPending(PenalizationPolicyVersion v, String reason) {
+        return PolicyDecision.builder().type(PolicyDecisionType.BUFFER_PENDING)
+                .policyId(v.getPolicyId()).policyVersion(v.getVersion()).reason(reason).build();
     }
 
     private PolicyDecision configurationRequired(PenalizationPolicyVersion v, String reason) {

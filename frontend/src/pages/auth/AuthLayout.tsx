@@ -71,7 +71,7 @@ function BrandingBlock({ size }: { size: 'sm' | 'lg' }) {
       <BrandMark size={size} />
       <div>
         <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
-          NFORCE ONEHR
+          NForce OneHR
         </div>
         <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: 3 }}>
           People &amp; Operations Platform

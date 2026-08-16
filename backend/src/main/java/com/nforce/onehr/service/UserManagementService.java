@@ -101,8 +101,9 @@ public class UserManagementService {
     /**
      * Employee/Manager/HR Admin are all staff first — they get the base EMPLOYEE role
      * alongside whatever admin role they're assigned, so self-service features (attendance
-     * punch, leave, etc.) work for them too. Super Admin is the one deliberate exception:
-     * see AttendanceController's "never a punch clock of their own" comment.
+     * punch, leave, etc.) work for them too. Super Admin is the one deliberate exception —
+     * a system/oversight role only, not staff with a personal attendance record. See V115
+     * for removing this again on existing Super Admin accounts.
      */
     private Set<Role> rolesFor(Role assignedRole) {
         Set<Role> roles = new HashSet<>();

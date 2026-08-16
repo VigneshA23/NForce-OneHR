@@ -2203,23 +2203,17 @@ function DayShiftAndActions({ info, config, onRegularize, onApplyPartialDay }: {
   );
 }
 
-/** Complete real punch history for the day (supports multiple IN/OUT sessions), MISSING shown for any session still missing its check-out. */
-function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] | undefined }) {
+/** One source's block of sessions within DayPunchIntervals — mirrors Keka's per-source grouping
+ * (its own company-name section for normal punches, a separate "Web Clock In" section). */
+function PunchSourceGroup({ label, sessions }: {
+  label: string;
+  sessions: { key: string; checkInAt: string; checkOutAt: string | null }[];
+}) {
   const { formatTime } = useTimeFormat();
-  const record = info.record;
-  const sessions: { key: string; checkInAt: string; checkOutAt: string | null }[] =
-    punches && punches.length > 0
-      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }))
-      : record?.checkInAt
-        ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt }]
-        : [];
-
-  if (sessions.length === 0) {
-    return <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No punches recorded for this day.</div>;
-  }
-
+  if (sessions.length === 0) return null;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxWidth: 260 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
       {sessions.map((s, i) => (
         <div key={s.key ?? i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--ok)', fontWeight: 600 }}>
@@ -2234,6 +2228,37 @@ function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] 
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Complete real punch history for the day (supports multiple IN/OUT sessions across BOTH entry
+ * points), MISSING shown for any session still missing its check-out. Grouped by source — normal
+ * Check-In/Check-Out and Web Check-In/Check-Out each get their own labeled section, matching the
+ * Keka reference's separate "Company Name" / "Web Clock In" blocks — rather than one flat list
+ * that hides which entries came from where.
+ */
+function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] | undefined }) {
+  const record = info.record;
+  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source'] }[] =
+    punches && punches.length > 0
+      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source }))
+      : record?.checkInAt
+        ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: record.source === 'WEB_REMOTE' ? 'WEB_REMOTE' : 'SYSTEM' }]
+        : [];
+
+  if (sessions.length === 0) {
+    return <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No punches recorded for this day.</div>;
+  }
+
+  const officeSessions = sessions.filter((s) => s.source !== 'WEB_REMOTE');
+  const webSessions = sessions.filter((s) => s.source === 'WEB_REMOTE');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 260 }}>
+      <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} />
+      <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} />
     </div>
   );
 }

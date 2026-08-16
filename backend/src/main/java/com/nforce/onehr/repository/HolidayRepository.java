@@ -20,5 +20,8 @@ public interface HolidayRepository extends JpaRepository<Holiday, UUID> {
 
     List<Holiday> findByActiveTrueOrderByHolidayDateAsc();
 
-    boolean existsByHolidayNameAndHolidayDateAndLocation_Id(String holidayName, LocalDate holidayDate, UUID locationId);
+    boolean existsByHolidayNameAndHolidayDateAndLocation_IdAndActiveTrue(String holidayName, LocalDate holidayDate, UUID locationId);
+
+    boolean existsByHolidayNameAndHolidayDateAndLocation_IdAndActiveTrueAndIdNot(
+            String holidayName, LocalDate holidayDate, UUID locationId, UUID excludeId);
 }

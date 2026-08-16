@@ -31,10 +31,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -45,8 +49,10 @@ import java.util.UUID;
  * and entity {@link AttendanceService} writes on check-in/check-out — tagging it with
  * source=REGULARIZATION.
  *
- * Notification on approve/reject is intentionally NOT wired here — owned by another
- * workstream. Hook it in at the two TODO(notifications) call sites once that service exists.
+ * <p>Lifecycle notifications (Created/Approved/Rejected) reuse the existing
+ * {@link NotificationService} — the same in-app notification model/API/bell every other
+ * workstream (AssetService, DocumentService, ...) already sends through. No new notification
+ * architecture; see {@link #notifyRecipients} for the one dedup seam.
  */
 @Service
 @RequiredArgsConstructor
@@ -70,6 +76,18 @@ public class RegularizationService {
     private static final String STATUS_APPROVED = "APPROVED";
     private static final String STATUS_REJECTED = "REJECTED";
 
+    // Request Regularization's own "today" switches at 07:00 AM, not midnight — a shift/punch
+    // that runs into the early morning is still yesterday's business day until 7 AM, so an
+    // employee correcting an overnight punch isn't blocked by the lookback window or miscounted
+    // against the wrong month just because the wall clock rolled over. Scoped entirely to this
+    // service's own date validation — AttendanceService's check-in/check-out day resolution
+    // (open-session carry-over, see AttendanceService.getToday) is untouched.
+    private static final LocalTime REGULARIZATION_DAY_BOUNDARY = LocalTime.of(7, 0);
+
+    // Matches EmailService's existing notification-date wording exactly ("d MMM yyyy") rather
+    // than introducing a different format for regularization notifications.
+    private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
+
     private final RegularizationRequestRepository regularizationRepository;
     private final RegularizationApprovalRepository regularizationApprovalRepository;
     private final AttendanceRepository attendanceRepository;
@@ -79,6 +97,7 @@ public class RegularizationService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
+    private final NotificationService notificationService;
 
     /** Resolved requested times after applying punch auto-fill from attendance history. */
     private record ResolvedTimes(LocalDateTime checkIn, LocalDateTime checkOut) {}
@@ -118,6 +137,18 @@ public class RegularizationService {
         entity = regularizationRepository.save(entity);
 
         auditService.log(actor.getId(), "REGULARIZATION_REQUESTED", actor.getId());
+
+        // Request Created: notify the resolved approver only — never every Manager/HR/Super
+        // Admin in the system. Super Admin already has blanket queue visibility (see
+        // listPendingForApprover) so isn't separately notified per-request, matching "do not
+        // blindly notify" — only the one person this request is actually routed to.
+        if (entity.getAssignedApproverId() != null) {
+            notifyRecipients(List.of(entity.getAssignedApproverId()), "REGULARIZATION_SUBMITTED",
+                    "Regularization Request Submitted",
+                    employeeName(actor.getId()) + " has submitted a regularization request for "
+                            + entity.getAttendanceDate().format(NOTIFICATION_DATE_FMT) + ".",
+                    "/approvals?type=REGULARIZATION");
+        }
         return toResponse(entity);
     }
 
@@ -128,7 +159,7 @@ public class RegularizationService {
      * existing pending request must not consume an extra slot.
      */
     private void assertMonthlyLimitNotExceeded(UUID employeeId) {
-        LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
+        LocalDate today = regularizationBusinessToday();
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
         long countThisMonth = regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
                 employeeId, monthStart, monthStart.plusMonths(1));
@@ -463,7 +494,19 @@ public class RegularizationService {
         auditService.log(actor.getId(),
                 finalStage ? "REGULARIZATION_APPROVED" : "REGULARIZATION_PARTIALLY_APPROVED",
                 req.getEmployeeUserId());
-        // TODO(notifications): notify req.getEmployeeUserId() of approval — owned by another workstream.
+
+        // Request Approved: only the terminal APPROVED outcome is "approved" from the
+        // employee's perspective — the interim Manager sign-off (PARTIALLY_APPROVED) still
+        // awaits HR/Super Admin's final decision, so notifying "approved" at that stage would
+        // be misleading. Not one of the 3 requested lifecycle events, so nothing is sent then.
+        if (finalStage) {
+            notifyRecipients(List.of(req.getEmployeeUserId()), "REGULARIZATION_APPROVED",
+                    "Regularization Request Approved",
+                    "Your regularization request for " + req.getAttendanceDate().format(NOTIFICATION_DATE_FMT)
+                            + " has been approved by " + employeeName(actor.getId()) + "."
+                            + (comment != null && !comment.isBlank() ? " Comment: " + comment.trim() : ""),
+                    "/requests?type=REGULARIZATION");
+        }
         return toResponse(req);
     }
 
@@ -507,7 +550,15 @@ public class RegularizationService {
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
         auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId(), before, after);
-        // TODO(notifications): notify req.getEmployeeUserId() of rejection — owned by another workstream.
+
+        // Request Rejected: reject() has no interim stage — every reject() call is terminal —
+        // so the employee is always notified, with the rejection reason included when given.
+        notifyRecipients(List.of(req.getEmployeeUserId()), "REGULARIZATION_REJECTED",
+                "Regularization Request Rejected",
+                "Your regularization request for " + req.getAttendanceDate().format(NOTIFICATION_DATE_FMT)
+                        + " has been rejected by " + employeeName(actor.getId()) + "."
+                        + (comment != null && !comment.isBlank() ? " Reason: " + comment.trim() : ""),
+                "/requests?type=REGULARIZATION");
         return toResponse(req);
     }
 
@@ -560,7 +611,7 @@ public class RegularizationService {
      * (see RequestModal in AttendancePage.tsx) purely as a convenience.
      */
     private void validateLookbackWindow(LocalDate attendanceDate, int windowDays) {
-        LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
+        LocalDate today = regularizationBusinessToday();
         if (attendanceDate.isAfter(today)) {
             throw new IllegalArgumentException("Cannot request regularization for a future date");
         }
@@ -601,6 +652,39 @@ public class RegularizationService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+    }
+
+    private LocalDate regularizationBusinessToday() {
+        return resolveBusinessDate(LocalDateTime.now(ZoneId.of(attendanceProps.getZone())));
+    }
+
+    /**
+     * Package-private and pure (no {@code now()} call inside) so the 07:00 AM boundary itself is
+     * directly unit-testable without depending on the wall clock — mirrors
+     * {@code PenalizationPolicyService.resolveDefaultPolicyId}'s convention of exposing just
+     * enough for a direct test, nothing more.
+     */
+    static LocalDate resolveBusinessDate(LocalDateTime now) {
+        return now.toLocalTime().isBefore(REGULARIZATION_DAY_BOUNDARY)
+                ? now.toLocalDate().minusDays(1)
+                : now.toLocalDate();
+    }
+
+    private String employeeName(UUID employeeUserId) {
+        return employeeRepository.findById(employeeUserId).map(Employee::getFullName).orElse("Unknown");
+    }
+
+    /**
+     * Sends one notification per DISTINCT recipient — collapses any duplicate user IDs a single
+     * event might otherwise resolve to (e.g. a dual-role actor matching more than one recipient
+     * path) into exactly one notification per person, and silently skips nulls (e.g. an employee
+     * with no manager on file). Reuses {@link NotificationService#send} as-is — no new
+     * notification model, queue, or delivery mechanism.
+     */
+    private void notifyRecipients(Collection<UUID> recipientIds, String type, String title, String message, String linkPath) {
+        new LinkedHashSet<>(recipientIds).stream()
+                .filter(Objects::nonNull)
+                .forEach(id -> notificationService.send(id, type, title, message, linkPath));
     }
 
     private RegularizationResponse toResponse(RegularizationRequest req) {

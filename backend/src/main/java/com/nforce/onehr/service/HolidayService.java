@@ -34,7 +34,7 @@ public class HolidayService {
 
         String name = req.getHolidayName().trim();
 
-        if (holidayRepository.existsByHolidayNameAndHolidayDateAndLocation_Id(name, req.getHolidayDate(), location.getId())) {
+        if (holidayRepository.existsByHolidayNameAndHolidayDateAndLocation_IdAndActiveTrue(name, req.getHolidayDate(), location.getId())) {
             throw new IllegalArgumentException(
                     "A holiday named '" + name + "' already exists for this location on " + req.getHolidayDate());
         }
@@ -47,6 +47,44 @@ public class HolidayService {
 
         holiday = holidayRepository.save(holiday);
         return toResponse(holiday);
+    }
+
+    /**
+     * HR Admin + Super Admin. Updates an existing holiday's name/date/location.
+     */
+    @Transactional
+    public HolidayResponse updateHoliday(UUID id, CreateHolidayRequest req) {
+        Holiday holiday = holidayRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Holiday not found"));
+        Location location = locationRepository.findById(req.getLocationId())
+                .orElseThrow(() -> new IllegalArgumentException("Location not found"));
+
+        String name = req.getHolidayName().trim();
+
+        if (holidayRepository.existsByHolidayNameAndHolidayDateAndLocation_IdAndActiveTrueAndIdNot(
+                name, req.getHolidayDate(), location.getId(), id)) {
+            throw new IllegalArgumentException(
+                    "A holiday named '" + name + "' already exists for this location on " + req.getHolidayDate());
+        }
+
+        holiday.setHolidayName(name);
+        holiday.setHolidayDate(req.getHolidayDate());
+        holiday.setLocation(location);
+
+        holiday = holidayRepository.save(holiday);
+        return toResponse(holiday);
+    }
+
+    /**
+     * HR Admin + Super Admin. Soft-deletes a holiday (active = false) — same
+     * pattern as every other entity in this codebase; never a hard delete.
+     */
+    @Transactional
+    public void deleteHoliday(UUID id) {
+        Holiday holiday = holidayRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Holiday not found"));
+        holiday.setActive(false);
+        holidayRepository.save(holiday);
     }
 
     /**

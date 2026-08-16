@@ -33,6 +33,7 @@ class ConfiguredAttendancePolicyEngineTest {
 
     @Mock private PenalizationPolicyVersionRepository versionRepository;
     @Mock private PenalizationPolicyWorkHoursTierRepository tierRepository;
+    @Mock private com.nforce.onehr.repository.PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
 
     private ConfiguredAttendancePolicyEngine engine;
 
@@ -40,7 +41,7 @@ class ConfiguredAttendancePolicyEngineTest {
     private final LocalDate date = LocalDate.of(2026, 8, 15);
 
     private ConfiguredAttendancePolicyEngine newEngine() {
-        return new ConfiguredAttendancePolicyEngine(versionRepository, tierRepository);
+        return new ConfiguredAttendancePolicyEngine(versionRepository, tierRepository, lateHoursTierRepository);
     }
 
     private PenalizationPolicyVersion.PenalizationPolicyVersionBuilder baseVersion(int version) {
@@ -294,5 +295,183 @@ class ConfiguredAttendancePolicyEngineTest {
                 .lateMinutes(20).workHoursShortageAlsoOccurredSameDay(true).build());
 
         assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
+    }
+
+    // ── Multi-policy scoping (Section 36): an employee's assigned policy scopes the lookup ──
+    @Test
+    void assignedPolicyId_scopesLookupToThatSpecificPolicy() {
+        UUID otherPolicyId = UUID.randomUUID();
+        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(otherPolicyId).version(1)
+                .effectiveFrom(LocalDateTime.of(2026, 8, 1, 0, 0))
+                .lateArrivalEnabled(true).laGracePeriodMinutes(5).build();
+        when(versionRepository.findVersionsEffectiveAtForPolicy(otherPolicyId, date.atStartOfDay()))
+                .thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(UUID.randomUUID()).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL)
+                .assignedPolicyId(otherPolicyId).lateMinutes(12).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+        assertEquals(otherPolicyId, decision.getPolicyId());
+        // The global (unscoped) lookup must never even be consulted once a policy is assigned.
+        org.mockito.Mockito.verify(versionRepository, org.mockito.Mockito.never())
+                .findVersionsEffectiveAt(org.mockito.ArgumentMatchers.any());
+    }
+
+    // ── Buffer period (Section 8) ──
+    @Test
+    void bufferPeriodNotYetElapsed_returnsBufferPending_notPersisted() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .noAttendanceEnabled(true).naDeductionDays(BigDecimal.ONE).bufferPeriodDays(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.NO_ATTENDANCE)
+                .evaluationDate(date.plusDays(1)).build());
+
+        assertEquals(PolicyDecisionType.BUFFER_PENDING, decision.getType());
+    }
+
+    @Test
+    void bufferPeriodElapsed_appliesPenalty() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .noAttendanceEnabled(true).naDeductionDays(BigDecimal.ONE).bufferPeriodDays(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.NO_ATTENDANCE)
+                .evaluationDate(date.plusDays(2)).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+    }
+
+    // ── Notice-period override (Section 9) ──
+    @Test
+    void noticePeriodOverride_forcesLossOfPay_regardlessOfConfiguredMethod() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .noAttendanceEnabled(true).naDeductionDays(BigDecimal.ONE)
+                .deductionMethod("PAID_LEAVE").noticePeriodForcesLopEnabled(true).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.NO_ATTENDANCE)
+                .evaluationDate(date).underNoticePeriod(true).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+        assertEquals("LOSS_OF_PAY", decision.getDeductionMethod());
+    }
+
+    @Test
+    void notUnderNotice_usesConfiguredDeductionMethod() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .noAttendanceEnabled(true).naDeductionDays(BigDecimal.ONE)
+                .deductionMethod("PAID_LEAVE").noticePeriodForcesLopEnabled(true).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.NO_ATTENDANCE)
+                .evaluationDate(date).underNoticePeriod(false).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+        assertEquals("PAID_LEAVE", decision.getDeductionMethod());
+    }
+
+    // ── Late Arrival: Total Hours basis (Section 25/29) ──
+    @Test
+    void totalHoursBasis_exceedsAllowedHours_matchesTier_appliesPenalty() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laBasis("TOTAL_HOURS").laAllowedHours(new BigDecimal("2")).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                com.nforce.onehr.entity.PenalizationPolicyLateHoursTier.builder()
+                        .thresholdHours(new BigDecimal("2")).deductionDays(new BigDecimal("1")).sortOrder(0).build()));
+        engine = newEngine();
+
+        // 2h15m total, allowed 2h -> exceeds; matches the "greater than 2h" tier.
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(60).lateMinutesTotalInPeriod(135).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+        assertEquals(new BigDecimal("1"), decision.getDeductionDays());
+    }
+
+    @Test
+    void totalHoursBasis_withinAllowedHours_returnsNoMatch() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laBasis("TOTAL_HOURS").laAllowedHours(new BigDecimal("2")).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(30).lateMinutesTotalInPeriod(90).build());
+
+        assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
+    }
+
+    // ── Late arrival caused by missing logs (Section 33) ──
+    @Test
+    void causedByMissingLog_defaultDisabled_suppressesPenalty() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laDeductionDays(BigDecimal.ONE).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCausedByMissingLog(true).build());
+
+        assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
+    }
+
+    @Test
+    void causedByMissingLog_explicitlyEnabled_stillApplies() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laDeductionDays(BigDecimal.ONE)
+                .laPenaliseWhenCausedByMissingLogEnabled(true).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCausedByMissingLog(true).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+    }
+
+    // ── Combined rule behavior (Section 32) ──
+    @Test
+    void combinedRule_bothThresholdsExceeded_totalHoursOnlyByDefault() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(0)
+                .laDeductionDays(new BigDecimal("0.5")).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                com.nforce.onehr.entity.PenalizationPolicyLateHoursTier.builder()
+                        .thresholdHours(new BigDecimal("1")).deductionDays(new BigDecimal("2")).sortOrder(0).build()));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(1).lateMinutesTotalInPeriod(90).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+        assertEquals(new BigDecimal("2"), decision.getDeductionDays(), "total-hours tier governs, not the incident amount");
+    }
+
+    @Test
+    void combinedRule_bothThresholdsExceeded_bothConfigured_sumsAmounts() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(0)
+                .laDeductionDays(new BigDecimal("0.5")).laCombinedRuleBehavior("BOTH").build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                com.nforce.onehr.entity.PenalizationPolicyLateHoursTier.builder()
+                        .thresholdHours(new BigDecimal("1")).deductionDays(new BigDecimal("2")).sortOrder(0).build()));
+        engine = newEngine();
+
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(1).lateMinutesTotalInPeriod(90).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+        assertEquals(new BigDecimal("2.5"), decision.getDeductionDays());
     }
 }
