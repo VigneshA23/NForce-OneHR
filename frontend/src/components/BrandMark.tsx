@@ -1,11 +1,12 @@
 import logoUrl from '../assets/nforce-logo.png';
 
 interface BrandMarkProps {
-  size?: 'sm' | 'lg';
+  size?: 'sm' | 'md' | 'lg';
 }
 
 const dimensions = {
   sm: { px: 34, ring: 34, glow: 52 },
+  md: { px: 46, ring: 46, glow: 68 },
   lg: { px: 96, ring: 96, glow: 140 },
 } as const;
 
