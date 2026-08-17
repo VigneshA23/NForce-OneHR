@@ -93,6 +93,109 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Hierarchical grouping — purely a presentation layer on top of NAV above.
+// It never adds/removes access: buildRoleNav() only ever surfaces NavItems
+// that already exist in NAV[role]; a group that ends up with no resolved
+// children (because the role has none of its items) is dropped entirely.
+// ---------------------------------------------------------------------------
+
+/** A leaf in the hierarchy definition is just the NavItem key it points to. */
+type HierarchyLeaf = string;
+
+interface HierarchyGroup {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  children: HierarchyEntry[];
+}
+
+type HierarchyEntry = HierarchyLeaf | HierarchyGroup;
+
+/**
+ * Global module hierarchy. Every role's NAV items are slotted into this same
+ * tree (by NavItem key); roles simply see whichever branches contain at
+ * least one item they already have access to. This is categorization only —
+ * it never grants/hides a module beyond what NAV[role] already decides.
+ */
+const NAV_HIERARCHY: HierarchyEntry[] = [
+  { key: 'home', label: 'HOME', icon: Home, children: ['dashboard', 'notifications'] },
+  {
+    key: 'people', label: 'PEOPLE', icon: Users, children: [
+      'my-team',
+      'employees',
+      { key: 'people-organization', label: 'Organization', icon: GitBranch, children: ['hierarchy', 'organization', 'directory'] },
+    ],
+  },
+  { key: 'time-leave', label: 'TIME & LEAVE', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
+  { key: 'requests-approvals', label: 'REQUESTS & APPROVALS', icon: FileText, children: ['requests', 'approvals'] },
+  { key: 'employee-services', label: 'EMPLOYEE SERVICES', icon: Package, children: ['assets', 'performance', 'documents', 'policies', 'onboarding'] },
+  { key: 'insights', label: 'INSIGHTS', icon: FileText, children: ['reports', 'audit'] },
+  { key: 'administration', label: 'ADMINISTRATION', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
+  'help',
+];
+
+export interface ResolvedNavGroup {
+  type: 'group';
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  children: ResolvedNavNode[];
+}
+
+export interface ResolvedNavLeaf {
+  type: 'item';
+  item: NavItem;
+}
+
+export type ResolvedNavNode = ResolvedNavGroup | ResolvedNavLeaf;
+
+function resolveEntry(entry: HierarchyEntry, itemsByKey: Map<string, NavItem>): ResolvedNavNode | null {
+  if (typeof entry === 'string') {
+    const found = itemsByKey.get(entry);
+    return found ? { type: 'item', item: found } : null;
+  }
+  const children = entry.children
+    .map((child) => resolveEntry(child, itemsByKey))
+    .filter((n): n is ResolvedNavNode => n !== null);
+  if (children.length === 0) return null;
+  // A header that ends up fronting exactly one thing (because this role lacks the rest of the
+  // branch) isn't a category — it's just that one thing with a redundant extra click in front of
+  // it. Promote it directly so every role only ever sees a header when it's actually grouping 2+.
+  if (children.length === 1) return children[0];
+  return { type: 'group', key: entry.key, label: entry.label, icon: entry.icon, children };
+}
+
+/**
+ * Resolves the global NAV_HIERARCHY down to exactly what a role can see,
+ * reusing the role's existing NAV items verbatim (same key/label/icon/phase/
+ * path). Branches with no accessible items are omitted; branches reduced to
+ * a single item are flattened to that item (see resolveEntry).
+ */
+export function buildRoleNav(role: Role): ResolvedNavNode[] {
+  const itemsByKey = new Map(NAV[role].map((i) => [i.key, i] as const));
+  return NAV_HIERARCHY
+    .map((entry) => resolveEntry(entry, itemsByKey))
+    .filter((n): n is ResolvedNavNode => n !== null);
+}
+
+/**
+ * Returns the chain of ancestor group keys leading to `currentKey`, or null
+ * if `currentKey` isn't present in this tree. Used to auto-expand a module's
+ * parent categories when it becomes the active route.
+ */
+export function findActiveAncestors(nodes: ResolvedNavNode[], currentKey: string): string[] | null {
+  for (const node of nodes) {
+    if (node.type === 'item') {
+      if (node.item.key === currentKey) return [];
+    } else {
+      const sub = findActiveAncestors(node.children, currentKey);
+      if (sub) return [node.key, ...sub];
+    }
+  }
+  return null;
+}
+
 /** Maps the raw DB role on the auth store to the UI role union. */
 export function toShellRole(dbRole: string | undefined): Role {
   switch (dbRole) {
