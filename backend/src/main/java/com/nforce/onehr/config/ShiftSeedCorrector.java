@@ -35,6 +35,10 @@ import java.util.UUID;
  * idempotent to reassert, a startup-time correction sidesteps the version-collision problem
  * entirely instead of playing whack-a-mole with migration numbers.
  *
+ * V101 itself moved the intended start to 15:00, but this constant was changed back to 15:30
+ * without a matching migration — leaving this corrector and V101 disagreeing on every restart.
+ * 15:30 is confirmed correct; V117 brings the DB back in line with it.
+ *
  * The employee backfill exists because V95's "assign everyone the Regular Shift" UPDATE only
  * ran once, against whoever existed at that moment — any employee onboarded since has a null
  * {@code shift_id}, which silently falls back to {@code AttendanceProperties.shiftStart}
