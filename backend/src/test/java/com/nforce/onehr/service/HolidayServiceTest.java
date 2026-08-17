@@ -93,6 +93,52 @@ class HolidayServiceTest {
     }
 
     @Test
+    void createHoliday_pastDate_throwsAndNeverSaves() {
+        CreateHolidayRequest req = new CreateHolidayRequest();
+        req.setHolidayName("Diwali");
+        req.setHolidayDate(LocalDate.now().minusDays(1));
+        req.setLocationId(hyderabadId);
+
+        assertThrows(IllegalArgumentException.class, () -> holidayService.createHoliday(req));
+        verify(locationRepository, never()).findById(any());
+        verify(holidayRepository, never()).save(any());
+    }
+
+    @Test
+    void createHoliday_todayIsAllowed() {
+        CreateHolidayRequest req = new CreateHolidayRequest();
+        req.setHolidayName("Diwali");
+        req.setHolidayDate(LocalDate.now());
+        req.setLocationId(hyderabadId);
+
+        when(locationRepository.findById(hyderabadId)).thenReturn(Optional.of(hyderabad));
+        when(holidayRepository.existsByHolidayNameAndHolidayDateAndLocation_IdAndActiveTrue(any(), any(), any())).thenReturn(false);
+        when(holidayRepository.save(any(Holiday.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertDoesNotThrow(() -> holidayService.createHoliday(req));
+    }
+
+    @Test
+    void updateHoliday_pastDateOnExistingHoliday_stillAllowed() {
+        // Historical holidays (already-past dates) must stay editable — e.g. fixing
+        // a typo in the name — so this restriction is deliberately create-only.
+        Holiday existing = Holiday.builder().id(holidayId).holidayName("New Year's Day").holidayDate(LocalDate.of(2026, 1, 1)).location(hyderabad).active(true).build();
+
+        CreateHolidayRequest req = new CreateHolidayRequest();
+        req.setHolidayName("New Year's Day (corrected)");
+        req.setHolidayDate(LocalDate.of(2026, 1, 1)); // still in the past relative to "now" in this suite
+        req.setLocationId(hyderabadId);
+
+        when(holidayRepository.findById(holidayId)).thenReturn(Optional.of(existing));
+        when(locationRepository.findById(hyderabadId)).thenReturn(Optional.of(hyderabad));
+        when(holidayRepository.existsByHolidayNameAndHolidayDateAndLocation_IdAndActiveTrueAndIdNot(any(), any(), any(), any())).thenReturn(false);
+        when(holidayRepository.save(any(Holiday.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        HolidayResponse resp = assertDoesNotThrow(() -> holidayService.updateHoliday(holidayId, req));
+        assertEquals("New Year's Day (corrected)", resp.getHolidayName());
+    }
+
+    @Test
     void updateHoliday_movesHolidayToNewLocation() {
         Holiday existing = Holiday.builder().id(holidayId).holidayName("Diwali").holidayDate(LocalDate.of(2026, 11, 8)).location(hyderabad).active(true).build();
 
