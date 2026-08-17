@@ -44,6 +44,14 @@ public class NotificationService {
                 .map(this::toDto);
     }
 
+    /** Backs the notification bell — unread only, newest first. */
+    @Transactional(readOnly = true)
+    public Page<NotificationDto> getUnreadNotifications(UUID userId, int page, int size) {
+        return notificationRepository
+                .findByUserIdAndReadFalseOrderByCreatedAtDesc(userId, PageRequest.of(page, size))
+                .map(this::toDto);
+    }
+
     @Transactional(readOnly = true)
     public long getUnreadCount(UUID userId) {
         return notificationRepository.countByUserIdAndReadFalse(userId);

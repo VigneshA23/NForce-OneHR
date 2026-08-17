@@ -412,12 +412,13 @@ public class RegularizationService {
     }
 
     /**
-     * Status-first, stage-aware approval. From PENDING: SUPER_ADMIN bypasses straight to the
-     * terminal APPROVED state; MANAGER (their assigned request only) moves it to
-     * PARTIALLY_APPROVED. From PARTIALLY_APPROVED: SUPER_ADMIN or HR_ADMIN finalize to APPROVED.
-     * Branching on the request's current status first (rather than the actor's "highest" role)
-     * means a dual-role actor (e.g. MANAGER + HR_ADMIN) gets whichever authority actually
-     * matches the request's stage, instead of one role permanently shadowing the other.
+     * Status-first, stage-aware approval. From PENDING: SUPER_ADMIN or HR_ADMIN bypasses
+     * straight to the terminal APPROVED state, without needing to be the employee's manager and
+     * regardless of whether the manager has acted yet; MANAGER (their assigned request only)
+     * moves it to PARTIALLY_APPROVED. From PARTIALLY_APPROVED: SUPER_ADMIN or HR_ADMIN finalize
+     * to APPROVED. Branching on the request's current status first (rather than the actor's
+     * "highest" role) means a dual-role actor (e.g. MANAGER + HR_ADMIN) gets whichever authority
+     * actually matches the request's stage, instead of one role permanently shadowing the other.
      */
     @Transactional
     public RegularizationResponse approve(UUID requestId, String comment, String actorEmail) {
@@ -430,6 +431,11 @@ public class RegularizationService {
         if (STATUS_PENDING.equals(req.getStatus())) {
             if (hasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
+                finalStage = true;
+            } else if (hasRole(actor, "HR_ADMIN")) {
+                // Same bypass SUPER_ADMIN already has at this stage — HR_ADMIN need not be the
+                // employee's manager, and may act before the manager has (ONEHR-140 follow-up).
+                actingRole = "HR_ADMIN";
                 finalStage = true;
             } else if (hasRole(actor, "MANAGER")) {
                 assertCanReview(req, actor);
@@ -521,6 +527,9 @@ public class RegularizationService {
         if (STATUS_PENDING.equals(req.getStatus())) {
             if (hasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
+            } else if (hasRole(actor, "HR_ADMIN")) {
+                // Same bypass SUPER_ADMIN already has at this stage — see approve() above.
+                actingRole = "HR_ADMIN";
             } else if (hasRole(actor, "MANAGER")) {
                 assertCanReview(req, actor);
                 actingRole = "MANAGER";

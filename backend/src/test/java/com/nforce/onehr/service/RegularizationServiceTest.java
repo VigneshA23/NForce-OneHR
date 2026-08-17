@@ -394,8 +394,9 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void approve_byHrAdmin_onPending_isDenied() {
-        // HR_ADMIN is a final-stage-only approver — must wait for the manager stage first.
+    void approve_byHrAdmin_bypassesFromPending_directlyToApproved() {
+        // ONEHR-140 follow-up: HR_ADMIN now has the same PENDING-stage bypass SUPER_ADMIN
+        // already had — need not be the employee's manager, and may act before the manager does.
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -404,11 +405,37 @@ class RegularizationServiceTest {
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        // HR_ADMIN isn't a recognized actor for the PENDING stage (only MANAGER/SUPER_ADMIN are) —
-        // denied the same way an unrelated stranger would be.
-        assertThrows(AccessDeniedException.class, () -> regularizationService.approve(pending.getId(), null, hrEmail));
-        verify(regularizationRepository, never()).save(any());
+        RegularizationResponse resp = regularizationService.approve(pending.getId(), null, hrEmail);
+
+        assertEquals("APPROVED", resp.getStatus());
+        assertNull(pending.getApprovedBy()); // bypass skips the manager stage entirely, same as SUPER_ADMIN
+        assertEquals(hrId, pending.getFinalApprovedBy());
+        verify(regularizationApprovalRepository).save(argThat(a -> "HR_ADMIN".equals(a.getActorRole())));
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_APPROVED"), any(), any(), any());
+    }
+
+    @Test
+    void approve_byHrAdmin_calledTwice_secondCallRejectedAndNoDuplicateNotification() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        regularizationService.approve(pending.getId(), null, hrEmail);
+        // The request is now APPROVED (terminal) in-memory, so a second decision attempt falls
+        // into the else-branch "only pending or partially-approved" guard.
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.approve(pending.getId(), null, hrEmail));
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_APPROVED"), any(), any(), any());
     }
 
     @Test
@@ -478,7 +505,9 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void reject_byHrAdmin_onPending_isDenied() {
+    void reject_byHrAdmin_onPending_succeeds() {
+        // ONEHR-140 follow-up: same bypass as approve() above — HR_ADMIN may reject a PENDING
+        // request without being the employee's manager and before the manager has acted.
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -488,8 +517,66 @@ class RegularizationServiceTest {
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
 
-        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(pending.getId(), "No", hrEmail));
+        RegularizationResponse resp = regularizationService.reject(pending.getId(), "No", hrEmail);
+
+        assertEquals("REJECTED", resp.getStatus());
+        assertEquals("No", resp.getReviewComment());
+        verify(regularizationApprovalRepository).save(argThat(a ->
+                a.getActionType().equals("REJECTED") && "HR_ADMIN".equals(a.getActorRole())));
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
+    }
+
+    @Test
+    void reject_bySuperAdmin_fromPending_succeeds() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        RegularizationResponse resp = regularizationService.reject(pending.getId(), "Not valid", superAdminEmail);
+
+        assertEquals("REJECTED", resp.getStatus());
+        verify(regularizationApprovalRepository).save(argThat(a ->
+                a.getActionType().equals("REJECTED") && "SUPER_ADMIN".equals(a.getActorRole())));
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
+    }
+
+    @Test
+    void reject_byUnauthorizedEmployee_isDenied() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(strangerUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(pending.getId(), "No", strangerEmail));
         verify(regularizationRepository, never()).save(any());
+        verify(regularizationApprovalRepository, never()).save(any());
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void reject_byHrAdmin_calledTwice_secondCallRejectedAndNoDuplicateNotification() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        regularizationService.reject(pending.getId(), "No", hrEmail);
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.reject(pending.getId(), "No", hrEmail));
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
     }
 
     @Test

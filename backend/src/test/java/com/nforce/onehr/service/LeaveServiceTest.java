@@ -29,6 +29,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -51,6 +52,7 @@ class LeaveServiceTest {
     @Mock private LeaveRequestRepository leaveRequestRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private NotificationService notificationService;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -178,6 +180,7 @@ class LeaveServiceTest {
         assertEquals(new BigDecimal("4"), balance.getUsedDays());
         verify(leaveBalanceRepository).save(balance);
         verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_APPROVED"), eq(pending.getId()), any(), any());
+        verify(notificationService, times(1)).send(eq(employeeId), eq("LEAVE_APPROVED"), any(), any(), any());
     }
 
     @Test
@@ -198,6 +201,8 @@ class LeaveServiceTest {
         assertEquals("Team coverage conflict", rejected.getDecisionReason());
         verify(leaveBalanceRepository, never()).save(any());
         verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_REJECTED"), eq(pending.getId()), any(), any());
+        verify(notificationService, times(1)).send(eq(employeeId), eq("LEAVE_REJECTED"), any(),
+                contains("Team coverage conflict"), any());
     }
 
     @Test
@@ -214,6 +219,7 @@ class LeaveServiceTest {
         assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), strangerEmail));
         verify(leaveBalanceRepository, never()).save(any());
         verify(leaveRequestRepository, never()).save(any());
+        verify(notificationService, never()).send(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -242,6 +248,32 @@ class LeaveServiceTest {
 
         assertThrows(IllegalStateException.class, () -> leaveService.approve(decided.getId(), managerEmail));
         verify(leaveBalanceRepository, never()).save(any());
+    }
+
+    /**
+     * A second approve() call on an already-decided request must not fire a second
+     * notification (ONEHR-140) — the PENDING guard in approve() blocks it before the
+     * notification call is ever reached.
+     */
+    @Test
+    void approve_calledTwice_sendsNotificationOnlyOnce() {
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        leaveService.approve(pending.getId(), managerEmail);
+        assertThrows(IllegalStateException.class, () -> leaveService.approve(pending.getId(), managerEmail));
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("LEAVE_APPROVED"), any(), any(), any());
     }
 
     @Test

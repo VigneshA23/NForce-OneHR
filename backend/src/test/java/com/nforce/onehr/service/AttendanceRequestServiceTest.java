@@ -24,6 +24,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -157,5 +159,55 @@ class AttendanceRequestServiceTest {
 
         assertEquals(BigDecimal.valueOf(2.5), balance.usedHours());
         assertEquals(BigDecimal.valueOf(0).setScale(1), balance.remainingHours().setScale(1));
+    }
+
+    // ---------------------------------------------------------------- approve/reject notifications (ONEHR-140)
+
+    private final UUID hrAdminId = UUID.randomUUID();
+    private final String hrAdminEmail = "hr@test.com";
+
+    private void stubHrAdmin() {
+        Role hrRole = Role.builder().id(2).code("HR_ADMIN").displayName("HR Admin").build();
+        User hrUser = User.builder().id(hrAdminId).email(hrAdminEmail).roles(Set.of(hrRole)).build();
+        lenient().when(userRepository.findByEmail(hrAdminEmail)).thenReturn(java.util.Optional.of(hrUser));
+    }
+
+    @Test
+    void approve_notifiesOriginalRequester() {
+        stubHrAdmin();
+        AttendanceRequest pending = existing(LocalDate.of(2026, 8, 3), 2.0, "PENDING");
+        when(requestRepository.findById(pending.getId())).thenReturn(java.util.Optional.of(pending));
+
+        AttendanceRequestResponse resp = service.approve(pending.getId(), "Looks good", hrAdminEmail);
+
+        assertEquals("APPROVED", resp.getStatus());
+        verify(notificationService, times(1))
+                .send(eq(employeeId), eq("ATTENDANCE_REQUEST_APPROVED"), any(), any(), any());
+    }
+
+    @Test
+    void reject_notifiesOriginalRequesterWithReason() {
+        stubHrAdmin();
+        AttendanceRequest pending = existing(LocalDate.of(2026, 8, 3), 2.0, "PENDING");
+        when(requestRepository.findById(pending.getId())).thenReturn(java.util.Optional.of(pending));
+
+        AttendanceRequestResponse resp = service.reject(pending.getId(), "Team short-staffed", hrAdminEmail);
+
+        assertEquals("REJECTED", resp.getStatus());
+        verify(notificationService, times(1)).send(eq(employeeId), eq("ATTENDANCE_REQUEST_REJECTED"), any(),
+                contains("Team short-staffed"), any());
+    }
+
+    @Test
+    void approve_calledTwice_sendsNotificationOnlyOnce() {
+        stubHrAdmin();
+        AttendanceRequest pending = existing(LocalDate.of(2026, 8, 3), 2.0, "PENDING");
+        when(requestRepository.findById(pending.getId())).thenReturn(java.util.Optional.of(pending));
+
+        service.approve(pending.getId(), null, hrAdminEmail);
+        assertThrows(IllegalArgumentException.class, () -> service.approve(pending.getId(), null, hrAdminEmail));
+
+        verify(notificationService, times(1))
+                .send(eq(employeeId), eq("ATTENDANCE_REQUEST_APPROVED"), any(), any(), any());
     }
 }

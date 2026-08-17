@@ -62,6 +62,7 @@ public class WebClockInService {
     // Shared with AttendanceService so the every-3rd-late-arrival penalty applies identically
     // regardless of check-in entry point — see LatePenaltyService.
     private final LatePenaltyService latePenaltyService;
+    private final NotificationService notificationService;
 
     @Transactional
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
@@ -156,6 +157,11 @@ public class WebClockInService {
 
         String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "reviewComment", comment != null ? comment : ""));
         auditService.log(actor.getId(), "WEB_CLOCK_IN_APPROVED", req.getEmployeeUserId(), before, after);
+
+        notificationService.send(req.getEmployeeUserId(), "WEB_CLOCK_IN_APPROVED",
+                "Web Clock-In Approved",
+                "Your web clock-in for " + req.getWorkDate() + " has been approved by " + employeeName(actor.getId()) + ".",
+                "/requests?type=WEB_CLOCK_IN");
         return toResponse(req);
     }
 
@@ -174,6 +180,12 @@ public class WebClockInService {
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
         auditService.log(actor.getId(), "WEB_CLOCK_IN_REJECTED", req.getEmployeeUserId(), before, after);
+
+        notificationService.send(req.getEmployeeUserId(), "WEB_CLOCK_IN_REJECTED",
+                "Web Clock-In Rejected",
+                "Your web clock-in for " + req.getWorkDate() + " has been rejected by " + employeeName(actor.getId())
+                        + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
+                "/requests?type=WEB_CLOCK_IN");
         return toResponse(req);
     }
 
@@ -376,6 +388,10 @@ public class WebClockInService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+    }
+
+    private String employeeName(UUID userId) {
+        return employeeRepository.findById(userId).map(Employee::getFullName).orElse("Unknown");
     }
 
     private WebClockInResponse toResponse(WebClockInRequest req) {
