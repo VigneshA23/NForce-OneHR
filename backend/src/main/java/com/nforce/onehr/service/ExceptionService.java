@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,6 +32,13 @@ public class ExceptionService {
 
     private static final Set<String> HR_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final Set<String> PENDING_REGULARIZATION_STATUSES = Set.of("PENDING", "PARTIALLY_APPROVED");
+
+    // Still detected and evaluated against the Penalization Policy exactly as before (see
+    // detectExceptions/runScheduledPenaltyEvaluation) — these three just no longer surface as
+    // rows on the Exception Dashboard itself, per explicit request. Removing an entry here only
+    // changes what getExceptionsForCaller returns, never what gets detected or penalized.
+    private static final Set<String> HIDDEN_FROM_EXCEPTION_DASHBOARD = Set.of(
+            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -84,7 +92,43 @@ public class ExceptionService {
         List<AttendanceException> exceptions = attendanceExceptionRepository
                 .findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(scopeIds, from, to);
 
-        return exceptions.stream().map(this::toResponse).collect(Collectors.toList());
+        List<ExceptionResponse> responses = exceptions.stream()
+                .filter(e -> !HIDDEN_FROM_EXCEPTION_DASHBOARD.contains(e.getExceptionType()))
+                .map(this::toResponse)
+                .collect(Collectors.toCollection(java.util.ArrayList::new));
+        responses.addAll(pendingLeaveApprovals(scopeIds, from, to));
+        responses.sort(Comparator.comparing(ExceptionResponse::getExceptionDate)
+                .thenComparing(ExceptionResponse::getDetectedAt)
+                .reversed());
+        return responses;
+    }
+
+    /**
+     * A leave request still awaiting approval, surfaced as a dashboard row alongside real
+     * attendance exceptions — see ExceptionType.PENDING_LEAVE_APPROVAL's javadoc. Dated by when
+     * it was requested (createdAt), not its leave start date, so the dashboard's From/To filter
+     * means the same thing here as it does for every other row: "when did this need attention."
+     */
+    private List<ExceptionResponse> pendingLeaveApprovals(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
+        return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(scopeIds, "PENDING").stream()
+                .filter(r -> {
+                    LocalDate requestedOn = r.getCreatedAt().toLocalDate();
+                    return !requestedOn.isBefore(from) && !requestedOn.isAfter(to);
+                })
+                .map(r -> {
+                    Optional<Employee> employee = employeeRepository.findById(r.getEmployeeUserId());
+                    return ExceptionResponse.builder()
+                            .id(r.getId())
+                            .employeeUserId(r.getEmployeeUserId())
+                            .employeeCode(employee.map(Employee::getEmployeeCode).orElse(null))
+                            .employeeFullName(employee.map(Employee::getFullName).orElse(null))
+                            .exceptionDate(r.getCreatedAt().toLocalDate())
+                            .exceptionType(ExceptionType.PENDING_LEAVE_APPROVAL)
+                            .status("OPEN")
+                            .detectedAt(r.getCreatedAt())
+                            .build();
+                })
+                .collect(Collectors.toList());
     }
 
     /**

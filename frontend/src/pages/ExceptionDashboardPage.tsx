@@ -9,13 +9,13 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 const EXCEPTION_TYPE_LABELS: Record<string, string> = {
   LATE_ARRIVAL: 'Late Arrival',
   MISSING_PUNCH: 'Missing Punch',
-  LEAVE_ATTENDANCE_CONFLICT: 'Leave/Attendance Conflict',
+  PENDING_LEAVE_APPROVAL: 'Pending Leave Approval',
 };
 
 const EXCEPTION_TYPE_STYLES: Record<string, { color: string; background: string; border: string }> = {
   LATE_ARRIVAL: { color: '#E0A93B', background: 'rgba(224,169,59,.1)', border: 'rgba(224,169,59,.25)' },
   MISSING_PUNCH: { color: 'var(--risk)', background: 'rgba(228,55,61,.1)', border: 'rgba(228,55,61,.25)' },
-  LEAVE_ATTENDANCE_CONFLICT: { color: '#8B5CF6', background: 'rgba(139,92,246,.1)', border: 'rgba(139,92,246,.25)' },
+  PENDING_LEAVE_APPROVAL: { color: '#8B5CF6', background: 'rgba(139,92,246,.1)', border: 'rgba(139,92,246,.25)' },
 };
 
 function todayIso(): string {
@@ -56,7 +56,7 @@ export default function ExceptionDashboardPage() {
   const { showToast } = useToast();
   const [from, setFrom] = useState(daysAgoIso(6));
   const [to, setTo] = useState(todayIso());
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'LATE_ARRIVAL' | 'MISSING_PUNCH' | 'LEAVE_ATTENDANCE_CONFLICT'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'LATE_ARRIVAL' | 'MISSING_PUNCH' | 'PENDING_LEAVE_APPROVAL'>('ALL');
   const [exceptions, setExceptions] = useState<ExceptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -116,7 +116,7 @@ export default function ExceptionDashboardPage() {
             <option value="ALL">All</option>
             <option value="LATE_ARRIVAL">Late Arrival</option>
             <option value="MISSING_PUNCH">Missing Punch</option>
-            <option value="LEAVE_ATTENDANCE_CONFLICT">Leave/Attendance Conflict</option>
+            <option value="PENDING_LEAVE_APPROVAL">Pending Leave Approval</option>
           </select>
         </div>
       </div>
@@ -127,7 +127,7 @@ export default function ExceptionDashboardPage() {
         ) : visibleExceptions.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>No exceptions in this range</div>
-            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Late arrivals and missing punches will show up here as attendance is recorded.</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Late arrivals, missing punches, and pending leave approvals will show up here.</div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
