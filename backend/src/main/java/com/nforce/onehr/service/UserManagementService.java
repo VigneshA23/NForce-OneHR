@@ -99,16 +99,15 @@ public class UserManagementService {
     }
 
     /**
-     * Employee/Manager/HR Admin are all staff first — they get the base EMPLOYEE role
-     * alongside whatever admin role they're assigned, so self-service features (attendance
-     * punch, leave, etc.) work for them too. Super Admin is the one deliberate exception —
-     * a system/oversight role only, not staff with a personal attendance record. See V115
-     * for removing this again on existing Super Admin accounts.
+     * Every Phase 1 role is staff first — everyone gets the base EMPLOYEE role alongside
+     * whatever admin role they're assigned, so self-service features (attendance punch, leave,
+     * etc.) work for them too, Super Admin included. (V111/V115 previously stripped this from
+     * Super Admin and back; V116 restores it again.)
      */
     private Set<Role> rolesFor(Role assignedRole) {
         Set<Role> roles = new HashSet<>();
         roles.add(assignedRole);
-        if (!"SUPER_ADMIN".equals(assignedRole.getCode()) && !"EMPLOYEE".equals(assignedRole.getCode())) {
+        if (!"EMPLOYEE".equals(assignedRole.getCode())) {
             roleRepository.findByCode("EMPLOYEE").ifPresent(roles::add);
         }
         return roles;

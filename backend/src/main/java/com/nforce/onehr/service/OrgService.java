@@ -12,6 +12,7 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.LocationRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +37,7 @@ public class OrgService {
 
     @Transactional(readOnly = true)
     public List<DepartmentResponse> listDepartments() {
-        return departmentRepo.findAll().stream()
+        return departmentRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
                 .map(d -> DepartmentResponse.from(d, employeeRepo.countByDepartmentId(d.getId())))
                 .toList();
     }
@@ -93,7 +94,7 @@ public class OrgService {
 
     @Transactional(readOnly = true)
     public List<DesignationResponse> listDesignations() {
-        return designationRepo.findAll().stream()
+        return designationRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
                 .map(d -> DesignationResponse.from(d, employeeRepo.countByDesignationId(d.getId())))
                 .toList();
     }
@@ -156,7 +157,7 @@ public class OrgService {
 
     @Transactional(readOnly = true)
     public List<LocationResponse> listLocations() {
-        return locationRepo.findAll().stream()
+        return locationRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
                 .map(l -> LocationResponse.from(l, employeeRepo.countByLocationId(l.getId())))
                 .toList();
     }

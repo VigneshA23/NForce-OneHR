@@ -15,8 +15,9 @@ public class DesignationResponse {
     boolean active;
     long employeeCount;
     LocalDateTime createdAt;
+    LocalDateTime updatedAt;
 
     public static DesignationResponse from(Designation d, long employeeCount) {
-        return new DesignationResponse(d.getId(), d.getTitle(), d.getGrade(), d.getLevel(), d.isActive(), employeeCount, d.getCreatedAt());
+        return new DesignationResponse(d.getId(), d.getTitle(), d.getGrade(), d.getLevel(), d.isActive(), employeeCount, d.getCreatedAt(), d.getUpdatedAt());
     }
 }
