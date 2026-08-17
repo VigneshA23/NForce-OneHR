@@ -41,7 +41,7 @@ function isLockActive(lock: StoredLock | null): lock is StoredLock {
 function formatRemainingLockTime(lockedUntilIso: string): string {
   const msRemaining = new Date(lockedUntilIso).getTime() - Date.now();
   const hours = Math.max(1, Math.ceil(msRemaining / (1000 * 60 * 60)));
-  return `Please try again in ${hours} ${hours === 1 ? 'hour' : 'hours'}.`;
+  return `Please try again after ${hours} ${hours === 1 ? 'hour' : 'hours'}.`;
 }
 
 function MicrosoftIcon() {
