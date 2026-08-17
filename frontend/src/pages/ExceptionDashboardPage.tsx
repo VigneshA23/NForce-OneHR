@@ -35,10 +35,15 @@ function formatMinutesLate(minutes: number | null): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-// Times arrive as "HH:mm:ss" or "HH:mm:ss.ffffff" — drop seconds/fractional
-// precision, which is noise for a late-arrival table read at a glance.
+// Times arrive as "HH:mm:ss" or "HH:mm:ss.ffffff" — format as 12-hour with AM/PM, same
+// convention as the Attendance page's TimeFormatContext (dropping seconds/fractional
+// precision, which is noise for a late-arrival table read at a glance).
 function formatTimeDisplay(time: string | null): string {
-  return time ? time.slice(0, 5) : '—';
+  if (!time) return '—';
+  const [h, m] = time.split(':').map(Number);
+  const suffix = h < 12 ? 'AM' : 'PM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
 }
 
 function ExceptionTypeBadge({ type }: { type: string }) {
