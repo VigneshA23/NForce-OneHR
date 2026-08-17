@@ -173,7 +173,13 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 4 }}>
+      {/* minmax(0, 1fr), not plain 1fr — a plain 1fr column will still grow past its
+          fair share to fit unbroken (nowrap) content, e.g. a long holiday name,
+          which is what was making columns uneven / pushing the last column off
+          the edge. minmax(0, 1fr) hard-caps every track at 1fr regardless of
+          content, which is also what makes the ellipsis truncation below actually
+          take effect (it needs a fixed-width box to truncate against). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 3, marginBottom: 4 }}>
         {WEEKDAY_LABELS.map(d => (
           <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em', padding: '2px 0' }}>
             {d[0]}
@@ -181,7 +187,7 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 3 }}>
         {cells.map((c, i) => {
           if (!c) return <div key={i} />;
           const dayHolidays = holidaysByDate.get(c.iso) ?? [];
@@ -194,7 +200,14 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               key={i}
               title={dayHolidays.map(h => h.holidayName).join(', ') || undefined}
               style={{
-                minHeight: 58,
+                // Fixed height, not minHeight — the cell must never resize based on
+                // content; anything beyond what fits is summarized as "+N more"
+                // and overflow:hidden is a hard backstop against the rest.
+                height: 74,
+                minWidth: 0,
+                width: '100%',
+                overflow: 'hidden',
+                boxSizing: 'border-box',
                 borderRadius: 8,
                 padding: '6px 5px',
                 background: hasHoliday ? 'color-mix(in srgb, var(--warn) 16%, transparent)' : 'var(--raised)',
@@ -212,7 +225,8 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
                 <span key={h.id} style={{
                   fontSize: 9, fontWeight: 700, color: '#fff', background: 'var(--warn)',
                   borderRadius: 5, padding: '2px 5px', lineHeight: 1.4,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  maxWidth: '100%', width: '100%', boxSizing: 'border-box', flexShrink: 0,
                 }}>
                   {h.holidayName}
                 </span>
@@ -220,7 +234,7 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               {extraCount > 0 && (
                 <span style={{
                   fontSize: 8.5, fontWeight: 700, color: 'var(--warn)',
-                  lineHeight: 1.3,
+                  lineHeight: 1.3, flexShrink: 0,
                 }}>
                   +{extraCount} more
                 </span>
@@ -241,6 +255,7 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const firstRef = useRef<HTMLInputElement>(null);
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
     firstRef.current?.focus();
@@ -253,6 +268,7 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
     const name = holidayName.trim();
     if (!name) { setError('Holiday name is required'); return; }
     if (!holidayDate) { setError('Date is required'); return; }
+    if (!editing && holidayDate < todayIso) { setError('Holiday date cannot be in the past'); return; }
     if (!locationId) { setError('Location is required'); return; }
 
     setLoading(true);
@@ -281,7 +297,7 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
             <input ref={firstRef} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
           </Field>
           <Field label="Date *">
-            <input type="date" style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
+            <input type="date" min={editing ? undefined : todayIso} style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
           </Field>
           <Field label="Location *">
             <select style={inputStyle} value={locationId} onChange={e => setLocationId(e.target.value)}>
