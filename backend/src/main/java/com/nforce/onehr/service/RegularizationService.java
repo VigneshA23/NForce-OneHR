@@ -243,12 +243,6 @@ public class RegularizationService {
         if (req.getRequestedCheckIn() == null && req.getRequestedCheckOut() == null) {
             throw new IllegalArgumentException("Provide at least a corrected check-in or check-out time");
         }
-        if (req.getRequestedCheckIn() != null && !req.getRequestedCheckIn().toLocalDate().equals(req.getAttendanceDate())) {
-            throw new IllegalArgumentException("Corrected check-in time must fall on the attendance date");
-        }
-        if (req.getRequestedCheckOut() != null && !req.getRequestedCheckOut().toLocalDate().equals(req.getAttendanceDate())) {
-            throw new IllegalArgumentException("Corrected check-out time must fall on the attendance date");
-        }
 
         Attendance existingPunch;
         try {
@@ -269,6 +263,34 @@ public class RegularizationService {
         LocalDateTime checkOut = req.getRequestedCheckOut() != null
                 ? req.getRequestedCheckOut()
                 : (existingPunch != null ? existingPunch.getCheckOutAt() : null);
+
+        // Overnight shift (e.g. the configured default 3:30 PM -> 12:30 AM): the frontend always
+        // submits both times on the same attendanceDate (see RequestModal in AttendancePage.tsx —
+        // there is no next-day rollover in the UI), so a check-out clock time earlier than
+        // check-in's on that same date isn't a same-day ordering mistake, it's the next calendar
+        // day. Roll it forward exactly once here, after punch auto-fill above, so this applies
+        // identically whether check-out was explicitly requested or filled in from an existing
+        // punch. Only fires when both are still on the same date — a check-out already resolved
+        // to the next day (e.g. auto-filled from an existing overnight punch) is left untouched.
+        if (checkIn != null && checkOut != null
+                && checkOut.toLocalDate().equals(checkIn.toLocalDate())
+                && checkOut.toLocalTime().isBefore(checkIn.toLocalTime())) {
+            checkOut = checkOut.plusDays(1);
+        }
+
+        // Regularization's own 07:00 AM business-day boundary (REGULARIZATION_DAY_BOUNDARY /
+        // resolveBusinessDate — same rule already used for "today" in the lookback-window and
+        // monthly-limit checks) applies here too: a punch between midnight and 07:00 belongs to
+        // the PREVIOUS business date even though its own calendar date is the next day. Checked
+        // against the (possibly rolled-over) resolved value above, not the raw request field, so
+        // an overnight check-out — e.g. rolled over to 18-Aug 00:30 — is correctly attributed to
+        // 17-Aug's attendanceDate instead of being rejected for "not falling on" it.
+        if (req.getRequestedCheckIn() != null && !resolveBusinessDate(checkIn).equals(req.getAttendanceDate())) {
+            throw new IllegalArgumentException("Corrected check-in time must fall on the attendance date");
+        }
+        if (req.getRequestedCheckOut() != null && !resolveBusinessDate(checkOut).equals(req.getAttendanceDate())) {
+            throw new IllegalArgumentException("Corrected check-out time must fall on the attendance date");
+        }
 
         if (checkIn != null && checkOut != null && !checkOut.isAfter(checkIn)) {
             throw new IllegalArgumentException("Check-out time must be after check-in time");

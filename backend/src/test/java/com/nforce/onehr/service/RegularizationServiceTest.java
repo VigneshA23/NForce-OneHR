@@ -196,6 +196,147 @@ class RegularizationServiceTest {
         assertEquals(today.atTime(18, 30), resp.getRequestedCheckOut());
     }
 
+    // ---------------------------------------------------------------- overnight check-in/check-out
+
+    @Test
+    void submit_overnightShift_330pmTo1230am_isAcceptedAndCheckoutRollsToNextDay() {
+        // Scenario F: check-in's business date (today, since 15:30 >= 07:00) and the rolled-over
+        // check-out's business date (also today, since 00:30 < 07:00 attributes it back to the
+        // previous business day) agree — both belong to attendanceDate=today — so this passes the
+        // new business-date consistency check. The actual stored check-out timestamp remains the
+        // real next-calendar-day value; only its BUSINESS-date attribution rolls back, not the
+        // timestamp itself.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        // The frontend always sends both times on the same attendanceDate (RequestModal in
+        // AttendancePage.tsx never does its own day-rollover) — 12:30 AM here is check-out's
+        // clock time on that same date, exactly as the real request payload looks.
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(0, 30), "Overnight shift");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(today.atTime(15, 30), resp.getRequestedCheckIn());
+        assertEquals(today.plusDays(1).atTime(0, 30), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenarioG_overnightCheckout_18Aug659AM_businessDateRemains17Aug() {
+        // Same shape as scenario F but at the boundary's edge: check-out rolls over to next-day
+        // 06:59, still < 07:00, so it's still attributed back to check-in's business date.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(20, 0), today.atTime(6, 59), "Overnight shift, boundary edge");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(today.atTime(20, 0), resp.getRequestedCheckIn());
+        assertEquals(today.plusDays(1).atTime(6, 59), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenarioH_checkoutOnlyAtSevenAM_businessDateIsItsOwnDay() {
+        // Check-out submitted alone (no check-in in this request, none on file either) — at
+        // exactly 07:00 it belongs to its OWN calendar date as the business date (rule 3), not
+        // the previous one, so it must be validated against that same day's attendanceDate.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, null, today.atTime(7, 0), "Checkout-only correction");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertNull(resp.getRequestedCheckIn());
+        assertEquals(today.atTime(7, 0), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenario8_overnightShift_17AugTo18Aug_literalDates_attendanceDateIs17AugAndCheckoutStays18Aug() {
+        // Literal Aug-17/18-2026 dates per the spec's exact example. Submitted as the Super Admin
+        // fixture (also holds EMPLOYEE, exempt from the lookback window) purely so this test can
+        // use fixed calendar dates instead of "today" — the business-date/rollover logic under
+        // test doesn't care who the actor is.
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        LocalDate aug17 = LocalDate.of(2026, 8, 17);
+        CreateRegularizationRequest req = request(aug17, aug17.atTime(15, 30), aug17.atTime(0, 30), "Overnight shift");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, superAdminEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(aug17, resp.getAttendanceDate());
+        assertEquals(LocalDateTime.of(2026, 8, 17, 15, 30), resp.getRequestedCheckIn());
+        // Checkout must remain the real next calendar day — never rewritten back to 17-Aug.
+        assertEquals(LocalDateTime.of(2026, 8, 18, 0, 30), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenario9_overnightCheckoutAt659am_18Aug_literalDates_businessDateRemains17Aug() {
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        LocalDate aug17 = LocalDate.of(2026, 8, 17);
+        CreateRegularizationRequest req = request(aug17, aug17.atTime(20, 0), aug17.atTime(6, 59), "Overnight shift, boundary edge");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, superAdminEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(aug17, resp.getAttendanceDate());
+        assertEquals(LocalDateTime.of(2026, 8, 18, 6, 59), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void submit_normalSameDayInterval_330pmTo1130pm_isUnaffected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(23, 30), "Normal shift");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(today.atTime(15, 30), resp.getRequestedCheckIn());
+        assertEquals(today.atTime(23, 30), resp.getRequestedCheckOut()); // same date — no rollover applied
+    }
+
+    @Test
+    void submit_checkoutClockTimeAfterSevenAMOnRolledOverDay_isRejectedForBusinessDateMismatch() {
+        // Check-out's clock time (3:00 PM) is earlier than check-in's (3:30 PM), so the same-day
+        // rollover fix (above) still shifts it to the next calendar day. But 3:00 PM on that next
+        // day is itself >= the 07:00 AM boundary, so resolveBusinessDate attributes it to ITS OWN
+        // business date, not check-in's — the two sides now disagree on which attendanceDate this
+        // request belongs to. A genuinely valid overnight case never has this problem (its
+        // check-out clock time is always < 07:00, per the boundary rule); this ~23.5h interval is
+        // the case the boundary rule is NOT meant to cover, and must still fail.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(15, 0), "Long overnight shift");
+        req.setManagerUserId(hrId);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> regularizationService.submit(req, employeeEmail));
+        assertEquals("Corrected check-out time must fall on the attendance date", ex.getMessage());
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_equalCheckInAndCheckOutTimes_isGenuinelyInvalid() {
+        // Not "earlier than" check-in (equal, not before) — no rollover applies, so this stays a
+        // same-day, zero-duration interval and is correctly rejected by the existing ordering rule.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(15, 30), "Same time");
+        req.setManagerUserId(hrId);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> regularizationService.submit(req, employeeEmail));
+        assertEquals("Check-out time must be after check-in time", ex.getMessage());
+        verify(regularizationRepository, never()).save(any());
+    }
+
     @Test
     void submit_whenApprovedRequestAlreadyExistsForDate_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
@@ -531,6 +672,53 @@ class RegularizationServiceTest {
     }
 
     @Test
+    void update_toOvernightShift_appliesSameBusinessDateAndRolloverAsSubmit() {
+        // update() calls the same resolveTimes() as submit() — confirms the overnight rollover
+        // and 07:00 AM business-date consistency check behave identically on the edit path.
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Old reason").status("PENDING").build();
+
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        CreateRegularizationRequest edit = request(date, date.atTime(15, 30), date.atTime(0, 30), "Switched to night shift");
+        edit.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.update(pending.getId(), edit, employeeEmail);
+
+        assertEquals(date.atTime(15, 30), resp.getRequestedCheckIn());
+        assertEquals(date.plusDays(1).atTime(0, 30), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenario12_update_overnightShift_17AugTo18Aug_literalDates_sameRuleAsSubmit() {
+        // Literal-dated counterpart to scenario 8, via update() instead of submit() — same
+        // resolveTimes() call, so the business-date/rollover outcome must be identical. Owned by
+        // the Super Admin fixture (exempt from the lookback window) so the edit's new attendance
+        // date can be a fixed 2026-08-17 rather than "today".
+        LocalDate aug17 = LocalDate.of(2026, 8, 17);
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(superAdminId).assignedApproverId(managerId).attendanceDate(aug17)
+                .requestedCheckIn(aug17.atTime(9, 0)).requestedCheckOut(aug17.atTime(18, 0))
+                .reason("Old reason").status("PENDING").build();
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        CreateRegularizationRequest edit = request(aug17, aug17.atTime(15, 30), aug17.atTime(0, 30), "Switched to night shift");
+        edit.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.update(pending.getId(), edit, superAdminEmail);
+
+        assertEquals(aug17, resp.getAttendanceDate());
+        assertEquals(LocalDateTime.of(2026, 8, 17, 15, 30), resp.getRequestedCheckIn());
+        assertEquals(LocalDateTime.of(2026, 8, 18, 0, 30), resp.getRequestedCheckOut());
+    }
+
+    @Test
     void update_byNonOwner_isDenied() {
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
@@ -723,6 +911,76 @@ class RegularizationServiceTest {
         LocalDateTime afternoon = LocalDateTime.of(2026, 3, 11, 15, 30, 0);
 
         assertEquals(LocalDate.of(2026, 3, 11), RegularizationService.resolveBusinessDate(afternoon));
+    }
+
+    // ── Scenarios A-E from the spec, applied to both check-in- and check-out-shaped timestamps —
+    //    resolveBusinessDate is one pure function used for both, so "consistently for both" holds
+    //    by construction; these pin the exact letter-labeled boundary values against 17/18-Aug. ──
+
+    @Test
+    void scenarioA_checkIn_17Aug7AM_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 7, 0, 0)));
+    }
+
+    @Test
+    void scenarioB_checkIn_17Aug1159PM_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 23, 59, 0)));
+    }
+
+    @Test
+    void scenarioC_checkIn_18AugMidnight_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 0, 0, 0)));
+    }
+
+    @Test
+    void scenarioD_checkIn_18Aug659AM_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 6, 59, 0)));
+    }
+
+    @Test
+    void scenarioE_checkIn_18Aug7AM_belongsTo18Aug() {
+        assertEquals(LocalDate.of(2026, 8, 18),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 7, 0, 0)));
+    }
+
+    @Test
+    void scenarioD_checkOut_18Aug659AM_belongsTo17Aug_sameRuleAsCheckIn() {
+        // Same function, same rule, applied to a check-out-shaped value — confirms consistency
+        // between check-in and check-out per requirement 4, not just check-in in isolation.
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 6, 59, 0)));
+    }
+
+    @Test
+    void scenarioH_checkOut_18Aug7AM_belongsTo18Aug_sameRuleAsCheckIn() {
+        assertEquals(LocalDate.of(2026, 8, 18),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 7, 0, 0)));
+    }
+
+    // ── Exact numbered scenarios 1, 3, 10 from the cycle-boundary spec, pinned to their literal
+    //    Aug 16/17/18 dates for direct traceability (1 and 3 aren't otherwise covered by an exact
+    //    literal value; 10 mirrors scenario E/H's rule but is added explicitly for that item). ──
+
+    @Test
+    void scenario1_659am_Aug17_belongsToAug16Cycle() {
+        assertEquals(LocalDate.of(2026, 8, 16),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 6, 59, 0)));
+    }
+
+    @Test
+    void scenario3_2pm_Aug17_belongsToAug17Cycle() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 14, 0, 0)));
+    }
+
+    @Test
+    void scenario10_700am_Aug18_belongsToAug18Cycle() {
+        assertEquals(LocalDate.of(2026, 8, 18),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 7, 0, 0)));
     }
 
     // ── Notifications: reuse the existing NotificationService, only for Request Regularization ──
