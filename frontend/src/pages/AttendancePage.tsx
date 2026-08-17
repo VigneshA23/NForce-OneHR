@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useImperativeHandle, useMemo, useRef,
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, AlarmClock, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -386,7 +386,7 @@ function LateBadge({ minutes, graceMinutes }: { minutes: number | null | undefin
   if (!minutes || minutes <= grace) return null;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: '#E0A93B' }}>
-      <AlarmClock size={14} aria-label="Late" /> Late by {formatDuration(minutes)}
+      <Turtle size={14} aria-label="Late" /> Late by {formatDuration(minutes)}
     </div>
   );
 }
@@ -2418,7 +2418,7 @@ function ArrivalCell({ record, graceMinutes }: { record: AttendanceRecord | unde
   if (late > grace) {
     return (
       <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#E0A93B', fontSize: 12, fontWeight: 600 }}>
-        <AlarmClock size={13} /> {formatDuration(late)} late
+        <Turtle size={13} /> {formatDuration(late)} late
       </span>
     );
   }
