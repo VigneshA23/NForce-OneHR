@@ -118,4 +118,48 @@ class WebClockInServiceTest {
 
         verify(notificationService, times(1)).send(eq(employeeId), eq("WEB_CLOCK_IN_REJECTED"), any(), any(), any());
     }
+
+    /**
+     * Mirrors AttendanceService.checkOut_rejectsAndFlagsMissingCheckout_... — a Web Clock-In
+     * session left open past its own workday/grace window (shiftDayCutover) must not be
+     * accepted with a fabricated checkedOutAt/workedMinutes; it's flagged Missing Check-Out and
+     * the click is rejected, same as the regular Check-In/Check-Out flow.
+     */
+    @Test
+    void checkOut_rejectsAndFlagsMissingCheckout_whenPastItsGraceWindow() {
+        String employeeEmail = "employee@test.com";
+        Role empRole = Role.builder().id(2).code("EMPLOYEE").displayName("Employee").build();
+        User empUser = User.builder().id(employeeId).email(employeeEmail).roles(Set.of(empRole)).build();
+        lenient().when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(empUser));
+        lenient().when(attendanceProps.getZone()).thenReturn("Asia/Kolkata");
+        lenient().when(attendanceProps.getShiftDayCutover()).thenReturn(LocalTime.of(7, 0));
+
+        LocalDate workDate = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).minusDays(2);
+        WebClockInRequest req = WebClockInRequest.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(17, 35)))
+                .status("APPROVED")
+                .build();
+        when(webClockInRepository.findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId, "APPROVED"))
+                .thenReturn(Optional.of(req));
+
+        Attendance record = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(17, 35)))
+                .sessionStartedAt(LocalDateTime.of(workDate, LocalTime.of(17, 35)))
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, workDate))
+                .thenReturn(Optional.of(record));
+
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail));
+
+        assertEquals("MISSING_CHECKOUT", record.getStatus());
+        assertNull(record.getCheckOutAt());
+        assertNull(record.getWorkedMinutes());
+    }
 }

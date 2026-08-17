@@ -64,6 +64,12 @@ public class AttendanceService {
     private static final String STATUS_PRESENT = "PRESENT";
     private static final String STATUS_LATE = "LATE";
     private static final String STATUS_HALF_DAY = "HALF_DAY";
+    // A session that was never checked out and whose workday/grace window (shiftDayCutover, e.g.
+    // 7:00 AM) has since ended — see flagMissingCheckoutIfStale. Deliberately never paired with a
+    // fabricated checkOutAt/workedMinutes: the actual check-out time is unknown, so none is
+    // guessed. Corrected via the existing Regularization flow, same as any other attendance
+    // correction.
+    private static final String STATUS_MISSING_CHECKOUT = "MISSING_CHECKOUT";
 
     private static final int DEFAULT_HISTORY_DAYS = 30;
 
@@ -92,12 +98,12 @@ public class AttendanceService {
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session started
         // yesterday is still the actionable "today" state even once the calendar date has
         // rolled over, so it takes priority over a plain work_date lookup. But an open session
-        // whose OWN shift has already ended (a forgotten checkout from days ago, not just
-        // "yesterday crossing into today") is stale, not today's state — auto-close it (see
-        // autoCloseIfStale) and fall through to the plain work_date lookup below instead of
-        // reporting it as an active session forever.
+        // whose own workday/grace window has already ended (a forgotten checkout from days ago,
+        // not just "yesterday crossing into today") is stale, not today's state — flag it Missing
+        // Check-Out (see flagMissingCheckoutIfStale) and fall through to the plain work_date
+        // lookup below instead of reporting it as an active session forever.
         Optional<Attendance> open = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
-        if (open.isPresent() && !autoCloseIfStale(open.get(), employee, now)) {
+        if (open.isPresent() && !flagMissingCheckoutIfStale(open.get(), now)) {
             Attendance record = open.get();
             return TodayAttendanceResponse.builder()
                     .workDate(record.getWorkDate())
@@ -243,11 +249,11 @@ public class AttendanceService {
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session from
         // yesterday's work_date must block a fresh check-in exactly like an open session
         // filed under today would, so check for one regardless of date first. But an open
-        // session whose OWN shift has already ended (a forgotten checkout from days ago) is
-        // stale, not a real in-progress day — auto-close it (see autoCloseIfStale) instead of
-        // letting it block every check-in from now on.
+        // session whose own workday/grace window has already ended (a forgotten checkout from
+        // days ago) is stale, not a real in-progress day — flag it Missing Check-Out (see
+        // flagMissingCheckoutIfStale) instead of letting it block every check-in from now on.
         Optional<Attendance> openSession = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
-        if (openSession.isPresent() && !autoCloseIfStale(openSession.get(), employee, now)) {
+        if (openSession.isPresent() && !flagMissingCheckoutIfStale(openSession.get(), now)) {
             throw new IllegalArgumentException("You have already checked in today");
         }
 
@@ -340,10 +346,23 @@ public class AttendanceService {
                 .findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("You have not checked in today"));
 
-        // A forgotten checkout can leave a session open for a day or more before the employee
-        // actually clicks Check-out; count worked time only up to this shift's own natural end
-        // (not the stale click's real clock time), so it can never inflate into something like
-        // "27h 8m" for what is supposed to be a single shift/day.
+        // Past its own workday/grace window (e.g. someone opens a stale tab and clicks Check Out
+        // days later) — there is no legitimate "now" to check out with at this point, so this is
+        // flagged Missing Check-Out (same as getToday/checkIn would have already done for this
+        // record) rather than silently accepted as a real, very-late checkout. The frontend
+        // should never offer this button once getToday reports canCheckOut=false for it, but a
+        // stale request must not fabricate a checkout time either way.
+        if (flagMissingCheckoutIfStale(record, now)) {
+            throw new IllegalArgumentException(
+                    "This session is past its check-out window and has been marked as a missing check-out. Please submit a regularization request.");
+        }
+
+        // A forgotten checkout can leave a session open for several hours before the employee
+        // actually clicks Check-out (e.g. checking out at 3 AM for a shift that ended at
+        // 12:30 AM); count worked time only up to this shift's own natural end (not the late
+        // click's real clock time), so it can never inflate into something like "27h 8m" for
+        // what is supposed to be a single shift/day. Only reachable here at all within the grace
+        // window above — a click that arrives after the grace window is now rejected outright.
         LocalDateTime cutoff = shiftEndCutoff(employee, record.getWorkDate());
         LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
 
@@ -399,54 +418,57 @@ public class AttendanceService {
     }
 
     /**
-     * A session left open past its own shift's natural end — the employee forgot to check out
-     * and never came back to click it — must not go on blocking fresh check-ins ({@link
-     * #checkIn}) or showing as "still checked in" forever ({@link #getToday}), no matter how many
-     * calendar days have since passed. Closes it right then, at the shift's own end (the exact
-     * same cap {@link #checkOut} applies to a late-arriving click — see {@link
-     * #shiftEndCutoff}), so the caller can fall through to treating this employee as having no
-     * open session, same as if they'd remembered to check out themselves. Returns whether it
-     * closed anything.
+     * A session left open past its own workday/grace window (shiftDayCutover, e.g. 7:00 AM the
+     * next calendar day — see {@link #shiftDayOf}) — the employee forgot to check out and never
+     * came back to click it — must not go on blocking fresh check-ins ({@link #checkIn}) or
+     * showing as "still checked in" / offering a Check Out button forever ({@link #getToday}), no
+     * matter how many calendar days have since passed. Flags it {@link #STATUS_MISSING_CHECKOUT}
+     * right then — deliberately WITHOUT fabricating a checkOutAt or computing workedMinutes; the
+     * real check-out time is unknown, so none is guessed. (Employee/HR/Manager can still correct
+     * it via the existing Regularization flow.) Returns whether the record is — now or
+     * already — flagged, so the caller can fall through to treating this employee as having no
+     * open session.
      *
-     * <p>An open session still within its own shift window (e.g. checked in at 11 PM, now
-     * 12:15 AM — the 3:30 PM - 12:30 AM shift hasn't ended yet) is left untouched — this only
-     * fires once the shift has genuinely ended, never for a session legitimately still in
-     * progress across midnight.
+     * <p>An open session still within its own workday/grace window (e.g. checked in at 11 PM,
+     * now 2 AM — the 3:30 PM - 12:30 AM shift has ended but the 7 AM cutover hasn't) is left
+     * untouched — this only fires once the grace window has genuinely ended, never for a session
+     * legitimately still correctable (a late but real Check-Out click — see {@link #checkOut}'s
+     * own {@link #shiftEndCutoff} cap) or still in progress across midnight.
      */
-    private boolean autoCloseIfStale(Attendance record, Employee employee, LocalDateTime now) {
+    private boolean flagMissingCheckoutIfStale(Attendance record, LocalDateTime now) {
         if (record.getCheckOutAt() != null) return false;
-        LocalDateTime cutoff = shiftEndCutoff(employee, record.getWorkDate());
-        if (!now.isAfter(cutoff)) return false;
+        if (STATUS_MISSING_CHECKOUT.equals(record.getStatus())) return true;
+        if (!shiftDayOf(now).isAfter(record.getWorkDate())) return false;
 
-        String before = auditSnapshot.toJson(Map.of(
-                "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
-        Attendance saved = closeSession(record, cutoff);
-        String after = auditSnapshot.toJson(Map.of(
-                "checkOutAt", cutoff.toString(), "workedMinutes", saved.getWorkedMinutes(), "status", saved.getStatus()));
-        auditService.log(employee.getUserId(), "ATTENDANCE_AUTO_CLOSED", saved.getId(), before, after);
+        String before = auditSnapshot.toJson(Map.of("status", record.getStatus()));
+        record.setStatus(STATUS_MISSING_CHECKOUT);
+        Attendance saved = attendanceRepository.save(record);
+        String after = auditSnapshot.toJson(Map.of("status", STATUS_MISSING_CHECKOUT));
+        auditService.log(record.getEmployeeUserId(), "ATTENDANCE_MISSING_CHECKOUT", saved.getId(), before, after);
         return true;
     }
 
     /**
-     * Org-wide sweep for {@link StaleAttendanceSweeper}: closes every currently-open attendance
-     * record whose own shift has already ended, regardless of whether that employee ever opens
-     * the app again to trigger {@link #autoCloseIfStale} themselves via {@link #getToday}/{@link
-     * #checkIn}. Without this, an employee who forgets to check out and simply doesn't come back
-     * (a resignation, an extended leave, a forgotten account) would leave that session open —
-     * and visibly "still checked in" to HR — indefinitely.
+     * Org-wide sweep for {@link StaleAttendanceSweeper}: flags every currently-open attendance
+     * record whose own workday/grace window has already ended as Missing Check-Out, regardless of
+     * whether that employee ever opens the app again to trigger {@link #flagMissingCheckoutIfStale}
+     * themselves via {@link #getToday}/{@link #checkIn}. Without this, an employee who forgets to
+     * check out and simply doesn't come back (a resignation, an extended leave, a forgotten
+     * account) would leave that session open — and visibly "still checked in" to HR —
+     * indefinitely.
      */
     @Transactional
-    public void closeAllStaleOpenSessions() {
+    public void flagAllStaleOpenSessionsAsMissingCheckout() {
         List<Attendance> open = attendanceRepository.findByCheckOutAtIsNull();
-        int closed = 0;
+        int flagged = 0;
         for (Attendance record : open) {
             Optional<Employee> employee = employeeRepository.findById(record.getEmployeeUserId());
-            if (employee.isPresent() && autoCloseIfStale(record, employee.get(), now(employee.get()))) {
-                closed++;
+            if (employee.isPresent() && flagMissingCheckoutIfStale(record, now(employee.get()))) {
+                flagged++;
             }
         }
-        if (closed > 0) {
-            log.info("closeAllStaleOpenSessions: closed {} of {} open session(s)", closed, open.size());
+        if (flagged > 0) {
+            log.info("flagAllStaleOpenSessionsAsMissingCheckout: flagged {} of {} open session(s) as Missing Check-Out", flagged, open.size());
         }
     }
 
