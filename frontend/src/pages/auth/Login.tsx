@@ -41,7 +41,7 @@ function isLockActive(lock: StoredLock | null): lock is StoredLock {
 function formatRemainingLockTime(lockedUntilIso: string): string {
   const msRemaining = new Date(lockedUntilIso).getTime() - Date.now();
   const hours = Math.max(1, Math.ceil(msRemaining / (1000 * 60 * 60)));
-  return `${hours} ${hours === 1 ? 'hour' : 'hours'} remaining`;
+  return `Please try again in ${hours} ${hours === 1 ? 'hour' : 'hours'}.`;
 }
 
 function MicrosoftIcon() {
@@ -209,9 +209,7 @@ export default function Login() {
           >
             <Lock size={15} style={{ flexShrink: 0, marginTop: 1, color: 'var(--risk)' }} aria-hidden="true" />
             <span>
-              <strong style={{ display: 'block', marginBottom: 2 }}>Your account has been locked</strong>
-              <span style={{ display: 'block', marginBottom: 2 }}>{lock.email}</span>
-              <span>The account has been temporarily blocked for security reasons. {formatRemainingLockTime(lock.lockedUntil)}.</span>
+              Your account <strong>{lock.email}</strong> has been locked due to multiple incorrect login attempts. {formatRemainingLockTime(lock.lockedUntil)}
             </span>
           </motion.div>
         )}
