@@ -32,6 +32,11 @@ export const notificationsApi = {
       headers: { Authorization: `Bearer ${token}` },
     }).then(handle<PagedNotifications>),
 
+  unread: (token: string, page = 0, size = 8) =>
+    fetch(`${BASE}/unread?page=${page}&size=${size}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(handle<PagedNotifications>),
+
   unreadCount: (token: string) =>
     fetch(`${BASE}/unread-count`, {
       headers: { Authorization: `Bearer ${token}` },

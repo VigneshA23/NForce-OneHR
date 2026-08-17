@@ -35,6 +35,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LeaveService {
 
+    // HR_ADMIN/SUPER_ADMIN may decide any leave request regardless of the literal manager
+    // relationship — same override convention as RegularizationService/AssetService/
+    // OvertimeRequestService/AttendanceRequestService/WebClockInService (ONEHR-140 follow-up:
+    // this service was the one workflow missing it, causing HR Admin "Access Denied").
+    private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
@@ -43,6 +49,7 @@ public class LeaveService {
     private final LeaveRequestRepository leaveRequestRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final NotificationService notificationService;
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
@@ -214,7 +221,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor.getId(), request.getEmployeeUserId());
+        requireCurrentManagerOf(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -238,6 +245,12 @@ public class LeaveService {
 
         String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "decidedBy", actor.getId().toString()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId(), before, after);
+
+        notificationService.send(request.getEmployeeUserId(), "LEAVE_APPROVED",
+                "Leave Request Approved",
+                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
+                        + " has been approved by " + employeeName(actor.getId()) + ".",
+                "/requests?type=LEAVE");
         return toRequestResponse(request);
     }
 
@@ -246,7 +259,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor.getId(), request.getEmployeeUserId());
+        requireCurrentManagerOf(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -260,15 +273,26 @@ public class LeaveService {
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId(), before, after);
+
+        notificationService.send(request.getEmployeeUserId(), "LEAVE_REJECTED",
+                "Leave Request Rejected",
+                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
+                        + " has been rejected by " + employeeName(actor.getId()) + ". Reason: " + request.getDecisionReason(),
+                "/requests?type=LEAVE");
         return toRequestResponse(request);
     }
 
-    private void requireCurrentManagerOf(UUID actorId, UUID employeeId) {
+    private void requireCurrentManagerOf(User actor, UUID employeeId) {
+        if (hasOverrideRole(actor)) return;
         EmployeeManagerHistory current = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .orElseThrow(() -> new AccessDeniedException("This employee has no assigned manager"));
-        if (!current.getManagerUserId().equals(actorId)) {
+        if (!current.getManagerUserId().equals(actor.getId())) {
             throw new AccessDeniedException("You are not the current manager of this employee");
         }
+    }
+
+    private boolean hasOverrideRole(User actor) {
+        return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
     private User requireActor(String email) {
