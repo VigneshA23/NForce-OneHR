@@ -320,6 +320,7 @@ const STATUS_COLORS: Record<AttendanceStatus, string> = {
   LATE: '#E0A93B',
   HALF_DAY: '#4C8DD6',
   ABSENT: '#E4373D',
+  MISSING_CHECKOUT: '#E4373D',
 };
 
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
@@ -327,6 +328,7 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   LATE: 'Late',
   HALF_DAY: 'Half Day',
   ABSENT: 'Absent',
+  MISSING_CHECKOUT: 'Missing Check-Out',
 };
 
 const REGULARIZATION_STATUS_COLOR: Record<string, string> = {

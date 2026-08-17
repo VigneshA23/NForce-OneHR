@@ -49,6 +49,8 @@ public class WebClockInService {
     private static final String STATUS_PRESENT = "PRESENT";
     private static final String STATUS_LATE = "LATE";
     private static final String STATUS_HALF_DAY = "HALF_DAY";
+    // Mirrors AttendanceService.STATUS_MISSING_CHECKOUT — see checkOut's own doc comment.
+    private static final String STATUS_MISSING_CHECKOUT = "MISSING_CHECKOUT";
     private static final String SOURCE_WEB_REMOTE = "WEB_REMOTE";
 
     private final WebClockInRequestRepository webClockInRepository;
@@ -209,11 +211,32 @@ public class WebClockInService {
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
 
         LocalDateTime now = now(actor.getId());
-        // A forgotten checkout can leave a session open for a day or more before the employee
-        // actually clicks Check-out; count worked time only up to this shift's own natural end
-        // (not the stale click's real clock time), so it can never inflate into something like
-        // "27h 8m" for what is supposed to be a single shift/day — mirrors
-        // AttendanceService.checkOut's cap.
+
+        // Past its own workday/grace window (shiftDayCutover, e.g. 7:00 AM the next calendar
+        // day) — mirrors AttendanceService.checkOut: there is no legitimate "now" to check out
+        // with this long after the fact, so this is flagged Missing Check-Out (no fabricated
+        // checkOutAt/workedMinutes) rather than silently accepted as a real, very-late checkout.
+        // Corrected via the existing Regularization flow, same as any other attendance
+        // correction.
+        if (!STATUS_MISSING_CHECKOUT.equals(record.getStatus()) && shiftDayOf(now).isAfter(req.getWorkDate())) {
+            String beforeMissing = auditSnapshot.toJson(Map.of("status", record.getStatus()));
+            record.setStatus(STATUS_MISSING_CHECKOUT);
+            attendanceRepository.save(record);
+            String afterMissing = auditSnapshot.toJson(Map.of("status", STATUS_MISSING_CHECKOUT));
+            auditService.log(actor.getId(), "ATTENDANCE_MISSING_CHECKOUT", record.getId(), beforeMissing, afterMissing);
+        }
+        if (STATUS_MISSING_CHECKOUT.equals(record.getStatus())) {
+            throw new IllegalArgumentException(
+                    "This session is past its check-out window and has been marked as a missing check-out. Please submit a regularization request.");
+        }
+
+        // A forgotten checkout can leave a session open for several hours before the employee
+        // actually clicks Check-out (e.g. checking out at 3 AM for a shift that ended at
+        // 12:30 AM); count worked time only up to this shift's own natural end (not the late
+        // click's real clock time), so it can never inflate into something like "27h 8m" for what
+        // is supposed to be a single shift/day — mirrors AttendanceService.checkOut's cap. Only
+        // reachable here at all within the grace window above — a click that arrives after the
+        // grace window is now rejected outright.
         LocalDateTime cutoff = shiftEndCutoff(actor.getId(), req.getWorkDate());
         LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
 
