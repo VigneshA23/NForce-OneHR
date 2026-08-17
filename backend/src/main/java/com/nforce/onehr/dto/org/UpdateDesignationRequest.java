@@ -9,7 +9,9 @@ import lombok.Data;
 public class UpdateDesignationRequest {
     @NotBlank(message = "Title is required")
     @Size(max = 100)
-    @Pattern(regexp = "^[^0-9]+$", message = "Title cannot contain numbers")
+    @Pattern(
+            regexp = "^(?=.*[A-Za-z])[A-Za-z0-9 \\-/]+$",
+            message = "Title must include letters, and may only contain letters, numbers, spaces, - and /")
     private String title;
 
     @Size(max = 50)

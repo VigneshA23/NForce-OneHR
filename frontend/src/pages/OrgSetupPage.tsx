@@ -219,7 +219,17 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
     setError('');
     const trimmed = name.trim();
     if (!trimmed) { setError(`${primaryLabel} is required`); return; }
-    if (/\d/.test(trimmed)) { setError(`${primaryLabel} cannot contain numbers`); return; }
+    if (tab === 'designations') {
+      // Letters, numbers, spaces, - and / are allowed (e.g. "SDET-01", "Developer L2"), but the
+      // title must include at least one letter — this rejects numeric-only ("12345") and
+      // special-character-only values while still allowing a trailing level/grade number.
+      if (!/^(?=.*[A-Za-z])[A-Za-z0-9 \-/]+$/.test(trimmed)) {
+        setError(`${primaryLabel} must include letters, and may only contain letters, numbers, spaces, - and /`);
+        return;
+      }
+    } else if (/\d/.test(trimmed)) {
+      setError(`${primaryLabel} cannot contain numbers`); return;
+    }
     if (tab === 'locations') {
       if (/\d/.test(city.trim())) { setError('City cannot contain numbers'); return; }
       if (/\d/.test(state.trim())) { setError('State / Province cannot contain numbers'); return; }
