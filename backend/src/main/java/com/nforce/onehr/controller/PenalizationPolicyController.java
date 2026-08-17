@@ -30,14 +30,14 @@ public class PenalizationPolicyController {
     private final PenalizationPolicyService service;
 
     @GetMapping("/current")
-    public PenalizationPolicyResponse current() {
-        return service.getCurrent()
+    public PenalizationPolicyResponse current(@RequestParam(required = false) UUID policyId) {
+        return service.getCurrent(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Penalization Policy is not configured"));
     }
 
     @GetMapping("/versions")
-    public List<PenalizationPolicyVersionSummary> versions() {
-        return service.getVersionHistory();
+    public List<PenalizationPolicyVersionSummary> versions(@RequestParam(required = false) UUID policyId) {
+        return service.getVersionHistory(policyId);
     }
 
     @GetMapping("/versions/{id}")
@@ -46,7 +46,8 @@ public class PenalizationPolicyController {
     }
 
     @PutMapping
-    public PenalizationPolicyResponse save(@Valid @RequestBody PenalizationPolicyRequest request, Principal principal) {
-        return service.save(request, principal.getName());
+    public PenalizationPolicyResponse save(@RequestParam(required = false) UUID policyId,
+                                            @Valid @RequestBody PenalizationPolicyRequest request, Principal principal) {
+        return service.save(policyId, request, principal.getName());
     }
 }

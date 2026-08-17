@@ -47,10 +47,10 @@ function SpeedStreaks() {
   );
 }
 
-const STATS = [
-  { value: '4',    label: 'Roles at launch' },
-  { value: '8h',   label: 'Session length' },
-  { value: '100%', label: 'Auditable' },
+const CAPABILITIES = [
+  { label: 'Role-based access',      detail: 'Secure access by responsibility' },
+  { label: 'Full audit trail',       detail: 'Every action tracked'            },
+  { label: 'Policy-driven workflows', detail: 'Standardised HR processes'      },
 ] as const;
 
 interface AuthLayoutProps {
@@ -65,22 +65,28 @@ const panelGradient = [
   'linear-gradient(160deg, #0a0b0e 0%, #12141a 100%)',
 ].join(', ');
 
+function BrandingBlock({ size, compact = false }: { size: 'sm' | 'md' | 'lg'; compact?: boolean }) {
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: compact ? 10 : 14 }}>
+      <BrandMark size={size} />
+      <div>
+        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: compact ? 15 : 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
+          NForce OneHR
+        </div>
+        <div style={{ fontSize: compact ? 9 : 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: compact ? 2 : 3 }}>
+          People &amp; Operations Platform
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, children }: AuthLayoutProps) {
   return (
-    <div data-theme="dark" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: '100dvh' }} className="max-[900px]:block">
-      <div className="max-[900px]:hidden" style={{ position: 'relative', overflow: 'hidden', background: panelGradient, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 48px' }}>
+    <div data-theme="dark" className="nf-auth-shell" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: '100dvh' }}>
+      <div className="nf-auth-left-panel" style={{ position: 'relative', overflow: 'hidden', background: panelGradient, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 48px' }}>
         <SpeedStreaks />
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14 }}>
-          <BrandMark size="lg" />
-          <div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
-              NFORCE ONEHR
-            </div>
-            <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: 3 }}>
-              People &amp; Operations Platform
-            </div>
-          </div>
-        </div>
+        <BrandingBlock size="lg" />
 
         {leftHeadline && (
           <div style={{ position: 'relative', maxWidth: 420 }}>
@@ -94,29 +100,28 @@ export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, child
         )}
 
         {showStats ? (
-          <div style={{ position: 'relative', display: 'flex', gap: 36, paddingTop: leftHeadline ? 0 : 80 }}>
-            {STATS.map((s) => (
-              <div key={s.label}>
-                <div style={{ fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', fontSize: 28, fontWeight: 600, color: 'var(--txt)', letterSpacing: '-0.02em' }}>
-                  {s.value}
-                </div>
-                <div style={{ fontSize: 11, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: 4 }}>
-                  {s.label}
-                </div>
+          <div style={{ position: 'relative', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 24, display: 'flex' }}>
+            {CAPABILITIES.map((cap, i) => (
+              <div key={cap.label} style={{
+                flex: 1,
+                paddingRight: i < CAPABILITIES.length - 1 ? 24 : 0,
+                paddingLeft: i > 0 ? 24 : 0,
+                borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
+              }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', marginBottom: 10 }} />
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', letterSpacing: '0.01em', lineHeight: 1.3, marginBottom: 4 }}>{cap.label}</div>
+                <div style={{ fontSize: 10, letterSpacing: '0.06em', color: 'var(--txt-dim)', lineHeight: 1.4 }}>{cap.detail}</div>
               </div>
             ))}
           </div>
         ) : <div />}
       </div>
 
-      <div style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: '100dvh' }}>
-        <div className="hidden max-[900px]:flex" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 80, background: panelGradient, alignItems: 'center', justifyContent: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
-          <BrandMark size="sm" />
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, letterSpacing: '0.03em' }}>
-            NForce OneHR
-          </span>
+      <div className="nf-auth-right-panel max-[900px]:flex-col" style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: '100dvh' }}>
+        <div className="hidden max-[900px]:flex nf-auth-mobile-brand" style={{ width: '100%', maxWidth: 440, marginBottom: 32 }}>
+          <BrandingBlock size="md" compact />
         </div>
-        <div className="max-[900px]:mt-20" style={{ width: '100%', maxWidth: 440 }}>
+        <div style={{ width: '100%', maxWidth: 440 }}>
           {children}
         </div>
       </div>

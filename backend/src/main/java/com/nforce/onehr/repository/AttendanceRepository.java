@@ -30,6 +30,12 @@ public interface AttendanceRepository extends JpaRepository<Attendance, UUID> {
     // picks the most recent open session instead of crashing on the stale one.
     Optional<Attendance> findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(UUID employeeUserId);
 
+    // Every currently-open session, across all employees — backs the periodic sweep that
+    // auto-closes any session left open past its own shift's natural end (see
+    // AttendanceService.closeAllStaleOpenSessions / StaleAttendanceSweeper). Small in practice:
+    // at most one open row per employee at any time.
+    List<Attendance> findByCheckOutAtIsNull();
+
     // Backs the "every 3rd late arrival this month costs a half-day" policy — see
     // AttendanceService.checkIn/applyLatePenaltyIfDue.
     long countByEmployeeUserIdAndWorkDateBetweenAndStatus(UUID employeeUserId, LocalDate from, LocalDate to, String status);

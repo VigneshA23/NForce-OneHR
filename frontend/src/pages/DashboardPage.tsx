@@ -7,7 +7,8 @@ import { useToast } from '../context/ToastContext';
 import { dashboardApi, type TeamJoiner, type ManagerDashboard } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord, type TodayAttendance } from '../api/attendance';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
-import { leaveApi } from '../api/leave';
+import { WebClockInRequestModal } from '../components/WebClockInRequestModal';
+import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 
 function formatClockTime(iso: string | null): string | null {
   if (!iso) return null;
@@ -65,7 +66,13 @@ function buildJoinerData(joiners: TeamJoiner[]): { month: string; joiners: numbe
   }));
 }
 
-function JoinersChart({ joiners }: { joiners: TeamJoiner[] }) {
+function JoinersChart({ joiners, title = 'Team Joiners per Month', description = 'New team members joining per calendar month. Click for details.', modalTitle = 'Team Joiners — Last 12 Months', emptyMessage = 'No one joined your team in the last 12 months.' }: {
+  joiners: TeamJoiner[];
+  title?: string;
+  description?: string;
+  modalTitle?: string;
+  emptyMessage?: string;
+}) {
   const [showModal, setShowModal] = useState(false);
   const data = useMemo(() => buildJoinerData(joiners), [joiners]);
 
@@ -80,14 +87,14 @@ function JoinersChart({ joiners }: { joiners: TeamJoiner[] }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
-            Team Joiners per Month
+            {title}
           </span>
           <span style={{ fontSize: 11, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 8px' }}>
             Last 12 months
           </span>
         </div>
         <p style={{ margin: '0 0 16px', fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-          New team members joining per calendar month. Click for details.
+          {description}
         </p>
         <ResponsiveContainer width="100%" height={180}>
           <BarChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -102,13 +109,20 @@ function JoinersChart({ joiners }: { joiners: TeamJoiner[] }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-      {showModal && <TeamJoinersModal joiners={joiners} onClose={() => setShowModal(false)} />}
+      {showModal && (
+        <TeamJoinersModal joiners={joiners} onClose={() => setShowModal(false)} modalTitle={modalTitle} emptyMessage={emptyMessage} />
+      )}
     </>
   );
 }
 
 /* ── Team Joiners detail modal: enlarged chart + underlying employee list ── */
-function TeamJoinersModal({ joiners, onClose }: { joiners: TeamJoiner[]; onClose: () => void }) {
+function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Last 12 Months', emptyMessage = 'No one joined your team in the last 12 months.' }: {
+  joiners: TeamJoiner[];
+  onClose: () => void;
+  modalTitle?: string;
+  emptyMessage?: string;
+}) {
   const data = useMemo(() => buildJoinerData(joiners), [joiners]);
   const sorted = useMemo(
     () => [...joiners].sort((a, b) => b.joinedTeamOn.localeCompare(a.joinedTeamOn)),
@@ -126,7 +140,7 @@ function TeamJoinersModal({ joiners, onClose }: { joiners: TeamJoiner[]; onClose
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-            Team Joiners — Last 12 Months
+            {modalTitle}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
             <X size={16} />
@@ -154,7 +168,7 @@ function TeamJoinersModal({ joiners, onClose }: { joiners: TeamJoiner[]; onClose
               Employees ({sorted.length})
             </span>
             {sorted.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one joined your team in the last 12 months.</div>
+              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>{emptyMessage}</div>
             ) : sorted.map((j, i) => (
               <div key={`${j.userId}-${j.joinedTeamOn}-${i}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{j.fullName}</div>
@@ -174,101 +188,164 @@ function TeamJoinersModal({ joiners, onClose }: { joiners: TeamJoiner[]; onClose
   );
 }
 
-/* ── Web Clock-In: separate, once-a-day, reason required, needs approval ── */
-function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void }) {
-  const token = useAuthStore(s => s.token) ?? '';
-  const { showToast } = useToast();
-  const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+/* ── Clickable employee name → existing People Directory detail panel (ONEHR dashboard drill-down) ── */
+function EmployeeLink({ userId, name }: { userId: string; name: string }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => navigate(`/directory?userId=${userId}`)}
+      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left', fontSize: 13, fontWeight: 600, color: 'var(--brand)', textDecoration: 'underline' }}
+    >
+      {name}
+    </button>
+  );
+}
 
-  async function handleSubmit() {
-    if (!reason.trim()) return;
-    setSubmitting(true);
-    try {
-      const created = await webClockInApi.submit(reason.trim(), token);
-      showToast('success', 'Web clock-in request submitted for approval');
-      onSubmitted(created);
-      onClose();
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Failed to submit web clock-in');
-      setSubmitting(false);
-    }
-  }
+/* ── Present Today modal: who's currently checked in, same definition as the KPI count ── */
+function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
+  records: AttendanceRecord[];
+  loading: boolean;
+  scopeLabel: string;
+  onClose: () => void;
+}) {
+  // Same "checked in" definition as the Present Today KPI — do not diverge from it here.
+  const present = useMemo(() => records.filter(r => r.checkInAt), [records]);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-          Web Clock-In
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            Present Today — {scopeLabel} ({present.length})
+          </span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
         </div>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-            Adding comment is made mandatory by your HR Manager.
-          </p>
-          <div>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-              Reason *
-            </label>
-            <textarea
-              value={reason}
-              onChange={e => setReason(e.target.value)}
-              placeholder="e.g. Working from home today due to a family commitment"
-              autoFocus
-              style={{ width: '100%', minHeight: 80, resize: 'vertical', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
-            />
-          </div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button
-              onClick={handleSubmit}
-              disabled={!reason.trim() || submitting}
-              style={{ background: reason.trim() ? 'var(--brand)' : 'var(--raised2)', color: reason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: !reason.trim() || submitting ? 'not-allowed' : 'pointer' }}
-            >
-              {submitting ? 'Submitting…' : 'Submit for Approval'}
-            </button>
-          </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>Loading…</div>
+          ) : present.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one has checked in yet today.</div>
+          ) : present.map(r => (
+            <div key={r.employeeUserId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <EmployeeLink userId={r.employeeUserId} name={r.fullName} />
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{r.employeeCode}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.checkInAt) ?? '—'}</div>
+                {r.status === 'LATE' && (
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
+                    Late{r.lateByMinutes ? ` by ${r.lateByMinutes}m` : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-function WebClockInRow() {
-  const token = useAuthStore(s => s.token) ?? '';
-  const { showToast } = useToast();
-  const [today, setToday] = useState<WebClockInRecord | null>(null);
-  const [loading, setLoading] = useState(true);
+/* ── One Full Day / Half Day group inside the On Leave modal ── */
+function LeaveSection({ title, accent, rows }: { title: string; accent: string; rows: LeaveRequestRecord[] }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+          {title} ({rows.length})
+        </span>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '2px 0 0' }}>None today.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rows.map(r => (
+            <div key={r.id} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
+              <EmployeeLink userId={r.employeeUserId} name={r.employeeName} />
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>
+                {r.leaveTypeName} · {new Date(r.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {r.startDate !== r.endDate ? ` – ${new Date(r.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── On Leave modal: employees on leave today, split Full Day / Half Day ── */
+function OnLeaveModal({ rows, loading, scopeLabel, onClose }: {
+  rows: LeaveRequestRecord[];
+  loading: boolean;
+  scopeLabel: string;
+  onClose: () => void;
+}) {
+  const fullDay = useMemo(() => rows.filter(r => !r.halfDay), [rows]);
+  const halfDay = useMemo(() => rows.filter(r => r.halfDay), [rows]);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            On Leave Today — {scopeLabel} ({rows.length})
+          </span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ padding: 20 }}>
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>Loading…</div>
+          ) : rows.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one is on leave today.</div>
+          ) : (
+            <>
+              <LeaveSection title="Full Day Leave" accent="#B11116" rows={fullDay} />
+              <LeaveSection title="Half Day Leave" accent="#E0A93B" rows={halfDay} />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Working-remotely trigger for AttendanceStatusCard's own Check In/Check Out — driven by the
+ * exact same shared `today: TodayAttendance` (not a separate WebClockInRecord fetch), so it
+ * can never show a state that contradicts the Check In/Check Out button above it. Checkout is
+ * handled solely by that shared button once Web Clock-In opens the day; this row never renders
+ * its own checkout action.
+ */
+function WebClockInRow({ today, loading, onSubmitted }: {
+  today: TodayAttendance | null;
+  loading: boolean;
+  onSubmitted: () => Promise<unknown>;
+}) {
   const [showModal, setShowModal] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [legacy, setLegacy] = useState<WebClockInRecord | null>(null);
+  const token = useAuthStore(s => s.token) ?? '';
 
-  const refresh = () =>
-    webClockInApi.mine(token).then(list => {
-      setToday(list.find(r => r.workDate === todayIsoDate()) ?? null);
-    });
-
+  // Only for the legacy pre-self-approval PENDING/REJECTED messaging below — every new
+  // submission is approved instantly (see WebClockInService.submit), so this is dead for any
+  // web clock-in made after that change.
   useEffect(() => {
-    refresh().catch(() => setToday(null)).finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    webClockInApi.mine(token).then(list => {
+      setLegacy(list.find(r => r.workDate === todayIsoDate() && r.status !== 'APPROVED') ?? null);
+    }).catch(() => setLegacy(null));
   }, [token]);
-
-  async function handleWebClockOut() {
-    setSubmitting(true);
-    try {
-      await webClockInApi.checkOut(token);
-      await refresh();
-      showToast('success', 'Web clocked out successfully');
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   if (loading) return null;
 
   return (
     <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      {!today && (
+      {today?.canCheckIn && !legacy && (
         <button
           onClick={() => setShowModal(true)}
           style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
@@ -276,12 +353,12 @@ function WebClockInRow() {
           Working remotely? Web Clock In →
         </button>
       )}
-      {today?.status === 'PENDING' && (
+      {legacy?.status === 'PENDING' && (
         <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Web clock-in pending approval.</span>
       )}
-      {today?.status === 'REJECTED' && (
+      {legacy?.status === 'REJECTED' && (
         <>
-          <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{today.reviewComment ? `: ${today.reviewComment}` : '.'}</span>
+          <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{legacy.reviewComment ? `: ${legacy.reviewComment}` : '.'}</span>
           <button
             onClick={() => setShowModal(true)}
             style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
@@ -290,20 +367,8 @@ function WebClockInRow() {
           </button>
         </>
       )}
-      {today?.status === 'APPROVED' && !today.checkedOutAt && (
-        <button
-          onClick={handleWebClockOut}
-          disabled={submitting}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-        >
-          {submitting ? 'Clocking out…' : 'Web Clock Out'}
-        </button>
-      )}
-      {today?.status === 'APPROVED' && today.checkedOutAt && (
-        <span style={{ fontSize: 12, color: 'var(--ok)' }}>Web clocked out at {formatClockTime(today.checkedOutAt)}.</span>
-      )}
       {showModal && (
-        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={(r) => setToday(r)} />
+        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => { onSubmitted(); }} />
       )}
     </div>
   );
@@ -394,59 +459,82 @@ function AttendanceStatusCard() {
           View attendance →
         </button>
       </div>
-      <WebClockInRow />
+      <WebClockInRow today={today} loading={loading} onSubmitted={refresh} />
     </div>
   );
 }
 
-/* ── Live team attendance summary (manager view) ─── */
-function useTeamAttendanceToday(token: string) {
+/* ── Live team attendance summary (manager/HR view) ── */
+type DashboardScope = 'manager' | 'hr';
+
+function useTeamAttendanceToday(token: string, scope: DashboardScope) {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    attendanceApi.team(todayIsoDate(), token)
+    const fetchToday = scope === 'hr' ? attendanceApi.day : attendanceApi.team;
+    fetchToday(todayIsoDate(), token)
       .then(setRecords)
       .catch(() => setRecords([]))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, scope]);
 
   return { records, loading };
 }
 
-/* ── Manager dashboard ───────────────────────────── */
-function ManagerDashboardView() {
+/** EMPLOYEE, HR_ADMIN, SUPER_ADMIN, ... → "Employee", "Hr Admin", "Super Admin". */
+function formatRole(code: string | null | undefined): string {
+  if (!code) return '—';
+  return code.split('_').map(w => w[0] + w.slice(1).toLowerCase()).join(' ');
+}
+
+/* ── Manager / HR dashboard — same UI, org-wide vs team-scoped data ── */
+function TeamDashboardView({ scope }: { scope: DashboardScope }) {
+  const isHr = scope === 'hr';
   const token = useAuthStore(s => s.token) ?? '';
   const user  = useAuthStore(s => s.user);
   const navigate = useNavigate();
   const [data, setData]   = useState<ManagerDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState('');
-  const { records: teamToday, loading: teamLoading } = useTeamAttendanceToday(token);
-  const [onLeaveCount, setOnLeaveCount] = useState<number | null>(null);
+  const { records: teamToday, loading: teamLoading } = useTeamAttendanceToday(token, scope);
+  const [onLeaveRows, setOnLeaveRows] = useState<LeaveRequestRecord[]>([]);
+  const [onLeaveLoading, setOnLeaveLoading] = useState(true);
   const [pendingLeaveCount, setPendingLeaveCount] = useState<number | null>(null);
+  const [showPresentModal, setShowPresentModal] = useState(false);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
 
   useEffect(() => {
-    dashboardApi.managerDashboard(token)
+    const fetchDashboard = isHr ? dashboardApi.hrDashboard : dashboardApi.managerDashboard;
+    fetchDashboard(token)
       .then(setData)
-      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load team data'))
+      .catch(e => setError(e instanceof Error ? e.message : `Failed to load ${isHr ? 'organization' : 'team'} data`))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, isHr]);
 
   useEffect(() => {
     const today = todayIsoDate();
-    leaveApi.team(today, today, token)
-      .then(rows => setOnLeaveCount(new Set(rows.map(r => r.employeeUserId)).size))
-      .catch(() => setOnLeaveCount(0));
-  }, [token]);
+    const fetchOnLeave = isHr ? leaveApi.organization : leaveApi.team;
+    fetchOnLeave(today, today, token)
+      .then(setOnLeaveRows)
+      .catch(() => setOnLeaveRows([]))
+      .finally(() => setOnLeaveLoading(false));
+  }, [token, isHr]);
+
+  // Same dedup-by-employee logic the KPI has always used — just derived from the stored rows
+  // now that the modal also needs the underlying list.
+  const onLeaveCount = useMemo(() => new Set(onLeaveRows.map(r => r.employeeUserId)).size, [onLeaveRows]);
 
   useEffect(() => {
+    // Same call for both scopes — it's scoped to "requests where the caller is the current
+    // manager," which for an HR Admin who is someone's assigned manager already means exactly
+    // "requests needing this HR Admin's approval." No org-wide widening needed here.
     leaveApi.listApprovals(token)
       .then(rows => setPendingLeaveCount(rows.length))
       .catch(() => setPendingLeaveCount(0));
   }, [token]);
 
-  const firstName = user?.firstName ?? user?.email?.split('@')[0] ?? 'Manager';
+  const firstName = user?.firstName ?? user?.email?.split('@')[0] ?? (isHr ? 'there' : 'Manager');
   const presentCount = teamToday.filter(r => r.checkInAt).length;
   const lateCount = teamToday.filter(r => r.status === 'LATE').length;
 
@@ -456,10 +544,10 @@ function ManagerDashboardView() {
         <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
           Welcome back, {firstName}
         </h1>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>Manager Dashboard</p>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{isHr ? 'HR Dashboard' : 'Manager Dashboard'}</p>
       </div>
 
-      {/* Manager's own check-in/out — a Manager is an employee too */}
+      {/* A Manager/HR Admin is an employee too — own check-in/out */}
       <AttendanceStatusCard />
 
       {/* KPI row */}
@@ -467,12 +555,16 @@ function ManagerDashboardView() {
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Users size={14} style={{ color: 'var(--brand)' }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Direct Reports</span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+              {isHr ? 'Total Employees' : 'Direct Reports'}
+            </span>
           </div>
           <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
             {loading ? '—' : error ? '—' : (data?.directReportCount ?? 0)}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>current reports from HR record</div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
+            {isHr ? 'across the organization' : 'current reports from HR record'}
+          </div>
         </div>
 
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
@@ -483,10 +575,15 @@ function ManagerDashboardView() {
           <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
             {loading ? '—' : error ? '—' : (data?.directReports.filter(r => r.active).length ?? 0)}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>active in team</div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
+            {isHr ? 'active org-wide' : 'active in team'}
+          </div>
         </div>
 
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
+        <button
+          onClick={() => setShowPresentModal(true)}
+          style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Clock size={14} style={{ color: 'var(--brand)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Present Today</span>
@@ -494,11 +591,11 @@ function ManagerDashboardView() {
           <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
             {teamLoading ? '—' : `${presentCount}/${teamToday.length}`}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today</div>
-        </div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today · view list →</div>
+        </button>
 
         <button
-          onClick={() => navigate('/my-team?status=LEAVE')}
+          onClick={() => setShowLeaveModal(true)}
           style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -506,18 +603,22 @@ function ManagerDashboardView() {
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>On Leave</span>
           </div>
           <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
-            {onLeaveCount === null ? '—' : onLeaveCount}
+            {onLeaveLoading ? '—' : onLeaveCount}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>on leave today · view roster →</div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
+            on leave today · view list →
+          </div>
         </button>
       </div>
 
       {/* Team list + chart */}
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        {/* Direct reports table */}
+        {/* Direct reports / all-employees table */}
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Your Team</span>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+              {isHr ? 'All Employees' : 'Your Team'}
+            </span>
           </div>
           {loading ? (
             <div style={{ padding: '32px 20px', fontSize: 13, color: 'var(--txt-mut)' }}>Loading…</div>
@@ -525,15 +626,28 @@ function ManagerDashboardView() {
             <div style={{ padding: '20px', fontSize: 13, color: 'var(--risk)' }}>{error}</div>
           ) : !data || data.directReports.length === 0 ? (
             <div style={{ padding: '32px 20px', fontSize: 13, color: 'var(--txt-mut)' }}>
-              No direct reports assigned. HR assigns them in Employee Master.
+              {isHr ? 'No employees found.' : 'No direct reports assigned. HR assigns them in Employee Master.'}
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div style={{
+              overflowY: isHr ? 'auto' : 'visible',
+              overflowX: isHr ? 'hidden' : 'auto',
+              // 4 rows visible before scrolling — one row is ~52px tall (two-line name cell + padding).
+              maxHeight: isHr ? 4 * 52 : undefined,
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: isHr ? 'fixed' : 'auto' }}>
                 <thead>
                   <tr>
-                    {['Name', 'Designation', 'Status'].map(h => (
-                      <th key={h} style={{ padding: '8px 14px', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'left', borderBottom: '1px solid var(--line)', background: 'var(--raised)' }}>
+                    {(isHr ? ['Name', 'Designation', 'Role', 'Status'] : ['Name', 'Designation', 'Status']).map(h => (
+                      <th
+                        key={h}
+                        style={{
+                          padding: '8px 14px', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)',
+                          textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'left',
+                          borderBottom: '1px solid var(--line)', background: 'var(--raised)',
+                          ...(isHr ? { position: 'sticky' as const, top: 0, zIndex: 1 } : {}),
+                        }}
+                      >
                         {h}
                       </th>
                     ))}
@@ -542,13 +656,21 @@ function ManagerDashboardView() {
                 <tbody>
                   {data.directReports.map(r => (
                     <tr key={r.userId} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ padding: '10px 14px', fontSize: 12.5 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 1 }}>{r.fullName}</div>
+                      <td style={{ padding: '10px 14px', fontSize: 12.5, overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 1, overflowWrap: 'break-word' }}>{r.fullName}</div>
                         <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
                       </td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)' }}>{r.designationName ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{r.designationName ?? '—'}</td>
+                      {isHr && (
+                        <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{formatRole(r.roleCode)}</td>
+                      )}
                       <td style={{ padding: '10px 14px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: r.active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)', color: r.active ? 'var(--ok)' : 'var(--txt-dim)' }}>
+                        <span style={{
+                          display: 'inline-block', fontSize: isHr ? 10.5 : 11, fontWeight: 600,
+                          padding: isHr ? '2px 6px' : '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+                          background: r.active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)',
+                          color: r.active ? 'var(--ok)' : 'var(--txt-dim)',
+                        }}>
                           {r.active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
@@ -561,7 +683,15 @@ function ManagerDashboardView() {
         </div>
 
         {/* Joiner chart */}
-        <JoinersChart joiners={data?.teamJoiners ?? []} />
+        <JoinersChart
+          joiners={data?.teamJoiners ?? []}
+          title={isHr ? 'Organization Joiners per Month' : 'Team Joiners per Month'}
+          description={isHr
+            ? 'New employees joining the organization per calendar month. Click for details.'
+            : 'New team members joining per calendar month. Click for details.'}
+          modalTitle={isHr ? 'Organization Joiners — Last 12 Months' : 'Team Joiners — Last 12 Months'}
+          emptyMessage={isHr ? 'No one joined the organization in the last 12 months.' : 'No one joined your team in the last 12 months.'}
+        />
       </div>
 
       {/* Honest pending cards */}
@@ -576,14 +706,14 @@ function ManagerDashboardView() {
           </div>
           <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
             {teamLoading
-              ? 'Loading team check-in status…'
+              ? `Loading ${isHr ? 'organization' : 'team'} check-in status…`
               : `${presentCount} of ${teamToday.length} checked in today${lateCount ? `, ${lateCount} late` : ''}.`}
           </p>
           <button
             onClick={() => navigate('/attendance')}
             style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
           >
-            View team attendance →
+            {isHr ? 'View organization attendance →' : 'View team attendance →'}
           </button>
         </div>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -611,6 +741,23 @@ function ManagerDashboardView() {
           note="Goals and review cycles. Available once the Performance module is built."
         />
       </div>
+
+      {showPresentModal && (
+        <PresentTodayModal
+          records={teamToday}
+          loading={teamLoading}
+          scopeLabel={isHr ? 'Organization' : 'Your Team'}
+          onClose={() => setShowPresentModal(false)}
+        />
+      )}
+      {showLeaveModal && (
+        <OnLeaveModal
+          rows={onLeaveRows}
+          loading={onLeaveLoading}
+          scopeLabel={isHr ? 'Organization' : 'Your Team'}
+          onClose={() => setShowLeaveModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -622,7 +769,6 @@ function GenericDashboardView({ role }: { role: string }) {
 
   const label: Record<string, string> = {
     SUPER_ADMIN: 'Super Admin Dashboard',
-    HR_ADMIN:    'HR Dashboard',
     EMPLOYEE:    'My Dashboard',
   };
 
@@ -636,8 +782,7 @@ function GenericDashboardView({ role }: { role: string }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        {/* Super Admin has no punch clock of their own — see AttendanceController */}
-        {role !== 'SUPER_ADMIN' && <AttendanceStatusCard />}
+        <AttendanceStatusCard />
         <PendingCard
           icon={Calendar}
           title="Leave & Holidays"
@@ -656,6 +801,7 @@ function GenericDashboardView({ role }: { role: string }) {
 /* ── Entry point ─────────────────────────────────── */
 export default function DashboardPage() {
   const role = useAuthStore(s => s.user?.role) ?? '';
-  if (role === 'MANAGER') return <ManagerDashboardView />;
+  if (role === 'MANAGER') return <TeamDashboardView scope="manager" />;
+  if (role === 'HR_ADMIN') return <TeamDashboardView scope="hr" />;
   return <GenericDashboardView role={role} />;
 }

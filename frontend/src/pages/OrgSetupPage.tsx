@@ -10,7 +10,7 @@ import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
 } from '../api/documents';
-import PenalizationPolicySection from './penalization/PenalizationPolicySection';
+import PolicyListSection from './penalization/PolicyListSection';
 
 type OrgTab = 'departments' | 'designations' | 'locations' | 'doctypes' | 'penalization';
 
@@ -49,9 +49,10 @@ const TABS: Record<OrgTab, TabDef> = {
     addLabel: 'Add Document Type',
     emptyLine: 'No document types configured yet. Add one to start collecting employee documents.',
   },
-  // Not a row-per-item table like the other tabs above — one configuration document with four
-  // sections, rendered by PenalizationPolicySection. columns/addLabel/emptyLine are unused for
-  // this tab (see the search/add-button and table-vs-section guards below).
+  // Not a row-per-item table like the other tabs above — the Policy List (Section 5), rendered
+  // by PolicyListSection, which in turn opens PenalizationPolicySection per-policy for editing.
+  // columns/addLabel/emptyLine are unused for this tab (see the search/add-button and
+  // table-vs-section guards below).
   penalization: {
     label: 'Penalization Policy', icon: ShieldAlert,
     columns: [], addLabel: '', emptyLine: '',
@@ -218,7 +219,23 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
     setError('');
     const trimmed = name.trim();
     if (!trimmed) { setError(`${primaryLabel} is required`); return; }
-    if (/\d/.test(trimmed)) { setError(`${primaryLabel} cannot contain numbers`); return; }
+    if (tab === 'designations') {
+      // Letters, numbers, spaces, - and / are allowed (e.g. "SDET-01", "Developer L2"), but the
+      // title must include at least one letter — this rejects numeric-only ("12345") and
+      // special-character-only values while still allowing a trailing level/grade number.
+      if (!/^(?=.*[A-Za-z])[A-Za-z0-9 \-/]+$/.test(trimmed)) {
+        setError(`${primaryLabel} must include letters, and may only contain letters, numbers, spaces, - and /`);
+        return;
+      }
+    } else if (/\d/.test(trimmed)) {
+      setError(`${primaryLabel} cannot contain numbers`); return;
+    }
+    if (tab === 'locations') {
+      if (/\d/.test(city.trim())) { setError('City cannot contain numbers'); return; }
+      if (/\d/.test(state.trim())) { setError('State / Province cannot contain numbers'); return; }
+      if (/\d/.test(country.trim())) { setError('Country cannot contain numbers'); return; }
+      if (/\d/.test(holidayRegion.trim())) { setError('Holiday Region cannot contain numbers'); return; }
+    }
     setLoading(true);
     try {
       if (isEdit && editRow) {
@@ -750,12 +767,12 @@ export default function OrgSetupPage() {
           )}
         </div>
 
-        {/* Penalization Policy is one configuration document, not a row-per-item table —
-            rendered by PenalizationPolicySection, reusing this page's shell/tab-bar/toast/
+        {/* Penalization Policy is a Policy List (Section 5), not a row-per-item table like the
+            tabs below — rendered by PolicyListSection, reusing this page's shell/tab-bar/toast/
             loading/error patterns but not the generic table below. */}
         {activeTab === 'penalization' ? (
           <div style={{ padding: 18 }}>
-            <PenalizationPolicySection token={token} />
+            <PolicyListSection token={token} />
           </div>
         ) : (
         <div style={{ overflowX: 'auto' }}>

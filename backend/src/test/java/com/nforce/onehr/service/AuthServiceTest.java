@@ -1,11 +1,13 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.MutableClock;
+import com.nforce.onehr.dto.ForgotPasswordResponse;
 import com.nforce.onehr.dto.LoginRequest;
 import com.nforce.onehr.dto.LoginResponse;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.exception.AccountLockedException;
+import com.nforce.onehr.exception.AccountNotFoundException;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
@@ -226,5 +228,58 @@ class AuthServiceTest {
         assertEquals(0, user.getFailedLoginAttempts());
         assertNull(user.getLockedUntil());
         verify(auditService).log(user.getId(), "LOGIN_BLOCKED", user.getId());
+    }
+
+    @Test
+    void forgotPassword_registeredActiveEmail_sendsResetEmailAndReturnsSuccessMessage() {
+        when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        ForgotPasswordResponse response = authService.forgotPassword(EMAIL.toUpperCase());
+
+        assertEquals("Password reset instructions have been sent to your email", response.getMessage());
+        assertTrue(user.isMustChangePassword());
+        verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString());
+        verify(auditService).log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+        verify(notificationService).send(eq(user.getId()), eq("SECURITY"), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void forgotPassword_unregisteredEmail_throwsAccountNotFound() {
+        when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());
+
+        AccountNotFoundException ex = assertThrows(AccountNotFoundException.class,
+                () -> authService.forgotPassword("nobody@test.com"));
+
+        assertEquals("No account found with this email address", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(notificationService);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void forgotPassword_deactivatedAccount_throwsDisabledAndSendsNoEmail() {
+        user.setActive(false);
+
+        DisabledException ex = assertThrows(DisabledException.class,
+                () -> authService.forgotPassword(EMAIL));
+
+        assertEquals("This account has been deactivated. Please contact your HR administrator", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(notificationService);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void forgotPassword_deletedAccount_throwsDisabledAndSendsNoEmail() {
+        user.setDeletedAt(Instant.now());
+
+        DisabledException ex = assertThrows(DisabledException.class,
+                () -> authService.forgotPassword(EMAIL));
+
+        assertEquals("This account has been deleted. Please contact your HR administrator", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(notificationService);
+        verify(userRepository, never()).save(any());
     }
 }

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
+import { useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { Search, Bell, Sun, Moon, Shield, User, LogOut, Settings, CheckCheck, HelpCircle, KeyRound, UserPlus, Menu, X as CloseIcon } from 'lucide-react';
 import { NAV, toShellRole, type Role } from '../lib/nav.config';
 import { useTheme } from '../lib/theme';
@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
 import { ComplianceBanner } from './ComplianceBanner';
+import { SidebarNav } from './SidebarNav';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -134,14 +135,20 @@ const NOTIF_ICON: Record<string, React.ReactNode> = {
   HELPDESK_TICKET_ASSIGNED: <HelpCircle size={12} />,
 };
 
-function NotificationDropdown({ token, onClose }: { token: string; onClose: () => void }) {
+function NotificationDropdown({ token, onClose, onItemRead, onAllRead }: {
+  token: string;
+  onClose: () => void;
+  onItemRead: () => void;
+  onAllRead: () => void;
+}) {
   const navigate = useNavigate();
   const [items, setItems]     = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState(false);
 
   useEffect(() => {
-    notificationsApi.list(token, 0, 8)
+    // The bell shows unread only — read history lives on the /notifications page.
+    notificationsApi.unread(token, 0, 8)
       .then(d => setItems(d.content))
       .finally(() => setLoading(false));
   }, [token]);
@@ -149,20 +156,22 @@ function NotificationDropdown({ token, onClose }: { token: string; onClose: () =
   async function handleMarkAll() {
     setMarking(true);
     await notificationsApi.markAllRead(token);
-    setItems(prev => prev.map(n => ({ ...n, read: true })));
+    setItems([]);
+    onAllRead();
     setMarking(false);
   }
 
   async function handleClick(n: NotificationItem) {
     if (!n.read) {
       await notificationsApi.markRead(token, n.id);
-      setItems(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+      setItems(prev => prev.filter(x => x.id !== n.id));
+      onItemRead();
     }
     onClose();
     if (n.linkPath) navigate(n.linkPath);
   }
 
-  const unread = items.filter(n => !n.read).length;
+  const unread = items.length;
 
   return (
     <div className="nf-dropdown-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 340, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
@@ -182,7 +191,7 @@ function NotificationDropdown({ token, onClose }: { token: string; onClose: () =
       {loading ? (
         <div style={{ padding: '20px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>Loading…</div>
       ) : items.length === 0 ? (
-        <div style={{ padding: '28px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>No notifications yet.</div>
+        <div style={{ padding: '28px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>No unread notifications.</div>
       ) : (
         items.map((n, i) => (
           <button key={n.id} onClick={() => handleClick(n)}
@@ -286,40 +295,8 @@ export function Shell() {
           </div>
         </div>
 
-        {/* Nav items */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = current.key === item.key;
-            const isPlaceholder = item.phase > 1;
-            return (
-              <Link
-                key={item.key}
-                to={isPlaceholder ? '#' : item.path}
-                aria-current={isActive ? 'page' : undefined}
-                aria-disabled={isPlaceholder}
-                onClick={(e) => { if (isPlaceholder) e.preventDefault(); }}
-                className="nf-sidebar-item"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 9, padding: '8px 12px', margin: '1px 8px',
-                  borderRadius: 7, textDecoration: 'none', fontSize: 12.5, position: 'relative',
-                  cursor: isPlaceholder ? 'default' : 'pointer', opacity: isPlaceholder ? 0.55 : 1,
-                }}
-              >
-                {isActive && (
-                  <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: '#E4373D', borderRadius: '0 3px 3px 0' }} />
-                )}
-                <Icon size={15} aria-hidden="true" />
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
-                {isPlaceholder && (
-                  <span title={`Ships in Phase ${item.phase}`} style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#6B7280', background: '#20242C', padding: '2px 5px', borderRadius: 4 }}>
-                    P{item.phase}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </div>
+        {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
+        <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
 
         {/* Profile card (sidebar) */}
         <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -393,6 +370,8 @@ export function Shell() {
               <NotificationDropdown
                 token={token}
                 onClose={() => { setBellOpen(false); refreshCount(); }}
+                onItemRead={() => setUnreadCount(c => Math.max(0, c - 1))}
+                onAllRead={() => setUnreadCount(0)}
               />
             )}
           </div>

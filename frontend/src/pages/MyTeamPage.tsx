@@ -341,7 +341,7 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
 function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
   const fillPct = Math.min(100, entry.percentage);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+    <div className="nf-team-leaderboard-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
       <Avatar name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
@@ -400,10 +400,12 @@ function PunctualitySection({ from, to, token }: { from: string; to: string; tok
           <span style={panelTitleStyle}>On-Time Leaderboard</span>
           <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
-          <div>{data.leaderboard.map(e => <PunctualityRow key={e.employeeUserId} entry={e} />)}</div>
-          <div style={{ borderLeft: '1px solid var(--line)' }}>
-            <DailyBarChart data={data.daily.map(d => ({ date: d.date, count: d.employeesOnTime }))} color="var(--ok)" />
+        <div className="nf-team-leaderboard-scroll">
+          <div className="nf-team-leaderboard-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
+            <div>{data.leaderboard.map(e => <PunctualityRow key={e.employeeUserId} entry={e} />)}</div>
+            <div style={{ borderLeft: '1px solid var(--line)' }}>
+              <DailyBarChart data={data.daily.map(d => ({ date: d.date, count: d.employeesOnTime }))} color="var(--ok)" />
+            </div>
           </div>
         </div>
       </div>
@@ -1202,7 +1204,6 @@ function PeersView({ token }: { token: string }) {
   const today = todayIsoDate();
 
   const [peers, setPeers] = useState<DirectoryEntry[]>([]);
-  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
   const [todayLeave, setTodayLeave] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1217,9 +1218,6 @@ function PeersView({ token }: { token: string }) {
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
-    directoryApi.myManager(token)
-      .then(m => setManager(m ? { userId: m.userId, name: m.fullName } : null))
-      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -1294,16 +1292,6 @@ function PeersView({ token }: { token: string }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 14px', marginBottom: 16, background: 'rgba(76,141,214,.08)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 10, fontSize: 12, color: 'var(--txt-mut)' }}>
-        <AlertTriangle size={14} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
-        <span>
-          <b style={{ color: 'var(--txt)' }}>Open question for Product:</b> "Project Team" is currently defined as everyone
-          who shares your manager — there's no Team/Project grouping in the data model yet, so this is a same-manager
-          stand-in, not real project membership. Confirm this is the right definition before this ships more broadly
-          (see ONEHR-73).
-        </span>
-      </div>
-
       {/* Who's on leave / Not in yet */}
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
@@ -1356,25 +1344,16 @@ function PeersView({ token }: { token: string }) {
       </div>
 
       {/* KPI row — fixed 4-column grid (not auto-fit) so 4 cards always fill one row evenly,
-       * instead of auto-fit computing more tracks than there are cards and leaving a gap. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+       * instead of auto-fit computing more tracks than there are cards and leaving a gap.
+       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
+       * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
         <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
       </div>
 
-      {/* Reporting manager — "Appreciate your lead" */}
-      {manager && (
-        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Avatar name={manager.name} size={38} />
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{manager.name}</div>
-          </div>
-          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
-        </div>
-      )}
 
       {/* Team calendar */}
       <div style={{ ...panelStyle, marginBottom: 16 }}>
@@ -2068,8 +2047,10 @@ export default function MyTeamPage() {
 
       {/* KPI row — fixed 6-column grid (not auto-fit) so all 6 cards always fill one row evenly;
        * auto-fit was computing 5 tracks (fit for the viewport), so the 6th card wrapped alone
-       * onto its own row and left the rest of that row empty. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
+       * onto its own row and left the rest of that row empty.
+       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
+       * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={directReportCount} note="direct reports" />
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />

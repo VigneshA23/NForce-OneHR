@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceService;
+import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.RegularizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.*;
 class AttendanceControllerTest {
 
     @Mock private AttendanceService attendanceService;
+    @Mock private AttendanceStatsService attendanceStatsService;
     @Mock private RegularizationService regularizationService;
     @Mock private AttendancePenaltyService attendancePenaltyService;
     @Mock private Principal principal;
@@ -39,7 +41,7 @@ class AttendanceControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AttendanceController(attendanceService, regularizationService, attendancePenaltyService);
+        controller = new AttendanceController(attendanceService, attendanceStatsService, regularizationService, attendancePenaltyService);
         lenient().when(principal.getName()).thenReturn("manager@test.com");
     }
 

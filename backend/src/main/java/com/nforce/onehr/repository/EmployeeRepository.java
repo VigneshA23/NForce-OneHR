@@ -15,7 +15,13 @@ import java.util.UUID;
 @Repository
 public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
-    @Query("SELECT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH e.department LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.location WHERE u.deletedAt IS NULL")
+    // LEFT JOIN FETCH u.roles avoids an N+1: User.roles is EAGER, so without fetching it here
+    // Hibernate would issue one extra "load roles" query per distinct user the moment each
+    // Employee's User is initialized — 89 employees meant ~89 extra round trips (plus whatever
+    // each caller's own per-employee lookups add on top), enough to make this take over a
+    // minute against a remote DB. DISTINCT dedupes the root Employee rows the roles join
+    // otherwise multiplies (a user with 2 roles would otherwise appear twice).
+    @Query("SELECT DISTINCT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH u.roles LEFT JOIN FETCH e.department LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.location WHERE u.deletedAt IS NULL")
     List<Employee> findAllWithDetails();
 
     // Backs WorkingDayService callers (Team Effort, Team Punctuality) and the Penalty list —
@@ -60,4 +66,11 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     @Query("SELECT e.userId, e.fullName FROM Employee e WHERE e.userId IN :ids")
     List<Object[]> findNamesByUserIds(@Param("ids") Set<UUID> ids);
+
+    // Backs ShiftSeedCorrector's startup backfill for employees created after V95's one-time
+    // "assign everyone the Regular Shift" migration ran (e.g. anyone onboarded since).
+    List<Employee> findByShiftIsNull();
+
+    // Backs the Policy List's "Employee Count" column (Section 5).
+    long countByPenalisationPolicy_Id(UUID penalisationPolicyId);
 }

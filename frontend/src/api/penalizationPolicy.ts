@@ -12,24 +12,53 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+function withPolicyId(path: string, policyId?: string) {
+  return policyId ? `${path}?policyId=${encodeURIComponent(policyId)}` : path;
+}
+
 // ── Types (mirrors backend dto/penalization/*) ─────────────────────────────
+
+export interface BasicInfoConfig {
+  deductionMethod: 'LOSS_OF_PAY' | 'PAID_LEAVE';
+  /** LeaveType.code values in cascade priority order — only meaningful when deductionMethod is PAID_LEAVE. */
+  leavePriorityOrder: string[];
+  bufferPeriodDays: number | null;
+  noticePeriodForcesLopEnabled: boolean;
+}
 
 export interface NoAttendanceConfig {
   enabled: boolean;
   deductionDays: number | null;
   noShowEnabled: boolean;
   noShowThresholdHours: number | null;
+  adjoiningHolidayEnabled: boolean;
+  adjoiningHolidayCondition: 'SANDWICHED' | 'BEFORE' | 'AFTER' | 'ANY' | null;
+  adjoiningHolidayCalendarDayThreshold: number | null;
+  adjoiningHolidayIgnoreHalfDayLeave: boolean;
+  adjoiningWeekoffEnabled: boolean;
+  adjoiningWeekoffCondition: 'SANDWICHED' | 'BEFORE' | 'AFTER' | 'ANY' | null;
+  adjoiningWeekoffCalendarDayThreshold: number | null;
+  adjoiningWeekoffIgnoreHalfDayLeave: boolean;
+}
+
+export interface LateHoursTier {
+  thresholdHours: number;
+  deductionDays: number;
 }
 
 export interface LateArrivalConfig {
   enabled: boolean;
-  basis: 'NUMBER_OF_INCIDENTS';
+  basis: 'NUMBER_OF_INCIDENTS' | 'TOTAL_HOURS';
   gracePeriodMinutes: number | null;
   exemptCount: number | null;
-  exemptPeriod: 'MONTH';
+  exemptPeriod: 'WEEK' | 'MONTH';
   deductionDays: number | null;
   deductionPerShifts: number | null;
   ignoreWhenEffectiveHoursMetEnabled: boolean;
+  allowedHours: number | null;
+  lateHoursTiers: LateHoursTier[];
+  combinedRuleBehavior: 'TOTAL_HOURS_ONLY' | 'BOTH';
+  penaliseWhenCausedByMissingLogEnabled: boolean;
 }
 
 export interface WorkHoursTier {
@@ -49,7 +78,7 @@ export interface WorkHoursShortageConfig {
 export interface MissingLogsConfig {
   enabled: boolean;
   exemptDays: number | null;
-  exemptPeriod: 'MONTH';
+  exemptPeriod: 'WEEK' | 'MONTH';
   deductionMode: 'PER_SHIFT' | 'IRRESPECTIVE';
   deductionDays: number | null;
   deductionPerShifts: number | null;
@@ -63,6 +92,7 @@ export interface PenalizationPolicy {
   version: number;
   effectiveFrom: string;
   effectiveTo: string | null;
+  basicInfo: BasicInfoConfig;
   noAttendance: NoAttendanceConfig;
   lateArrival: LateArrivalConfig;
   workHoursShortage: WorkHoursShortageConfig;
@@ -80,6 +110,7 @@ export interface PenalizationPolicyVersionSummary {
 }
 
 export interface PenalizationPolicyRequest {
+  basicInfo: BasicInfoConfig;
   noAttendance: NoAttendanceConfig;
   lateArrival: LateArrivalConfig;
   workHoursShortage: WorkHoursShortageConfig;
@@ -87,22 +118,24 @@ export interface PenalizationPolicyRequest {
 }
 
 // ── API ──────────────────────────────────────────────────────────────────
+// Every function takes an optional policyId (Section 5's Policy List) — omit it to operate on
+// the org's original single policy, unchanged from before Policy List existed.
 
 /** Null when no policy has ever been saved — render "Not configured". */
-export async function getCurrentPolicy(token: string): Promise<PenalizationPolicy | null> {
-  const res = await fetch(`${BASE}/current`, { headers: authHeaders(token) });
+export async function getCurrentPolicy(token: string, policyId?: string): Promise<PenalizationPolicy | null> {
+  const res = await fetch(withPolicyId(`${BASE}/current`, policyId), { headers: authHeaders(token) });
   if (res.status === 404) return null;
   return handle(res);
 }
 
-export async function getPolicyVersions(token: string): Promise<PenalizationPolicyVersionSummary[]> {
-  return handle(await fetch(`${BASE}/versions`, { headers: authHeaders(token) }));
+export async function getPolicyVersions(token: string, policyId?: string): Promise<PenalizationPolicyVersionSummary[]> {
+  return handle(await fetch(withPolicyId(`${BASE}/versions`, policyId), { headers: authHeaders(token) }));
 }
 
 export async function getPolicyVersion(token: string, id: string): Promise<PenalizationPolicy> {
   return handle(await fetch(`${BASE}/versions/${id}`, { headers: authHeaders(token) }));
 }
 
-export async function savePolicy(token: string, body: PenalizationPolicyRequest): Promise<PenalizationPolicy> {
-  return handle(await fetch(BASE, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(body) }));
+export async function savePolicy(token: string, body: PenalizationPolicyRequest, policyId?: string): Promise<PenalizationPolicy> {
+  return handle(await fetch(withPolicyId(BASE, policyId), { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(body) }));
 }

@@ -105,9 +105,13 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listEmployees() {
         List<Employee> emps = employeeRepository.findAllWithDetails();
-        return emps.stream()
+        List<Employee> staff = emps.stream()
                 .filter(e -> e.getUser().getRoles().stream().anyMatch(r -> r.getCode().equals("EMPLOYEE")))
-                .map(e -> toResponse(e, findCurrentManager(e.getUserId()), e.getUser(), null))
+                .toList();
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                findCurrentManagersBulk(staff.stream().map(Employee::getUserId).toList());
+        return staff.stream()
+                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
                 .collect(Collectors.toList());
     }
 
@@ -182,9 +186,11 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<DirectoryEntryDto> listDirectory() {
         List<Employee> emps = employeeRepository.findAllWithDetails();
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                findCurrentManagersBulk(emps.stream().map(Employee::getUserId).toList());
         return emps.stream()
                 .map(e -> {
-                    var mgr = findCurrentManager(e.getUserId());
+                    var mgr = managersByEmployeeId.get(e.getUserId());
                     return DirectoryEntryDto.builder()
                             .userId(e.getUserId().toString())
                             .employeeCode(e.getEmployeeCode())
@@ -255,8 +261,54 @@ public class EmployeeService {
     }
 
     /**
-     * Directory entries for the caller's current peers — colleagues who presently share the
-     * caller's manager. Interim "peer group" definition (see
+     * HR dashboard — organization-wide equivalent of {@link #getManagerDashboard}. "Team" for HR
+     * means every user in the org (any role), so this reuses the same {@link ManagerDashboardDto}
+     * shape but sources it from {@link #listDirectory} data instead of a manager's direct reports,
+     * and keys the joiners chart off {@code Employee.joiningDate} (org joining date) rather than
+     * an {@link EmployeeManagerHistory} team-join event — HR's "team" has no such event.
+     */
+    @Transactional(readOnly = true)
+    public ManagerDashboardDto getOrgDashboard() {
+        List<Employee> all = employeeRepository.findAllWithDetails();
+
+        List<ManagerDashboardDto.DirectReport> reports = all.stream()
+                .map(emp -> ManagerDashboardDto.DirectReport.builder()
+                        .userId(emp.getUserId().toString())
+                        .employeeCode(emp.getEmployeeCode())
+                        .fullName(emp.getFullName())
+                        .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                        .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                        .active(emp.getUser().isActive())
+                        .roleCode(RoleUtils.primaryRoleCode(emp.getUser().getRoles(), "EMPLOYEE"))
+                        .build())
+                .collect(Collectors.toList());
+
+        // Trailing 12 calendar months (including the current one) — same window as
+        // getManagerDashboard's teamJoiners, just keyed off joiningDate instead of effectiveFrom.
+        LocalDate since = LocalDate.now().withDayOfMonth(1).minusMonths(11);
+        List<ManagerDashboardDto.TeamJoiner> orgJoiners = all.stream()
+                .filter(emp -> emp.getJoiningDate() != null && !emp.getJoiningDate().isBefore(since))
+                .map(emp -> ManagerDashboardDto.TeamJoiner.builder()
+                        .userId(emp.getUserId().toString())
+                        .employeeCode(emp.getEmployeeCode())
+                        .fullName(emp.getFullName())
+                        .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                        .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                        .active(emp.getUser().isActive())
+                        .joinedTeamOn(emp.getJoiningDate().toString())
+                        .build())
+                .collect(Collectors.toList());
+
+        return ManagerDashboardDto.builder()
+                .directReportCount(reports.size())
+                .directReports(reports)
+                .teamJoiners(orgJoiners)
+                .build();
+    }
+
+    /**
+     * Directory entries for the caller's current Project Team — everyone (including the caller)
+     * who presently shares the caller's manager. Interim "peer group" definition (see
      * {@link com.nforce.onehr.repository.EmployeeManagerHistoryRepository#findCurrentPeerIds});
      * shares the exact same {@link DirectoryEntryDto} shape as {@link #listDirectory()} so the
      * frontend can reuse the same card rendering for both.
@@ -267,11 +319,17 @@ public class EmployeeService {
                 .orElseThrow(() -> new IllegalStateException(
                         "No employee profile found for this account. Contact HR to complete your profile."));
 
-        List<UUID> peerIds = historyRepository.findCurrentPeerIds(self.getUserId());
-        if (peerIds.isEmpty()) {
+        // "Project Team" = every employee (including the caller) who currently reports to the
+        // same manager — empty if the caller has no manager assigned, since there's no team to
+        // belong to in that case.
+        if (historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(self.getUserId()).isEmpty()) {
             return List.of();
         }
-        return employeeRepository.findAllById(peerIds).stream()
+        // findCurrentPeerIds already includes the caller themself (see its own doc comment) — no
+        // need to add self.getUserId() again here.
+        List<UUID> teamIds = historyRepository.findCurrentPeerIds(self.getUserId());
+
+        return employeeRepository.findAllById(teamIds).stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
                 .map(e -> {
                     var mgr = findCurrentManager(e.getUserId());
@@ -315,6 +373,37 @@ public class EmployeeService {
                             .build();
                 })
                 .orElse(null);
+    }
+
+    /**
+     * Batch equivalent of {@link #findCurrentManager} for whole-org listings (listDirectory,
+     * listEmployees) — those used to call findCurrentManager once per employee, each doing 3
+     * separate round trips (history lookup, manager User lookup, manager Employee lookup). For
+     * ~90 employees that's ~270 sequential queries against a remote DB, easily a minute or more.
+     * This does the same lookup in exactly 3 queries total regardless of employee count.
+     */
+    private Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
+        Map<UUID, UUID> managerIdByEmployeeId = historyRepository.findByEffectiveToIsNull().stream()
+                .filter(h -> employeeIds.contains(h.getEmployeeUserId()))
+                .collect(Collectors.toMap(EmployeeManagerHistory::getEmployeeUserId, EmployeeManagerHistory::getManagerUserId));
+
+        Set<UUID> managerIds = new HashSet<>(managerIdByEmployeeId.values());
+        Map<UUID, User> managerUsersById = userRepository.findAllById(managerIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+        Map<UUID, String> managerNamesById = employeeRepository.findAllById(managerIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, Employee::getFullName));
+
+        Map<UUID, EmployeeResponse.ManagerRef> result = new HashMap<>();
+        managerIdByEmployeeId.forEach((employeeId, managerId) -> {
+            User mgr = managerUsersById.get(managerId);
+            if (mgr == null) return;
+            result.put(employeeId, EmployeeResponse.ManagerRef.builder()
+                    .userId(mgr.getId().toString())
+                    .fullName(managerNamesById.getOrDefault(managerId, mgr.getEmail()))
+                    .email(mgr.getEmail())
+                    .build());
+        });
+        return result;
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {

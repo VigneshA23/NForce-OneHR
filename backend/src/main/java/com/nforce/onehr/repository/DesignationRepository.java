@@ -8,5 +8,5 @@ import java.util.UUID;
 
 @Repository
 public interface DesignationRepository extends JpaRepository<Designation, UUID> {
-    boolean existsByTitle(String title);
+    boolean existsByTitleIgnoreCase(String title);
 }

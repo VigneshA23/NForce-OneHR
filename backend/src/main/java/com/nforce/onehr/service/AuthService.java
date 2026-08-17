@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.exception.AccountLockedException;
+import com.nforce.onehr.exception.AccountNotFoundException;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
@@ -144,7 +145,11 @@ public class AuthService {
             throw new IllegalArgumentException("New password must differ from current password");
         }
 
-        validatePasswordStrength(request.getNewPassword());
+        // Minimum length, max length, whitespace, and character-class complexity are already
+        // enforced by @Valid on ChangePasswordRequest (see @Size + @ValidPassword on
+        // newPassword) before this method is ever invoked, so re-checking here would just be a
+        // second, driftable copy of the same policy. See PasswordPolicy for the single source
+        // of truth these annotations share.
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
@@ -161,55 +166,49 @@ public class AuthService {
     }
 
     /**
-     * Forgot-password flow: always returns generic success regardless of whether the email exists.
-     * Prevents email enumeration — response shape and timing must not reveal account existence.
+     * Forgot-password flow: validates the account status up front and reports it back
+     * distinctly (no account found / deleted / deactivated / active) rather than a single
+     * generic response — a deliberate product decision to prioritize clear self-service
+     * feedback over email-enumeration hardening for this flow. Malformed input is separately
+     * rejected by {@code @Email} on {@link com.nforce.onehr.dto.ForgotPasswordRequest} before
+     * this method ever runs.
      */
     @Transactional
     public ForgotPasswordResponse forgotPassword(String email) {
         String normalizedEmail = email.toLowerCase().trim();
-        userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
-            if (user.isActive() && user.getDeletedAt() == null) {
-                String tempPassword = generateTempPassword();
-                user.setPasswordHash(passwordEncoder.encode(tempPassword));
-                user.setMustChangePassword(true);
-                userRepository.save(user);
+        User user = userRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new AccountNotFoundException("No account found with this email address"));
 
-                String fullName = employeeRepository.findById(user.getId())
-                        .map(com.nforce.onehr.entity.Employee::getFullName)
-                        .orElse(user.getEmail());
+        if (user.getDeletedAt() != null) {
+            throw new DisabledException("This account has been deleted. Please contact your HR administrator");
+        }
+        if (!user.isActive()) {
+            throw new DisabledException("This account has been deactivated. Please contact your HR administrator");
+        }
 
-                emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
-                auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
-                notificationService.send(user.getId(), "SECURITY",
-                        "Password Reset",
-                        "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
-                        "/change-password");
-            }
-        });
+        String tempPassword = generateTempPassword();
+        user.setPasswordHash(passwordEncoder.encode(tempPassword));
+        user.setMustChangePassword(true);
+        userRepository.save(user);
+
+        String fullName = employeeRepository.findById(user.getId())
+                .map(com.nforce.onehr.entity.Employee::getFullName)
+                .orElse(user.getEmail());
+
+        emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+        auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+        notificationService.send(user.getId(), "SECURITY",
+                "Password Reset",
+                "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
+                "/change-password");
+
         return ForgotPasswordResponse.builder()
-                .message("If that email is registered, we've sent password reset instructions.")
+                .message("Password reset instructions have been sent to your email")
                 .build();
     }
 
     private String generateTempPassword() {
         int digits = 100000 + RANDOM.nextInt(900000);
         return "OneHR@" + digits;
-    }
-
-    private void validatePasswordStrength(String password) {
-        if (password.length() < 8) {
-            throw new IllegalArgumentException("Password must be at least 8 characters");
-        }
-
-        int score = 0;
-        if (password.chars().anyMatch(Character::isUpperCase)) score++;
-        if (password.chars().anyMatch(Character::isLowerCase)) score++;
-        if (password.chars().anyMatch(Character::isDigit)) score++;
-        if (password.chars().anyMatch(c -> "!@#$%^&*()_+-=[]{}|;':\",./<>?".indexOf(c) >= 0)) score++;
-
-        if (score < 3) {
-            throw new IllegalArgumentException(
-                    "Password must contain at least 3 of: uppercase letter, lowercase letter, number, special character");
-        }
     }
 }

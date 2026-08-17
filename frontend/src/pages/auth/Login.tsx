@@ -112,9 +112,8 @@ export default function Login() {
       return;
     }
     setError(null);
-    const trimmedEmail = email.trim();
-    if (/\s/.test(trimmedEmail)) {
-      setError('Email cannot contain whitespace characters.');
+    if (/\s/.test(email)) {
+      setError('Whitespace is not allowed.');
       return;
     }
     if (/\s/.test(password)) {
@@ -123,7 +122,7 @@ export default function Login() {
     }
     setSubmitting(true);
     try {
-      const data = await authApi.login(trimmedEmail, password);
+      const data = await authApi.login(email, password);
       localStorage.removeItem(LOCK_STORAGE_KEY);
       setLock(null);
       setAuth(data.token, {
@@ -139,7 +138,7 @@ export default function Login() {
     } catch (err) {
       clearAuth();
       if (err instanceof LoginLockedError) {
-        const newLock: StoredLock = { email: trimmedEmail, lockedUntil: err.lockedUntil };
+        const newLock: StoredLock = { email, lockedUntil: err.lockedUntil };
         localStorage.setItem(LOCK_STORAGE_KEY, JSON.stringify(newLock));
         setLock(newLock);
         setError(null);
@@ -156,8 +155,8 @@ export default function Login() {
 
   return (
     <AuthLayout
-      leftHeadline="One home for every person, policy, and approval."
-      leftSubtext="Check in, request leave, and get approvals moving — without a spreadsheet or a scattered email thread in sight."
+      leftHeadline="Your people. One place."
+      leftSubtext="Manage leave, approvals, attendance, and everyday HR tasks in one place — without spreadsheets or manual follow-ups."
       showStats
     >
       <motion.div variants={reduced ? undefined : containerVariants} initial={reduced ? undefined : 'hidden'} animate={reduced ? undefined : 'show'}>
@@ -232,7 +231,7 @@ export default function Login() {
           <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 14 }}>
             <label htmlFor={emailId} style={{ display: 'block', fontSize: 12, fontWeight: 550, color: 'var(--txt-mut)', marginBottom: 6 }}>Email</label>
             <input
-              ref={emailRef} id={emailId} type="email" autoComplete="email" placeholder="you@nforceone.com"
+              ref={emailRef} id={emailId} type="text" inputMode="email" autoComplete="email" placeholder="you@nforceone.com"
               value={email} onChange={(e) => setEmail(e.target.value)}
               disabled={locked}
               aria-invalid={hasError} aria-describedby={(hasError || locked) ? errorId : undefined}

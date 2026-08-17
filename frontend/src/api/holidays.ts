@@ -36,4 +36,17 @@ export const holidaysApi = {
       headers: authHeaders(token),
       body: JSON.stringify(payload),
     }).then(r => handle<HolidayRow>(r)),
+
+  updateHoliday: (token: string, id: string, payload: { holidayName: string; holidayDate: string; locationId: string }) =>
+    fetch(`${BASE}/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    }).then(r => handle<HolidayRow>(r)),
+
+  deleteHoliday: (token: string, id: string) =>
+    fetch(`${BASE}/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(token),
+    }).then(r => handle<void>(r)),
 };

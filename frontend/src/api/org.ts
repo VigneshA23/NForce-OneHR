@@ -19,16 +19,16 @@ function authHeaders(token: string) {
 }
 
 export interface DepartmentRow {
-  id: string; name: string; active: boolean; employeeCount: number; createdAt: string;
+  id: string; name: string; active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
 export interface DesignationRow {
   id: string; title: string; grade: string | null; level: string | null;
-  active: boolean; employeeCount: number; createdAt: string;
+  active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
 export interface LocationRow {
   id: string; name: string; city: string | null; state: string | null;
   country: string | null; holidayRegion: string | null;
-  active: boolean; employeeCount: number; createdAt: string;
+  active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
 
 export const orgApi = {

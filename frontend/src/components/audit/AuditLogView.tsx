@@ -11,6 +11,17 @@ import { AuditLogTable } from './AuditLogTable';
 
 const PAGE_SIZE = 20;
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+// "yyyy-MM-dd HH:mm:ss" in the viewer's local time zone — mirrors AuditLogTable's fmtDateTime
+// but keeps a sortable/parseable shape for the Excel export instead of a locale-formatted one.
+function formatTimestampForExport(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
 export interface AuditLogViewConfig {
   title: string;
   subtitle: string;
@@ -71,7 +82,10 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
     try {
       const rows = await auditApi.exportAll(filters, token);
       const sheetRows = rows.map(r => ({
-        'Timestamp': r.occurredAt.replace('T', ' ').slice(0, 19),
+        // r.occurredAt is a UTC instant (ISO string with a "Z" offset) — parse it and format in
+        // the viewer's local time, same as the on-screen table. Slicing the raw string here would
+        // print the UTC clock time unconverted, which reads as wrong to anyone outside UTC.
+        'Timestamp': formatTimestampForExport(r.occurredAt),
         'Performed By Name': r.actorName ?? '',
         'Performed By Email': r.actorEmail ?? '',
         'Action': r.action,

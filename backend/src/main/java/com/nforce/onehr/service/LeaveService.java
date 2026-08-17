@@ -35,6 +35,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LeaveService {
 
+    // HR_ADMIN/SUPER_ADMIN may decide any leave request regardless of the literal manager
+    // relationship — same override convention as RegularizationService/AssetService/
+    // OvertimeRequestService/AttendanceRequestService/WebClockInService (ONEHR-140 follow-up:
+    // this service was the one workflow missing it, causing HR Admin "Access Denied").
+    private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
@@ -43,6 +49,7 @@ public class LeaveService {
     private final LeaveRequestRepository leaveRequestRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final NotificationService notificationService;
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
@@ -171,19 +178,39 @@ public class LeaveService {
     }
 
     /**
-     * Approved leave for the caller's current peers (same-manager siblings) overlapping
-     * [from, to] — backs the Peers view's "who's on leave today" panel and calendar (ONEHR-73).
-     * Mirrors {@link #listTeamLeave} exactly, swapping direct-report resolution for peer resolution.
+     * Approved leave overlapping [from, to], organization-wide — HR's "On Leave" KPI, the
+     * org-scoped equivalent of {@link #listTeamLeave} (which is confined to the caller's direct
+     * reports). Access is restricted to HR Admin/Super Admin at the controller.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveRequestResponse> listOrgLeave(LocalDate from, LocalDate to) {
+        return leaveRequestRepository
+                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from)
+                .stream()
+                .map(this::toRequestResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Approved leave for the caller's "Project Team" — every employee (including the caller
+     * themselves) who currently reports to the same manager — overlapping [from, to]. Backs the
+     * Peers view's "who's on leave today" panel and calendar (ONEHR-73). Mirrors
+     * {@link #listTeamLeave} exactly, swapping direct-report resolution for same-manager
+     * resolution. Empty if the caller has no manager assigned at all — there's no "team" to
+     * belong to in that case.
      */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listPeerLeave(String actorEmail, LocalDate from, LocalDate to) {
         User actor = requireActor(actorEmail);
-        List<UUID> peerIds = historyRepository.findCurrentPeerIds(actor.getId());
-        if (peerIds.isEmpty()) {
+        if (historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId()).isEmpty()) {
             return List.of();
         }
+        // findCurrentPeerIds already includes the caller themself (see its own doc comment) — no
+        // need to add actor.getId() again here.
+        List<UUID> teamIds = historyRepository.findCurrentPeerIds(actor.getId());
+
         return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(peerIds, "APPROVED", to, from)
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from)
                 .stream()
                 .map(this::toRequestResponse)
                 .collect(Collectors.toList());
@@ -194,7 +221,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor.getId(), request.getEmployeeUserId());
+        requireCurrentManagerOf(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -218,6 +245,12 @@ public class LeaveService {
 
         String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "decidedBy", actor.getId().toString()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId(), before, after);
+
+        notificationService.send(request.getEmployeeUserId(), "LEAVE_APPROVED",
+                "Leave Request Approved",
+                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
+                        + " has been approved by " + employeeName(actor.getId()) + ".",
+                "/requests?type=LEAVE");
         return toRequestResponse(request);
     }
 
@@ -226,7 +259,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor.getId(), request.getEmployeeUserId());
+        requireCurrentManagerOf(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -240,15 +273,26 @@ public class LeaveService {
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId(), before, after);
+
+        notificationService.send(request.getEmployeeUserId(), "LEAVE_REJECTED",
+                "Leave Request Rejected",
+                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
+                        + " has been rejected by " + employeeName(actor.getId()) + ". Reason: " + request.getDecisionReason(),
+                "/requests?type=LEAVE");
         return toRequestResponse(request);
     }
 
-    private void requireCurrentManagerOf(UUID actorId, UUID employeeId) {
+    private void requireCurrentManagerOf(User actor, UUID employeeId) {
+        if (hasOverrideRole(actor)) return;
         EmployeeManagerHistory current = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .orElseThrow(() -> new AccessDeniedException("This employee has no assigned manager"));
-        if (!current.getManagerUserId().equals(actorId)) {
+        if (!current.getManagerUserId().equals(actor.getId())) {
             throw new AccessDeniedException("You are not the current manager of this employee");
         }
+    }
+
+    private boolean hasOverrideRole(User actor) {
+        return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
     private User requireActor(String email) {
