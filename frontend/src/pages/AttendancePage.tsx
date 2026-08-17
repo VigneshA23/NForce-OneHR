@@ -86,6 +86,30 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * The day's required effective minutes — the employee's assigned shift duration (wrapping past
+ * midnight for overnight shifts), falling back to the global fullDayMinHours target only for the
+ * edge case of an employee with no Shift assigned. Same calc as ExceptionService.
+ * computeEffectiveHoursPercent on the backend, kept in sync so "100% effective hours" means the
+ * same thing on both sides.
+ */
+function fullDayTargetMinutesFor(config: AttendanceConfig | null): number | null {
+  const shiftMinutes = config?.shiftEnd
+    ? (() => {
+        const startMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0;
+        const endMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0;
+        return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
+      })()
+    : null;
+  return shiftMinutes ?? (config ? config.fullDayMinHours * 60 : null);
+}
+
+/** Whether a day's worked minutes reached 100% of its required effective hours target. */
+function hasMetFullEffectiveHours(workedMinutes: number | null | undefined, config: AttendanceConfig | null): boolean {
+  const target = fullDayTargetMinutesFor(config);
+  return target != null && workedMinutes != null && workedMinutes >= target;
+}
+
 // Requirement 1 (date-window restriction): Employee/Manager/HR may only pick today or one of
 // the previous REGULARIZATION_LOOKBACK_DAYS-1 days (today counts as one of the allowed days —
 // e.g. 3 with today=6th allows 6th/5th/4th, blocks 3rd onward). Super Admin is exempt (no
@@ -380,13 +404,17 @@ function StatusPill({ status }: { status: AttendanceStatus | null }) {
  * `isLate` check (past shiftStart + graceMinutes) re-derived from data already on hand,
  * without needing `status` (which HALF_DAY can override — see AttendanceService.checkOut).
  */
-function LateBadge({ minutes, graceMinutes }: { minutes: number | null | undefined; graceMinutes: number | null | undefined }) {
+function LateBadge({ minutes, graceMinutes, workedMinutes, config }: {
+  minutes: number | null | undefined; graceMinutes: number | null | undefined;
+  workedMinutes?: number | null; config?: AttendanceConfig | null;
+}) {
   const { formatDuration } = useTimeFormat();
   const grace = graceMinutes ?? 10;
   if (!minutes || minutes <= grace) return null;
+  const fullDay = hasMetFullEffectiveHours(workedMinutes, config ?? null);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: '#E0A93B' }}>
-      <Turtle size={14} aria-label="Late" /> Late by {formatDuration(minutes)}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: '#E0A93B' }}>
+      {!fullDay && <Turtle size={18} aria-label="Late" style={{ flexShrink: 0 }} />} Late by {formatDuration(minutes)}
     </div>
   );
 }
@@ -1729,19 +1757,7 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
 }) {
   const { formatTime, formatDuration } = useTimeFormat();
 
-  // ONEHR-108: every employee is now seeded with an assigned Shift (start+end), so shiftEnd is
-  // normally always present — fall back to the fullDayMinHours target only for the edge case of
-  // an employee with no Shift assigned at all.
-  // Overnight shifts (e.g. 3:30 PM – 12:30 AM) have an end time numerically before the start
-  // time within a single day — wrap past midnight rather than producing a negative duration.
-  const shiftMinutes = config?.shiftEnd
-    ? (() => {
-        const startMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0;
-        const endMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0;
-        return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
-      })()
-    : null;
-  const fullDayTargetMinutes = shiftMinutes ?? (config ? config.fullDayMinHours * 60 : null);
+  const fullDayTargetMinutes = fullDayTargetMinutesFor(config);
   const progressPct = fullDayTargetMinutes && workedMinutesToday != null
     ? Math.min(100, Math.round((workedMinutesToday / fullDayTargetMinutes) * 100))
     : 0;
@@ -2336,7 +2352,7 @@ function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(info.record.workedMinutes) ?? dash}</div>
           </div>
           <StatusPill status={info.record.status} />
-          <LateBadge minutes={info.record.lateByMinutes} graceMinutes={config?.lateGraceMinutes} />
+          <LateBadge minutes={info.record.lateByMinutes} graceMinutes={config?.lateGraceMinutes} workedMinutes={info.record.workedMinutes} config={config} />
           <DayShiftAndActions info={info} config={config} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
           <DayPunchIntervals info={info} punches={punches} />
         </>
@@ -2410,15 +2426,18 @@ function EffectiveHoursCell({ metrics }: { metrics: RowMetrics }) {
 }
 
 /** Same grace-aware rule as LateBadge — see its doc comment. */
-function ArrivalCell({ record, graceMinutes }: { record: AttendanceRecord | undefined; graceMinutes: number | null | undefined }) {
+function ArrivalCell({ record, graceMinutes, config }: {
+  record: AttendanceRecord | undefined; graceMinutes: number | null | undefined; config?: AttendanceConfig | null;
+}) {
   const { formatDuration } = useTimeFormat();
   if (!record?.checkInAt) return dash;
   const late = record.lateByMinutes ?? 0;
   const grace = graceMinutes ?? 10;
   if (late > grace) {
+    const fullDay = hasMetFullEffectiveHours(record.workedMinutes, config ?? null);
     return (
-      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#E0A93B', fontSize: 12, fontWeight: 600 }}>
-        <Turtle size={13} /> {formatDuration(late)} late
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#E0A93B', fontSize: 12, fontWeight: 600 }}>
+        {!fullDay && <Turtle size={16} style={{ flexShrink: 0 }} />} {formatDuration(late)} late
       </span>
     );
   }
@@ -2949,7 +2968,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                       </div>
                     </div>
                     {today.record?.status && <StatusPill status={today.record.status} />}
-                    <LateBadge minutes={today.record?.lateByMinutes} graceMinutes={config?.lateGraceMinutes} />
+                    <LateBadge minutes={today.record?.lateByMinutes} graceMinutes={config?.lateGraceMinutes} workedMinutes={workedMinutesToday} config={config} />
                     {/* The button is driven only by the server's canCheckIn / canCheckOut flags. */}
                     <div>
                       {today.canCheckIn && (
@@ -3031,7 +3050,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                           <td style={tdStyle}><EffectiveHoursCell metrics={metrics} /></td>
                           <td style={tdStyle}>{formatDuration(metrics.breakMinutes) ?? dash}</td>
                           <td style={tdStyle}>{formatDuration(metrics.grossMinutes) ?? dash}{metrics.grossMinutes != null && metrics.openSession ? ' +' : ''}</td>
-                          <td style={tdStyle}><ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} /></td>
+                          <td style={tdStyle}><ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} config={config} /></td>
                           <td style={tdStyle}>
                             <button
                               onClick={() => setViewDetailsIso(info.iso)}
