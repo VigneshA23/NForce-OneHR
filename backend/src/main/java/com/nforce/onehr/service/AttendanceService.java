@@ -83,7 +83,7 @@ public class AttendanceService {
 
     // ---------------------------------------------------------------- self-service
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TodayAttendanceResponse getToday(String actorEmail) {
         Employee employee = resolveEmployee(actorEmail);
         LocalDateTime now = now(employee);
@@ -91,9 +91,13 @@ public class AttendanceService {
 
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session started
         // yesterday is still the actionable "today" state even once the calendar date has
-        // rolled over, so it takes priority over a plain work_date lookup.
+        // rolled over, so it takes priority over a plain work_date lookup. But an open session
+        // whose OWN shift has already ended (a forgotten checkout from days ago, not just
+        // "yesterday crossing into today") is stale, not today's state — auto-close it (see
+        // autoCloseIfStale) and fall through to the plain work_date lookup below instead of
+        // reporting it as an active session forever.
         Optional<Attendance> open = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
-        if (open.isPresent()) {
+        if (open.isPresent() && !autoCloseIfStale(open.get(), employee, now)) {
             Attendance record = open.get();
             return TodayAttendanceResponse.builder()
                     .workDate(record.getWorkDate())
@@ -238,8 +242,12 @@ public class AttendanceService {
 
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session from
         // yesterday's work_date must block a fresh check-in exactly like an open session
-        // filed under today would, so check for one regardless of date first.
-        if (attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId()).isPresent()) {
+        // filed under today would, so check for one regardless of date first. But an open
+        // session whose OWN shift has already ended (a forgotten checkout from days ago) is
+        // stale, not a real in-progress day — auto-close it (see autoCloseIfStale) instead of
+        // letting it block every check-in from now on.
+        Optional<Attendance> openSession = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
+        if (openSession.isPresent() && !autoCloseIfStale(openSession.get(), employee, now)) {
             throw new IllegalArgumentException("You have already checked in today");
         }
 
@@ -339,6 +347,23 @@ public class AttendanceService {
         LocalDateTime cutoff = shiftEndCutoff(employee, record.getWorkDate());
         LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
 
+        String before = auditSnapshot.toJson(Map.of(
+                "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
+        Attendance saved = closeSession(record, effectiveCheckOut);
+        String after = auditSnapshot.toJson(Map.of(
+                "checkOutAt", effectiveCheckOut.toString(), "workedMinutes", saved.getWorkedMinutes(), "status", saved.getStatus()));
+        auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId(), before, after);
+        return toResponse(saved, employee);
+    }
+
+    /**
+     * Closes an open attendance record as of {@code effectiveCheckOut} — accumulates worked
+     * minutes, sets the resulting status, and closes the matching open punch — exactly what an
+     * explicit {@link #checkOut} does. Shared with {@link #autoCloseIfStale}, which closes a
+     * session nobody ever came back to click Check-out on: both close the same way, just
+     * triggered differently (an explicit click vs. the shift's own end having already passed).
+     */
+    private Attendance closeSession(Attendance record, LocalDateTime effectiveCheckOut) {
         // Sessions accumulate: only this session's minutes are added to whatever was
         // already worked earlier today, so a lunch break isn't counted as worked time.
         // Rounded to the nearest minute, not truncated: Duration.toMinutes() floors, so several
@@ -350,8 +375,6 @@ public class AttendanceService {
         long sessionSeconds = Math.max(0, Duration.between(sessionStart, effectiveCheckOut).getSeconds());
         int sessionMinutes = (int) Math.round(sessionSeconds / 60.0);
         int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
-        String before = auditSnapshot.toJson(Map.of(
-                "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
         record.setCheckOutAt(effectiveCheckOut);
         record.setWorkedMinutes(workedMinutes);
 
@@ -372,10 +395,59 @@ public class AttendanceService {
                     punch.setCheckOutAt(effectiveCheckOut);
                     attendancePunchRepository.save(punch);
                 });
+        return saved;
+    }
+
+    /**
+     * A session left open past its own shift's natural end — the employee forgot to check out
+     * and never came back to click it — must not go on blocking fresh check-ins ({@link
+     * #checkIn}) or showing as "still checked in" forever ({@link #getToday}), no matter how many
+     * calendar days have since passed. Closes it right then, at the shift's own end (the exact
+     * same cap {@link #checkOut} applies to a late-arriving click — see {@link
+     * #shiftEndCutoff}), so the caller can fall through to treating this employee as having no
+     * open session, same as if they'd remembered to check out themselves. Returns whether it
+     * closed anything.
+     *
+     * <p>An open session still within its own shift window (e.g. checked in at 11 PM, now
+     * 12:15 AM — the 3:30 PM - 12:30 AM shift hasn't ended yet) is left untouched — this only
+     * fires once the shift has genuinely ended, never for a session legitimately still in
+     * progress across midnight.
+     */
+    private boolean autoCloseIfStale(Attendance record, Employee employee, LocalDateTime now) {
+        if (record.getCheckOutAt() != null) return false;
+        LocalDateTime cutoff = shiftEndCutoff(employee, record.getWorkDate());
+        if (!now.isAfter(cutoff)) return false;
+
+        String before = auditSnapshot.toJson(Map.of(
+                "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
+        Attendance saved = closeSession(record, cutoff);
         String after = auditSnapshot.toJson(Map.of(
-                "checkOutAt", effectiveCheckOut.toString(), "workedMinutes", workedMinutes, "status", saved.getStatus()));
-        auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId(), before, after);
-        return toResponse(saved, employee);
+                "checkOutAt", cutoff.toString(), "workedMinutes", saved.getWorkedMinutes(), "status", saved.getStatus()));
+        auditService.log(employee.getUserId(), "ATTENDANCE_AUTO_CLOSED", saved.getId(), before, after);
+        return true;
+    }
+
+    /**
+     * Org-wide sweep for {@link StaleAttendanceSweeper}: closes every currently-open attendance
+     * record whose own shift has already ended, regardless of whether that employee ever opens
+     * the app again to trigger {@link #autoCloseIfStale} themselves via {@link #getToday}/{@link
+     * #checkIn}. Without this, an employee who forgets to check out and simply doesn't come back
+     * (a resignation, an extended leave, a forgotten account) would leave that session open —
+     * and visibly "still checked in" to HR — indefinitely.
+     */
+    @Transactional
+    public void closeAllStaleOpenSessions() {
+        List<Attendance> open = attendanceRepository.findByCheckOutAtIsNull();
+        int closed = 0;
+        for (Attendance record : open) {
+            Optional<Employee> employee = employeeRepository.findById(record.getEmployeeUserId());
+            if (employee.isPresent() && autoCloseIfStale(record, employee.get(), now(employee.get()))) {
+                closed++;
+            }
+        }
+        if (closed > 0) {
+            log.info("closeAllStaleOpenSessions: closed {} of {} open session(s)", closed, open.size());
+        }
     }
 
     /**

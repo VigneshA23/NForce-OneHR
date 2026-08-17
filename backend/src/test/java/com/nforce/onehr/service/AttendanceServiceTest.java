@@ -2,6 +2,7 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.AttendanceResponse;
+import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Shift;
@@ -22,6 +23,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -127,5 +129,98 @@ class AttendanceServiceTest {
         // time, not clamped to the shift-end boundary.
         assertFalse(response.getCheckOutAt().isBefore(before));
         assertFalse(response.getCheckOutAt().isAfter(after));
+    }
+
+    // ---------------------------------------------------------------- stale open session
+
+    @Test
+    void getToday_autoClosesStaleOpenSession_andReportsFreshCanCheckIn() {
+        // Checked in 6 days ago and never checked out — the exact shape of a forgotten session
+        // that would otherwise show as "still checked in" forever (see autoCloseIfStale).
+        LocalDate workDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(6);
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(18, 4));
+        Attendance stale = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(checkInAt)
+                .sessionStartedAt(checkInAt)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.of(stale));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
+                .thenReturn(Optional.empty());
+
+        TodayAttendanceResponse response = service.getToday(employeeEmail);
+
+        // The stale record is closed (capped at its own shift's end, exactly like an explicit
+        // late checkout — see checkOut_capsWorkedMinutesAtShiftEnd_...), not left open...
+        assertNotNull(stale.getCheckOutAt(), "stale session must be auto-closed, not left open");
+        LocalDateTime expectedCap = LocalDateTime.of(workDate.plusDays(1), LocalTime.of(0, 30));
+        assertEquals(expectedCap, stale.getCheckOutAt());
+        // ...and today's own state is reported fresh: nothing from 6 days ago blocks a new
+        // check-in today.
+        assertTrue(response.isCanCheckIn(), "an old, now-closed session must not block today's check-in");
+        assertFalse(response.isCanCheckOut());
+        assertNull(response.getRecord());
+    }
+
+    @Test
+    void getToday_leavesGenuineOvernightSessionOpen_whenStillWithinShiftWindow() {
+        // Checked in today; shift (3:30 PM - 12:30 AM) doesn't end until tomorrow 00:30 — always
+        // still ahead of "now" regardless of what time this test happens to run, so this is
+        // deterministically the legitimate midnight-crossing case, not a stale session.
+        LocalDate workDate = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(15, 40));
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(checkInAt)
+                .sessionStartedAt(checkInAt)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.of(open));
+
+        TodayAttendanceResponse response = service.getToday(employeeEmail);
+
+        assertNull(open.getCheckOutAt(), "a session still within its own shift window must not be auto-closed");
+        assertFalse(response.isCanCheckIn());
+        assertTrue(response.isCanCheckOut());
+        assertNotNull(response.getRecord());
+    }
+
+    @Test
+    void checkIn_autoClosesStaleOpenSession_thenProceedsWithFreshCheckIn() {
+        LocalDate staleWorkDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(6);
+        LocalDateTime staleCheckInAt = LocalDateTime.of(staleWorkDate, LocalTime.of(18, 4));
+        Attendance stale = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(staleWorkDate)
+                .checkInAt(staleCheckInAt)
+                .sessionStartedAt(staleCheckInAt)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.of(stale));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
+                .thenReturn(Optional.empty());
+        when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(any()))
+                .thenReturn(List.of());
+
+        // Must not throw "You have already checked in today" — the stale session is auto-closed
+        // first, then a brand-new attendance record is created for today, same as if there had
+        // been no prior record at all.
+        AttendanceResponse response = service.checkIn(employeeEmail);
+
+        assertNotNull(stale.getCheckOutAt(), "stale session must be auto-closed before a fresh check-in proceeds");
+        assertNotEquals(stale.getId(), response.getId(), "a fresh check-in must open a new record, not reuse the stale one");
+        assertNull(response.getCheckOutAt());
     }
 }

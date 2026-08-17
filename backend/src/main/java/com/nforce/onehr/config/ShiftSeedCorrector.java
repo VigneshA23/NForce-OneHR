@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +52,9 @@ import java.util.UUID;
  * employee first punched in. AttendanceException.minutesLate self-corrects afterwards — it is
  * re-upserted from Attendance.lateByMinutes on every exceptions-dashboard load.
  */
+// Must run before StaleAttendanceSweeper's startup pass: the sweep's shift-end cutoff reads
+// each employee's Shift.endTime, which this corrector may still be about to fix.
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @Component
 @RequiredArgsConstructor
 @Slf4j
