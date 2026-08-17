@@ -15,7 +15,7 @@ public class MissingLogsConfigDto {
     @Min(value = 0, message = "Exempt days cannot be negative")
     private Integer exemptDays;
 
-    @Pattern(regexp = "MONTH", message = "Only a monthly exemption cycle is supported")
+    @Pattern(regexp = "WEEK|MONTH", message = "Exemption cycle must be WEEK or MONTH")
     private String exemptPeriod = "MONTH";
 
     @Pattern(regexp = "PER_SHIFT|IRRESPECTIVE", message = "Deduction mode must be PER_SHIFT or IRRESPECTIVE")

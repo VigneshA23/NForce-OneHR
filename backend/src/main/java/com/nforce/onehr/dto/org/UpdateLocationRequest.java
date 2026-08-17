@@ -13,14 +13,18 @@ public class UpdateLocationRequest {
     private String name;
 
     @Size(max = 100)
+    @Pattern(regexp = "^[^0-9]*$", message = "City cannot contain numbers")
     private String city;
 
     @Size(max = 100)
+    @Pattern(regexp = "^[^0-9]*$", message = "State / Province cannot contain numbers")
     private String state;
 
     @Size(max = 100)
+    @Pattern(regexp = "^[^0-9]*$", message = "Country cannot contain numbers")
     private String country;
 
     @Size(max = 100)
+    @Pattern(regexp = "^[^0-9]*$", message = "Holiday Region cannot contain numbers")
     private String holidayRegion;
 }

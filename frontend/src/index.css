@@ -190,9 +190,23 @@ input[type="date"] {
   .nf-drawer-responsive { width: calc(100vw - 32px) !important; }
 }
 
-/* Shell header dropdown panel -> clamp to viewport, mobile only */
+/* Shell header dropdown panel -> clamp to viewport, mobile only.
+   `right: -6px` anchors to the trigger button's own wrapper, which isn't
+   flush with the screen edge (bell sits left of the theme toggle/avatar),
+   so a near-full-width panel anchored there ran off the left of the
+   viewport. Anchor to the viewport itself instead so it's always fully
+   visible no matter where the trigger sits or how narrow the phone is. */
 @media (max-width: 767px) {
-  .nf-dropdown-panel { width: calc(100vw - 24px) !important; max-width: calc(100vw - 24px) !important; right: -6px !important; }
+  .nf-dropdown-panel {
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    top: 62px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 80px) !important;
+    overflow-y: auto !important;
+  }
 }
 
 /* Shell hamburger button — hidden by default, shown only on mobile */
@@ -227,6 +241,148 @@ input[type="date"] {
   .nf-autofit-mobile-safe { grid-template-columns: 1fr !important; }
 }
 
+/* Stat-card rows (Onboarding, Documents & Compliance) -> 2x2 grid on
+   mobile. Columns stay `1fr` (not a fixed px) so each card's width is
+   always exactly half the viewport minus the gap/padding, fitting
+   perfectly at any phone width instead of being squeezed 4-across. */
+@media (max-width: 767px) {
+  .nf-kpi-2x2-mobile { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* Documents & Compliance tab selector (Pending Verification / Verified /
+   Not Submitted) -> auto-adjust to the screen on mobile instead of running
+   off the right edge. The bar was `width: fit-content`, sized to the sum of
+   its three buttons' natural widths, which exceeds narrower phone screens.
+   No scrolling and no truncation: the bar goes full-width, each button is
+   an equal flex share, and the label is allowed to wrap onto a second line
+   within its own button so the full name always stays visible. */
+@media (max-width: 767px) {
+  .nf-doc-tabs {
+    width: 100% !important;
+    align-items: center;
+  }
+  .nf-doc-tabs .nf-doc-tab-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px !important;
+    font-size: 11.5px !important;
+    text-align: center;
+    justify-content: center !important;
+  }
+  .nf-doc-tabs .nf-doc-tab-label {
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.25;
+  }
+}
+
+/* Policies & Announcements stat tiles -> stay a 3-column row on mobile (no
+   layout change, no scroll) but let the tile padding and type sizes scale
+   down fluidly with `clamp()` so all three keep fitting cleanly at any
+   phone width instead of overflowing the shrunk 1fr columns. */
+@media (max-width: 767px) {
+  .nf-policy-kpi { gap: clamp(6px, 2vw, 12px) !important; }
+  .nf-policy-kpi-tile { padding: clamp(10px, 3vw, 16px) clamp(8px, 3vw, 20px) !important; }
+  .nf-policy-kpi-value { font-size: clamp(18px, 6vw, 26px) !important; }
+  .nf-policy-kpi-label { font-size: clamp(9.5px, 2.6vw, 12px) !important; }
+}
+
+/* Policies & Announcements header -> "New Announcement" / "New Policy"
+   go from a side-by-side 1x2 row to a stacked 2x1 column on mobile, each
+   full width. The header itself also stacks (title above, actions below)
+   so the now-taller two-row action block has room instead of being
+   squeezed beside the title. */
+@media (max-width: 767px) {
+  .nf-policy-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px;
+  }
+  .nf-policy-actions {
+    flex-direction: column !important;
+    width: 100%;
+  }
+  .nf-policy-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Assets & Expenses HR section selector (Asset Inventory / Asset Requests /
+   Expense Categories / Payroll-Ready Claims) -> horizontally scrollable on
+   mobile instead of squeezing/wrapping four tabs into the narrow viewport.
+   Buttons keep their natural nowrap width so labels stay fully readable;
+   the bar scrolls to reveal whichever don't fit. */
+@media (max-width: 767px) {
+  .nf-tab-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-tab-scroll > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* My Team -> Efforts/Punctuality -> On-Time Leaderboard: scroll both ways
+   on mobile instead of resizing. The panel is a two-column grid (leaderboard
+   rows + a fixed 320px daily bar chart); on a narrow phone that combination
+   was squeezing the row's name/progress-bar/stat segments and wrapping them
+   awkwardly. Give the grid its natural min-width (both columns comfortably
+   sized) and stop each row wrapping, so the scroll wrapper reveals the full
+   layout by scrolling instead of crushing it. Desktop/tablet untouched. */
+@media (max-width: 767px) {
+  .nf-team-leaderboard-scroll {
+    overflow: auto !important;
+    max-height: 60vh;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-team-leaderboard-grid {
+    /* Leaderboard column's own row content (avatar + name block + progress
+       bar + stat text, all non-wrapping) needs ~460px to stay uncrushed. */
+    grid-template-columns: minmax(460px, 1fr) 320px !important;
+    min-width: 780px;
+  }
+  .nf-team-leaderboard-row {
+    flex-wrap: nowrap !important;
+  }
+}
+
+/* Big data tables (Documents & Compliance; Policies & Announcements) ->
+   scroll both ways on mobile instead of squeezing columns/rows to fit. The
+   wrapper caps height and scrolls vertically for long lists; the table
+   drops its 100%-width constraint and its cells stop wrapping, so columns
+   keep their natural size and the wrapper scrolls horizontally instead of
+   crushing them. Desktop/tablet keep the existing unconstrained layout
+   untouched. */
+@media (max-width: 767px) {
+  .nf-doc-table-scroll {
+    overflow: auto !important;
+    max-height: 60vh;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; }
+  .nf-doc-table-scroll th, .nf-doc-table-scroll td { white-space: nowrap; }
+}
+
+/* KPI/stat-card rows (My Team) -> horizontally scrollable strip of
+   fixed-width cards on mobile, instead of squeezing a fixed N-column grid
+   until the cards and their text get cut off. Desktop/tablet keep the
+   even N-column grid set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-kpi-scroll {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    padding-bottom: 4px;
+  }
+  .nf-kpi-scroll > * {
+    flex: 0 0 190px !important;
+    scroll-snap-align: start;
+  }
+}
+
 /* Auth layout (Login / Forgot Password) -> single column, promo panel
    hidden, mobile/tablet only (≤900px, matching the breakpoint used
    throughout AuthLayout.tsx). Both the shell and the left panel set
@@ -246,5 +402,25 @@ input[type="date"] {
   .nf-auth-right-panel {
     background: radial-gradient(120% 100% at 80% 10%, rgba(177,17,22,.26) 0%, transparent 55%),
       linear-gradient(160deg, #0a0b0e 0%, #12141a 100%) !important;
+    /* Extra top clearance so the fixed brand mark (see .nf-auth-mobile-brand
+       below) never overlaps the sign-in card. */
+    padding-top: 88px !important;
+  }
+}
+
+/* Auth layout mobile brand mark -> pinned small at the top-left of the
+   viewport instead of stacked inline above the sign-in card, mobile/tablet
+   only (matches the 900px collapse breakpoint used throughout
+   AuthLayout.tsx). BrandingBlock is already rendered at size="sm"/compact
+   for this slot; this just fixes its position. */
+@media (max-width: 900px) {
+  .nf-auth-mobile-brand {
+    position: fixed !important;
+    top: 14px !important;
+    left: 16px !important;
+    width: auto !important;
+    max-width: none !important;
+    margin-bottom: 0 !important;
+    z-index: 50;
   }
 }

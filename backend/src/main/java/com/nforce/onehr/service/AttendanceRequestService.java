@@ -202,6 +202,11 @@ public class AttendanceRequestService {
         requestRepository.save(req);
 
         auditService.log(actor.getId(), "ATTENDANCE_REQUEST_APPROVED", req.getEmployeeUserId());
+        notificationService.send(req.getEmployeeUserId(), "ATTENDANCE_REQUEST_APPROVED",
+                "Attendance Request Approved",
+                "Your " + (TYPE_WFH.equals(req.getRequestType()) ? "Work From Home" : "Partial Day")
+                        + " request for " + req.getRequestDate() + " has been approved by " + employeeName(actor.getId()) + ".",
+                "/requests?type=" + req.getRequestType());
         return toResponse(req);
     }
 
@@ -218,6 +223,12 @@ public class AttendanceRequestService {
         requestRepository.save(req);
 
         auditService.log(actor.getId(), "ATTENDANCE_REQUEST_REJECTED", req.getEmployeeUserId());
+        notificationService.send(req.getEmployeeUserId(), "ATTENDANCE_REQUEST_REJECTED",
+                "Attendance Request Rejected",
+                "Your " + (TYPE_WFH.equals(req.getRequestType()) ? "Work From Home" : "Partial Day")
+                        + " request for " + req.getRequestDate() + " has been rejected by " + employeeName(actor.getId())
+                        + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
+                "/requests?type=" + req.getRequestType());
         return toResponse(req);
     }
 
@@ -273,6 +284,10 @@ public class AttendanceRequestService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+    }
+
+    private String employeeName(UUID userId) {
+        return employeeRepository.findById(userId).map(Employee::getFullName).orElse("Unknown");
     }
 
     private AttendanceRequestResponse toResponse(AttendanceRequest req) {

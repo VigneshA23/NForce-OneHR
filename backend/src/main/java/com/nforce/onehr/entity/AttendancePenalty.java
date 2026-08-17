@@ -53,6 +53,22 @@ public class AttendancePenalty {
     @Column(name = "deduction_days")
     private BigDecimal deductionDays;
 
+    // ── Deduction outcome — set by PenaltyDeductionService right after this row is first
+    // persisted, in the same transaction. Null for penalties evaluated before this existed. ──
+    @Column(name = "deduction_method")
+    private String deductionMethod;
+
+    @Column(name = "leave_deduction_days")
+    private BigDecimal leaveDeductionDays;
+
+    @Column(name = "lop_days")
+    private BigDecimal lopDays;
+
+    // JSON snapshot of {leaveTypeCode: daysDeducted}, e.g. {"SICK":1,"CASUAL":0.5} — traceability
+    // for which specific leave types absorbed the deduction (Section 39).
+    @Column(name = "leave_breakdown", columnDefinition = "TEXT")
+    private String leaveBreakdown;
+
     @Column(name = "evaluated_at", nullable = false)
     private LocalDateTime evaluatedAt;
 

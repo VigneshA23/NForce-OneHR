@@ -39,4 +39,17 @@ public class HolidayController {
     public HolidayResponse createHoliday(@Valid @RequestBody CreateHolidayRequest req) {
         return holidayService.createHoliday(req);
     }
+
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public HolidayResponse updateHoliday(@PathVariable UUID id, @Valid @RequestBody CreateHolidayRequest req) {
+        return holidayService.updateHoliday(id, req);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public void deleteHoliday(@PathVariable UUID id) {
+        holidayService.deleteHoliday(id);
+    }
 }

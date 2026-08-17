@@ -101,7 +101,8 @@ public class UserManagementService {
     /**
      * Every Phase 1 role is staff first — everyone gets the base EMPLOYEE role alongside
      * whatever admin role they're assigned, so self-service features (attendance punch, leave,
-     * etc.) work for them too, Super Admin included.
+     * etc.) work for them too, Super Admin included. (V111/V115 previously stripped this from
+     * Super Admin and back; V116 restores it again.)
      */
     private Set<Role> rolesFor(Role assignedRole) {
         Set<Role> roles = new HashSet<>();

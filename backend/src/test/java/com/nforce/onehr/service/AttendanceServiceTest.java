@@ -64,7 +64,7 @@ class AttendanceServiceTest {
         Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(shift).build();
         lenient().when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
         lenient().when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(attendancePunchRepository.findByAttendanceRecordIdAndCheckOutAtIsNull(any()))
+        lenient().when(attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(any()))
                 .thenReturn(Optional.empty());
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
     }

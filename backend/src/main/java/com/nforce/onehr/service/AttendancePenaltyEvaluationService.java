@@ -34,6 +34,7 @@ public class AttendancePenaltyEvaluationService {
 
     private final AttendancePolicyEngine policyEngine;
     private final AttendancePenaltyRepository attendancePenaltyRepository;
+    private final PenaltyDeductionService penaltyDeductionService;
 
     @Transactional
     public Optional<AttendancePenalty> evaluate(PolicyEvaluationContext context) {
@@ -58,6 +59,9 @@ public class AttendancePenaltyEvaluationService {
                 .evaluatedAt(now)
                 .penalizedOn(now)
                 .build();
+        // Resolves the configured deduction-days amount into an actual leave-balance debit
+        // and/or Loss-of-Pay amount, mutating `penalty` in place before its one save below.
+        penaltyDeductionService.apply(penalty, decision.getDeductionMethod(), decision.getLeavePriorityOrder());
         return Optional.of(attendancePenaltyRepository.save(penalty));
     }
 }

@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.exception.AccountLockedException;
+import com.nforce.onehr.exception.AccountNotFoundException;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
@@ -144,7 +145,11 @@ public class AuthService {
             throw new IllegalArgumentException("New password must differ from current password");
         }
 
-        validatePasswordStrength(request.getNewPassword());
+        // Minimum length, max length, whitespace, and character-class complexity are already
+        // enforced by @Valid on ChangePasswordRequest (see @Size + @ValidPassword on
+        // newPassword) before this method is ever invoked, so re-checking here would just be a
+        // second, driftable copy of the same policy. See PasswordPolicy for the single source
+        // of truth these annotations share.
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
@@ -162,15 +167,17 @@ public class AuthService {
 
     /**
      * Forgot-password flow: validates the account status up front and reports it back
-     * distinctly (no account found / deactivated / deleted / reset sent) rather than a single
+     * distinctly (no account found / deleted / deactivated / active) rather than a single
      * generic response — a deliberate product decision to prioritize clear self-service
-     * feedback over email-enumeration hardening for this flow.
+     * feedback over email-enumeration hardening for this flow. Malformed input is separately
+     * rejected by {@code @Email} on {@link com.nforce.onehr.dto.ForgotPasswordRequest} before
+     * this method ever runs.
      */
     @Transactional
     public ForgotPasswordResponse forgotPassword(String email) {
         String normalizedEmail = email.toLowerCase().trim();
         User user = userRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new IllegalArgumentException("No account found with this email address"));
+                .orElseThrow(() -> new AccountNotFoundException("No account found with this email address"));
 
         if (user.getDeletedAt() != null) {
             throw new DisabledException("This account has been deleted. Please contact your HR administrator");
@@ -203,22 +210,5 @@ public class AuthService {
     private String generateTempPassword() {
         int digits = 100000 + RANDOM.nextInt(900000);
         return "OneHR@" + digits;
-    }
-
-    private void validatePasswordStrength(String password) {
-        if (password.length() < 8) {
-            throw new IllegalArgumentException("Password must be at least 8 characters");
-        }
-
-        int score = 0;
-        if (password.chars().anyMatch(Character::isUpperCase)) score++;
-        if (password.chars().anyMatch(Character::isLowerCase)) score++;
-        if (password.chars().anyMatch(Character::isDigit)) score++;
-        if (password.chars().anyMatch(c -> "!@#$%^&*()_+-=[]{}|;':\",./<>?".indexOf(c) >= 0)) score++;
-
-        if (score < 3) {
-            throw new IllegalArgumentException(
-                    "Password must contain at least 3 of: uppercase letter, lowercase letter, number, special character");
-        }
     }
 }

@@ -16,6 +16,7 @@ public class PenalizationPolicyResponse {
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
 
+    private BasicInfoConfigDto basicInfo;
     private NoAttendanceConfigDto noAttendance;
     private LateArrivalConfigDto lateArrival;
     private WorkHoursShortageConfigDto workHoursShortage;

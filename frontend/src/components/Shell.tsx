@@ -134,14 +134,20 @@ const NOTIF_ICON: Record<string, React.ReactNode> = {
   HELPDESK_TICKET_ASSIGNED: <HelpCircle size={12} />,
 };
 
-function NotificationDropdown({ token, onClose }: { token: string; onClose: () => void }) {
+function NotificationDropdown({ token, onClose, onItemRead, onAllRead }: {
+  token: string;
+  onClose: () => void;
+  onItemRead: () => void;
+  onAllRead: () => void;
+}) {
   const navigate = useNavigate();
   const [items, setItems]     = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState(false);
 
   useEffect(() => {
-    notificationsApi.list(token, 0, 8)
+    // The bell shows unread only — read history lives on the /notifications page.
+    notificationsApi.unread(token, 0, 8)
       .then(d => setItems(d.content))
       .finally(() => setLoading(false));
   }, [token]);
@@ -149,20 +155,22 @@ function NotificationDropdown({ token, onClose }: { token: string; onClose: () =
   async function handleMarkAll() {
     setMarking(true);
     await notificationsApi.markAllRead(token);
-    setItems(prev => prev.map(n => ({ ...n, read: true })));
+    setItems([]);
+    onAllRead();
     setMarking(false);
   }
 
   async function handleClick(n: NotificationItem) {
     if (!n.read) {
       await notificationsApi.markRead(token, n.id);
-      setItems(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+      setItems(prev => prev.filter(x => x.id !== n.id));
+      onItemRead();
     }
     onClose();
     if (n.linkPath) navigate(n.linkPath);
   }
 
-  const unread = items.filter(n => !n.read).length;
+  const unread = items.length;
 
   return (
     <div className="nf-dropdown-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 340, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
@@ -182,7 +190,7 @@ function NotificationDropdown({ token, onClose }: { token: string; onClose: () =
       {loading ? (
         <div style={{ padding: '20px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>Loading…</div>
       ) : items.length === 0 ? (
-        <div style={{ padding: '28px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>No notifications yet.</div>
+        <div style={{ padding: '28px 14px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>No unread notifications.</div>
       ) : (
         items.map((n, i) => (
           <button key={n.id} onClick={() => handleClick(n)}
@@ -393,6 +401,8 @@ export function Shell() {
               <NotificationDropdown
                 token={token}
                 onClose={() => { setBellOpen(false); refreshCount(); }}
+                onItemRead={() => setUnreadCount(c => Math.max(0, c - 1))}
+                onAllRead={() => setUnreadCount(0)}
               />
             )}
           </div>

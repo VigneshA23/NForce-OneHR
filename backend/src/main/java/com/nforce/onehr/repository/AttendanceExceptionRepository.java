@@ -26,4 +26,9 @@ public interface AttendanceExceptionRepository extends JpaRepository<AttendanceE
 
     boolean existsByEmployeeUserIdAndExceptionDateAndExceptionType(
             UUID employeeUserId, LocalDate exceptionDate, String exceptionType);
+
+    // Backs Late Arrival's Total Hours basis (Section 25/29) — needs each occurrence's raw
+    // minutesLate to compute the grace-excluded cumulative total, not just a count.
+    List<AttendanceException> findByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+            UUID employeeUserId, String exceptionType, LocalDate from, LocalDate to);
 }

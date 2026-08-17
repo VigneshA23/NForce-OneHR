@@ -331,6 +331,12 @@ public class ExpenseService {
     }
 
     private void requireCurrentManagerOf(User actor, UUID employeeUserId) {
+        // HR_ADMIN/SUPER_ADMIN may decide the manager stage too, not just the final stage —
+        // same override convention as every other approval workflow in the app (Regularization/
+        // Asset/Overtime/AttendanceRequest/WebClockIn). ONEHR-140 follow-up: this manager-stage
+        // check was the one place in this service missing that override, causing HR Admin
+        // "Access Denied" on managerApprove/managerReject.
+        if (isFinalApprover(actor)) return;
         EmployeeManagerHistory current = historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(employeeUserId)
                 .orElseThrow(() -> new AccessDeniedException("Employee has no assigned manager"));
         if (!current.getManagerUserId().equals(actor.getId())) {

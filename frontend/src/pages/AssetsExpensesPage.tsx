@@ -885,7 +885,7 @@ function HRView({ token }: { token: string }) {
       </div>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
+      <div className="nf-tab-scroll" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
         {hrTabs.map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
             background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand)' : '2px solid transparent',

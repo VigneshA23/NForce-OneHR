@@ -65,6 +65,29 @@ public class PenalizationPolicyVersion {
     @Column(name = "na_no_show_threshold_hours")
     private BigDecimal naNoShowThresholdHours;
 
+    // ── No Attendance: adjoining-holiday / adjoining-week-off sandwich rules (Section 12-13) ──
+    @Column(name = "na_adjoining_holiday_enabled", nullable = false)
+    @Builder.Default
+    private boolean naAdjoiningHolidayEnabled = false;
+    @Column(name = "na_adjoining_holiday_condition")
+    private String naAdjoiningHolidayCondition;
+    @Column(name = "na_adjoining_holiday_calendar_day_threshold")
+    private Integer naAdjoiningHolidayCalendarDayThreshold;
+    @Column(name = "na_adjoining_holiday_ignore_half_day_leave", nullable = false)
+    @Builder.Default
+    private boolean naAdjoiningHolidayIgnoreHalfDayLeave = true;
+
+    @Column(name = "na_adjoining_weekoff_enabled", nullable = false)
+    @Builder.Default
+    private boolean naAdjoiningWeekoffEnabled = false;
+    @Column(name = "na_adjoining_weekoff_condition")
+    private String naAdjoiningWeekoffCondition;
+    @Column(name = "na_adjoining_weekoff_calendar_day_threshold")
+    private Integer naAdjoiningWeekoffCalendarDayThreshold;
+    @Column(name = "na_adjoining_weekoff_ignore_half_day_leave", nullable = false)
+    @Builder.Default
+    private boolean naAdjoiningWeekoffIgnoreHalfDayLeave = true;
+
     // ── Late Arrival ──
     @Column(name = "late_arrival_enabled", nullable = false)
     @Builder.Default
@@ -84,6 +107,19 @@ public class PenalizationPolicyVersion {
     @Column(name = "la_ignore_when_effective_hours_met_enabled", nullable = false)
     @Builder.Default
     private boolean laIgnoreWhenEffectiveHoursMetEnabled = false;
+    // Only meaningful when laBasis == TOTAL_HOURS — "allowed X hours per laExemptPeriod cycle".
+    @Column(name = "la_allowed_hours")
+    private BigDecimal laAllowedHours;
+    // When both the incident-count and total-hours thresholds are exceeded for the same
+    // evaluation: TOTAL_HOURS_ONLY (default) or BOTH.
+    @Column(name = "la_combined_rule_behavior", nullable = false)
+    @Builder.Default
+    private String laCombinedRuleBehavior = "TOTAL_HOURS_ONLY";
+    // "Penalise any late arrival caused by missing logs" — false (default) preserves today's
+    // behavior: no special-casing of a late arrival that coincides with an unresolved missing log.
+    @Column(name = "la_penalise_when_caused_by_missing_log_enabled", nullable = false)
+    @Builder.Default
+    private boolean laPenaliseWhenCausedByMissingLogEnabled = false;
 
     // ── Work Hours Shortage ──
     @Column(name = "work_hours_shortage_enabled", nullable = false)
@@ -119,6 +155,23 @@ public class PenalizationPolicyVersion {
     private boolean mlIgnoreRuleEnabled = false;
     @Column(name = "ml_ignore_rule_threshold_percent")
     private BigDecimal mlIgnoreRuleThresholdPercent;
+
+    // ── Basic Information (Section 7-9) — applies to the whole policy document, not one section ──
+    @Column(name = "deduction_method", nullable = false)
+    @Builder.Default
+    private String deductionMethod = "LOSS_OF_PAY";
+
+    // Comma-separated LeaveType.code values in priority order (e.g. "SICK,CASUAL,PAID") — read
+    // only when deductionMethod == PAID_LEAVE. See PenaltyDeductionService.
+    @Column(name = "leave_priority_order", length = 500)
+    private String leavePriorityOrder;
+
+    @Column(name = "buffer_period_days")
+    private Integer bufferPeriodDays;
+
+    @Column(name = "notice_period_forces_lop_enabled", nullable = false)
+    @Builder.Default
+    private boolean noticePeriodForcesLopEnabled = false;
 
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;

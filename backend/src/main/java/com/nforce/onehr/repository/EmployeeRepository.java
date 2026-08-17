@@ -70,4 +70,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     // Backs ShiftSeedCorrector's startup backfill for employees created after V95's one-time
     // "assign everyone the Regular Shift" migration ran (e.g. anyone onboarded since).
     List<Employee> findByShiftIsNull();
+
+    // Backs the Policy List's "Employee Count" column (Section 5).
+    long countByPenalisationPolicy_Id(UUID penalisationPolicyId);
 }
