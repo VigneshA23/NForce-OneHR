@@ -1777,7 +1777,7 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
       )}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--txt-dim)', marginBottom: 4 }}>
-          <span>{shiftMinutes ? 'Progress toward shift end' : `Progress toward a full day${config ? ` (${config.fullDayMinHours}h)` : ''}`}</span>
+          <span>{config?.shiftEnd ? 'Progress toward shift end' : `Progress toward a full day${config ? ` (${config.fullDayMinHours}h)` : ''}`}</span>
           <span>{formatDuration(workedMinutesToday) ?? dash}</span>
         </div>
         <div style={{ height: 7, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
