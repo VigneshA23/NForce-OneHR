@@ -210,6 +210,24 @@ class HolidayServiceTest {
     }
 
     @Test
+    void getHolidaysByLocation_usesDateOrderedQuery_andPreservesThatOrder() {
+        // Regression test for "holidays not shown Jan -> Dec": getHolidaysByLocation
+        // must call the *OrderByHolidayDateAsc repository method (not the
+        // unordered variant) and must not re-shuffle whatever order comes back.
+        Holiday jan = Holiday.builder().id(UUID.randomUUID()).holidayName("New Year's Day").holidayDate(LocalDate.of(2026, 1, 1)).location(hyderabad).active(true).build();
+        Holiday jun = Holiday.builder().id(UUID.randomUUID()).holidayName("Mid-Year Day").holidayDate(LocalDate.of(2026, 6, 15)).location(hyderabad).active(true).build();
+        Holiday dec = Holiday.builder().id(UUID.randomUUID()).holidayName("Christmas").holidayDate(LocalDate.of(2026, 12, 25)).location(hyderabad).active(true).build();
+
+        when(holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(hyderabadId))
+                .thenReturn(List.of(jan, jun, dec)); // repository is the source of truth for order
+
+        List<HolidayResponse> result = holidayService.getHolidaysByLocation(hyderabadId);
+
+        assertEquals(List.of("New Year's Day", "Mid-Year Day", "Christmas"),
+                result.stream().map(HolidayResponse::getHolidayName).toList());
+    }
+
+    @Test
     void getHolidaysForMyLocation_afterEdit_reflectsCurrentRowState() {
         // Simulates: HR Admin edited the holiday's name; employee at that
         // location re-fetches (e.g. on page revisit) and gets the live row —
@@ -218,7 +236,7 @@ class HolidayServiceTest {
         Employee employee = Employee.builder().location(hyderabad).build();
 
         when(employeeRepository.findByUser_Email("emp@test.com")).thenReturn(Optional.of(employee));
-        when(holidayRepository.findByLocation_IdAndActiveTrue(hyderabadId)).thenReturn(List.of(updated));
+        when(holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(hyderabadId)).thenReturn(List.of(updated));
 
         List<HolidayResponse> result = holidayService.getHolidaysForMyLocation("emp@test.com");
 
@@ -232,7 +250,7 @@ class HolidayServiceTest {
         when(employeeRepository.findByUser_Email("emp@test.com")).thenReturn(Optional.of(employee));
         // The repository's own AndActiveTrue filter is what makes a deleted
         // (active=false) holiday vanish — simulated here by returning empty.
-        when(holidayRepository.findByLocation_IdAndActiveTrue(hyderabadId)).thenReturn(List.of());
+        when(holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(hyderabadId)).thenReturn(List.of());
 
         List<HolidayResponse> result = holidayService.getHolidaysForMyLocation("emp@test.com");
 
@@ -247,6 +265,6 @@ class HolidayServiceTest {
         List<HolidayResponse> result = holidayService.getHolidaysForMyLocation("emp@test.com");
 
         assertTrue(result.isEmpty());
-        verify(holidayRepository, never()).findByLocation_IdAndActiveTrue(any());
+        verify(holidayRepository, never()).findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(any());
     }
 }

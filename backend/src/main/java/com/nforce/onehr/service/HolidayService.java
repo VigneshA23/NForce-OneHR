@@ -97,11 +97,12 @@ public class HolidayService {
     }
 
     /**
-     * Returns active holidays for the given location. Empty list if none exist.
+     * Returns active holidays for the given location, date-ascending (Jan -> Dec).
+     * Empty list if none exist.
      */
     @Transactional(readOnly = true)
     public List<HolidayResponse> getHolidaysByLocation(UUID locationId) {
-        return holidayRepository.findByLocation_IdAndActiveTrue(locationId).stream()
+        return holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(locationId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
     }

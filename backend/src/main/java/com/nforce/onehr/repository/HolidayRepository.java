@@ -12,10 +12,10 @@ import java.util.UUID;
 @Repository
 public interface HolidayRepository extends JpaRepository<Holiday, UUID> {
 
-    List<Holiday> findByLocation_IdAndActiveTrue(UUID locationId);
+    List<Holiday> findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(UUID locationId);
 
     // Backs WorkingDayService's bulk computation — one query for every location across a team,
-    // instead of one findByLocation_IdAndActiveTrue call per employee.
+    // instead of one findByLocation_IdAndActiveTrueOrderByHolidayDateAsc call per employee.
     List<Holiday> findByLocation_IdInAndActiveTrue(Collection<UUID> locationIds);
 
     List<Holiday> findByActiveTrueOrderByHolidayDateAsc();
