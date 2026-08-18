@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,6 +41,16 @@ public class LeaveService {
     // OvertimeRequestService/AttendanceRequestService/WebClockInService (ONEHR-140 follow-up:
     // this service was the one workflow missing it, causing HR Admin "Access Denied").
     private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+
+    // Annual/Sick/Casual are still independently selectable when submitting a request (see
+    // #listTypes, untouched), but for calculation/display they share ONE consolidated balance —
+    // the ANNUAL LeaveBalance row, quota 15 days/year. Sick and Casual keep their own LeaveType
+    // and LeaveBalance rows (never deleted/renamed/migrated) but those balance rows are
+    // functionally vestigial: submission and approval always redirect to the ANNUAL row, and the
+    // pending-reservation sum spans all three type IDs. See #isAnnualBalanceLeaveType,
+    // #annualLeaveType, #annualBalanceGroupTypeIds.
+    private static final Set<String> ANNUAL_BALANCE_GROUP_CODES = Set.of("ANNUAL", "SICK", "CASUAL");
+    private static final String ANNUAL_LEAVE_TYPE_CODE = "ANNUAL";
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -62,7 +73,12 @@ public class LeaveService {
     public List<LeaveBalanceResponse> listMyBalances(String actorEmail) {
         User actor = requireActor(actorEmail);
         int year = LocalDateTime.now().getYear();
+        // Sick/Casual balance rows exist (never deleted) but are vestigial once consolidated —
+        // only the ANNUAL row surfaces here, so the balance list/pie chart shows ONE Annual Leave
+        // entry instead of three.
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
+                .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
+                        || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
                 .map(this::toBalanceResponse)
                 .collect(Collectors.toList());
     }
@@ -81,11 +97,18 @@ public class LeaveService {
                 .stream().map(b -> b.getLeaveType().getId()).collect(Collectors.toSet());
         for (LeaveType type : leaveTypeRepository.findAll()) {
             if (existingTypeIds.contains(type.getId())) continue;
+            // Annual is the consolidated group's canonical balance row and carries the real
+            // 15-day quota; Sick/Casual still get a row (never deleted) but it's vestigial, so
+            // its seed value is left at the original 20 — nothing ever reads it once submission/
+            // approval redirect to the Annual row.
+            BigDecimal openingBalance = ANNUAL_LEAVE_TYPE_CODE.equals(type.getCode())
+                    ? new BigDecimal("15")
+                    : new BigDecimal("20");
             leaveBalanceRepository.save(LeaveBalance.builder()
                     .employeeUserId(employeeUserId)
                     .leaveType(type)
                     .year(year)
-                    .totalDays(new BigDecimal("20"))
+                    .totalDays(openingBalance)
                     .usedDays(BigDecimal.ZERO)
                     .build());
         }
@@ -109,14 +132,19 @@ public class LeaveService {
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
 
         int year = req.getStartDate().getYear();
+        // Sick/Casual requests draw from and are validated against the consolidated Annual
+        // balance row — the error message below therefore always names the balance actually
+        // being checked (Annual), not the literally-selected type, even though the LeaveRequest
+        // itself still records the type the employee actually chose.
+        LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
         LeaveBalance balance = leaveBalanceRepository
-                .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), type.getId(), year)
-                .orElseThrow(() -> new IllegalArgumentException("No " + type.getName() + " balance configured for " + year));
+                .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), balanceType.getId(), year)
+                .orElseThrow(() -> new IllegalArgumentException("No " + balanceType.getName() + " balance configured for " + year));
 
-        BigDecimal remaining = balance.getTotalDays().subtract(balance.getUsedDays());
+        BigDecimal remaining = availableBalance(balance);
         if (remaining.compareTo(totalDays) < 0) {
-            throw new IllegalArgumentException("Insufficient " + type.getName() + " balance: requested "
-                    + totalDays + ", remaining " + remaining);
+            throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
+                    + " balance of " + formatDays(remaining) + " days.");
         }
 
         LeaveRequest request = LeaveRequest.builder()
@@ -227,8 +255,13 @@ public class LeaveService {
         }
 
         int year = request.getStartDate().getYear();
+        // Approving a Sick/Casual request consumes from the SAME Annual balance row it was
+        // validated/reserved against at submission — usedDays on that one row naturally becomes
+        // the combined Annual+Sick+Casual approved total, with no separate cross-type sum needed.
+        LeaveType balanceType = isAnnualBalanceLeaveType(request.getLeaveType())
+                ? annualLeaveType() : request.getLeaveType();
         LeaveBalance balance = leaveBalanceRepository
-                .findByEmployeeUserIdAndLeaveTypeIdAndYear(request.getEmployeeUserId(), request.getLeaveType().getId(), year)
+                .findByEmployeeUserIdAndLeaveTypeIdAndYear(request.getEmployeeUserId(), balanceType.getId(), year)
                 .orElseThrow(() -> new IllegalStateException("No leave balance configured for " + year));
         BigDecimal remaining = balance.getTotalDays().subtract(balance.getUsedDays());
         if (remaining.compareTo(request.getTotalDays()) < 0) {
@@ -306,6 +339,50 @@ public class LeaveService {
                 .orElseGet(() -> userRepository.findById(userId).map(User::getEmail).orElse("Unknown"));
     }
 
+    /**
+     * Single source of truth for "available" balance, shared by {@link #submitRequest} (what may
+     * a new request consume) and {@link #toBalanceResponse} (what the balance API — and the Leave
+     * page's pie chart — reports as available). Status-aware: APPROVED is already reflected in
+     * {@code usedDays} (mutated at {@link #approve}); PENDING requests are additionally reserved
+     * here so a second PENDING submission can't collectively exceed the quota; REJECTED never
+     * reaches this calculation (excluded by the {@code status = 'PENDING'} filter below). There is
+     * no CANCELLED status or update/edit flow in this codebase to account for.
+     * <p>
+     * When {@code b} is the consolidated Annual balance row, the PENDING reservation spans all
+     * three grouped leave-type IDs (Annual/Sick/Casual) — not just Annual's own requests — since
+     * they all draw from this one row (see {@link #annualBalanceGroupTypeIds}).
+     */
+    private BigDecimal availableBalance(LeaveBalance b) {
+        Collection<UUID> pendingTypeIds = isAnnualBalanceLeaveType(b.getLeaveType())
+                ? annualBalanceGroupTypeIds()
+                : Set.of(b.getLeaveType().getId());
+        BigDecimal pendingReserved = leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+                b.getEmployeeUserId(), pendingTypeIds, "PENDING",
+                LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31));
+        if (pendingReserved == null) pendingReserved = BigDecimal.ZERO;
+        return b.getTotalDays().subtract(b.getUsedDays()).subtract(pendingReserved);
+    }
+
+    private boolean isAnnualBalanceLeaveType(LeaveType type) {
+        return ANNUAL_BALANCE_GROUP_CODES.contains(type.getCode());
+    }
+
+    private LeaveType annualLeaveType() {
+        return leaveTypeRepository.findByCode(ANNUAL_LEAVE_TYPE_CODE)
+                .orElseThrow(() -> new IllegalStateException("Annual leave type not configured"));
+    }
+
+    private Set<UUID> annualBalanceGroupTypeIds() {
+        return leaveTypeRepository.findAll().stream()
+                .filter(this::isAnnualBalanceLeaveType)
+                .map(LeaveType::getId)
+                .collect(Collectors.toSet());
+    }
+
+    private static String formatDays(BigDecimal days) {
+        return days.stripTrailingZeros().toPlainString();
+    }
+
     private LeaveBalanceResponse toBalanceResponse(LeaveBalance b) {
         return LeaveBalanceResponse.builder()
                 .leaveTypeCode(b.getLeaveType().getCode())
@@ -313,7 +390,7 @@ public class LeaveService {
                 .year(b.getYear())
                 .totalDays(b.getTotalDays())
                 .usedDays(b.getUsedDays())
-                .remainingDays(b.getTotalDays().subtract(b.getUsedDays()))
+                .remainingDays(availableBalance(b))
                 .build();
     }
 
