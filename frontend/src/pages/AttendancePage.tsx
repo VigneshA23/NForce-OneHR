@@ -29,6 +29,7 @@ import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
+import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole } from '../lib/nav.config';
@@ -759,25 +760,44 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             </span>
           </div>
 
-          <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Info size={13} />
-            {balance ? (
-              balance.unlimited
-                ? <>Remaining balance: <strong style={{ color: 'var(--txt)' }}>Unlimited</strong></>
-                : <>Remaining balance: <strong style={{ color: 'var(--txt)' }}>{balance.remainingCount} request{balance.remainingCount === 1 ? '' : 's'}</strong></>
-            ) : 'Remaining balance: —'}
-            {balance && !balance.unlimited && (
-              <button type="button" onClick={() => setShowBalanceDetails((s) => !s)}
-                style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
-                View Details
-              </button>
+          <div style={{ position: 'relative' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Info size={13} />
+              {balance ? (
+                balance.unlimited
+                  ? <>Remaining balance: <strong style={{ color: 'var(--txt)' }}>Unlimited</strong></>
+                  : <>Remaining balance: <strong style={{ color: 'var(--txt)' }}>{balance.remainingCount} request{balance.remainingCount === 1 ? '' : 's'}</strong></>
+              ) : 'Remaining balance: —'}
+              {balance && !balance.unlimited && (
+                <button type="button" onClick={() => setShowBalanceDetails((s) => !s)}
+                  style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                  View Details
+                </button>
+              )}
+            </div>
+            {showBalanceDetails && balance && !balance.unlimited && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 30, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: '0 8px 24px rgba(0,0,0,.35)', minWidth: 260, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--txt-dim)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>Period</th>
+                      <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--txt-dim)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: '8px 12px', color: 'var(--txt)' }}>
+                        {formatShortDay(monthStartIso(attendanceDate))} - {formatShortDay(monthEndIso(attendanceDate))}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: 'var(--txt)', textAlign: 'right' }}>
+                        {balance.remainingCount}/{balance.limitCount} requests
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
-          {showBalanceDetails && balance && !balance.unlimited && (
-            <div style={{ fontSize: 12, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' }}>
-              {balance.usedCount} of {balance.limitCount} regularization requests used this month.
-            </div>
-          )}
 
           <Field label="Assign To *">
             <select style={inputStyle} value={managerUserId} onChange={e => setManagerUserId(e.target.value)}>
@@ -1155,6 +1175,8 @@ interface DayInfo {
   iso: string;
   day: number;
   isFuture: boolean;
+  /** Before the employee's own joining date — never shown, same treatment as isFuture. */
+  isBeforeJoining: boolean;
   isToday: boolean;
   isWeekend: boolean;
   holidayName?: string;
@@ -1248,24 +1270,25 @@ function MonthCalendar({
             if (day == null) return <div key={i} />;
             const info = dayInfo(day);
             const selected = selectedDate === info.iso;
+            const disabled = info.isFuture || info.isBeforeJoining;
             return (
               <button
                 key={i}
-                onClick={() => !info.isFuture && onSelect(info.iso)}
-                disabled={info.isFuture}
+                onClick={() => !disabled && onSelect(info.iso)}
+                disabled={disabled}
                 style={{
                   minHeight: 58, borderRadius: 6, padding: '5px 5px', textAlign: 'left',
                   background: selected ? 'rgba(177,17,22,.10)' : 'var(--raised)',
                   border: info.isToday ? '1.5px solid var(--brand)' : selected ? '1px solid var(--brand)' : '1px solid var(--line)',
-                  cursor: info.isFuture ? 'default' : 'pointer',
-                  opacity: info.isFuture ? 0.45 : 1,
+                  cursor: disabled ? 'default' : 'pointer',
+                  opacity: disabled ? 0.45 : 1,
                   display: 'flex', flexDirection: 'column', gap: 2,
                 }}
               >
                 <span style={{ fontSize: 11.5, fontWeight: 600, color: info.isWeekend ? 'var(--txt-dim)' : 'var(--txt)' }}>
                   {day}
                 </span>
-                <DayCellBadge info={info} />
+                {!info.isBeforeJoining && <DayCellBadge info={info} />}
               </button>
             );
           })}
@@ -2582,6 +2605,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   const [regularizations, setRegularizations] = useState<RegularizationRecord[]>([]);
   const [attendanceRequests, setAttendanceRequests] = useState<AttendanceRequestRecord[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(todayIsoDate());
+  // Nothing before this date is ever shown (Attendance Log rows, Calendar cells) — a day
+  // before the employee joined was never expected to have attendance of any kind.
+  const [joiningDate, setJoiningDate] = useState<string | null>(null);
 
   // Holidays / leaves / regularizations / attendance requests are fetched once — the calendar
   // filters them per month.
@@ -2594,6 +2620,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     ]).then(([h, l, r, ar]) => {
       setHolidays(h); setLeaves(l); setRegularizations(r); setAttendanceRequests(ar);
     });
+    profileApi.get(token).then((p) => setJoiningDate(p.joiningDate)).catch(() => setJoiningDate(null));
   }, [token]);
 
   const refreshMonth = useCallback(() => {
@@ -2693,6 +2720,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       iso,
       day,
       isFuture: iso > todayIsoDate(),
+      isBeforeJoining: !!joiningDate && iso < joiningDate,
       isToday: iso === todayIsoDate(),
       isWeekend,
       holidayName: holidayByDate.get(iso),
@@ -2701,7 +2729,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       attendanceRequest: attendanceRequestByDate.get(iso),
       record: recordByDate.get(iso),
     };
-  }, [viewYear, viewMonth, config, holidayByDate, leaveByDate, regularizationByDate, attendanceRequestByDate, recordByDate]);
+  }, [viewYear, viewMonth, config, joiningDate, holidayByDate, leaveByDate, regularizationByDate, attendanceRequestByDate, recordByDate]);
 
   function goToPrevMonth() {
     setSelectedDate(null);
@@ -2731,7 +2759,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     const rows: DayInfo[] = [];
     for (let d = 1; d <= total; d++) {
       const info = getDayInfo(d);
-      if (info.iso <= todayIso) rows.push(info);
+      if (info.iso <= todayIso && !info.isBeforeJoining) rows.push(info);
     }
     return rows.reverse();
   }, [viewYear, viewMonth, getDayInfo]);
@@ -3675,14 +3703,12 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>{['Date', 'Start', 'End', 'Duration', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{['Date', 'Overtime Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
-                    <td style={tdStyle}>{formatTime(r.requestedStart) ?? dash}</td>
-                    <td style={tdStyle}>{formatTime(r.requestedEnd) ?? dash}</td>
                     <td style={tdStyle}>{formatDuration(r.requestedMinutes) ?? dash}</td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
                     <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
@@ -3826,12 +3852,12 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
     [fromDate, toDate],
   );
 
-  // Dates already covered by a PENDING request of this employee's own — queried client-side
-  // from the list OvertimeRequestsSection already loaded (no extra fetch needed). A rejected or
-  // approved request never blocks a new one for the same date; only PENDING does.
+  // Dates already covered by a PENDING or APPROVED request of this employee's own — queried
+  // client-side from the list OvertimeRequestsSection already loaded (no extra fetch needed).
+  // Only a REJECTED request never blocks a new one for the same date.
   const pendingDatesByWorkDate = useMemo(() => {
     const map = new Map<string, OvertimeRequestRecord>();
-    existingRequests.forEach((r) => { if (r.status === 'PENDING') map.set(r.workDate, r); });
+    existingRequests.forEach((r) => { if (r.status === 'PENDING' || r.status === 'APPROVED') map.set(r.workDate, r); });
     return map;
   }, [existingRequests]);
   const conflictingDates = useMemo(
@@ -3893,7 +3919,7 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
     if (toDate < fromDate) { setError('To date must be on or after From date'); return; }
     if (fromDate < todayIsoDate()) { setError('Cannot request for past dates'); return; }
     if (hasPendingConflict) {
-      setError(`OT request for ${formatDay(conflictingDates[0])} is already pending.`);
+      setError('Previous Overtime request is in pending / approved for the selected dates.');
       return;
     }
     if (!reason.trim()) { setError('Reason is required'); return; }
@@ -3967,9 +3993,9 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
             )}
           </div>
           {hasPendingConflict && (
-            <div style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 7, padding: '8px 10px', fontSize: 12, color: 'var(--risk)' }}>
-              OT request for {formatDay(conflictingDates[0])} is already pending.
-              {conflictingDates.length > 1 && ` (and ${conflictingDates.length - 1} more date${conflictingDates.length > 2 ? 's' : ''})`}
+            <div style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 7, padding: '8px 10px', fontSize: 12, color: 'var(--risk)', fontWeight: 600 }}>
+              Previous Overtime request is in pending / approved for the selected dates.
+              {conflictingDates.length > 0 && ` (${conflictingDates.map((d) => formatDay(d)).join(', ')})`}
             </div>
           )}
           <FilterTabs
@@ -3986,18 +4012,18 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
               {dateList.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Pick a valid date range above.</div>
               ) : dateList.map((d) => {
-                const isPending = pendingDatesByWorkDate.has(d);
+                const conflict = pendingDatesByWorkDate.get(d);
                 return (
                   <div key={d} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <span style={{ fontSize: 12.5, color: isPending ? 'var(--risk)' : 'var(--txt-mut)' }}>
-                      {formatDay(d)}{isPending && ' · Pending'}
+                    <span style={{ fontSize: 12.5, color: conflict ? 'var(--risk)' : 'var(--txt-mut)' }}>
+                      {formatDay(d)}{conflict && ` · ${conflict.status === 'APPROVED' ? 'Approved' : 'Pending'}`}
                     </span>
                     <input
                       value={perDayHoursText[d] ?? ''}
                       onChange={(e) => setPerDayHoursText((prev) => ({ ...prev, [d]: e.target.value }))}
                       placeholder="hh:mm"
-                      disabled={isPending}
-                      style={{ ...inputStyle, width: 110, opacity: isPending ? 0.5 : 1 }}
+                      disabled={!!conflict}
+                      style={{ ...inputStyle, width: 110, opacity: conflict ? 0.5 : 1 }}
                     />
                   </div>
                 );
