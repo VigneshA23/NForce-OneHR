@@ -3832,15 +3832,9 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
   const [fixedHoursText, setFixedHoursText] = useState('');
   const [perDayHoursText, setPerDayHoursText] = useState<Record<string, string>>({});
   const [reason, setReason] = useState('');
-  const [managerUserId, setManagerUserId] = useState('');
   const [notifyEntry, setNotifyEntry] = useState<DirectoryEntry | null>(null);
-  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty */ });
-  }, [token]);
 
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
   useEffect(() => {
@@ -3948,7 +3942,8 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
           + `${pad2(endDate.getHours())}:${pad2(endDate.getMinutes())}:00`;
         return overtimeRequestApi.submit({
           workDate: date, requestedStart, requestedEnd, reason: reason.trim(),
-          managerUserId: managerUserId || undefined,
+          // No manual approver selection — the backend always routes to the employee's current
+          // reporting manager (EmployeeManagerHistory) when managerUserId is omitted.
           notifyUserId: notifyEntry?.userId || undefined,
         }, token);
       }));
@@ -4040,14 +4035,6 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
               onChange={(e) => setReason(e.target.value)}
               placeholder="Why is overtime needed?"
             />
-          </Field>
-          <Field label="Assign To (optional)">
-            <select value={managerUserId} onChange={(e) => setManagerUserId(e.target.value)} style={inputStyle}>
-              <option value="">Current manager</option>
-              {approvers.map((a) => (
-                <option key={a.userId} value={a.userId}>{a.fullName} ({a.roleCode})</option>
-              ))}
-            </select>
           </Field>
           <NotifyEmployeeField token={token} value={notifyEntry} onChange={setNotifyEntry} />
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
