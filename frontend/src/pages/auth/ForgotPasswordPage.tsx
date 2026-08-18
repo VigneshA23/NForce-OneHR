@@ -147,7 +147,7 @@ export default function ForgotPasswordPage() {
                   opacity: submitting ? 0.75 : 1,
                 }}
               >
-                {submitting ? 'Sending…' : 'Send reset instructions'}
+                {submitting ? 'Sending…' : 'Reset'}
               </button>
             </motion.div>
 
