@@ -6,6 +6,7 @@ import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
+import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -25,6 +26,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -302,5 +304,100 @@ class LeaveServiceTest {
 
         assertTrue(queue.isEmpty());
         verify(leaveRequestRepository, never()).findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(any(), any());
+    }
+
+    // ── HR Admin / Super Admin override (not the employee's reporting manager) ──
+
+    private User userWithRole(UUID id, String email, String roleCode) {
+        Role role = Role.builder().id(1).code(roleCode).displayName(roleCode).build();
+        return User.builder().id(id).email(email).roles(Set.of(role)).build();
+    }
+
+    @Test
+    void listPendingApprovals_forHrAdmin_returnsAllPendingRegardlessOfReportingLine() {
+        User hrAdmin = userWithRole(strangerId, strangerEmail, "HR_ADMIN");
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(hrAdmin));
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        when(leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING")).thenReturn(List.of(pending));
+
+        List<LeaveRequestResponse> queue = leaveService.listPendingApprovals(strangerEmail);
+
+        assertEquals(1, queue.size());
+        assertEquals(pending.getId(), queue.get(0).getId());
+        verify(historyRepository, never()).findByManagerUserIdAndEffectiveToIsNull(any());
+    }
+
+    @Test
+    void listPendingApprovals_forSuperAdmin_returnsAllPendingRegardlessOfReportingLine() {
+        User superAdmin = userWithRole(strangerId, strangerEmail, "SUPER_ADMIN");
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(superAdmin));
+        when(leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING")).thenReturn(List.of());
+
+        List<LeaveRequestResponse> queue = leaveService.listPendingApprovals(strangerEmail);
+
+        assertTrue(queue.isEmpty());
+        verify(historyRepository, never()).findByManagerUserIdAndEffectiveToIsNull(any());
+    }
+
+    @Test
+    void approve_byHrAdmin_whoIsNotTheReportingManager_isAllowed() {
+        User hrAdmin = userWithRole(strangerId, strangerEmail, "HR_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("2")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(hrAdmin));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LeaveRequestResponse approved = leaveService.approve(pending.getId(), strangerEmail);
+
+        assertEquals("APPROVED", approved.getStatus());
+        assertEquals(strangerId, pending.getDecidedBy());
+        assertEquals(new BigDecimal("2"), balance.getUsedDays());
+        // Admin override must not even need to resolve the reporting-manager relationship.
+        verify(historyRepository, never()).findByEmployeeUserIdAndEffectiveToIsNull(any());
+        verify(auditService).log(eq(strangerId), eq("LEAVE_REQUEST_APPROVED"), eq(pending.getId()), any(), any());
+    }
+
+    @Test
+    void reject_bySuperAdmin_whoIsNotTheReportingManager_isAllowed() {
+        User superAdmin = userWithRole(strangerId, strangerEmail, "SUPER_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(superAdmin));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LeaveRequestResponse rejected = leaveService.reject(pending.getId(), "Policy conflict", strangerEmail);
+
+        assertEquals("REJECTED", rejected.getStatus());
+        verify(leaveBalanceRepository, never()).save(any());
+        verify(historyRepository, never()).findByEmployeeUserIdAndEffectiveToIsNull(any());
+    }
+
+    @Test
+    void approve_byEmployeeLevelUser_withNoOverrideRoleAndNotTheManager_isDenied() {
+        // strangerUser deliberately carries no roles (see setUp) — same shape as a plain
+        // EMPLOYEE-level account: no HR_ADMIN/SUPER_ADMIN override and not the current manager.
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(strangerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+
+        assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), strangerEmail));
+        verify(leaveBalanceRepository, never()).save(any());
+        verify(leaveRequestRepository, never()).save(any());
     }
 }

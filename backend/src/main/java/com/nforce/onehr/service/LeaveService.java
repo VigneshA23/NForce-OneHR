@@ -143,9 +143,15 @@ public class LeaveService {
                 .collect(Collectors.toList());
     }
 
+    /** Reporting manager sees only own reports' pending requests; HR Admin/Super Admin see all. */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
+        if (hasOverrideRole(actor)) {
+            return leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+                    .map(this::toRequestResponse)
+                    .collect(Collectors.toList());
+        }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
                 .map(EmployeeManagerHistory::getEmployeeUserId)
                 .collect(Collectors.toList());
@@ -282,6 +288,12 @@ public class LeaveService {
         return toRequestResponse(request);
     }
 
+    /**
+     * Backend enforcement gate for approve/reject: HR Admin/Super Admin may decide on any
+     * employee's leave regardless of reporting line; everyone else must be the employee's
+     * current reporting manager. Employee-level (and any other non-manager, non-override) users
+     * fail both checks and are denied.
+     */
     private void requireCurrentManagerOf(User actor, UUID employeeId) {
         if (hasOverrideRole(actor)) return;
         EmployeeManagerHistory current = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)

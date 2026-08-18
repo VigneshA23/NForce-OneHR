@@ -76,7 +76,7 @@ public class AuthService {
         user.setLockedUntil(null);
         userRepository.save(user);
 
-        String token = jwtTokenProvider.generateToken(user.getEmail(), user.isMustChangePassword());
+        String token = jwtTokenProvider.generateToken(user.getEmail(), user.isMustChangePassword(), user.getTokenVersion());
         auditService.log(user.getId(), "LOGIN_SUCCESS", user.getId());
 
         String roleCode = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
@@ -161,7 +161,7 @@ public class AuthService {
 
         auditService.log(user.getId(), "PASSWORD_CHANGED", user.getId());
 
-        String newToken = jwtTokenProvider.generateToken(user.getEmail(), false);
+        String newToken = jwtTokenProvider.generateToken(user.getEmail(), false, user.getTokenVersion());
 
         return ChangePasswordResponse.builder()
                 .token(newToken)

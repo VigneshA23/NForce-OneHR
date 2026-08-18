@@ -6,6 +6,8 @@ import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
+import { authApi } from '../api/auth';
+import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
 import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
@@ -125,6 +127,8 @@ function ProfileDropdown({ name, email, role, initials, onClose }: {
 export function Shell() {
   const storeUser  = useAuthStore((s) => s.user);
   const token      = useAuthStore((s) => s.token) ?? '';
+  const clearAuth  = useAuthStore((s) => s.clearAuth);
+  const navigate   = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const location   = useLocation();
   const [dropdownOpen, setDropdownOpen]   = useState(false);
@@ -170,6 +174,49 @@ export function Shell() {
     const id = setInterval(refreshCount, 30000);
     return () => clearInterval(id);
   }, [refreshCount]);
+
+  // Server-initiated logout: an admin changing this user's role bumps their tokenVersion and
+  // pushes a FORCE_LOGOUT event (see UserManagementService#updateUser /
+  // ForceLogoutBroadcaster on the backend) so an open tab reacts within roughly a network
+  // round-trip instead of waiting for its next API call to 401. Backend still enforces this
+  // regardless — token_version is checked on every request — so a missed/dropped push here is
+  // a UX delay, not a security gap.
+  useEffect(() => {
+    if (!token) return;
+    let eventSource: EventSource | null = null;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    async function connect() {
+      if (cancelled) return;
+      try {
+        const { ticket } = await authApi.issueEventsTicket(token);
+        if (cancelled) return;
+        eventSource = new EventSource(`${API_ORIGIN}/api/auth/events?ticket=${encodeURIComponent(ticket)}`);
+        eventSource.addEventListener('FORCE_LOGOUT', () => {
+          eventSource?.close();
+          clearAuth();
+          navigate('/login', { replace: true });
+        });
+        eventSource.onerror = () => {
+          // The ticket is single-use — EventSource's built-in auto-retry would reuse a now-dead
+          // ticket, so close it ourselves and reconnect with a freshly-issued one instead.
+          eventSource?.close();
+          if (!cancelled) retryTimer = setTimeout(connect, 3000);
+        };
+      } catch {
+        if (!cancelled) retryTimer = setTimeout(connect, 3000);
+      }
+    }
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      eventSource?.close();
+    };
+  }, [token, clearAuth, navigate]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
