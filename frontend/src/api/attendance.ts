@@ -296,6 +296,13 @@ export interface SubmitRegularizationPayload {
   managerUserId?: string;
 }
 
+export interface RegularizationBalance {
+  usedCount: number;
+  limitCount: number;
+  remainingCount: number;
+  unlimited: boolean;
+}
+
 export interface ApproverOption {
   userId: string;
   fullName: string;
@@ -471,6 +478,11 @@ export const regularizationApi = {
   approvers: (token: string) =>
     fetch(`${BASE}/attendance/regularization/approvers`, { headers: authHeaders(token) })
       .then(r => handle<ApproverOption[]>(r)),
+
+  /** "Remaining balance: N requests" on the Request Regularization modal. */
+  balance: (token: string) =>
+    fetch(`${BASE}/attendance/regularization/balance`, { headers: authHeaders(token) })
+      .then(r => handle<RegularizationBalance>(r)),
 
   // Super Admin only — full history org-wide, with optional filters.
   all: (filters: RegularizationFilters, token: string) => {
