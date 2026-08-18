@@ -8,8 +8,17 @@ import { useToast } from '../context/ToastContext';
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Rejects: multiple/misplaced '@', missing local or domain part, spaces, consecutive dots in
+// the domain, and trailing junk after the TLD. A syntactically well-formed but non-existent
+// TLD (e.g. "gmail.comabc") cannot be distinguished from a real one by format alone — that
+// would require checking against a live public-suffix list, out of scope for format validation.
+const EMAIL_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+// Letters only, with a single space/hyphen/apostrophe/period allowed between word groups
+// (e.g. "Mary Jane", "O'Brien", "Anne-Marie") — no digits, no leading/trailing/consecutive
+// separators, no other symbols.
+const NAME_RE = /^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$/;
 const digitsOnly = (v: string) => v.replace(/\D/g, '');
+const nameCharsOnly = (v: string) => v.replace(/[^A-Za-z '.-]/g, '');
 
 function validateEmail(v: string): string | null {
   if (!v) return null;
@@ -19,6 +28,11 @@ function validateEmail(v: string): string | null {
 function validatePhone(v: string, label: string): string | null {
   if (!v) return null;
   return digitsOnly(v).length === 10 ? null : `${label} must be exactly 10 digits.`;
+}
+
+function validateName(v: string, label: string): string | null {
+  if (!v) return null;
+  return NAME_RE.test(v) ? null : `${label} can only contain letters, spaces, hyphens, apostrophes, and periods.`;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -117,6 +131,7 @@ export default function ProfilePage() {
     personalEmail: validateEmail(form.personalEmail ?? ''),
     phone: validatePhone(form.phone ?? '', 'Phone number'),
     emergencyContactPhone: validatePhone(form.emergencyContactPhone ?? '', 'Contact phone'),
+    emergencyContactName: validateName(form.emergencyContactName ?? '', 'Contact name'),
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -151,6 +166,10 @@ export default function ProfilePage() {
     }
     if (errors.emergencyContactPhone) {
       showToast('error', errors.emergencyContactPhone);
+      return;
+    }
+    if (errors.emergencyContactName) {
+      showToast('error', errors.emergencyContactName);
       return;
     }
     setSaving(true);
@@ -352,7 +371,7 @@ export default function ProfilePage() {
         <SectionHeader title="Emergency Contact" />
         {editing ? (
           <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <EditField label="Contact Name" value={field('emergencyContactName')} onChange={set('emergencyContactName')} placeholder="Full name" />
+            <EditField label="Contact Name" value={field('emergencyContactName')} onChange={v => set('emergencyContactName')(nameCharsOnly(v))} placeholder="Full name" error={errors.emergencyContactName} />
             <PhoneField label="Contact Phone" value={field('emergencyContactPhone')} onChange={set('emergencyContactPhone')} placeholder="9876543210" error={errors.emergencyContactPhone} />
           </div>
         ) : (

@@ -15,6 +15,8 @@ public class UpdateProfileRequest {
     @Email(message = "Personal email format is invalid")
     private String personalEmail;
     private String address;
+    @Pattern(regexp = "^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
+            message = "Contact name can only contain letters, spaces, hyphens, apostrophes, and periods")
     private String emergencyContactName;
     @Pattern(regexp = "^\\d{10}$", message = "Contact phone number must be exactly 10 digits")
     private String emergencyContactPhone;
