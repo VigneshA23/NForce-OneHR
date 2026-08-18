@@ -235,11 +235,11 @@ class AuthServiceTest {
         when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
         when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
 
-        ForgotPasswordResponse response = authService.forgotPassword(EMAIL.toUpperCase());
+        ForgotPasswordResponse response = authService.forgotPassword(EMAIL.toUpperCase(), "http://localhost:5180");
 
         assertEquals("Password reset instructions have been sent to your email", response.getMessage());
         assertTrue(user.isMustChangePassword());
-        verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString());
+        verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString(), eq("http://localhost:5180"));
         verify(auditService).log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
         verify(notificationService).send(eq(user.getId()), eq("SECURITY"), anyString(), anyString(), anyString());
     }
@@ -249,7 +249,7 @@ class AuthServiceTest {
         when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());
 
         AccountNotFoundException ex = assertThrows(AccountNotFoundException.class,
-                () -> authService.forgotPassword("nobody@test.com"));
+                () -> authService.forgotPassword("nobody@test.com", "http://localhost:5180"));
 
         assertEquals("No account found with this email address", ex.getMessage());
         verifyNoInteractions(emailService);
@@ -262,7 +262,7 @@ class AuthServiceTest {
         user.setActive(false);
 
         DisabledException ex = assertThrows(DisabledException.class,
-                () -> authService.forgotPassword(EMAIL));
+                () -> authService.forgotPassword(EMAIL, "http://localhost:5180"));
 
         assertEquals("This account has been deactivated. Please contact your HR administrator", ex.getMessage());
         verifyNoInteractions(emailService);
@@ -275,7 +275,7 @@ class AuthServiceTest {
         user.setDeletedAt(Instant.now());
 
         DisabledException ex = assertThrows(DisabledException.class,
-                () -> authService.forgotPassword(EMAIL));
+                () -> authService.forgotPassword(EMAIL, "http://localhost:5180"));
 
         assertEquals("This account has been deleted. Please contact your HR administrator", ex.getMessage());
         verifyNoInteractions(emailService);

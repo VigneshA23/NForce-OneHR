@@ -178,7 +178,7 @@ public class AuthService {
      * this method ever runs.
      */
     @Transactional
-    public ForgotPasswordResponse forgotPassword(String email) {
+    public ForgotPasswordResponse forgotPassword(String email, String requestOrigin) {
         String normalizedEmail = email.toLowerCase().trim();
         User user = userRepository.findByEmail(normalizedEmail)
                 .orElseThrow(() -> new AccountNotFoundException("No account found with this email address"));
@@ -199,7 +199,7 @@ public class AuthService {
                 .map(com.nforce.onehr.entity.Employee::getFullName)
                 .orElse(user.getEmail());
 
-        emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+        emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword, requestOrigin);
         auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
         notificationService.send(user.getId(), "SECURITY",
                 "Password Reset",
