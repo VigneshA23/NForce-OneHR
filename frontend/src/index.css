@@ -397,31 +397,73 @@ input[type="date"] {
 /* Auth layout right panel -> extend the left panel's gradient full-bleed
    once the left promo panel is hidden, mobile/tablet only (matches the
    900px collapse breakpoint used throughout AuthLayout.tsx). Desktop keeps
-   its flat var(--panel) background, set inline, untouched.
+   its flat var(--panel) background, set inline, untouched. Padding is also
+   tightened (from 40px/32px) so the enlarged brand mark + full sign-in
+   form both fit one screen without scrolling.
    Keep this gradient string in sync with `panelGradient` in AuthLayout.tsx. */
 @media (max-width: 900px) {
   .nf-auth-right-panel {
     background: radial-gradient(120% 100% at 80% 10%, rgba(177,17,22,.26) 0%, transparent 55%),
       linear-gradient(160deg, #0a0b0e 0%, #12141a 100%) !important;
-    /* Extra top clearance so the fixed brand mark (see .nf-auth-mobile-brand
-       below) never overlaps the sign-in card. */
-    padding-top: 88px !important;
+    padding: clamp(12px, 4vh, 24px) clamp(14px, 5vw, 24px) !important;
+    /* The brand mark (auto height) stays first and sits at the top; the
+       form wrapper below it is the flexed item (see .nf-auth-form-wrap)
+       that actually centers the sign-in form in the leftover space, so
+       justify-content on the panel itself no longer needs to do the
+       centering. flex-start keeps the brand mark from being pushed down
+       if the flexed child ever collapses to zero height. */
+    justify-content: flex-start !important;
+  }
+  .nf-auth-form-wrap {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    /* column direction: justify-content centers vertically (the actual
+       goal); align-items stays 'stretch' (the flex default) so the form
+       still fills this wrapper's full width instead of collapsing to its
+       content's intrinsic width. */
+    justify-content: center;
+    align-items: stretch;
+    min-height: 0;
+    /* Nudges the centered content up slightly: padding-bottom shrinks the
+       content box asymmetrically (only from the bottom), so the center
+       point `justify-content: center` centers around shifts upward. */
+    padding-bottom: clamp(16px, 5vh, 36px);
   }
 }
 
-/* Auth layout mobile brand mark -> pinned small at the top-left of the
-   viewport instead of stacked inline above the sign-in card, mobile/tablet
-   only (matches the 900px collapse breakpoint used throughout
-   AuthLayout.tsx). BrandingBlock is already rendered at size="sm"/compact
-   for this slot; this just fixes its position. */
+/* Auth layout mobile brand mark + sign-in form -> every size (logo, text,
+   gaps, headings, inputs, buttons) scales fluidly with the viewport via
+   clamp(), using vh as the primary driver since a short viewport height is
+   what causes overlap/overflow, with vw as a secondary factor for
+   horizontal padding. Because the brand mark stays in normal document flow
+   (no position:absolute/fixed) it can never overlap the form by
+   construction — flow elements stack, they don't overlap — and the fluid
+   sizing keeps the full stack short enough to fit any phone without
+   scrolling. Desktop/tablet keep the original fixed sizes set inline,
+   untouched. */
 @media (max-width: 900px) {
-  .nf-auth-mobile-brand {
-    position: fixed !important;
-    top: 14px !important;
-    left: 16px !important;
-    width: auto !important;
-    max-width: none !important;
-    margin-bottom: 0 !important;
-    z-index: 50;
+  .nf-auth-mobile-brand { margin-bottom: clamp(10px, 3vh, 22px) !important; }
+  .nf-branding-block { gap: clamp(4px, 1.5vh, 12px) !important; }
+  .nf-brandmark, .nf-brandmark-ring, .nf-brandmark-img {
+    width: clamp(48px, min(11vh, 22vw), 96px) !important;
+    height: clamp(48px, min(11vh, 22vw), 96px) !important;
   }
+  .nf-brandmark-glow {
+    width: clamp(70px, min(16vh, 32vw), 140px) !important;
+    height: clamp(70px, min(16vh, 32vw), 140px) !important;
+  }
+  .nf-brand-title { font-size: clamp(14px, min(3.2vh, 4.4vw), 18px) !important; }
+  .nf-brand-subtitle { font-size: clamp(8px, min(1.8vh, 2.4vw), 10px) !important; margin-top: clamp(1px, 0.6vh, 3px) !important; }
+
+  .nf-login-heading-block { margin-bottom: clamp(8px, 2.5vh, 16px) !important; }
+  .nf-login-heading { font-size: clamp(16px, 4vh, 20px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-login-subtext { font-size: clamp(10px, 2.2vh, 12px) !important; }
+  .nf-login-sso-btn { padding: clamp(6px, 1.6vh, 9px) clamp(10px, 3vw, 14px) !important; font-size: clamp(11px, 2.4vh, 13px) !important; }
+  .nf-login-divider { margin: clamp(8px, 2.2vh, 14px) 0 !important; font-size: clamp(10px, 2vh, 11px) !important; }
+  .nf-login-field { margin-bottom: clamp(6px, 1.8vh, 10px) !important; }
+  .nf-login-label { font-size: clamp(10px, 2vh, 11px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-login-input { padding-top: clamp(6px, 1.6vh, 8px) !important; padding-bottom: clamp(6px, 1.6vh, 8px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
+  .nf-login-forgot-row { margin-bottom: clamp(8px, 2vh, 12px) !important; margin-top: 0 !important; }
+  .nf-login-submit { padding: clamp(7px, 1.8vh, 9px) clamp(12px, 3vw, 16px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
 }
