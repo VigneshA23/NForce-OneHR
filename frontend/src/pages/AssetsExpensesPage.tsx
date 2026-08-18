@@ -1236,6 +1236,24 @@ function FulfillRequestModal({ request, token, onClose, onDone }: { request: Ass
   );
 }
 
+/**
+ * Keeps only digits and a single decimal point — strips '-', letters, and anything else typed
+ * or pasted in. Applied identically to Daily Limit and Second Approval Above so neither field
+ * can ever hold a negative or otherwise invalid value in state.
+ *
+ * These two fields deliberately use type="text" (not type="number"): a number input's `.value`
+ * getter sanitizes an invalid intermediate string like "-" down to "" per the HTML spec, which
+ * matches this function's own output — so React sees no state change and never re-syncs the
+ * DOM, leaving the stray "-" visible even though the real value is already empty. A text input
+ * has no such sanitization step, so forcing state back to the cleaned value actually clears it.
+ */
+function sanitizePositiveDecimalInput(raw: string): string {
+  const digitsAndDots = raw.replace(/[^0-9.]/g, '');
+  const firstDot = digitsAndDots.indexOf('.');
+  if (firstDot === -1) return digitsAndDots;
+  return digitsAndDots.slice(0, firstDot + 1) + digitsAndDots.slice(firstDot + 1).replace(/\./g, '');
+}
+
 function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category: ExpenseCategory | null; token: string; onClose: () => void; onSaved: (c: ExpenseCategory) => void }) {
   const { showToast } = useToast();
   const [form, setForm] = useState({
@@ -1247,16 +1265,27 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
   const [submitting, setSubmitting] = useState(false);
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
+  function setPositiveDecimal(k: string, v: string) { set(k, sanitizePositiveDecimalInput(v)); }
 
   async function submit() {
     if (!form.name.trim()) return;
+    const dailyLimitNum = form.dailyLimit ? parseFloat(form.dailyLimit) : null;
+    const secondApprovalNum = form.secondApprovalAbove ? parseFloat(form.secondApprovalAbove) : null;
+    if (dailyLimitNum != null && (isNaN(dailyLimitNum) || dailyLimitNum < 0)) {
+      showToast('error', 'Daily Limit must be a valid positive number');
+      return;
+    }
+    if (secondApprovalNum != null && (isNaN(secondApprovalNum) || secondApprovalNum < 0)) {
+      showToast('error', 'Second Approval Above must be a valid positive number');
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
         name: form.name.trim(),
         requiresReceiptAbove: parseFloat(form.requiresReceiptAbove) || 0,
-        dailyLimit: form.dailyLimit ? parseFloat(form.dailyLimit) : null,
-        secondApprovalAbove: form.secondApprovalAbove ? parseFloat(form.secondApprovalAbove) : null,
+        dailyLimit: dailyLimitNum,
+        secondApprovalAbove: secondApprovalNum,
       };
       const result = category
         ? await expensesApi.updateCategory(category.id, payload, token)
@@ -1269,8 +1298,8 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
     <Modal title={category ? `Edit — ${category.name}` : 'Add Expense Category'} onClose={onClose}>
       <FormRow><label style={labelStyle}>Name *</label><input style={inputStyle} value={form.name} onChange={e => set('name', e.target.value)} /></FormRow>
       <FormRow><label style={labelStyle}>Receipt Required Above (₹)</label><input type="number" min="0" step="0.01" style={inputStyle} value={form.requiresReceiptAbove} onChange={e => set('requiresReceiptAbove', e.target.value)} /><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3 }}>Set to 0 to never require a receipt.</div></FormRow>
-      <FormRow><label style={labelStyle}>Daily Limit (₹, optional)</label><input type="number" min="0" step="0.01" style={inputStyle} value={form.dailyLimit} onChange={e => set('dailyLimit', e.target.value)} placeholder="No limit" /></FormRow>
-      <FormRow><label style={labelStyle}>Second Approval Above (₹, optional)</label><input type="number" min="0" step="0.01" style={inputStyle} value={form.secondApprovalAbove} onChange={e => set('secondApprovalAbove', e.target.value)} placeholder="No second approval" /></FormRow>
+      <FormRow><label style={labelStyle}>Daily Limit (₹, optional)</label><input type="text" inputMode="decimal" style={inputStyle} value={form.dailyLimit} onChange={e => setPositiveDecimal('dailyLimit', e.target.value)} placeholder="No limit" /></FormRow>
+      <FormRow><label style={labelStyle}>Second Approval Above (₹, optional)</label><input type="text" inputMode="decimal" style={inputStyle} value={form.secondApprovalAbove} onChange={e => setPositiveDecimal('secondApprovalAbove', e.target.value)} placeholder="No second approval" /></FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <BtnGhost onClick={onClose}>Cancel</BtnGhost>
         <BtnPrimary onClick={submit} disabled={!form.name.trim() || submitting}>{submitting ? 'Saving…' : 'Save'}</BtnPrimary>

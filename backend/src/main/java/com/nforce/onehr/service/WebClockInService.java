@@ -49,6 +49,8 @@ public class WebClockInService {
     private static final String STATUS_PRESENT = "PRESENT";
     private static final String STATUS_LATE = "LATE";
     private static final String STATUS_HALF_DAY = "HALF_DAY";
+    // Mirrors AttendanceService.STATUS_MISSING_CHECKOUT — see checkOut's own doc comment.
+    private static final String STATUS_MISSING_CHECKOUT = "MISSING_CHECKOUT";
     private static final String SOURCE_WEB_REMOTE = "WEB_REMOTE";
 
     private final WebClockInRequestRepository webClockInRepository;
@@ -62,11 +64,19 @@ public class WebClockInService {
     // Shared with AttendanceService so the every-3rd-late-arrival penalty applies identically
     // regardless of check-in entry point — see LatePenaltyService.
     private final LatePenaltyService latePenaltyService;
+    private final NotificationService notificationService;
 
     @Transactional
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
-        LocalDateTime now = now(actor.getId());
+
+        // Resolved from the browser-reported zone (req.getTimezone(), e.g. from Intl
+        // .DateTimeFormat().resolvedOptions().timeZone), falling back to the employee's
+        // configured Location.timezone — mirrors AttendanceService.checkIn's resolveZone. Locked
+        // into the Attendance row this creates/resumes (see applyCheckInToAttendance) for the
+        // rest of that session's lifetime.
+        ZoneId zone = resolveZone(req.getTimezone(), actor.getId());
+        LocalDateTime now = LocalDateTime.now(zone);
         LocalDate today = shiftDayOf(now);
 
         if (webClockInRepository.existsByEmployeeUserIdAndWorkDateAndStatus(actor.getId(), today, "APPROVED")) {
@@ -86,7 +96,7 @@ public class WebClockInService {
                 .build();
         entity = webClockInRepository.save(entity);
 
-        applyCheckInToAttendance(entity);
+        applyCheckInToAttendance(entity, zone.getId());
 
         auditService.log(actor.getId(), "WEB_CLOCK_IN_CHECKED_IN", entity.getId());
         return toResponse(entity);
@@ -145,7 +155,10 @@ public class WebClockInService {
         WebClockInRequest req = requirePending(requestId);
         assertCanReview(req, actor);
 
-        applyCheckInToAttendance(req);
+        // A manager approving someone else's old PENDING row — no browser-timezone signal from
+        // the original requester is available here, so this falls straight to their configured
+        // Location.timezone (then the global business zone). See resolveZone.
+        applyCheckInToAttendance(req, resolveZone(null, req.getEmployeeUserId()).getId());
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("APPROVED");
@@ -156,6 +169,11 @@ public class WebClockInService {
 
         String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "reviewComment", comment != null ? comment : ""));
         auditService.log(actor.getId(), "WEB_CLOCK_IN_APPROVED", req.getEmployeeUserId(), before, after);
+
+        notificationService.send(req.getEmployeeUserId(), "WEB_CLOCK_IN_APPROVED",
+                "Web Clock-In Approved",
+                "Your web clock-in for " + req.getWorkDate() + " has been approved by " + employeeName(actor.getId()) + ".",
+                "/requests?type=WEB_CLOCK_IN");
         return toResponse(req);
     }
 
@@ -174,6 +192,12 @@ public class WebClockInService {
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
         auditService.log(actor.getId(), "WEB_CLOCK_IN_REJECTED", req.getEmployeeUserId(), before, after);
+
+        notificationService.send(req.getEmployeeUserId(), "WEB_CLOCK_IN_REJECTED",
+                "Web Clock-In Rejected",
+                "Your web clock-in for " + req.getWorkDate() + " has been rejected by " + employeeName(actor.getId())
+                        + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
+                "/requests?type=WEB_CLOCK_IN");
         return toResponse(req);
     }
 
@@ -182,7 +206,7 @@ public class WebClockInService {
      * Mirrors AttendanceService.checkOut's derived-field logic for a single-session day.
      */
     @Transactional
-    public WebClockInResponse checkOut(String actorEmail) {
+    public WebClockInResponse checkOut(String actorEmail, String clientTimezone) {
         User actor = requireActor(actorEmail);
 
         // Looked up by "approved and not yet checked out", not by today's work_date — a web
@@ -196,12 +220,38 @@ public class WebClockInService {
                 .findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
 
-        LocalDateTime now = now(actor.getId());
-        // A forgotten checkout can leave a session open for a day or more before the employee
-        // actually clicks Check-out; count worked time only up to this shift's own natural end
-        // (not the stale click's real clock time), so it can never inflate into something like
-        // "27h 8m" for what is supposed to be a single shift/day — mirrors
-        // AttendanceService.checkOut's cap.
+        // The session's own zone, locked in at Web Clock-In — NOT this click's browser zone,
+        // which may have drifted since (travel, DST) — governs its Check-Out, so worked-minutes
+        // math and the grace-window check below stay on one consistent clock for the whole
+        // session. clientTimezone only matters as a fallback for a record from before this
+        // column existed. Mirrors AttendanceService.checkOut's resolveZone.
+        LocalDateTime now = LocalDateTime.now(resolveZone(record, actor.getId(), clientTimezone));
+
+        // Past its own workday/grace window (shiftDayCutover, e.g. 7:00 AM the next calendar
+        // day) — mirrors AttendanceService.checkOut: there is no legitimate "now" to check out
+        // with this long after the fact, so this is flagged Missing Check-Out (no fabricated
+        // checkOutAt/workedMinutes) rather than silently accepted as a real, very-late checkout.
+        // Corrected via the existing Regularization flow, same as any other attendance
+        // correction.
+        if (!STATUS_MISSING_CHECKOUT.equals(record.getStatus()) && shiftDayOf(now).isAfter(req.getWorkDate())) {
+            String beforeMissing = auditSnapshot.toJson(Map.of("status", record.getStatus()));
+            record.setStatus(STATUS_MISSING_CHECKOUT);
+            attendanceRepository.save(record);
+            String afterMissing = auditSnapshot.toJson(Map.of("status", STATUS_MISSING_CHECKOUT));
+            auditService.log(actor.getId(), "ATTENDANCE_MISSING_CHECKOUT", record.getId(), beforeMissing, afterMissing);
+        }
+        if (STATUS_MISSING_CHECKOUT.equals(record.getStatus())) {
+            throw new IllegalArgumentException(
+                    "This session is past its check-out window and has been marked as a missing check-out. Please submit a regularization request.");
+        }
+
+        // A forgotten checkout can leave a session open for several hours before the employee
+        // actually clicks Check-out (e.g. checking out at 3 AM for a shift that ended at
+        // 12:30 AM); count worked time only up to this shift's own natural end (not the late
+        // click's real clock time), so it can never inflate into something like "27h 8m" for what
+        // is supposed to be a single shift/day — mirrors AttendanceService.checkOut's cap. Only
+        // reachable here at all within the grace window above — a click that arrives after the
+        // grace window is now rejected outright.
         LocalDateTime cutoff = shiftEndCutoff(actor.getId(), req.getWorkDate());
         LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
 
@@ -239,9 +289,11 @@ public class WebClockInService {
      * again remotely) — mirrors AttendanceService.checkIn's resume path: the day's original
      * checkInAt, late status, and worked-minutes-so-far all stay put, only a new session opens
      * for checkOut to pick back up. Overwriting checkInAt here would silently erase whatever was
-     * already recorded for the day.
+     * already recorded for the day. {@code resolvedZoneId} is stored only on a fresh row — a
+     * resume reuses whatever zone the day's original check-in already locked in, exactly like
+     * AttendanceService.checkIn's resume path.
      */
-    private void applyCheckInToAttendance(WebClockInRequest req) {
+    private void applyCheckInToAttendance(WebClockInRequest req, String resolvedZoneId) {
         Attendance record = attendanceRepository
                 .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getWorkDate())
                 .orElse(null);
@@ -252,6 +304,7 @@ public class WebClockInService {
                     .workDate(req.getWorkDate())
                     .checkInAt(req.getRequestedCheckIn())
                     .sessionStartedAt(req.getRequestedCheckIn())
+                    .timezone(resolvedZoneId)
                     .build();
             record.setSource(SOURCE_WEB_REMOTE);
             recomputeDerivedFields(record, req.getEmployeeUserId());
@@ -291,19 +344,55 @@ public class WebClockInService {
     }
 
     /**
-     * Clock for a specific employee's own web clock-in actions — computed in THEIR configured
-     * location's timezone, not the single global business zone. Mirrors
-     * AttendanceService.now(Employee)/zoneIdFor. Falls back to the global zone when the
-     * employee has no location assigned, or their location has no timezone configured.
+     * The employee's configured Location.timezone, falling back to the global business zone —
+     * mirrors AttendanceService.zoneIdFor. Used only when there's no browser-reported (or
+     * session-locked) zone to prefer — see resolveZone.
      */
-    private LocalDateTime now(UUID employeeUserId) {
-        ZoneId zoneId = employeeRepository.findById(employeeUserId)
+    private ZoneId zoneIdFor(UUID employeeUserId) {
+        return employeeRepository.findById(employeeUserId)
                 .map(Employee::getLocation)
                 .map(Location::getTimezone)
                 .filter(tz -> tz != null && !tz.isBlank())
                 .map(ZoneId::of)
                 .orElseGet(() -> ZoneId.of(attendanceProps.getZone()));
-        return LocalDateTime.now(zoneId);
+    }
+
+    /**
+     * Parses an IANA zone id (e.g. from the browser's {@code Intl.DateTimeFormat()
+     * .resolvedOptions().timeZone}), or null if it's missing/blank/not a real zone — callers
+     * fall back to {@link #zoneIdFor} rather than fail the request over a malformed value.
+     * Mirrors AttendanceService.parseZone.
+     */
+    private ZoneId parseZone(String candidate) {
+        if (candidate == null || candidate.isBlank()) return null;
+        try {
+            return ZoneId.of(candidate.trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Zone for a fresh Web Clock-In click: the browser-reported zone if present and valid, else
+     * the employee's configured Location.timezone (then the global business zone). Mirrors
+     * AttendanceService.resolveZone(String, Employee).
+     */
+    private ZoneId resolveZone(String clientTimezone, UUID employeeUserId) {
+        ZoneId fromClient = parseZone(clientTimezone);
+        return fromClient != null ? fromClient : zoneIdFor(employeeUserId);
+    }
+
+    /**
+     * Zone for an EXISTING session — its own Attendance.timezone, locked in at Check-In/Web
+     * Clock-In, governs Check-Out/grace-window/worked-minutes math for as long as it's open, so
+     * a browser reporting a different zone later (travel, DST) can't shift that session's
+     * shift-day or inflate/shrink its worked hours. clientTimezoneFallback (and then
+     * Location.timezone) only apply for a record from before this column existed. Mirrors
+     * AttendanceService.resolveZone(Attendance, Employee, String).
+     */
+    private ZoneId resolveZone(Attendance record, UUID employeeUserId, String clientTimezoneFallback) {
+        ZoneId stored = parseZone(record.getTimezone());
+        return stored != null ? stored : resolveZone(clientTimezoneFallback, employeeUserId);
     }
 
     /**
@@ -376,6 +465,10 @@ public class WebClockInService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+    }
+
+    private String employeeName(UUID userId) {
+        return employeeRepository.findById(userId).map(Employee::getFullName).orElse("Unknown");
     }
 
     private WebClockInResponse toResponse(WebClockInRequest req) {

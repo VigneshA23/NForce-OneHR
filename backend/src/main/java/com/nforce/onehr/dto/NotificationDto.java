@@ -13,5 +13,6 @@ public class NotificationDto {
     private String message;
     private String linkPath;
     private boolean read;
+    private String priority;
     private Instant createdAt;
 }

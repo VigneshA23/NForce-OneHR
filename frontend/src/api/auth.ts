@@ -6,6 +6,7 @@ export interface LoginResponse {
   mustChangePassword: boolean;
   email: string;
   role?: string;
+  fullName?: string;
 }
 
 export interface ChangePasswordResponse {
@@ -47,12 +48,6 @@ async function handle<T>(res: Response): Promise<T> {
   }
   return body as T;
 }
-
-// Text shared by both failure paths the backend can return for forgot-password: a malformed
-// email (400, via @Email on ForgotPasswordRequest) and a well-formed but unregistered email
-// (404, via GlobalExceptionHandler#handleAccountNotFound). The forgot-password page matches on
-// this exact text to show the error instead of silently treating the request as a success.
-export const INVALID_EMAIL_MESSAGE = 'Invalid E-mail';
 
 export const authApi = {
   login: (email: string, password: string) =>

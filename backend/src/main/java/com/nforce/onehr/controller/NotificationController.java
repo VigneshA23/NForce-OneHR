@@ -29,6 +29,15 @@ public class NotificationController {
         return ResponseEntity.ok(notificationService.getNotifications(userId, page, size));
     }
 
+    @GetMapping("/unread")
+    public ResponseEntity<Page<NotificationDto>> unread(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Authentication auth) {
+        UUID userId = resolveUserId(auth.getName());
+        return ResponseEntity.ok(notificationService.getUnreadNotifications(userId, page, size));
+    }
+
     @GetMapping("/unread-count")
     public ResponseEntity<Map<String, Long>> unreadCount(Authentication auth) {
         UUID userId = resolveUserId(auth.getName());

@@ -17,6 +17,15 @@ const ROLES = [
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'];
 
+// Letters (any language), spaces, hyphens, and apostrophes only — blocks emojis, digits,
+// and other symbols while still allowing names like "O'Brien" or "Anne-Marie". Mirrors the
+// backend's CreateUserRequest @Pattern so both sides reject the same inputs.
+const NAME_PATTERN = /^(?=.*\p{L})[\p{L}\s'-]+$/u;
+// Requires a real, letters-only TLD (2+ chars) with nothing after it — rejects domains with
+// no dot (e.g. "a@99999999999") and trailing junk after the TLD (e.g. "a@example.com123").
+// Mirrors the backend's CreateUserRequest @Pattern so both sides reject the same inputs.
+const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
 const ROLE_COLOR: Record<string, string> = {
   EMPLOYEE: '#2FB67C', MANAGER: '#4C8DD6', HR_ADMIN: '#E0A93B', SUPER_ADMIN: '#E4373D',
 };
@@ -140,12 +149,18 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.fullName.trim() || !form.email.trim()) { setError('Name and email required.'); return; }
-    if (!/[a-zA-Z]/.test(form.fullName.trim())) { setError('Full name must contain at least one letter.'); return; }
+    const trimmedName = form.fullName.trim();
+    const rawEmail = form.email;
+    if (!trimmedName || !rawEmail) { setError('Name and email required.'); return; }
+    if (!NAME_PATTERN.test(trimmedName)) { setError("Full name can only contain letters, spaces, hyphens, and apostrophes — no emojis or symbols."); return; }
+    // Deliberately checked against the raw value, not a trimmed one — a leading/trailing
+    // space is rejected outright rather than silently stripped before validating.
+    if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
+    if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
     setSubmitting(true); setError(null);
     try {
-      const emp = await usersApi.create(form, token);
+      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail }, token);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
       if (startOnboarding) {

@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useImperativeHandle, useMemo, useRef,
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, AlarmClock, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -84,6 +84,30 @@ function wallClockMs(iso: string): number {
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * The day's required effective minutes — the employee's assigned shift duration (wrapping past
+ * midnight for overnight shifts), falling back to the global fullDayMinHours target only for the
+ * edge case of an employee with no Shift assigned. Same calc as ExceptionService.
+ * computeEffectiveHoursPercent on the backend, kept in sync so "100% effective hours" means the
+ * same thing on both sides.
+ */
+function fullDayTargetMinutesFor(config: AttendanceConfig | null): number | null {
+  const shiftMinutes = config?.shiftEnd
+    ? (() => {
+        const startMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0;
+        const endMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0;
+        return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
+      })()
+    : null;
+  return shiftMinutes ?? (config ? config.fullDayMinHours * 60 : null);
+}
+
+/** Whether a day's worked minutes reached 100% of its required effective hours target. */
+function hasMetFullEffectiveHours(workedMinutes: number | null | undefined, config: AttendanceConfig | null): boolean {
+  const target = fullDayTargetMinutesFor(config);
+  return target != null && workedMinutes != null && workedMinutes >= target;
 }
 
 // Requirement 1 (date-window restriction): Employee/Manager/HR may only pick today or one of
@@ -296,6 +320,7 @@ const STATUS_COLORS: Record<AttendanceStatus, string> = {
   LATE: '#E0A93B',
   HALF_DAY: '#4C8DD6',
   ABSENT: '#E4373D',
+  MISSING_CHECKOUT: '#E4373D',
 };
 
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
@@ -303,6 +328,7 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   LATE: 'Late',
   HALF_DAY: 'Half Day',
   ABSENT: 'Absent',
+  MISSING_CHECKOUT: 'Missing Check-Out',
 };
 
 const REGULARIZATION_STATUS_COLOR: Record<string, string> = {
@@ -380,13 +406,17 @@ function StatusPill({ status }: { status: AttendanceStatus | null }) {
  * `isLate` check (past shiftStart + graceMinutes) re-derived from data already on hand,
  * without needing `status` (which HALF_DAY can override — see AttendanceService.checkOut).
  */
-function LateBadge({ minutes, graceMinutes }: { minutes: number | null | undefined; graceMinutes: number | null | undefined }) {
+function LateBadge({ minutes, graceMinutes, workedMinutes, config }: {
+  minutes: number | null | undefined; graceMinutes: number | null | undefined;
+  workedMinutes?: number | null; config?: AttendanceConfig | null;
+}) {
   const { formatDuration } = useTimeFormat();
   const grace = graceMinutes ?? 10;
   if (!minutes || minutes <= grace) return null;
+  const fullDay = hasMetFullEffectiveHours(workedMinutes, config ?? null);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: '#E0A93B' }}>
-      <AlarmClock size={14} aria-label="Late" /> Late by {formatDuration(minutes)}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: '#E0A93B' }}>
+      {!fullDay && <Turtle size={18} aria-label="Late" style={{ flexShrink: 0 }} />} Late by {formatDuration(minutes)}
     </div>
   );
 }
@@ -1729,19 +1759,7 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
 }) {
   const { formatTime, formatDuration } = useTimeFormat();
 
-  // ONEHR-108: every employee is now seeded with an assigned Shift (start+end), so shiftEnd is
-  // normally always present — fall back to the fullDayMinHours target only for the edge case of
-  // an employee with no Shift assigned at all.
-  // Overnight shifts (e.g. 3:30 PM – 12:30 AM) have an end time numerically before the start
-  // time within a single day — wrap past midnight rather than producing a negative duration.
-  const shiftMinutes = config?.shiftEnd
-    ? (() => {
-        const startMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0;
-        const endMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0;
-        return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
-      })()
-    : null;
-  const fullDayTargetMinutes = shiftMinutes ?? (config ? config.fullDayMinHours * 60 : null);
+  const fullDayTargetMinutes = fullDayTargetMinutesFor(config);
   const progressPct = fullDayTargetMinutes && workedMinutesToday != null
     ? Math.min(100, Math.round((workedMinutesToday / fullDayTargetMinutes) * 100))
     : 0;
@@ -1761,7 +1779,7 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
       )}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--txt-dim)', marginBottom: 4 }}>
-          <span>{shiftMinutes ? 'Progress toward shift end' : `Progress toward a full day${config ? ` (${config.fullDayMinHours}h)` : ''}`}</span>
+          <span>{config?.shiftEnd ? 'Progress toward shift end' : `Progress toward a full day${config ? ` (${config.fullDayMinHours}h)` : ''}`}</span>
           <span>{formatDuration(workedMinutesToday) ?? dash}</span>
         </div>
         <div style={{ height: 7, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -2336,7 +2354,7 @@ function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(info.record.workedMinutes) ?? dash}</div>
           </div>
           <StatusPill status={info.record.status} />
-          <LateBadge minutes={info.record.lateByMinutes} graceMinutes={config?.lateGraceMinutes} />
+          <LateBadge minutes={info.record.lateByMinutes} graceMinutes={config?.lateGraceMinutes} workedMinutes={info.record.workedMinutes} config={config} />
           <DayShiftAndActions info={info} config={config} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
           <DayPunchIntervals info={info} punches={punches} />
         </>
@@ -2410,15 +2428,18 @@ function EffectiveHoursCell({ metrics }: { metrics: RowMetrics }) {
 }
 
 /** Same grace-aware rule as LateBadge — see its doc comment. */
-function ArrivalCell({ record, graceMinutes }: { record: AttendanceRecord | undefined; graceMinutes: number | null | undefined }) {
+function ArrivalCell({ record, graceMinutes, config }: {
+  record: AttendanceRecord | undefined; graceMinutes: number | null | undefined; config?: AttendanceConfig | null;
+}) {
   const { formatDuration } = useTimeFormat();
   if (!record?.checkInAt) return dash;
   const late = record.lateByMinutes ?? 0;
   const grace = graceMinutes ?? 10;
   if (late > grace) {
+    const fullDay = hasMetFullEffectiveHours(record.workedMinutes, config ?? null);
     return (
-      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#E0A93B', fontSize: 12, fontWeight: 600 }}>
-        <AlarmClock size={13} /> {formatDuration(late)} late
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#E0A93B', fontSize: 12, fontWeight: 600 }}>
+        {!fullDay && <Turtle size={16} style={{ flexShrink: 0 }} />} {formatDuration(late)} late
       </span>
     );
   }
@@ -2949,7 +2970,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                       </div>
                     </div>
                     {today.record?.status && <StatusPill status={today.record.status} />}
-                    <LateBadge minutes={today.record?.lateByMinutes} graceMinutes={config?.lateGraceMinutes} />
+                    <LateBadge minutes={today.record?.lateByMinutes} graceMinutes={config?.lateGraceMinutes} workedMinutes={workedMinutesToday} config={config} />
                     {/* The button is driven only by the server's canCheckIn / canCheckOut flags. */}
                     <div>
                       {today.canCheckIn && (
@@ -3031,7 +3052,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                           <td style={tdStyle}><EffectiveHoursCell metrics={metrics} /></td>
                           <td style={tdStyle}>{formatDuration(metrics.breakMinutes) ?? dash}</td>
                           <td style={tdStyle}>{formatDuration(metrics.grossMinutes) ?? dash}{metrics.grossMinutes != null && metrics.openSession ? ' +' : ''}</td>
-                          <td style={tdStyle}><ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} /></td>
+                          <td style={tdStyle}><ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} config={config} /></td>
                           <td style={tdStyle}>
                             <button
                               onClick={() => setViewDetailsIso(info.iso)}
@@ -3959,19 +3980,11 @@ function AttendancePageInner() {
   const role = toShellRole(useAuthStore((s) => s.user?.role));
   const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
 
-  // Super Admin is a system/oversight role only — no personal attendance record, no
-  // self-service Check In/Check Out (see UserManagementService.rolesFor). They get the
-  // organization-wide roster below, not the "My Attendance" personal dashboard everyone
-  // else (including HR Admin, who is staff too) sees.
-  const isSuperAdmin = role === 'Super Admin';
-
   const subtitle = role === 'Manager'
     ? 'Review daily attendance for the selected month, and your team’s attendance for any day.'
-    : role === 'HR Admin'
+    : role === 'HR Admin' || role === 'Super Admin'
       ? 'Review daily attendance for the selected month, and attendance across the organization.'
-      : isSuperAdmin
-        ? 'Attendance across the organization.'
-        : 'Review daily attendance for the selected month.';
+      : 'Review daily attendance for the selected month.';
 
   const myAttendanceRef = useRef<MyAttendanceHandle>(null);
   const regularizationRef = useRef<RegularizationSectionHandle>(null);
@@ -3996,71 +4009,67 @@ function AttendancePageInner() {
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
             color: 'var(--txt)', margin: 0,
-          }}>{isSuperAdmin ? 'Attendance Administration' : 'My Attendance'}</h1>
+          }}>My Attendance</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
         </div>
-        {!isSuperAdmin && (
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={() => myAttendanceRef.current?.exportMonth()}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              <Download size={14} /> Export selected month
-            </button>
-            <button
-              onClick={() => {
-                if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
-                  regularizationRef.current?.openNewRequest();
-                } else {
-                  pendingOpenRequest.current = true;
-                  setLogsTab('ATTENDANCE_REQUESTS');
-                  setRequestsSubTab('REGULARIZATION');
-                }
-              }}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              <CalendarPlus size={14} /> Request Regularization
-            </button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => myAttendanceRef.current?.exportMonth()}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <Download size={14} /> Export selected month
+          </button>
+          <button
+            onClick={() => {
+              if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
+                regularizationRef.current?.openNewRequest();
+              } else {
+                pendingOpenRequest.current = true;
+                setLogsTab('ATTENDANCE_REQUESTS');
+                setRequestsSubTab('REGULARIZATION');
+              }
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <CalendarPlus size={14} /> Request Regularization
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
-        {!isSuperAdmin && (
-          <MyAttendance
-            ref={myAttendanceRef}
-            isSuperAdmin={isSuperAdmin}
-            logsTab={logsTab}
-            onLogsTabChange={setLogsTab}
-            otherTabContent={
-              logsTab === 'ATTENDANCE_REQUESTS' ? (
-                <div>
-                  <div style={{ marginBottom: 16 }}>
-                    <FilterTabs
-                      value={requestsSubTab}
-                      onChange={setRequestsSubTab}
-                      options={[
-                        { value: 'REGULARIZATION', label: 'Regularization' },
-                        { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
-                      ]}
-                    />
-                  </div>
-                  {requestsSubTab === 'REGULARIZATION' && (
-                    <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={isSuperAdmin} isManager={role === 'Manager'} />
-                  )}
-                  {requestsSubTab === 'WFH_PARTIAL_DAY' && (
-                    <AttendanceRequestsSection token={token} canApprove={canApprove} />
-                  )}
+        <MyAttendance
+          ref={myAttendanceRef}
+          isSuperAdmin={role === 'Super Admin'}
+          logsTab={logsTab}
+          onLogsTabChange={setLogsTab}
+          otherTabContent={
+            logsTab === 'ATTENDANCE_REQUESTS' ? (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <FilterTabs
+                    value={requestsSubTab}
+                    onChange={setRequestsSubTab}
+                    options={[
+                      { value: 'REGULARIZATION', label: 'Regularization' },
+                      { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
+                    ]}
+                  />
                 </div>
-              ) : logsTab === 'OVERTIME' ? (
-                <OvertimeRequestsSection token={token} canApprove={canApprove} />
-              ) : null
-            }
-          />
-        )}
+                {requestsSubTab === 'REGULARIZATION' && (
+                  <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} />
+                )}
+                {requestsSubTab === 'WFH_PARTIAL_DAY' && (
+                  <AttendanceRequestsSection token={token} canApprove={canApprove} />
+                )}
+              </div>
+            ) : logsTab === 'OVERTIME' ? (
+              <OvertimeRequestsSection token={token} canApprove={canApprove} />
+            ) : null
+          }
+        />
 
         {role === 'Manager' && <DayRoster scope="team" />}
-        {(role === 'HR Admin' || isSuperAdmin) && <DayRoster scope="all" />}
+        {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" />}
       </div>
     </div>
   );

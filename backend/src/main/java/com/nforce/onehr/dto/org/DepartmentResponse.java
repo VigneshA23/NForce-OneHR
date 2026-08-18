@@ -13,8 +13,9 @@ public class DepartmentResponse {
     boolean active;
     long employeeCount;
     LocalDateTime createdAt;
+    LocalDateTime updatedAt;
 
     public static DepartmentResponse from(Department d, long employeeCount) {
-        return new DepartmentResponse(d.getId(), d.getName(), d.isActive(), employeeCount, d.getCreatedAt());
+        return new DepartmentResponse(d.getId(), d.getName(), d.isActive(), employeeCount, d.getCreatedAt(), d.getUpdatedAt());
     }
 }

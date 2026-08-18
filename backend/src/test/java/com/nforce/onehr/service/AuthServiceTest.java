@@ -231,17 +231,17 @@ class AuthServiceTest {
     }
 
     @Test
-    void forgotPassword_registeredActiveEmail_sendsResetEmailAndReturnsGenericMessage() {
+    void forgotPassword_registeredActiveEmail_sendsResetEmailAndReturnsSuccessMessage() {
         when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
         when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
 
-        ForgotPasswordResponse response = authService.forgotPassword(EMAIL);
+        ForgotPasswordResponse response = authService.forgotPassword(EMAIL.toUpperCase());
 
-        assertEquals("If that email is registered, we've sent password reset instructions.",
-                response.getMessage());
+        assertEquals("Password reset instructions have been sent to your email", response.getMessage());
         assertTrue(user.isMustChangePassword());
         verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString());
         verify(auditService).log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+        verify(notificationService).send(eq(user.getId()), eq("SECURITY"), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -251,20 +251,35 @@ class AuthServiceTest {
         AccountNotFoundException ex = assertThrows(AccountNotFoundException.class,
                 () -> authService.forgotPassword("nobody@test.com"));
 
-        assertEquals("Invalid E-mail", ex.getMessage());
+        assertEquals("No account found with this email address", ex.getMessage());
         verifyNoInteractions(emailService);
         verifyNoInteractions(notificationService);
+        verify(userRepository, never()).save(any());
     }
 
     @Test
-    void forgotPassword_deactivatedAccount_returnsGenericMessageWithoutSendingEmail() {
+    void forgotPassword_deactivatedAccount_throwsDisabledAndSendsNoEmail() {
         user.setActive(false);
 
-        ForgotPasswordResponse response = authService.forgotPassword(EMAIL);
+        DisabledException ex = assertThrows(DisabledException.class,
+                () -> authService.forgotPassword(EMAIL));
 
-        assertEquals("If that email is registered, we've sent password reset instructions.",
-                response.getMessage());
+        assertEquals("This account has been deactivated. Please contact your HR administrator", ex.getMessage());
         verifyNoInteractions(emailService);
         verifyNoInteractions(notificationService);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void forgotPassword_deletedAccount_throwsDisabledAndSendsNoEmail() {
+        user.setDeletedAt(Instant.now());
+
+        DisabledException ex = assertThrows(DisabledException.class,
+                () -> authService.forgotPassword(EMAIL));
+
+        assertEquals("This account has been deleted. Please contact your HR administrator", ex.getMessage());
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(notificationService);
+        verify(userRepository, never()).save(any());
     }
 }

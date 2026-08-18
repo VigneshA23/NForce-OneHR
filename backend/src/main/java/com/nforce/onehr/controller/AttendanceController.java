@@ -15,6 +15,7 @@ import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
 import com.nforce.onehr.dto.attendance.PenaltyCancelRequest;
 import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
+import com.nforce.onehr.dto.attendance.PunchTimezoneRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.attendance.RejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.TeamEffortEntry;
@@ -41,8 +42,13 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Check-in and check-out take no request body by design — the timestamp is generated
- * server-side and a client-supplied time is never accepted.
+ * Check-in and check-out take no request body BY DEFAULT — the timestamp is always generated
+ * server-side and a client-supplied TIME is never accepted. The one thing a client may supply is
+ * its own IANA timezone (e.g. the browser's {@code Intl.DateTimeFormat().resolvedOptions()
+ * .timeZone}), via the optional {@link PunchTimezoneRequest} body — this only picks which zone
+ * the server's own clock is read in, not what time it reads; missing or invalid, and the
+ * employee's configured Location.timezone (then the global business zone) is used instead. See
+ * AttendanceService.resolveZone.
  */
 @RestController
 @RequestMapping("/api/attendance")
@@ -61,21 +67,21 @@ public class AttendanceController {
 
     @GetMapping("/today")
     @PreAuthorize("hasRole('EMPLOYEE')")
-    public TodayAttendanceResponse today(Principal principal) {
-        return attendanceService.getToday(principal.getName());
+    public TodayAttendanceResponse today(@RequestParam(required = false) String timezone, Principal principal) {
+        return attendanceService.getToday(principal.getName(), timezone);
     }
 
     @PostMapping("/check-in")
     @PreAuthorize("hasRole('EMPLOYEE')")
     @ResponseStatus(HttpStatus.CREATED)
-    public AttendanceResponse checkIn(Principal principal) {
-        return attendanceService.checkIn(principal.getName());
+    public AttendanceResponse checkIn(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal) {
+        return attendanceService.checkIn(principal.getName(), req != null ? req.getTimezone() : null);
     }
 
     @PostMapping("/check-out")
     @PreAuthorize("hasRole('EMPLOYEE')")
-    public AttendanceResponse checkOut(Principal principal) {
-        return attendanceService.checkOut(principal.getName());
+    public AttendanceResponse checkOut(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal) {
+        return attendanceService.checkOut(principal.getName(), req != null ? req.getTimezone() : null);
     }
 
     @GetMapping("/me")

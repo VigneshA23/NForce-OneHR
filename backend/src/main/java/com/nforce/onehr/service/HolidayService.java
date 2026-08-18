@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -26,9 +27,17 @@ public class HolidayService {
 
     /**
      * HR Admin + Super Admin. Creates a holiday for a specific location.
+     * Restricted to today or a future date — editing an existing (possibly
+     * already-past) holiday is a separate path (updateHoliday) and is
+     * deliberately not subject to this check, so historical records stay
+     * correctable.
      */
     @Transactional
     public HolidayResponse createHoliday(CreateHolidayRequest req) {
+        if (req.getHolidayDate().isBefore(LocalDate.now())) {
+            throw new IllegalArgumentException("Holiday date cannot be in the past");
+        }
+
         Location location = locationRepository.findById(req.getLocationId())
                 .orElseThrow(() -> new IllegalArgumentException("Location not found"));
 

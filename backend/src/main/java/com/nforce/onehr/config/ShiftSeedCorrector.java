@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,10 @@ import java.util.UUID;
  * idempotent to reassert, a startup-time correction sidesteps the version-collision problem
  * entirely instead of playing whack-a-mole with migration numbers.
  *
+ * V101 itself moved the intended start to 15:00, but this constant was changed back to 15:30
+ * without a matching migration — leaving this corrector and V101 disagreeing on every restart.
+ * 15:30 is confirmed correct; V117 brings the DB back in line with it.
+ *
  * The employee backfill exists because V95's "assign everyone the Regular Shift" UPDATE only
  * ran once, against whoever existed at that moment — any employee onboarded since has a null
  * {@code shift_id}, which silently falls back to {@code AttendanceProperties.shiftStart}
@@ -50,6 +56,9 @@ import java.util.UUID;
  * employee first punched in. AttendanceException.minutesLate self-corrects afterwards — it is
  * re-upserted from Attendance.lateByMinutes on every exceptions-dashboard load.
  */
+// Must run before StaleAttendanceSweeper's startup pass: the sweep's shift-end cutoff reads
+// each employee's Shift.endTime, which this corrector may still be about to fix.
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @Component
 @RequiredArgsConstructor
 @Slf4j

@@ -17,9 +17,10 @@ public class LocationResponse {
     boolean active;
     long employeeCount;
     LocalDateTime createdAt;
+    LocalDateTime updatedAt;
 
     public static LocationResponse from(Location l, long employeeCount) {
         return new LocationResponse(l.getId(), l.getName(), l.getCity(), l.getState(), l.getCountry(),
-                l.getHolidayRegion(), l.isActive(), employeeCount, l.getCreatedAt());
+                l.getHolidayRegion(), l.isActive(), employeeCount, l.getCreatedAt(), l.getUpdatedAt());
     }
 }

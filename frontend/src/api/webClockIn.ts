@@ -1,4 +1,5 @@
 import { API_ORIGIN } from './config';
+import { browserTimezone } from './attendance';
 const BASE = `${API_ORIGIN}/api/attendance/web-clock-in`;
 
 function authHeaders(token: string) {
@@ -34,17 +35,21 @@ export interface WebClockInRecord {
 }
 
 export const webClockInApi = {
+  // timezone is the browser's own IANA zone (see attendance.ts's browserTimezone) — the server
+  // still generates the actual timestamp itself, this only picks which zone it reads its clock
+  // in, falling back to the employee's configured Location.timezone if omitted/invalid.
   submit: (reason: string, token: string) =>
     fetch(BASE, {
-      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }),
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason, timezone: browserTimezone() }),
     }).then(r => handle<WebClockInRecord>(r)),
 
   mine: (token: string) =>
     fetch(`${BASE}/mine`, { headers: authHeaders(token) }).then(r => handle<WebClockInRecord[]>(r)),
 
   checkOut: (token: string) =>
-    fetch(`${BASE}/checkout`, { method: 'POST', headers: authHeaders(token) })
-      .then(r => handle<WebClockInRecord>(r)),
+    fetch(`${BASE}/checkout`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ timezone: browserTimezone() }),
+    }).then(r => handle<WebClockInRecord>(r)),
 
   /** Undoes today's still-open check-in (before check-out) — no approval needed. */
   cancel: (token: string) =>

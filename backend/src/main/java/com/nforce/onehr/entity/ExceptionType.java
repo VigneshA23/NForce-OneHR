@@ -27,5 +27,11 @@ public final class ExceptionType {
     // Reserved — an early checkout is not detected as an exception yet.
     public static final String EARLY_DEPARTURE = "EARLY_DEPARTURE";
 
+    // A leave request still awaiting approval. Synthesized directly from LeaveRequest at
+    // Exception Dashboard read time (see ExceptionService.getExceptionsForCaller) — never
+    // persisted to attendance_exceptions and never evaluated against a Penalization Policy,
+    // since it isn't an attendance discrepancy.
+    public static final String PENDING_LEAVE_APPROVAL = "PENDING_LEAVE_APPROVAL";
+
     private ExceptionType() {}
 }

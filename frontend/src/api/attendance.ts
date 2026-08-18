@@ -5,6 +5,23 @@ function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+/**
+ * The browser/device's own IANA timezone (e.g. "Australia/Adelaide") — sent with Check-In/
+ * Check-Out and Web Clock-In/Out so the server computes that action's timestamp in the user's
+ * actual current timezone rather than their configured Location.timezone. `Intl.DateTimeFormat`
+ * is supported by every browser this app targets; if it's ever unavailable, undefined is sent
+ * and the server falls back to the employee's configured Location.timezone (then the global
+ * business zone) — see AttendanceService.resolveZone. Never a client-supplied TIME, only which
+ * zone the server's own clock reads in.
+ */
+export function browserTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   let body: { message?: string } = {};
   try { body = await res.json(); } catch { /* non-json */ }
@@ -12,7 +29,7 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type AttendanceStatus = 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT';
+export type AttendanceStatus = 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | 'MISSING_CHECKOUT';
 export type AttendanceSource = 'SYSTEM' | 'REGULARIZATION' | 'WEB_REMOTE';
 
 export interface AttendanceRecord {
@@ -34,6 +51,9 @@ export interface AttendanceRecord {
   source: AttendanceSource | null;
   /** The employee's configured work mode (ONSITE/REMOTE/HYBRID) at query time. */
   workMode: string | null;
+  /** IANA zone id the browser reported at Check-In/Web Clock-In (e.g. "Australia/Adelaide") —
+   * null for records predating this field, or where none was supplied. */
+  timezone: string | null;
 }
 
 export interface Punch {
@@ -294,17 +314,23 @@ export interface RegularizationFilters {
 }
 
 export const attendanceApi = {
-  today: (token: string) =>
-    fetch(`${BASE}/attendance/today`, { headers: authHeaders(token) }).then(handle<TodayAttendance>),
+  today: (token: string) => {
+    const tz = browserTimezone();
+    return fetch(`${BASE}/attendance/today${tz ? `?timezone=${encodeURIComponent(tz)}` : ''}`, { headers: authHeaders(token) })
+      .then(handle<TodayAttendance>);
+  },
 
-  // No request body — the server generates the timestamp.
+  // The server still generates the actual timestamp itself — this only tells it which zone
+  // (the browser's own) to read its clock in. See browserTimezone's own doc comment.
   checkIn: (token: string) =>
-    fetch(`${BASE}/attendance/check-in`, { method: 'POST', headers: authHeaders(token) })
-      .then(handle<AttendanceRecord>),
+    fetch(`${BASE}/attendance/check-in`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ timezone: browserTimezone() }),
+    }).then(handle<AttendanceRecord>),
 
   checkOut: (token: string) =>
-    fetch(`${BASE}/attendance/check-out`, { method: 'POST', headers: authHeaders(token) })
-      .then(handle<AttendanceRecord>),
+    fetch(`${BASE}/attendance/check-out`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ timezone: browserTimezone() }),
+    }).then(handle<AttendanceRecord>),
 
   myHistory: (from: string, to: string, token: string) =>
     fetch(`${BASE}/attendance/me?from=${from}&to=${to}`, { headers: authHeaders(token) })

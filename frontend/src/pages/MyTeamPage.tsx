@@ -48,9 +48,13 @@ function addDays(d: Date, n: number): Date {
 function toISO(d: Date): string {
   return toISODate(d.getFullYear(), d.getMonth(), d.getDate());
 }
+// Backend timestamps are IST (UTC+5:30) LocalDateTime strings — append offset so the browser
+// converts to the viewer's own local timezone instead of displaying raw IST.
 function fmtTime(iso?: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const d = new Date(iso + '+05:30');
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';
@@ -1204,7 +1208,6 @@ function PeersView({ token }: { token: string }) {
   const today = todayIsoDate();
 
   const [peers, setPeers] = useState<DirectoryEntry[]>([]);
-  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
   const [todayLeave, setTodayLeave] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1219,9 +1222,6 @@ function PeersView({ token }: { token: string }) {
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
-    directoryApi.myManager(token)
-      .then(m => setManager(m ? { userId: m.userId, name: m.fullName } : null))
-      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -1296,16 +1296,6 @@ function PeersView({ token }: { token: string }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 14px', marginBottom: 16, background: 'rgba(76,141,214,.08)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 10, fontSize: 12, color: 'var(--txt-mut)' }}>
-        <AlertTriangle size={14} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
-        <span>
-          <b style={{ color: 'var(--txt)' }}>Open question for Product:</b> "Project Team" is currently defined as everyone
-          who shares your manager — there's no Team/Project grouping in the data model yet, so this is a same-manager
-          stand-in, not real project membership. Confirm this is the right definition before this ships more broadly
-          (see ONEHR-73).
-        </span>
-      </div>
-
       {/* Who's on leave / Not in yet */}
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
@@ -1368,17 +1358,6 @@ function PeersView({ token }: { token: string }) {
         <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
       </div>
 
-      {/* Reporting manager — "Appreciate your lead" */}
-      {manager && (
-        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Avatar name={manager.name} size={38} />
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{manager.name}</div>
-          </div>
-          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
-        </div>
-      )}
 
       {/* Team calendar */}
       <div style={{ ...panelStyle, marginBottom: 16 }}>

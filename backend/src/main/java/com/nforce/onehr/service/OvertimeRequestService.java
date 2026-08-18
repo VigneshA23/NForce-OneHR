@@ -129,6 +129,10 @@ public class OvertimeRequestService {
         requestRepository.save(req);
 
         auditService.log(actor.getId(), "OVERTIME_APPROVED", req.getEmployeeUserId());
+        notificationService.send(req.getEmployeeUserId(), "OVERTIME_APPROVED",
+                "Overtime Request Approved",
+                "Your overtime request for " + req.getWorkDate() + " has been approved by " + employeeName(actor.getId()) + ".",
+                "/requests?type=OVERTIME");
         return toResponse(req);
     }
 
@@ -145,6 +149,11 @@ public class OvertimeRequestService {
         requestRepository.save(req);
 
         auditService.log(actor.getId(), "OVERTIME_REJECTED", req.getEmployeeUserId());
+        notificationService.send(req.getEmployeeUserId(), "OVERTIME_REJECTED",
+                "Overtime Request Rejected",
+                "Your overtime request for " + req.getWorkDate() + " has been rejected by " + employeeName(actor.getId())
+                        + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
+                "/requests?type=OVERTIME");
         return toResponse(req);
     }
 
@@ -199,6 +208,10 @@ public class OvertimeRequestService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+    }
+
+    private String employeeName(UUID userId) {
+        return employeeRepository.findById(userId).map(Employee::getFullName).orElse("Unknown");
     }
 
     private OvertimeRequestResponse toResponse(OvertimeRequest req) {

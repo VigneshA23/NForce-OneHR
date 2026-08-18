@@ -119,19 +119,19 @@ type HierarchyEntry = HierarchyLeaf | HierarchyGroup;
  * it never grants/hides a module beyond what NAV[role] already decides.
  */
 const NAV_HIERARCHY: HierarchyEntry[] = [
-  { key: 'home', label: 'HOME', icon: Home, children: ['dashboard', 'notifications'] },
+  { key: 'home', label: 'Home', icon: Home, children: ['dashboard', 'notifications'] },
   {
-    key: 'people', label: 'PEOPLE', icon: Users, children: [
+    key: 'people', label: 'People', icon: Users, children: [
       'my-team',
       'employees',
       { key: 'people-organization', label: 'Organization', icon: GitBranch, children: ['hierarchy', 'organization', 'directory'] },
     ],
   },
-  { key: 'time-leave', label: 'TIME & LEAVE', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
-  { key: 'requests-approvals', label: 'REQUESTS & APPROVALS', icon: FileText, children: ['requests', 'approvals'] },
-  { key: 'employee-services', label: 'EMPLOYEE SERVICES', icon: Package, children: ['assets', 'performance', 'documents', 'policies', 'onboarding'] },
-  { key: 'insights', label: 'INSIGHTS', icon: FileText, children: ['reports', 'audit'] },
-  { key: 'administration', label: 'ADMINISTRATION', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
+  { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
+  { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
+  { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
+  { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports'] },
+  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'performance', 'documents', 'policies'] },
   'help',
 ];
 
