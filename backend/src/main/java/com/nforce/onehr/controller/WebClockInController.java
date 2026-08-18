@@ -2,6 +2,7 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.attendance.ApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.CreateWebClockInRequest;
+import com.nforce.onehr.dto.attendance.PunchTimezoneRequest;
 import com.nforce.onehr.dto.attendance.RejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.WebClockInResponse;
 import com.nforce.onehr.service.WebClockInService;
@@ -36,8 +37,8 @@ public class WebClockInController {
     }
 
     @PostMapping("/checkout")
-    public WebClockInResponse checkOut(Principal principal) {
-        return webClockInService.checkOut(principal.getName());
+    public WebClockInResponse checkOut(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal) {
+        return webClockInService.checkOut(principal.getName(), req != null ? req.getTimezone() : null);
     }
 
     /** Undoes today's still-open check-in (before check-out) — no approval needed, same as submit/checkout. */

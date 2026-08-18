@@ -72,6 +72,8 @@ class AttendanceServiceTest {
         lenient().when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(any()))
                 .thenReturn(Optional.empty());
+        lenient().when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(any()))
+                .thenReturn(List.of());
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
     }
 
@@ -97,7 +99,7 @@ class AttendanceServiceTest {
         when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
                 .thenReturn(Optional.of(open));
 
-        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail));
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
 
         assertEquals("MISSING_CHECKOUT", open.getStatus());
         assertNull(open.getCheckOutAt());
@@ -133,7 +135,7 @@ class AttendanceServiceTest {
         when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
                 .thenReturn(Optional.of(open));
 
-        AttendanceResponse response = service.checkOut(employeeEmail);
+        AttendanceResponse response = service.checkOut(employeeEmail, null);
 
         int expectedMinutes = (int) Math.round(Duration.between(sessionStart, shiftEnd).getSeconds() / 60.0);
         assertEquals(shiftEnd, response.getCheckOutAt());
@@ -158,7 +160,7 @@ class AttendanceServiceTest {
 
         ZoneId istZone = ZoneId.of("Asia/Kolkata");
         LocalDateTime before = LocalDateTime.now(istZone);
-        AttendanceResponse response = service.checkOut(employeeEmail);
+        AttendanceResponse response = service.checkOut(employeeEmail, null);
         LocalDateTime after = LocalDateTime.now(istZone);
 
         // A normal same-shift checkout is unaffected by the cap: checkOutAt is the real click
@@ -202,7 +204,7 @@ class AttendanceServiceTest {
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
                 .thenReturn(Optional.empty());
 
-        TodayAttendanceResponse response = service.getToday(employeeEmail);
+        TodayAttendanceResponse response = service.getToday(employeeEmail, null);
 
         // Flagged Missing Check-Out — never a fabricated checkOutAt or computed workedMinutes;
         // the real check-out time is unknown, so none is guessed.
@@ -235,7 +237,7 @@ class AttendanceServiceTest {
         when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
                 .thenReturn(Optional.of(open));
 
-        TodayAttendanceResponse response = service.getToday(employeeEmail);
+        TodayAttendanceResponse response = service.getToday(employeeEmail, null);
 
         assertEquals("PRESENT", open.getStatus(), "a session still within its own grace window must not be flagged");
         assertNull(open.getCheckOutAt());
@@ -267,7 +269,7 @@ class AttendanceServiceTest {
         // Must not throw "You have already checked in today" — the stale session is flagged
         // Missing Check-Out first, then a brand-new attendance record is created for today, same
         // as if there had been no prior record at all.
-        AttendanceResponse response = service.checkIn(employeeEmail);
+        AttendanceResponse response = service.checkIn(employeeEmail, null);
 
         assertEquals("MISSING_CHECKOUT", stale.getStatus());
         assertNull(stale.getCheckOutAt(), "a missing check-out must never be assigned a fabricated check-out time");
@@ -294,10 +296,77 @@ class AttendanceServiceTest {
         when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
                 .thenReturn(Optional.of(stale));
 
-        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail));
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
 
         assertEquals("MISSING_CHECKOUT", stale.getStatus());
         assertNull(stale.getCheckOutAt());
         assertNull(stale.getWorkedMinutes());
+    }
+
+    // ---------------------------------------------------------------- browser timezone
+
+    @Test
+    void checkIn_usesBrowserReportedTimezone_notTheEmployeesConfiguredLocation() {
+        // No Location on this employee (see setUp) — without a browser-reported zone this would
+        // fall back to the global default (Asia/Kolkata). Australia/Adelaide (a genuine IANA
+        // zone, UTC+9:30/+10:30) exercises a half-hour offset distinct from IST's own +5:30.
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any()))
+                .thenReturn(Optional.empty());
+
+        AttendanceResponse response = service.checkIn(employeeEmail, "Australia/Adelaide");
+
+        assertEquals("Australia/Adelaide", response.getTimezone(),
+                "the resolved zone must be locked onto the record, not silently dropped");
+        LocalDateTime expectedNow = LocalDateTime.now(ZoneId.of("Australia/Adelaide"));
+        assertEquals(expectedNow.toLocalDate(), response.getCheckInAt().toLocalDate());
+        assertTrue(Duration.between(response.getCheckInAt(), expectedNow).abs().toSeconds() < 5,
+                "checkInAt must reflect the browser's reported zone's wall clock, not IST");
+    }
+
+    @Test
+    void checkIn_ignoresInvalidBrowserTimezone_fallsBackToConfiguredZone() {
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any()))
+                .thenReturn(Optional.empty());
+
+        // Not a real IANA zone — must not throw, must fall back silently (this employee has no
+        // Location, so the fallback is the global default zone, "Asia/Kolkata").
+        AttendanceResponse response = service.checkIn(employeeEmail, "not-a-real-timezone");
+
+        assertEquals("Asia/Kolkata", response.getTimezone());
+    }
+
+    @Test
+    void checkOut_usesTheSessionsLockedInZone_ignoringADifferentBrowserZoneAtCheckoutTime() {
+        // Checked in from a UTC+10:30 browser (Lord Howe Island standard time) earlier today
+        // (that shift-day, per the locked zone) — session still open.
+        LocalDate workDate = LocalDate.now(ZoneId.of("Australia/Lord_Howe"));
+        LocalDateTime checkInAt = LocalDateTime.now(ZoneId.of("Australia/Lord_Howe")).minusHours(1);
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(checkInAt)
+                .sessionStartedAt(checkInAt)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .timezone("Australia/Lord_Howe")
+                .build();
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.of(open));
+
+        // Check-out click arrives from a browser now reporting a completely different zone
+        // (e.g. a VPN, or genuine travel) — must NOT be used; only the session's own locked zone
+        // ("Australia/Lord_Howe") may compute this checkout, so worked-minutes stays correct.
+        LocalDateTime beforeLordHowe = LocalDateTime.now(ZoneId.of("Australia/Lord_Howe"));
+        AttendanceResponse response = service.checkOut(employeeEmail, "America/New_York");
+        LocalDateTime afterLordHowe = LocalDateTime.now(ZoneId.of("Australia/Lord_Howe"));
+
+        assertFalse(response.getCheckOutAt().isBefore(beforeLordHowe));
+        assertFalse(response.getCheckOutAt().isAfter(afterLordHowe));
+        assertTrue(response.getWorkedMinutes() < 120, "roughly the 1-hour session, not skewed by the mismatched browser zone");
     }
 }

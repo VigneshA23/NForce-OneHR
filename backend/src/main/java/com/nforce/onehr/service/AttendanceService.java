@@ -90,10 +90,8 @@ public class AttendanceService {
     // ---------------------------------------------------------------- self-service
 
     @Transactional
-    public TodayAttendanceResponse getToday(String actorEmail) {
+    public TodayAttendanceResponse getToday(String actorEmail, String clientTimezone) {
         Employee employee = resolveEmployee(actorEmail);
-        LocalDateTime now = now(employee);
-        LocalDate today = shiftDayOf(now);
 
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session started
         // yesterday is still the actionable "today" state even once the calendar date has
@@ -103,6 +101,14 @@ public class AttendanceService {
         // Check-Out (see flagMissingCheckoutIfStale) and fall through to the plain work_date
         // lookup below instead of reporting it as an active session forever.
         Optional<Attendance> open = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
+
+        // An open session's own locked-in zone (from Check-In) decides "now" for it — the
+        // viewer's current browser zone only applies once there's no open session to defer to,
+        // i.e. for a genuinely fresh "today". See resolveZone's own doc comments.
+        LocalDateTime now = LocalDateTime.now(open.isPresent()
+                ? resolveZone(open.get(), employee, clientTimezone) : resolveZone(clientTimezone, employee));
+        LocalDate today = shiftDayOf(now);
+
         if (open.isPresent() && !flagMissingCheckoutIfStale(open.get(), now)) {
             Attendance record = open.get();
             return TodayAttendanceResponse.builder()
@@ -239,12 +245,8 @@ public class AttendanceService {
     }
 
     @Transactional
-    public AttendanceResponse checkIn(String actorEmail) {
+    public AttendanceResponse checkIn(String actorEmail, String clientTimezone) {
         Employee employee = resolveEmployee(actorEmail);
-
-        // Single clock read: the punch time and the work date it is attributed to can never disagree.
-        LocalDateTime now = now(employee);
-        LocalDate today = shiftDayOf(now);
 
         // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session from
         // yesterday's work_date must block a fresh check-in exactly like an open session
@@ -252,22 +254,39 @@ public class AttendanceService {
         // session whose own workday/grace window has already ended (a forgotten checkout from
         // days ago) is stale, not a real in-progress day — flag it Missing Check-Out (see
         // flagMissingCheckoutIfStale) instead of letting it block every check-in from now on.
+        // Evaluated using the open session's OWN locked-in zone, not this click's browser zone —
+        // see resolveZone's doc comments.
         Optional<Attendance> openSession = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
-        if (openSession.isPresent() && !flagMissingCheckoutIfStale(openSession.get(), now)) {
-            throw new IllegalArgumentException("You have already checked in today");
+        if (openSession.isPresent()) {
+            LocalDateTime openNow = LocalDateTime.now(resolveZone(openSession.get(), employee, clientTimezone));
+            if (!flagMissingCheckoutIfStale(openSession.get(), openNow)) {
+                throw new IllegalArgumentException("You have already checked in today");
+            }
         }
+
+        // A fresh click (or resuming today's own record after the stale-session flag above) —
+        // single clock read so the punch time and the work date it's attributed to can never
+        // disagree — resolved from THIS click's browser-reported zone, falling back to the
+        // employee's configured Location.timezone.
+        ZoneId freshZone = resolveZone(clientTimezone, employee);
+        LocalDateTime now = LocalDateTime.now(freshZone);
+        LocalDate today = shiftDayOf(now);
 
         Optional<Attendance> existing = attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), today);
 
         if (existing.isPresent()) {
             // No open session (checked above), so this is always a closed record — resuming
             // after a break (e.g. lunch). The day's original check-in time, late status, and
-            // worked-minutes-so-far all stay put; only a new session opens.
+            // worked-minutes-so-far all stay put; only a new session opens. Reuses the day's
+            // ORIGINALLY locked-in zone (from its first check-in), not this click's browser zone,
+            // so the whole day's worked-minutes math stays on one consistent clock even if the
+            // browser's reported zone has since drifted (e.g. a DST change over a long lunch).
             Attendance record = existing.get();
-            record.setSessionStartedAt(now);
+            LocalDateTime resumeNow = LocalDateTime.now(resolveZone(record, employee, clientTimezone));
+            record.setSessionStartedAt(resumeNow);
             record.setCheckOutAt(null);
             Attendance saved = attendanceRepository.save(record);
-            openPunch(saved.getId(), now);
+            openPunch(saved.getId(), resumeNow);
             auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", saved.getId());
             return toResponse(saved, employee);
         }
@@ -303,6 +322,7 @@ public class AttendanceService {
                 .sessionStartedAt(now)
                 .status(isLate ? STATUS_LATE : STATUS_PRESENT)
                 .lateByMinutes(lateByMinutes)
+                .timezone(freshZone.getId())
                 .build());
         openPunch(record.getId(), now);
         if (isLate) {
@@ -334,10 +354,8 @@ public class AttendanceService {
     }
 
     @Transactional
-    public AttendanceResponse checkOut(String actorEmail) {
+    public AttendanceResponse checkOut(String actorEmail, String clientTimezone) {
         Employee employee = resolveEmployee(actorEmail);
-
-        LocalDateTime now = now(employee);
 
         // Looked up by open session, not by today's work_date — a shift that started before
         // midnight (e.g. 3:30 PM - 12:30 AM) is still open under *yesterday's* work_date once
@@ -345,6 +363,12 @@ public class AttendanceService {
         Attendance record = attendanceRepository
                 .findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("You have not checked in today"));
+
+        // The session's own zone, locked in at Check-In — NOT this click's browser zone, which
+        // may have drifted since (travel, DST) — governs its Check-Out, so worked-minutes math
+        // and the grace-window check below stay on one consistent clock for the whole session.
+        // clientTimezone only matters as a fallback for a record from before this column existed.
+        LocalDateTime now = LocalDateTime.now(resolveZone(record, employee, clientTimezone));
 
         // Past its own workday/grace window (e.g. someone opens a stale tab and clicks Check Out
         // days later) — there is no legitimate "now" to check out with at this point, so this is
@@ -463,7 +487,8 @@ public class AttendanceService {
         int flagged = 0;
         for (Attendance record : open) {
             Optional<Employee> employee = employeeRepository.findById(record.getEmployeeUserId());
-            if (employee.isPresent() && flagMissingCheckoutIfStale(record, now(employee.get()))) {
+            if (employee.isPresent()
+                    && flagMissingCheckoutIfStale(record, LocalDateTime.now(resolveZone(record, employee.get())))) {
                 flagged++;
             }
         }
@@ -1006,6 +1031,47 @@ public class AttendanceService {
     }
 
     /**
+     * Parses an IANA zone id (e.g. from the browser's {@code Intl.DateTimeFormat()
+     * .resolvedOptions().timeZone}), or null if it's missing/blank/not a real zone — callers
+     * fall back to {@link #zoneIdFor} rather than fail the request over a malformed value.
+     */
+    private ZoneId parseZone(String candidate) {
+        if (candidate == null || candidate.isBlank()) return null;
+        try {
+            return ZoneId.of(candidate.trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Zone for a fresh Check-In/Web Clock-In click: the browser-reported zone if it's present
+     * and valid, else the employee's configured Location.timezone (then the global business
+     * zone) — see {@link #zoneIdFor}. This is the value that gets locked into {@link
+     * Attendance#getTimezone()} for the rest of that session's lifetime.
+     */
+    private ZoneId resolveZone(String clientTimezone, Employee employee) {
+        ZoneId fromClient = parseZone(clientTimezone);
+        return fromClient != null ? fromClient : zoneIdFor(employee);
+    }
+
+    /**
+     * Zone for an EXISTING session — its own {@link Attendance#getTimezone()}, locked in at
+     * Check-In, governs Check-Out/grace-window/worked-minutes math for as long as it's open, so
+     * a browser reporting a different zone later (travel, DST) can't shift that session's
+     * shift-day or inflate/shrink its worked hours. {@code clientTimezoneFallback} (and then
+     * Location.timezone) only apply for a record from before this column existed.
+     */
+    private ZoneId resolveZone(Attendance record, Employee employee, String clientTimezoneFallback) {
+        ZoneId stored = parseZone(record.getTimezone());
+        return stored != null ? stored : resolveZone(clientTimezoneFallback, employee);
+    }
+
+    private ZoneId resolveZone(Attendance record, Employee employee) {
+        return resolveZone(record, employee, null);
+    }
+
+    /**
      * The shift-day (work_date) a given instant belongs to. The shift runs 3:30 PM - 12:30 AM,
      * crossing midnight — anything from midnight up to shiftDayCutover (7:00 AM by default)
      * still belongs to the PREVIOUS calendar date's shift-day, not the new one. E.g. a fresh
@@ -1082,6 +1148,7 @@ public class AttendanceService {
                 .fullDay(worked == null ? null : worked >= props.getFullDayMinHours() * 60)
                 .source(record.getSource())
                 .workMode(employee.getWorkMode())
+                .timezone(record.getTimezone())
                 .build();
     }
 }

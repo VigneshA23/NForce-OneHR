@@ -31,4 +31,7 @@ public class AttendanceResponse {
     private String source;
     /** The employee's configured work mode (ONSITE/REMOTE/HYBRID) at the time of the query. */
     private String workMode;
+    /** IANA zone id the browser/device reported at Check-In — see Attendance.timezone. Null for
+     * records predating this field or where none was supplied (Location.timezone was used). */
+    private String timezone;
 }

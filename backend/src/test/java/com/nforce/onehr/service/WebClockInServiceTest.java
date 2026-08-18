@@ -69,6 +69,9 @@ class WebClockInServiceTest {
         // real shift-start deadline to compute lateByMinutes against.
         lenient().when(attendanceProps.getShiftStart()).thenReturn(LocalTime.of(9, 0));
         lenient().when(attendanceProps.getLateGraceMinutes()).thenReturn(10);
+        // approve() -> applyCheckInToAttendance() -> resolveZone() falls back to this when the
+        // (mocked, empty) employeeRepository lookup finds no Location.timezone to prefer.
+        lenient().when(attendanceProps.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
         lenient().when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -156,7 +159,7 @@ class WebClockInServiceTest {
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, workDate))
                 .thenReturn(Optional.of(record));
 
-        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail));
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
 
         assertEquals("MISSING_CHECKOUT", record.getStatus());
         assertNull(record.getCheckOutAt());
