@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.ForceLogoutBroadcaster;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -35,6 +36,7 @@ public class UserManagementService {
     private final EmailService emailService;
     private final NotificationService notificationService;
     private final LeaveService leaveService;
+    private final ForceLogoutBroadcaster forceLogoutBroadcaster;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -155,11 +157,18 @@ public class UserManagementService {
                     .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
             target.getRoles().clear();
             target.getRoles().addAll(rolesFor(newRole));
+            // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
+            // their very next API call fails auth under the old token regardless of whether the
+            // SSE push below reaches an open tab in time.
+            target.setTokenVersion(target.getTokenVersion() + 1);
             userRepository.save(target);
             notificationService.send(target.getId(), "ACCOUNT",
                     "Role Updated",
                     "Your role has been updated to " + roleCode.replace("_", " ") + ".",
                     "/profile");
+            // Force any open tab/device to log out immediately instead of waiting to hit the
+            // now-invalid token on its next request.
+            forceLogoutBroadcaster.forceLogout(target.getId());
         }
 
         // Manager change — effective-dating: close current, insert new

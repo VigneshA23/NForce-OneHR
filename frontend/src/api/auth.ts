@@ -80,4 +80,13 @@ export const authApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     }).then(handle<{ message: string }>),
+
+  // One-time, short-lived ticket for opening the force-logout SSE stream (see Shell.tsx) —
+  // native EventSource can't send an Authorization header, so this authenticated call trades
+  // the real token for an opaque ticket that's safe to put in that connection's query string.
+  issueEventsTicket: (token: string) =>
+    fetch(`${BASE}/auth/events/ticket`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(handle<{ ticket: string }>),
 };

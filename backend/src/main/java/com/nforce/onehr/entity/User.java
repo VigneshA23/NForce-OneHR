@@ -50,6 +50,13 @@ public class User {
     @Column(name = "locked_until", columnDefinition = "TIMESTAMPTZ")
     private Instant lockedUntil;
 
+    // Bumped whenever this user's role changes (see UserManagementService#updateUser) so any
+    // already-issued JWT — which carries the version it was minted with — fails the check in
+    // JwtAuthenticationFilter on this user's very next request, without needing a session store.
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private int tokenVersion = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

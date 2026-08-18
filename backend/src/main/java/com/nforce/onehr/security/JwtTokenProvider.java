@@ -24,13 +24,14 @@ public class JwtTokenProvider {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateToken(String email, boolean mustChangePassword) {
+    public String generateToken(String email, boolean mustChangePassword, int tokenVersion) {
         long nowMs = System.currentTimeMillis();
         Date expiry = new Date(nowMs + (long) jwtExpirationHours * 3_600_000);
 
         return Jwts.builder()
                 .subject(email)
                 .claim("mcp", mustChangePassword)
+                .claim("tv", tokenVersion)
                 .issuedAt(new Date(nowMs))
                 .expiration(expiry)
                 .signWith(signingKey())
@@ -44,6 +45,14 @@ public class JwtTokenProvider {
     public boolean extractMustChangePassword(String token) {
         Object mcp = parseClaims(token).get("mcp");
         return Boolean.TRUE.equals(mcp);
+    }
+
+    // Absent only for tokens minted before this claim existed — treated as version 0, which
+    // matches every user's tokenVersion until their first role change, so pre-existing sessions
+    // aren't broken by this rollout.
+    public int extractTokenVersion(String token) {
+        Object tv = parseClaims(token).get("tv");
+        return tv == null ? 0 : ((Number) tv).intValue();
     }
 
     public boolean validateToken(String token) {
