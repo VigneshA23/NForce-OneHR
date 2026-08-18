@@ -10,4 +10,5 @@ public class LoginResponse {
     private boolean mustChangePassword;
     private String email;
     private String role;
+    private String fullName;
 }

@@ -3,8 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 
 export interface AuthUser {
   email: string;
-  firstName?: string;
-  lastName?: string;
+  fullName?: string;
   mustChangePassword: boolean;
   role?: string; // DB enum e.g. SUPER_ADMIN, HR_ADMIN, EMPLOYEE
 }
