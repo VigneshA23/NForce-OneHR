@@ -48,9 +48,13 @@ function addDays(d: Date, n: number): Date {
 function toISO(d: Date): string {
   return toISODate(d.getFullYear(), d.getMonth(), d.getDate());
 }
+// Backend timestamps are IST (UTC+5:30) LocalDateTime strings — append offset so the browser
+// converts to the viewer's own local timezone instead of displaying raw IST.
 function fmtTime(iso?: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const d = new Date(iso + '+05:30');
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';

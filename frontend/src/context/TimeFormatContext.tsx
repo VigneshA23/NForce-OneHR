@@ -11,17 +11,16 @@ interface TimeFormatContextValue {
 
 const TimeFormatContext = createContext<TimeFormatContextValue | null>(null);
 
+// Backend LocalDateTime strings represent Asia/Kolkata (IST, UTC+5:30) wallclock time.
+// Parsing with +05:30 lets the browser convert to the viewer's own local timezone.
 function formatTimeAs(format: TimeFormat, iso: string | null): string | null {
   if (!iso) return null;
-  const time = iso.slice(11, 16);
-  if (time.length < 5) return null;
-  const [h, m] = time.split(':').map(Number);
+  const d = new Date(iso + '+05:30');
+  if (isNaN(d.getTime())) return null;
   if (format === '24h') {
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
-  const suffix = h < 12 ? 'AM' : 'PM';
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 // Duration is format-independent (always "Xh Ym") — kept here only so callers have a single

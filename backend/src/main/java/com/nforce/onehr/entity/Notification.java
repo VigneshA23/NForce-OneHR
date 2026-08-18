@@ -34,6 +34,10 @@ public class Notification {
     @Builder.Default
     private boolean read = false;
 
+    @Column(name = "priority", nullable = false, length = 10)
+    @Builder.Default
+    private String priority = "MEDIUM";
+
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
     @Builder.Default
     private Instant createdAt = Instant.now();

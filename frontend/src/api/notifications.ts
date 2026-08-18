@@ -8,6 +8,7 @@ export interface NotificationItem {
   message: string;
   linkPath: string | null;
   read: boolean;
+  priority: string;
   createdAt: string;
 }
 

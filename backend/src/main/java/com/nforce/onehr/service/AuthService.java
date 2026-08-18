@@ -80,12 +80,16 @@ public class AuthService {
         auditService.log(user.getId(), "LOGIN_SUCCESS", user.getId());
 
         String roleCode = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
+        String fullName = employeeRepository.findById(user.getId())
+                .map(com.nforce.onehr.entity.Employee::getFullName)
+                .orElse(user.getEmail());
 
         return LoginResponse.builder()
                 .token(token)
                 .mustChangePassword(user.isMustChangePassword())
                 .email(user.getEmail())
                 .role(roleCode)
+                .fullName(fullName)
                 .build();
     }
 

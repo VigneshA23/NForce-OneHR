@@ -109,6 +109,7 @@ body {
 
 @keyframes glow-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
 @keyframes nf-toast-in { from { opacity: 0; transform: translateY(-6px) scale(.97) } to { opacity: 1; transform: none } }
+@keyframes nf-hero-pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
 @media (prefers-reduced-motion: no-preference) {
   html.nf-theme-transitioning * {
