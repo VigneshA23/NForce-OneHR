@@ -1029,7 +1029,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
                 </Pie>
                 <Tooltip
                   contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
-                  formatter={(val: number, name: string) => [`${val}d remaining`, name]}
+                  formatter={(val, name) => [`${val}d remaining`, name ?? '']}
                 />
               </PieChart>
               <div style={{
