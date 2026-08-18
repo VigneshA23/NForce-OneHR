@@ -238,7 +238,9 @@ export function AttendanceHeroBanner() {
     if (!record?.status) return null;
     const map: Record<string, { dot: string; label: string }> = {
       PRESENT:          { dot: '#2FB67C', label: 'On time' },
-      LATE:             { dot: '#E0A93B', label: `Late${record.lateByMinutes ? ` by ${record.lateByMinutes}m` : ''}` },
+      // formatWorkedMinutes gives "1h 30m"/"1h"/"45m" — matches how worked/elapsed time is
+      // already formatted on this same banner, instead of a raw, unconverted minute count.
+      LATE:             { dot: '#E0A93B', label: `Late${record.lateByMinutes ? ` by ${formatWorkedMinutes(record.lateByMinutes)}` : ''}` },
       HALF_DAY:         { dot: '#4E9EE8', label: 'Half day' },
       ABSENT:           { dot: '#B11116', label: 'Absent' },
       MISSING_CHECKOUT: { dot: '#F97316', label: 'Missing checkout' },

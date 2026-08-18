@@ -137,7 +137,9 @@ function calCellTooltip(day: MonthDay): string {
   if (day.status == null) return `${label} — No record`;
   const statusLabel: Record<string, string> = {
     PRESENT:          'Present',
-    LATE:             `Late${day.lateByMinutes ? ` by ${day.lateByMinutes}m` : ''}`,
+    // formatWorkedMinutes gives "1h 30m"/"1h"/"45m", consistent with the "worked" text below
+    // instead of a raw, unconverted minute count.
+    LATE:             `Late${day.lateByMinutes ? ` by ${formatWorkedMinutes(day.lateByMinutes)}` : ''}`,
     HALF_DAY:         'Half day',
     ABSENT:           'Absent',
     MISSING_CHECKOUT: 'Missing checkout',
@@ -357,7 +359,7 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
                 <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.checkInAt) ?? '—'}</div>
                 {r.status === 'LATE' && (
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
-                    Late{r.lateByMinutes ? ` by ${r.lateByMinutes}m` : ''}
+                    Late{r.lateByMinutes ? ` by ${formatWorkedMinutes(r.lateByMinutes)}` : ''}
                   </div>
                 )}
               </div>
