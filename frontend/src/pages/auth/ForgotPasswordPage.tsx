@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
             Reset password
           </h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-            Enter your company email. If it's registered, you'll receive a temporary password.
+            Enter your organizational email. If it's registered, you'll receive a temporary password.
           </p>
         </motion.div>
 
@@ -102,9 +102,6 @@ export default function ForgotPasswordPage() {
               </motion.div>
             )}
             <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 18 }}>
-              <label htmlFor={emailId} style={{ display: 'block', fontSize: 12, fontWeight: 550, color: 'var(--txt-mut)', marginBottom: 6 }}>
-                Work email
-              </label>
               <input
                 id={emailId}
                 type="email"
