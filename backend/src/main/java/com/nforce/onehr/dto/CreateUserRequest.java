@@ -13,10 +13,15 @@ import java.util.UUID;
 @Data
 public class CreateUserRequest {
     @NotBlank
-    @Pattern(regexp = ".*[a-zA-Z].*", message = "Full name must contain at least one letter")
+    @Pattern(regexp = "^(?=.*\\p{L})[\\p{L}\\s'-]+$", message = "Full name can only contain letters, spaces, hyphens, and apostrophes")
     private String fullName;
 
-    @NotBlank @Email
+    // @Email alone accepts things like "a@99999999999" or "a@example.com123" — it has no
+    // opinion on the TLD. The explicit pattern enforces a real, letters-only TLD with nothing
+    // trailing it, per the reported business rule.
+    @NotBlank
+    @Email
+    @Pattern(regexp = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", message = "Enter a valid email address with a proper domain (e.g. name@company.com)")
     private String email;
 
     // EMPLOYEE | MANAGER | HR_ADMIN | SUPER_ADMIN

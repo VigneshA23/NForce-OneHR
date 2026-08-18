@@ -12,10 +12,13 @@ import java.util.UUID;
 @Data
 public class CreateEmployeeRequest {
     @NotBlank
-    @Pattern(regexp = ".*[a-zA-Z].*", message = "Full name must contain at least one letter")
+    @Pattern(regexp = "^(?=.*\\p{L})[\\p{L}\\s'-]+$", message = "Full name can only contain letters, spaces, hyphens, and apostrophes")
     private String fullName;
 
-    @NotBlank @Email
+    // See CreateUserRequest — @Email alone doesn't enforce a real, letters-only TLD.
+    @NotBlank
+    @Email
+    @Pattern(regexp = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", message = "Enter a valid email address with a proper domain (e.g. name@company.com)")
     private String email;
 
     private String employeeCode;

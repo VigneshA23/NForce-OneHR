@@ -227,8 +227,12 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
         setError(`${primaryLabel} must include letters, and may only contain letters, numbers, spaces, - and /`);
         return;
       }
-    } else if (/\d/.test(trimmed)) {
-      setError(`${primaryLabel} cannot contain numbers`); return;
+    } else if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmed)) {
+      // Department/Location names may contain most non-digit characters (e.g. "R&D",
+      // "Sales & Marketing"), but must include at least one letter — this rejects
+      // numeric-only ("12345") and special-character-only ("@#$%^&*") values.
+      setError(`${primaryLabel} must contain letters and cannot contain numbers or be made up of special characters only`);
+      return;
     }
     if (tab === 'locations') {
       if (/\d/.test(city.trim())) { setError('City cannot contain numbers'); return; }
