@@ -10,9 +10,13 @@ const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
 // Rejects: multiple/misplaced '@', missing local or domain part, spaces, consecutive dots in
 // the domain, and trailing junk after the TLD. A syntactically well-formed but non-existent
-// TLD (e.g. "gmail.comabc") cannot be distinguished from a real one by format alone — that
-// would require checking against a live public-suffix list, out of scope for format validation.
+// TLD (e.g. "gmail.comabc") is otherwise indistinguishable from a real one by format alone —
+// see the explicit ".com" check in validateEmail below for the one case called out by name.
 const EMAIL_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+// Once the TLD starts with "com", nothing may follow it (blocks "gmail.comabc" while still
+// allowing "gmail.com" itself) — a deliberate special case for the specific reported input,
+// not a general TLD whitelist.
+const TLD_COM_WITH_TRAILING_CHARS_RE = /^com.+/i;
 // Letters only, with a single space/hyphen/apostrophe/period allowed between word groups
 // (e.g. "Mary Jane", "O'Brien", "Anne-Marie") — no digits, no leading/trailing/consecutive
 // separators, no other symbols.
@@ -22,7 +26,10 @@ const nameCharsOnly = (v: string) => v.replace(/[^A-Za-z '.-]/g, '');
 
 function validateEmail(v: string): string | null {
   if (!v) return null;
-  return EMAIL_RE.test(v) ? null : 'Enter a valid email address (e.g. name@example.com).';
+  if (!EMAIL_RE.test(v)) return 'Enter a valid email address (e.g. name@example.com).';
+  const tld = v.slice(v.lastIndexOf('.') + 1);
+  if (TLD_COM_WITH_TRAILING_CHARS_RE.test(tld)) return 'Enter a valid email address (e.g. name@example.com).';
+  return null;
 }
 
 function validatePhone(v: string, label: string): string | null {
