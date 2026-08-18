@@ -15,6 +15,12 @@ const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color
 // Holiday table only — compact, center-aligned, distinct from the Leave Requests table above.
 const holidayThStyle: React.CSSProperties = { ...thStyle, textAlign: 'center', padding: '8px 10px' };
 const holidayTdStyle: React.CSSProperties = { ...tdStyle, textAlign: 'center', padding: '8px 10px' };
+// Mirrors CreateHolidayRequest's @Pattern on the backend: at least one letter/digit
+// (rejects emoji-only or symbol-only input), otherwise letters (Unicode-aware —
+// accented characters like "Deepāvali" are \p{L}), digits, spaces, apostrophes,
+// and hyphens ("New Year's Day", "Eid al-Fitr").
+const HOLIDAY_NAME_PATTERN = /^(?=.*[\p{L}\p{N}])[\p{L}\p{N} '-]+$/u;
+const HOLIDAY_NAME_MAX_LENGTH = 100;
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
@@ -267,6 +273,11 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
     setError('');
     const name = holidayName.trim();
     if (!name) { setError('Holiday name is required'); return; }
+    if (name.length > HOLIDAY_NAME_MAX_LENGTH) { setError(`Holiday name must be ${HOLIDAY_NAME_MAX_LENGTH} characters or fewer`); return; }
+    if (!HOLIDAY_NAME_PATTERN.test(name)) {
+      setError('Holiday name must contain at least one letter or number, and only letters, numbers, spaces, apostrophes, or hyphens');
+      return;
+    }
     if (!holidayDate) { setError('Date is required'); return; }
     if (!editing && holidayDate < todayIso) { setError('Holiday date cannot be in the past'); return; }
     if (!locationId) { setError('Location is required'); return; }
@@ -294,7 +305,7 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
         {error && <div style={{ margin: '16px 20px 0', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
         <form onSubmit={submit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Field label="Holiday Name *">
-            <input ref={firstRef} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
+            <input ref={firstRef} maxLength={HOLIDAY_NAME_MAX_LENGTH} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
           </Field>
           <Field label="Date *">
             <input type="date" min={editing ? undefined : todayIso} style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
