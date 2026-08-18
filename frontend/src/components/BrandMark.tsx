@@ -17,6 +17,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
     <span
       role="img"
       aria-label="NForce One logo"
+      className="nf-brandmark"
       style={{
         position: 'relative',
         display: 'inline-flex',
@@ -29,6 +30,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
     >
       <span
         aria-hidden="true"
+        className="nf-brandmark-glow"
         style={{
           position: 'absolute',
           inset: 0,
@@ -42,6 +44,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
         }}
       />
       <span
+        className="nf-brandmark-ring"
         style={{
           position: 'relative',
           display: 'flex',
@@ -61,6 +64,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
           aria-hidden="true"
           width={px}
           height={px}
+          className="nf-brandmark-img"
           style={{ display: 'block', borderRadius: '50%', objectFit: 'cover' }}
         />
       </span>
