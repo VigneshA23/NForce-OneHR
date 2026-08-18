@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -36,6 +37,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label style={labelStyle}>{label}</label>{children}</div>;
 }
 
+// Mirrors LeaveService#isAnnualBalanceLeaveType — Annual/Sick/Casual are independently
+// selectable in the dropdown below, but the balance API returns only ONE row (Annual) for the
+// whole group, so a Sick/Casual selection must still resolve to that same row.
+const ANNUAL_BALANCE_GROUP_CODES = new Set(['ANNUAL', 'SICK', 'CASUAL']);
+function isAnnualBalanceLeaveType(code: string): boolean {
+  return ANNUAL_BALANCE_GROUP_CODES.has(code);
+}
+
 const STATUS_COLOR: Record<string, string> = { PENDING: '#E0A93B', APPROVED: '#2FB67C', REJECTED: '#E4373D' };
 
 function StatusBadge({ status }: { status: string }) {
@@ -46,16 +55,101 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function RequestLeaveModal({ types, onClose, onCreated, token }: { types: LeaveType[]; onClose: () => void; onCreated: (r: LeaveRequestRecord) => void; token: string }) {
+// Same recharts primitives/colors as DashboardPage's LeaveBalancePanel donut, applied to a single
+// balance: two slices (Available vs Consumed/Reserved) summing to that leave type's annual quota.
+// The backend (LeaveService#availableBalance) is the sole source of truth for both numbers — this
+// component only visualizes remainingDays/totalDays as returned by GET /api/leave/balances; it
+// never recomputes or re-derives the balance itself.
+const BALANCE_DONUT_COLORS = { available: '#2FB67C', consumed: '#E0A93B' };
+
+function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
+  const total = Number(balance.totalDays);
+  const available = Math.max(0, Number(balance.remainingDays));
+  const consumed = Math.max(0, total - available);
+  const data = [
+    { name: 'Available', value: available },
+    { name: 'Consumed/Reserved', value: consumed },
+  ];
+  const isEmptyQuota = total <= 0;
+
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+      <div style={{ position: 'relative', width: 76, height: 76, flexShrink: 0 }}>
+        <PieChart width={76} height={76}>
+          <Pie
+            data={isEmptyQuota ? [{ name: 'No quota', value: 1 }] : data}
+            cx={38}
+            cy={38}
+            innerRadius={24}
+            outerRadius={36}
+            dataKey="value"
+            startAngle={90}
+            endAngle={-270}
+            strokeWidth={0}
+          >
+            {isEmptyQuota
+              ? <Cell fill="var(--line2)" />
+              : data.map((d, i) => (
+                  <Cell key={d.name} fill={i === 0 ? BALANCE_DONUT_COLORS.available : BALANCE_DONUT_COLORS.consumed} />
+                ))}
+          </Pie>
+          {!isEmptyQuota && (
+            <Tooltip
+              contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
+              formatter={(val, name) => [`${val} day${val === 1 ? '' : 's'}`, name ?? '']}
+            />
+          )}
+        </PieChart>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', lineHeight: 1 }}>{available}</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+          {balance.leaveTypeName}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 3 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.available, flexShrink: 0 }} />
+          Available <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 600 }}>{available}d</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 3 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.consumed, flexShrink: 0 }} />
+          Consumed/Reserved <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 600 }}>{consumed}d</span>
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', paddingTop: 4, marginTop: 4 }}>
+          Annual Quota: {total}d
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { types: LeaveType[]; balances: LeaveBalance[]; onClose: () => void; onCreated: (r: LeaveRequestRecord) => void; token: string }) {
   const { showToast } = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState<SubmitLeaveRequestPayload>({ leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Early-UX only, mirroring the backend's own day-count formula (LeaveService#submitRequest) —
+  // the backend independently re-validates against the same status-aware balance regardless of
+  // what's computed here, so this can never be relied on to enforce the limit by itself.
+  const selectedBalance = balances.find(b =>
+    b.leaveTypeCode === form.leaveTypeCode
+    || (isAnnualBalanceLeaveType(form.leaveTypeCode) && isAnnualBalanceLeaveType(b.leaveTypeCode)));
+  const effectiveEndDate = form.halfDay ? form.startDate : form.endDate;
+  const requestedDays = form.halfDay
+    ? 0.5
+    : (new Date(effectiveEndDate).getTime() - new Date(form.startDate).getTime()) / 86400000 + 1;
+  const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && requestedDays > selectedBalance.remainingDays;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.reason.trim()) { setError('A reason is required.'); return; }
+    if (exceedsBalance && selectedBalance) {
+      setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${selectedBalance.remainingDays} days.`);
+      return;
+    }
     setSubmitting(true); setError(null);
     try {
       const created = await leaveApi.submit({ ...form, endDate: form.halfDay ? form.startDate : form.endDate }, token);
@@ -81,6 +175,12 @@ function RequestLeaveModal({ types, onClose, onCreated, token }: { types: LeaveT
                 {types.map(t => <option key={t.code} value={t.code}>{t.name}</option>)}
               </select>
             </Field>
+            {selectedBalance && (
+              <div style={{ fontSize: 11.5, color: exceedsBalance ? 'var(--risk)' : 'var(--txt-dim)', marginTop: 5 }}>
+                Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
+                {exceedsBalance && ' — this request exceeds your available balance'}
+              </div>
+            )}
           </div>
           <Field label="Start Date *">
             <input type="date" style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
@@ -99,7 +199,7 @@ function RequestLeaveModal({ types, onClose, onCreated, token }: { types: LeaveT
           </div>
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
+            <button type="submit" disabled={submitting || exceedsBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
           </div>
         </form>
       </div>
@@ -434,13 +534,8 @@ export default function LeavePage() {
       )}
 
       {!loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 22 }}>
-          {balances.map(b => (
-            <div key={b.leaveTypeCode} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>{b.leaveTypeName}</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--txt)' }}>{b.remainingDays}<span style={{ fontSize: 13, color: 'var(--txt-mut)', fontWeight: 400 }}> / {b.totalDays} days</span></div>
-            </div>
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 22 }}>
+          {balances.map(b => <LeaveBalanceDonut key={b.leaveTypeCode} balance={b} />)}
         </div>
       )}
 
@@ -484,7 +579,7 @@ export default function LeavePage() {
       </div>
 
       {showRequest && (
-        <RequestLeaveModal types={types} token={token} onClose={() => setShowRequest(false)} onCreated={handleCreated} />
+        <RequestLeaveModal types={types} balances={balances} token={token} onClose={() => setShowRequest(false)} onCreated={handleCreated} />
       )}
 
       <div style={{ marginTop: 28 }}>
