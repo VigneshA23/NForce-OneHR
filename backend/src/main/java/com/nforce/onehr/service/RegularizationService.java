@@ -170,6 +170,25 @@ public class RegularizationService {
     }
 
     /**
+     * "N requests remaining this month" for the Regularization modal's balance display —
+     * read-only, reuses the exact same count query {@link #assertMonthlyLimitNotExceeded} runs
+     * before every submit(); never enforces anything itself. Super Admin is exempt from the
+     * limit (see submit()), so its balance is reported as unlimited rather than a real count.
+     */
+    @Transactional(readOnly = true)
+    public RegularizationBalance getBalance(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
+        LocalDate today = regularizationBusinessToday();
+        LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
+        int usedCount = (int) regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
+                actor.getId(), monthStart, monthStart.plusMonths(1));
+        return new RegularizationBalance(usedCount, monthlyLimit, Math.max(0, monthlyLimit - usedCount), isSuperAdmin);
+    }
+
+    public record RegularizationBalance(int usedCount, int limitCount, int remainingCount, boolean unlimited) {}
+
+    /**
      * Edit a still-pending request. Only the submitting employee may edit, and only while
      * status is PENDING — approved/rejected requests are immutable history.
      */
