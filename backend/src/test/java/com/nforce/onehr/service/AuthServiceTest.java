@@ -77,7 +77,7 @@ class AuthServiceTest {
         lenient().when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(passwordEncoder.matches(eq(CORRECT_PASSWORD), anyString())).thenReturn(true);
         lenient().when(passwordEncoder.matches(eq(WRONG_PASSWORD), anyString())).thenReturn(false);
-        lenient().when(jwtTokenProvider.generateToken(anyString(), any(Boolean.class))).thenReturn("jwt-token");
+        lenient().when(jwtTokenProvider.generateToken(anyString(), any(Boolean.class), any(Integer.class))).thenReturn("jwt-token");
     }
 
     private LoginRequest request(String email, String password) {

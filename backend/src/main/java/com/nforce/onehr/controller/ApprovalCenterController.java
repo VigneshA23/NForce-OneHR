@@ -56,7 +56,7 @@ public class ApprovalCenterController {
     /**
      * Returns all pending approval items visible to the caller.
      * - Manager: LEAVE (own reports), REGULARIZATION (own reports), EXPENSE at MANAGER stage (own reports), ASSET_REQUEST (own reports)
-     * - HR Admin / Super Admin: REGULARIZATION (all), EXPENSE at FINAL stage (all), ASSET_REQUEST (all)
+     * - HR Admin / Super Admin: LEAVE (all), REGULARIZATION (all), EXPENSE at FINAL stage (all), ASSET_REQUEST (all)
      */
     @GetMapping
     public List<ApprovalItemDto> pendingApprovals(Principal principal) {
@@ -97,6 +97,9 @@ public class ApprovalCenterController {
         }
 
         if (isAdmin) {
+            // Leave — HR/SA see all pending, regardless of direct-report relationship
+            leaveService.listPendingApprovals(email).stream()
+                    .map(this::leaveToApprovalItem).forEach(items::add);
             // Regularization — HR/SA see all pending
             regularizationService.listPendingForApprover(email).stream()
                     .map(this::regularizationToApprovalItem).forEach(items::add);

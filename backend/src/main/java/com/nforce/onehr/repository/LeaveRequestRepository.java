@@ -29,4 +29,8 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     // dashboard's "On Leave" KPI (see LeaveService#listOrgLeave).
     List<LeaveRequest> findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
             String status, LocalDate to, LocalDate from);
+
+    // Organization-wide pending queue, no employeeUserId scoping — backs HR_ADMIN/SUPER_ADMIN
+    // visibility in Approval Center (see LeaveService#listPendingApprovals's override branch).
+    List<LeaveRequest> findByStatusOrderByCreatedAtAsc(String status);
 }

@@ -35,6 +35,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LeaveService {
 
+    // HR Admin / Super Admin can see and decide on ANY employee's leave request, regardless of
+    // reporting-manager relationship — mirrors the identical pattern in AttendanceRequestService,
+    // RegularizationService, AssetService, OvertimeRequestService and WebClockInService.
+    private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
@@ -136,9 +141,15 @@ public class LeaveService {
                 .collect(Collectors.toList());
     }
 
+    /** Reporting manager sees only own reports' pending requests; HR Admin/Super Admin see all. */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
+        if (hasOverrideRole(actor)) {
+            return leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+                    .map(this::toRequestResponse)
+                    .collect(Collectors.toList());
+        }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
                 .map(EmployeeManagerHistory::getEmployeeUserId)
                 .collect(Collectors.toList());
@@ -214,7 +225,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor.getId(), request.getEmployeeUserId());
+        assertCanDecide(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -246,7 +257,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor.getId(), request.getEmployeeUserId());
+        assertCanDecide(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -261,6 +272,23 @@ public class LeaveService {
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId(), before, after);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Backend enforcement gate for approve/reject: HR Admin/Super Admin may decide on any
+     * employee's leave regardless of reporting line; everyone else must be the employee's
+     * current reporting manager. Employee-level (and any other non-manager, non-override) users
+     * fail both checks and are denied.
+     */
+    private void assertCanDecide(User actor, UUID employeeId) {
+        if (hasOverrideRole(actor)) {
+            return;
+        }
+        requireCurrentManagerOf(actor.getId(), employeeId);
+    }
+
+    private boolean hasOverrideRole(User actor) {
+        return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
     private void requireCurrentManagerOf(UUID actorId, UUID employeeId) {
