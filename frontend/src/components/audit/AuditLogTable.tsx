@@ -1,4 +1,5 @@
-import { Users, CalendarCheck, Clock, Package, Shield, Tag } from 'lucide-react';
+import { useState } from 'react';
+import { Users, CalendarCheck, Clock, Package, Shield, Tag, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ActionGroup, AuditLogEntry } from '../../api/audit';
 
@@ -6,9 +7,34 @@ function humanizeAction(action: string): string {
   return action.toLowerCase().split('_').map(w => (w[0]?.toUpperCase() ?? '') + w.slice(1)).join(' ');
 }
 
+// Turns a snapshot map's camelCase key (e.g. "reviewComment") into a readable label
+// ("Review Comment") — mirrors humanizeAction's word-splitting for the ACTION column, just
+// splitting on case boundaries instead of underscores since snapshot keys are camelCase.
+function humanizeKey(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
+  return spaced.replace(/\bId\b/g, 'ID');
+}
+
 function fmtDateTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Snapshot maps only ever hold strings/numbers/booleans/null (see AuditSnapshotSerializer) — never throws on malformed JSON, just degrades to no detail rows. */
+function parseState(state: string | null): Record<string, unknown> | null {
+  if (!state) return null;
+  try {
+    const parsed = JSON.parse(state);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function fmtValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  return String(v);
 }
 
 // Icons/colors copied verbatim from AuditStatCards.tsx's CardDef[] (that file is not touched —
@@ -47,13 +73,86 @@ function ActionBadge({ group }: { group: ActionGroup }) {
 const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--raised)' };
 const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 12.5, color: 'var(--txt)', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
 
+// ── Detail modal (read-only) — same overlay/modal/label shape as MyRequestsPage's
+// RequestDetailModal, so an audit event opens the same way a request detail does. ─────────
+
+const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
+const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={labelStyle}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value}</div>
+    </div>
+  );
+}
+
+// Snapshot key excluded from the detail popup — an internal actor-id reference, not part of
+// the human-readable summary (the "Performed By" row above already covers who acted).
+const HIDDEN_SNAPSHOT_KEYS = new Set(['managerDecidedBy', 'decidedBy']);
+
+function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: () => void }) {
+  const before = parseState(entry.beforeState);
+  const after = parseState(entry.afterState);
+  // Union of keys across both snapshots, after-first so newly-set fields lead — a key present
+  // in both with a changed value renders as "before → after" instead of two separate rows.
+  const keys = Array.from(new Set([...(after ? Object.keys(after) : []), ...(before ? Object.keys(before) : [])]))
+    .filter(key => !HIDDEN_SNAPSHOT_KEYS.has(key));
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ActionBadge group={entry.actionGroup} />
+            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+              Audit Event Details
+            </span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: keys.length > 0 ? 16 : 0 }}>
+            <DetailRow label="Timestamp" value={fmtDateTime(entry.occurredAt)} />
+            <DetailRow label="Action" value={humanizeAction(entry.action)} />
+            <DetailRow label="Performed By" value={entry.actorName ? `${entry.actorName}${entry.actorEmail ? ` (${entry.actorEmail})` : ''}` : 'System'} />
+            <DetailRow label="Affected User" value={entry.targetLabel} />
+          </div>
+
+          {keys.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
+              {keys.map(key => {
+                const beforeVal = before ? before[key] : undefined;
+                const afterVal = after ? after[key] : undefined;
+                const hasBoth = before && key in before && after && key in after;
+                const changed = hasBoth && beforeVal !== afterVal;
+                const value = changed ? `${fmtValue(beforeVal)} → ${fmtValue(afterVal)}` : fmtValue(after && key in after ? afterVal : beforeVal);
+                return <DetailRow key={key} label={humanizeKey(key)} value={value} />;
+              })}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   rows: AuditLogEntry[];
 }
 
-/** Clean, non-interactive table — no row expansion (removed: this feature no longer surfaces
- *  before/after diffs in the UI at all, even though the backend may still return them). */
+/** Rows are clickable — opening AuditDetailModal with the event's actor/target/timestamp plus
+ *  any before/after snapshot fields the backend captured (e.g. a rejection's review comment). */
 export function AuditLogTable({ rows }: Props) {
+  const [viewing, setViewing] = useState<AuditLogEntry | null>(null);
+
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -66,7 +165,7 @@ export function AuditLogTable({ rows }: Props) {
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.id}>
+            <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setViewing(r)}>
               <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
                 {fmtDateTime(r.occurredAt)}
               </td>
@@ -79,6 +178,10 @@ export function AuditLogTable({ rows }: Props) {
           ))}
         </tbody>
       </table>
+
+      {viewing && (
+        <AuditDetailModal entry={viewing} onClose={() => setViewing(null)} />
+      )}
     </div>
   );
 }
