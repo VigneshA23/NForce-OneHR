@@ -227,8 +227,20 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
         setError(`${primaryLabel} must include letters, and may only contain letters, numbers, spaces, - and /`);
         return;
       }
+      const trimmedGrade = grade.trim();
+      if (trimmedGrade && !/^[A-Za-z][0-9]$/.test(trimmedGrade)) {
+        setError('Grade/Band must contain exactly 1 letter followed by 1 number (e.g. L1)');
+        return;
+      }
+    } else if (tab === 'locations') {
+      // Location names are alphabetic only — letters and spaces (for multi-word names like
+      // "Chennai HQ"), no digits, no hyphens, no other special characters.
+      if (!/^[A-Za-z]+( [A-Za-z]+)*$/.test(trimmed)) {
+        setError(`${primaryLabel} must contain only letters (spaces allowed between words) — no numbers or special characters`);
+        return;
+      }
     } else if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmed)) {
-      // Department/Location names may contain most non-digit characters (e.g. "R&D",
+      // Department names may contain most non-digit characters (e.g. "R&D",
       // "Sales & Marketing"), but must include at least one letter — this rejects
       // numeric-only ("12345") and special-character-only ("@#$%^&*") values.
       setError(`${primaryLabel} must contain letters and cannot contain numbers or be made up of special characters only`);
@@ -238,7 +250,11 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
       if (/\d/.test(city.trim())) { setError('City cannot contain numbers'); return; }
       if (/\d/.test(state.trim())) { setError('State / Province cannot contain numbers'); return; }
       if (/\d/.test(country.trim())) { setError('Country cannot contain numbers'); return; }
-      if (/\d/.test(holidayRegion.trim())) { setError('Holiday Region cannot contain numbers'); return; }
+      const trimmedRegion = holidayRegion.trim();
+      if (trimmedRegion && !/^[A-Za-z]{2}$/.test(trimmedRegion)) {
+        setError('Region must contain exactly 2 letters (e.g. TN)');
+        return;
+      }
     }
     setLoading(true);
     try {
@@ -363,7 +379,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
                 </label>
                 <label style={labelStyle}>
                   <span style={labelTextStyle}>Holiday Region</span>
-                  <input value={holidayRegion} onChange={e => setHolidayRegion(e.target.value)} placeholder="e.g. IN-TN" style={inputStyle} />
+                  <input value={holidayRegion} onChange={e => setHolidayRegion(e.target.value)} placeholder="e.g. TN" style={inputStyle} />
                 </label>
               </div>
             </>

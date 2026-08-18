@@ -10,8 +10,8 @@ public class UpdateLocationRequest {
     @NotBlank(message = "Name is required")
     @Size(max = 100)
     @Pattern(
-            regexp = "^(?=.*[A-Za-z])[^0-9]+$",
-            message = "Name must contain letters and cannot contain numbers or be made up of special characters only")
+            regexp = "^[A-Za-z]+( [A-Za-z]+)*$",
+            message = "Name must contain only letters (spaces allowed between words) — no numbers or special characters")
     private String name;
 
     @Size(max = 100)
@@ -27,6 +27,6 @@ public class UpdateLocationRequest {
     private String country;
 
     @Size(max = 100)
-    @Pattern(regexp = "^[^0-9]*$", message = "Holiday Region cannot contain numbers")
+    @Pattern(regexp = "^([A-Za-z]{2})?$", message = "Region must contain exactly 2 letters (e.g. TN)")
     private String holidayRegion;
 }
