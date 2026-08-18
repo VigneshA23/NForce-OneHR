@@ -15,6 +15,9 @@ public class UpdateDesignationRequest {
     private String title;
 
     @Size(max = 50)
+    @Pattern(
+            regexp = "^([A-Za-z][0-9])?$",
+            message = "Grade/Band must contain exactly 1 letter followed by 1 number (e.g. L1)")
     private String grade;
 
     @Size(max = 20)

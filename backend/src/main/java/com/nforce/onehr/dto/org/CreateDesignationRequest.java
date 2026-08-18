@@ -16,6 +16,9 @@ public class CreateDesignationRequest {
     private String title;
 
     @Size(max = 50, message = "Grade must be 50 characters or fewer")
+    @Pattern(
+            regexp = "^([A-Za-z][0-9])?$",
+            message = "Grade/Band must contain exactly 1 letter followed by 1 number (e.g. L1)")
     private String grade;
 
     @Size(max = 20)
