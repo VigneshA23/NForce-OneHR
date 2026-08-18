@@ -47,14 +47,18 @@ class CreateHolidayRequestTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "🎉🎊🪔", "!!!@@@###$$$%%%", "-----", "'''", "   " })
-    void rejectsNamesWithNoLetterOrDigit(String invalidName) {
+    @ValueSource(strings = {
+            "🎉🎊🪔", "!!!@@@###$$$%%%", "!!!@@@###$$$%%%😁", "😁😂🎉", "123456", "-----", "'''", "   "
+    })
+    void rejectsNamesWithNoLetter(String invalidName) {
         Set<ConstraintViolation<CreateHolidayRequest>> violations = validator.validate(request(invalidName));
         assertFalse(violations.isEmpty(), "expected a violation for: " + invalidName);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "New Year's Day", "Eid al-Fitr", "Deepāvali", "Diwali", "4th of July" })
+    @ValueSource(strings = {
+            "New Year's Day", "Eid-ul-Fitr", "Eid al-Fitr", "Deepāvali", "Independence Day 2026", "Diwali", "4th of July"
+    })
     void allowsLegitimateHolidayNames(String validName) {
         Set<ConstraintViolation<CreateHolidayRequest>> violations = validator.validate(request(validName));
         assertTrue(violations.isEmpty(), "unexpected violations for: " + validName + " -> " + violations);

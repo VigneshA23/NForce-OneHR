@@ -13,13 +13,14 @@ import java.util.UUID;
 public class CreateHolidayRequest {
     @NotBlank(message = "Holiday name is required")
     @Size(max = 100, message = "Holiday name must be 100 characters or fewer")
-    // At least one letter or digit (rejects emoji-only / symbol-only input like
-    // "🎉🎊🪔" or "!!!@@@###"), and only letters (Unicode-aware — accented
-    // characters like "Deepāvali" are \p{L}), digits, spaces, apostrophes, and
-    // hyphens otherwise ("New Year's Day", "Eid al-Fitr").
+    // Must contain at least one actual letter — rejects emoji-only, symbol-only,
+    // and digit-only input ("!!!@@@###$$$%%%😁", "🎉🎊🪔", "123456"). Otherwise
+    // limited to letters (Unicode-aware, so accented names like "Deepāvali" are
+    // \p{L}), digits (so "Independence Day 2026" is fine), spaces, apostrophes,
+    // and hyphens ("New Year's Day", "Eid-ul-Fitr").
     @Pattern(
-            regexp = "^(?=.*[\\p{L}\\p{N}])[\\p{L}\\p{N} '-]+$",
-            message = "Holiday name must contain at least one letter or number, and only letters, numbers, spaces, apostrophes, or hyphens")
+            regexp = "^(?=.*[\\p{L}])[\\p{L}\\p{N} '-]+$",
+            message = "Holiday name must contain at least one letter, and only letters, numbers, spaces, apostrophes, or hyphens")
     private String holidayName;
 
     @NotNull
