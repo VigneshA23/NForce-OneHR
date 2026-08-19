@@ -21,6 +21,12 @@ public class EmailService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("h:mm a");
 
+    /** Served as a static asset (frontend/public/nforce-logo.png, same source BrandMark.tsx uses)
+     * and linked by URL rather than inlined as base64 — most mail clients (Gmail, Outlook) strip
+     * or refuse to render data: URI images in the message body, so a fetchable URL is required
+     * for the logo to actually show up in a delivered email. Requires the resolved base URL to be
+     * reachable from wherever the recipient opens the email — a local dev base-url won't render
+     * for real recipients outside that machine's network. */
     @Value("${resend.api-key}")
     private String apiKey;
 
@@ -29,6 +35,12 @@ public class EmailService {
 
     @Value("${app.base-url:http://localhost:5180}")
     private String baseUrl;
+
+    /** Same per-environment allowlist CORS is configured with — reused here so the password-reset
+     * link can safely echo back whichever environment's origin actually made the request, instead
+     * of always pointing at this instance's own default base URL. */
+    @Value("${app.cors.allowed-origins:http://localhost:5180}")
+    private String allowedOriginsConfig;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -40,10 +52,31 @@ public class EmailService {
         sendAsync(toEmail, subject, html);
     }
 
-    public void sendPasswordResetEmail(String toEmail, String fullName, String tempPassword) {
+    public void sendPasswordResetEmail(String toEmail, String fullName, String tempPassword, String requestOrigin) {
         String subject = "NForce OneHR — your password has been reset";
-        String html = buildResetHtml(fullName, toEmail, tempPassword);
+        String resolvedBaseUrl = resolveBaseUrl(requestOrigin);
+        log.info("Password-reset email for {}: request Origin={}, resolved link base={}", toEmail, requestOrigin, resolvedBaseUrl);
+        String html = buildResetHtml(fullName, toEmail, tempPassword, resolvedBaseUrl);
         sendAsync(toEmail, subject, html);
+    }
+
+    /** Echoes back the requesting environment's own origin (validated against the same
+     * allowlist CORS uses) so the emailed link returns to wherever the request came from —
+     * local, Dev, or any other deployed environment — instead of a fixed default. Falls back
+     * to {@code app.base-url} when there's no Origin header or it isn't on the allowlist. */
+    private String resolveBaseUrl(String requestOrigin) {
+        if (requestOrigin == null || requestOrigin.isBlank()) {
+            return baseUrl;
+        }
+        String normalizedOrigin = stripTrailingSlash(requestOrigin.trim());
+        boolean allowed = java.util.Arrays.stream(allowedOriginsConfig.split(","))
+                .map(String::trim)
+                .anyMatch(o -> stripTrailingSlash(o).equalsIgnoreCase(normalizedOrigin));
+        return allowed ? normalizedOrigin : baseUrl;
+    }
+
+    private String stripTrailingSlash(String url) {
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
@@ -151,38 +184,61 @@ public class EmailService {
                 """.formatted(fullName, email, tempPassword, baseUrl);
     }
 
-    private String buildResetHtml(String fullName, String email, String tempPassword) {
+    private String buildResetHtml(String fullName, String email, String tempPassword, String baseUrl) {
         return """
                 <!DOCTYPE html>
                 <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
+                <head>
+                <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+                <meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">
+                </head>
+                <body bgcolor="#f4f4f4" style="margin:0;padding:0;background-color:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                  <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:40px 16px;">
                     <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:22px 36px;">
-                          <table cellpadding="0" cellspacing="0" border="0"><tr>
-                            <td style="padding-right:10px;"><img src="%s/favicon-48.png" width="32" height="32" alt="" style="display:block;border-radius:50%%;border:0;"></td>
-                            <td style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</td>
+                      <table bgcolor="#16181d" width="440" cellpadding="0" cellspacing="0" style="background-color:#16181d;border-radius:6px;overflow:hidden;color:#e0e0e0;">
+                        <tr><td style="background:linear-gradient(90deg, #A01418 0%%, #A01418 30%%, #050506 100%%);background-color:#A01418;padding:8px 30px;">
+                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation"><tr>
+                            <td valign="middle" align="left" style="width:35px;">
+                              <table cellpadding="0" cellspacing="0" role="presentation" style="width:35px;height:35px;">
+                                <tr><td align="center" valign="middle" bgcolor="#000000" style="width:35px;height:35px;background-color:#000000;border:2px solid #333333;border-radius:50%%;overflow:hidden;">
+                                  <img src="%s/nforce-logo.png" width="35" height="35" alt="" style="display:block;border-radius:50%%;border:0;">
+                                </td></tr>
+                              </table>
+                            </td>
+                            <td valign="middle" align="right" style="color:#ffffff;font-weight:700;font-size:16px;">NForce OneHR</td>
                           </tr></table>
                         </td></tr>
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Reset your password</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, a password reset was requested for %s. Use the temporary password below to sign in.</p>
+                        <tr><td style="padding:24px 30px;">
+                          <h2 style="color:#ffffff;margin:0 0 14px;font-size:23px;font-weight:700;">Reset your password</h2>
+                          <p style="line-height:1.5;margin:0 0 16px;font-size:14px;color:#d1d5db;">Hi %s, a password reset was requested for %s. Use the temporary password below to sign in.</p>
 
-                          <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #34506E;border-radius:8px;margin-bottom:28px;">
-                            <tr><td style="padding:20px 24px;">
-                              <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.06em;">Password</p>
-                              <p style="margin:0;font-family:'Courier New',monospace;background:#080808;color:#E8EAED;padding:8px 12px;border-radius:4px;font-size:15px;font-weight:600;display:inline-block;">%s</p>
+                          <table cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 20px;">
+                            <tr>
+                              <td style="font-size:14px;color:#9ca3af;">Password:</td>
+                              <td style="padding-left:12px;">
+                                <span style="display:inline-block;background-color:#1f2229;padding:6px 14px;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:15px;color:#ffffff;font-weight:bold;border:1px solid #2d313a;">%s</span>
+                              </td>
+                            </tr>
+                          </table>
+
+                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#2d2216;border-radius:4px;margin-bottom:23px;">
+                            <tr><td style="border-left:3px solid #d97706;padding:12px 16px;">
+                              <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#f59e0b;">⚠️ Temporary Password Notice</p>
+                              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.4;">This password is for one-time use only. For your security, you will be required to set a new password immediately after signing in.</p>
                             </td></tr>
                           </table>
 
-                          <div style="background:rgba(224,169,59,.08);border:1px solid rgba(224,169,59,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
-                            <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#E0A93B;">⚠️ Password reset required</p>
-                            <p style="margin:0;font-size:13px;color:#c9a668;line-height:1.5;">You will be asked to create a new password after signing in. If you didn't request this reset, contact your HR administrator immediately.</p>
-                          </div>
+                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation">
+                            <tr><td>
+                              <a href="%s/login" style="display:block;width:100%%;box-sizing:border-box;background-color:#b91c1c;color:#ffffff;text-align:center;padding:6.5px 12px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;">Sign in to OneHR →</a>
+                            </td></tr>
+                          </table>
 
-                          <a href="%s/login" style="display:inline-block;background:#B11116;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 28px;border-radius:8px;">Sign in to OneHR →</a>
+                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation" style="border-top:1px solid #2d313a;margin-top:20px;">
+                            <tr><td style="padding-top:14px;font-size:11px;color:#6b7280;line-height:1.4;">
+                              This email was sent by NForce OneHR. If you didn't request this reset, contact your HR administrator immediately.
+                            </td></tr>
+                          </table>
                         </td></tr>
                       </table>
                     </td></tr>
