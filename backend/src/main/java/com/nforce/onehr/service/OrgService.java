@@ -165,12 +165,13 @@ public class OrgService {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
     @Transactional
     public LocationResponse createLocation(CreateLocationRequest req) {
-        if (locationRepo.existsByNameIgnoreCase(req.getName().trim())) {
-            throw new IllegalArgumentException("A location named '" + req.getName().trim() + "' already exists");
+        String normalized = toTitleCase(req.getName().trim());
+        if (locationRepo.existsByNameIgnoreCase(normalized)) {
+            throw new IllegalArgumentException("A location named '" + normalized + "' already exists");
         }
         Location saved = locationRepo.save(
                 Location.builder()
-                        .name(req.getName().trim())
+                        .name(normalized)
                         .city(req.getCity())
                         .state(req.getState())
                         .country(req.getCountry())
@@ -184,7 +185,7 @@ public class OrgService {
     public LocationResponse updateLocation(UUID id, UpdateLocationRequest req) {
         Location loc = locationRepo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Location not found"));
-        String trimmed = req.getName().trim();
+        String trimmed = toTitleCase(req.getName().trim());
         if (!loc.getName().equalsIgnoreCase(trimmed) && locationRepo.existsByNameIgnoreCase(trimmed)) {
             throw new IllegalArgumentException("A location named '" + trimmed + "' already exists");
         }
@@ -218,6 +219,22 @@ public class OrgService {
                     count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this location. Deactivate instead.");
         }
         locationRepo.delete(loc);
+    }
+
+    /** Normalizes a location name so each word starts with an uppercase letter, e.g. "new york" -> "New York". */
+    private String toTitleCase(String name) {
+        String[] words = name.split(" ");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < words.length; i++) {
+            if (i > 0) {
+                sb.append(" ");
+            }
+            String word = words[i];
+            if (!word.isEmpty()) {
+                sb.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1).toLowerCase());
+            }
+        }
+        return sb.toString();
     }
 
     // ── Org Hierarchy ─────────────────────────────────────────────────────────

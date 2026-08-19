@@ -25,14 +25,6 @@ function formatClockTime(iso: string | null): string | null {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
 
-function formatElapsedMs(ms: number): string {
-  const totalMin = Math.max(0, Math.floor(ms / 60000));
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  if (h === 0) return `${m}m`;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
-
 function formatWorkedMinutes(mins: number | null): string {
   if (mins == null) return '—';
   const h = Math.floor(mins / 60);
@@ -124,14 +116,26 @@ function WebClockInRow({ today, onSubmitted }: {
   const [showModal, setShowModal] = useState(false);
   const [openWeb, setOpenWeb] = useState<WebClockInRecord | null>(null);
   const [legacy, setLegacy] = useState<WebClockInRecord | null>(null);
+  // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
+  // for every later cycle the same day/shift so the employee is only asked once (per requirement:
+  // "If Web Clock-In is performed again during the same day/shift, do not ask for the reason
+  // again"). Null once a NEW calendar/shift day starts, since todayIsoDate() no longer matches.
+  const [reusableReason, setReusableReason] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const refreshMine = useCallback(() => {
     webClockInApi.mine(token).then(list => {
       const todayIso = todayIsoDate();
-      setOpenWeb(list.find(r => r.workDate === todayIso && r.status === 'APPROVED' && !r.checkedOutAt) ?? null);
-      setLegacy(list.find(r => r.workDate === todayIso && r.status !== 'APPROVED') ?? null);
-    }).catch(() => { setOpenWeb(null); setLegacy(null); });
+      const todays = list.filter(r => r.workDate === todayIso);
+      // PENDING counts as "currently open" alongside APPROVED — the attendance effect is
+      // immediate regardless of HR review status (see WebClockInService.submit's doc comment).
+      setOpenWeb(todays.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null);
+      setLegacy(todays.find(r => r.status === 'REJECTED' && !r.checkedOutAt) ?? null);
+      // `list` is already newest-first (see webClockInApi.mine), so the first match for today is
+      // the most recent cycle's reason.
+      setReusableReason(todays[0]?.reason ?? null);
+    }).catch(() => { setOpenWeb(null); setLegacy(null); setReusableReason(null); });
   }, [token]);
 
   useEffect(() => { refreshMine(); }, [refreshMine]);
@@ -139,14 +143,32 @@ function WebClockInRow({ today, onSubmitted }: {
   async function handleCheckOut() {
     setCheckingOut(true);
     try {
-      await webClockInApi.checkOut(token);
-      showToast('success', 'Web clock-out recorded');
+      const resp = await webClockInApi.checkOut(token);
+      const at = formatClockTime(resp.checkedOutAt);
+      showToast('success', `Checked out ${at ? `at ${at}` : 'successfully'}`);
       refreshMine();
       onSubmitted();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
     } finally {
       setCheckingOut(false);
+    }
+  }
+
+  // Reason already on file for today (a prior cycle this same day/shift) — skip the modal
+  // entirely and resubmit straight away, reusing it.
+  async function handleQuickWebClockIn(reason: string) {
+    setSubmitting(true);
+    try {
+      const resp = await webClockInApi.submit(reason, token);
+      const at = formatClockTime(resp.requestedCheckIn);
+      showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
+      refreshMine();
+      onSubmitted();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Web clock-in failed');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -161,6 +183,7 @@ function WebClockInRow({ today, onSubmitted }: {
         <>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
             Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '—'}
+            {openWeb.status === 'PENDING' ? ' (awaiting HR approval)' : ''}
           </span>
           <button
             onClick={handleCheckOut}
@@ -171,10 +194,7 @@ function WebClockInRow({ today, onSubmitted }: {
           </button>
         </>
       )}
-      {!openWeb && legacy?.status === 'PENDING' && (
-        <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Web clock-in pending approval.</span>
-      )}
-      {!openWeb && legacy?.status === 'REJECTED' && (
+      {!openWeb && legacy && (
         <>
           <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{legacy.reviewComment ? `: ${legacy.reviewComment}` : '.'}</span>
           <button
@@ -187,10 +207,11 @@ function WebClockInRow({ today, onSubmitted }: {
       )}
       {!openWeb && !legacy && today?.canCheckIn && (
         <button
-          onClick={() => setShowModal(true)}
-          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          onClick={() => (reusableReason ? handleQuickWebClockIn(reusableReason) : setShowModal(true))}
+          disabled={submitting}
+          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: submitting ? 'not-allowed' : 'pointer' }}
         >
-          Working remotely? Web Clock In →
+          {submitting ? 'Checking in…' : 'Working remotely? Web Clock In →'}
         </button>
       )}
       {!openWeb && !legacy && otherSessionOpen && (
@@ -250,14 +271,6 @@ export function AttendanceHeroBanner() {
   const record     = today?.record ?? null;
   const checkInAt  = record?.checkInAt  ?? null;
   const checkOutAt = record?.checkOutAt ?? null;
-  const sessionStart = record?.sessionStartedAt ?? checkInAt;
-
-  const fetchedAtRef = useMemo(() => ({ t: Date.now() }), [today]);
-  const liveElapsedMs = useMemo(() => {
-    if (!sessionStart || !today?.serverNow) return 0;
-    const baseElapsed = new Date(today.serverNow + 'Z').getTime() - new Date(sessionStart + 'Z').getTime();
-    return Math.max(0, baseElapsed + (now.getTime() - fetchedAtRef.t));
-  }, [sessionStart, today, now, fetchedAtRef]);
 
   const shiftInfo = useMemo(() => {
     if (!config) return null;
@@ -337,17 +350,10 @@ export function AttendanceHeroBanner() {
 
   // ── State 2: Active session ───────────────────────────────────────────────────
   if (today?.canCheckOut) {
-    const priorWorked = record?.workedMinutes ?? 0;
-    const sessionLabel = priorWorked > 0
-      ? `Session started at ${formatClockTime(sessionStart) ?? '—'} · ${formatElapsedMs(liveElapsedMs)} elapsed · ${formatWorkedMinutes(priorWorked)} prior`
-      : `Checked in at ${formatClockTime(sessionStart) ?? '—'}${liveElapsedMs > 0 ? ` · ${formatElapsedMs(liveElapsedMs)} elapsed` : ''}`;
-
+    // No "Working now." headline / "Session started at… elapsed… prior" line here by design —
+    // removed per explicit request; Check-In/Check-Out functionality itself is unaffected.
     return (
       <HeroCard>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
-          Working now.
-        </div>
-        <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{sessionLabel}</p>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           <HeroPill dot="#4E9EE8" label="Working" pulse />
           {statusPill}

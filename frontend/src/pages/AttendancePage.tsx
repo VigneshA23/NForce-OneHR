@@ -24,7 +24,7 @@ import {
   type SubmitAttendanceRequestPayload,
 } from '../api/attendanceRequests';
 import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeRequests';
-import { webClockInApi } from '../api/webClockIn';
+import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -279,8 +279,6 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
-
-const APPROVER_ROLE_LABELS: Record<string, string> = { MANAGER: 'Manager', HR_ADMIN: 'HR' };
 
 const STATUS_COLORS: Record<AttendanceStatus, string> = {
   PRESENT: '#2FB67C',
@@ -616,8 +614,9 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   const minDate = isSuperAdmin ? undefined : isoDaysAgo(REGULARIZATION_LOOKBACK_DAYS - 1);
   const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? initialDate ?? today);
   const [reason, setReason] = useState(editing?.reason ?? '');
-  const [managerUserId, setManagerUserId] = useState(editing?.assignedApproverId ?? '');
-  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  // No manual approver selection and no "Assign To" display — the backend always routes to
+  // the employee's current reporting manager (EmployeeManagerHistory) when managerUserId is
+  // omitted from the submit payload below.
   const [existingPunch, setExistingPunch] = useState<AttendanceRecord | null>(null);
   const [loadingPunch, setLoadingPunch] = useState(false);
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
@@ -626,10 +625,6 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   const [submitting, setSubmitting] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty — Assign To is still required */ });
-  }, [token]);
 
   useEffect(() => {
     attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
@@ -677,9 +672,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
 
     const dateMissing = !attendanceDate;
     const reasonMissing = !reason.trim();
-    const managerMissing = !managerUserId;
 
-    if (dateMissing || reasonMissing || managerMissing) {
+    if (dateMissing || reasonMissing) {
       setError('Fill in every required field shown above.');
       return;
     }
@@ -702,7 +696,6 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
         requestedCheckIn: existingPunch?.checkInAt ?? undefined,
         requestedCheckOut: existingPunch?.checkOutAt ?? undefined,
         reason: reason.trim(),
-        managerUserId,
       };
       const saved = editing
         ? await regularizationApi.update(editing.id, payload, token)
@@ -747,7 +740,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
 
           <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
             {loadingPunch ? 'Checking attendance…' : hasAnyPunch ? (
-              <>On file — Check-in: {formatTime(existingPunch?.checkInAt ?? null) ?? 'not recorded'}, Check-out: {formatTime(existingPunch?.checkOutAt ?? null) ?? 'not recorded'}.</>
+              <>Check-in: {formatTime(existingPunch?.checkInAt ?? null) ?? 'not recorded'}, Check-out: {formatTime(existingPunch?.checkOutAt ?? null) ?? 'not recorded'}.</>
             ) : (
               <span style={{ color: 'var(--risk)' }}>No attendance record on file for this date — nothing to regularize.</span>
             )}
@@ -798,16 +791,6 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
               </div>
             )}
           </div>
-
-          <Field label="Assign To *">
-            <select style={inputStyle} value={managerUserId} onChange={e => setManagerUserId(e.target.value)}>
-              <option value="" disabled>Select HR or Manager…</option>
-              {approvers.map(a => (
-                <option key={a.userId} value={a.userId}>{a.fullName} — {APPROVER_ROLE_LABELS[a.roleCode] ?? a.roleCode}</option>
-              ))}
-            </select>
-            {submitAttempted && !managerUserId && <div style={fieldErrorStyle}>Assign To is required — select an HR or Manager approver.</div>}
-          </Field>
 
           <Field label="Note *">
             <textarea
@@ -1908,23 +1891,31 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   onSubmitted: () => Promise<unknown>;
 }) {
   const { showToast } = useToast();
+  const { formatTime } = useTimeFormat();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
+  // for every later cycle the same day/shift so the employee is only asked once. Mirrors
+  // AttendanceHeroBanner's WebClockInRow.
+  const [reusableReason, setReusableReason] = useState<string | null>(null);
+
+  useEffect(() => {
+    webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
+      const todayIso = todayIsoDate();
+      setReusableReason(list.find(r => r.workDate === todayIso)?.reason ?? null);
+    }).catch(() => setReusableReason(null));
+  }, [token, today]);
 
   const disabled = loading || !today?.canCheckIn;
 
-  async function handleSubmit() {
-    const trimmed = reason.trim();
-    if (!trimmed) {
-      showToast('error', 'Please enter a comment for the web clock-in request');
-      return;
-    }
+  async function submitReason(trimmed: string) {
     setBusy(true);
     try {
-      await webClockInApi.submit(trimmed, token);
+      const created = await webClockInApi.submit(trimmed, token);
       await onSubmitted();
-      showToast('success', 'Checked in remotely');
+      const at = formatTime(created.requestedCheckIn);
+      showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
       setOpen(false);
       setReason('');
     } catch (err) {
@@ -1934,14 +1925,23 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
     }
   }
 
+  function handleSubmit() {
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      showToast('error', 'Please enter a comment for the web clock-in request');
+      return;
+    }
+    submitReason(trimmed);
+  }
+
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        style={{ ...actionStyle, opacity: disabled ? 0.6 : 1, cursor: disabled ? 'default' : 'pointer' }}
+        onClick={() => (reusableReason ? submitReason(reusableReason) : setOpen(true))}
+        disabled={disabled || busy}
+        style={{ ...actionStyle, opacity: (disabled || busy) ? 0.6 : 1, cursor: (disabled || busy) ? 'default' : 'pointer' }}
       >
-        <Wifi size={14} style={{ color: 'var(--brand)' }} /> Web Check-In
+        <Wifi size={14} style={{ color: 'var(--brand)' }} /> {busy ? 'Checking in…' : 'Web Check-In'}
       </button>
       {open && (
         <div style={overlayStyle}>

@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
@@ -25,6 +26,7 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -47,6 +49,10 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class LeaveServiceTest {
 
+    // Mirrors LeaveService.SAME_DAY_BLOCKING_STATUSES — kept as a separate constant here since
+    // that one is private to the service.
+    private static final Set<String> SAME_DAY_BLOCKING_STATUSES_FOR_TEST = Set.of("PENDING", "APPROVED");
+
     @Mock private UserRepository userRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository historyRepository;
@@ -56,6 +62,7 @@ class LeaveServiceTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private NotificationService notificationService;
+    @Mock private AttendanceProperties attendanceProperties;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -99,6 +106,10 @@ class LeaveServiceTest {
         lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
                         any(), any(), eq("PENDING"), any(), any()))
                 .thenReturn(BigDecimal.ZERO);
+        // Pinned to the JVM's own default zone (not a hardcoded business zone like
+        // "Asia/Kolkata") so LeaveService's zone-aware "today" always matches this test's own
+        // LocalDate.now() calls, regardless of which machine/CI runner executes the suite.
+        lenient().when(attendanceProperties.getZone()).thenReturn(ZoneId.systemDefault().getId());
     }
 
     /** Stubs the PENDING-days-reserved sum for the fixture's employee/year (any group of type IDs). */
@@ -341,6 +352,105 @@ class LeaveServiceTest {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(day, day, true, "Half day"), employeeEmail));
         assertEquals("Leave request exceeds your available Annual Leave balance of 0 days.", ex.getMessage());
+    }
+
+    // ── Previous-date and same-day duplicate restrictions ───────────────────────────────────
+
+    @Test
+    void submitRequest_startDateInThePast_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+
+        LocalDate yesterday = LocalDate.now().minusDays(1);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(yesterday, yesterday, false, "Too late"), employeeEmail));
+        assertEquals("Leave cannot be requested for a date before today", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_today_withNoExistingRequestForToday_isAllowed() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        // existsBy...(PENDING, APPROVED) is unstubbed here -> defaults to false, i.e. no
+        // existing request for today.
+
+        LocalDate today = LocalDate.now();
+        LeaveRequestResponse resp = leaveService.submitRequest(request(today, today, false, "Same day"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submitRequest_today_withExistingPendingRequestForToday_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate today = LocalDate.now();
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(SAME_DAY_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(today, today, false, "Second request today"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request for today", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_today_withExistingApprovedRequestForToday_isRejected() {
+        // Same repository call as the PENDING case above (the query checks status IN
+        // (PENDING, APPROVED) in one shot) — covered separately since both statuses are an
+        // explicit, independent requirement.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate today = LocalDate.now();
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(SAME_DAY_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(today, today, false, "Second request today"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request for today", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_today_withOnlyRejectedRequestForToday_isAllowed() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        // A REJECTED-only day never matches the (PENDING, APPROVED) status filter, so the
+        // repository call correctly returns false (default, left unstubbed) here.
+
+        LocalDate today = LocalDate.now();
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request(today, today, false, "Retry after earlier rejection"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submitRequest_futureDate_existingBalanceAndDayCountBehaviorIsUnaffected() {
+        // Future dates never pass through either new guard (isBefore(today) is false, and
+        // isEqual(today) is false) — this only re-confirms the pre-existing behavior still holds.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(10);
+        LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(1), false, "Future trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(new BigDecimal("2"), resp.getTotalDays());
+        verify(leaveRequestRepository, never())
+                .existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(any(), any(), any(), any());
     }
 
     @Test

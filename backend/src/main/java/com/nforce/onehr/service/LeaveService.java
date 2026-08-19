@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
@@ -52,6 +54,9 @@ public class LeaveService {
     private static final Set<String> ANNUAL_BALANCE_GROUP_CODES = Set.of("ANNUAL", "SICK", "CASUAL");
     private static final String ANNUAL_LEAVE_TYPE_CODE = "ANNUAL";
 
+    // A REJECTED request never blocks a new same-day submission — only these two statuses do.
+    private static final Set<String> SAME_DAY_BLOCKING_STATUSES = Set.of("PENDING", "APPROVED");
+
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
@@ -61,6 +66,7 @@ public class LeaveService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
+    private final AttendanceProperties attendanceProperties;
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
@@ -125,6 +131,21 @@ public class LeaveService {
         }
         if (req.isHalfDay() && !req.getEndDate().isEqual(req.getStartDate())) {
             throw new IllegalArgumentException("A half-day request must use the same start and end date");
+        }
+
+        // "Today" is resolved in the business timezone (same convention as AttendanceProperties'
+        // other consumers), not the JVM default, so a server running in UTC doesn't roll the day
+        // over hours early/late relative to the employee's actual calendar day.
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        if (req.getStartDate().isBefore(today)) {
+            throw new IllegalArgumentException("Leave cannot be requested for a date before today");
+        }
+        // Past dates are already rejected above, so a request can only ever "cover" today when it
+        // starts today. PENDING/APPROVED block a second same-day request; REJECTED does not.
+        if (req.getStartDate().isEqual(today) && leaveRequestRepository
+                .existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        actor.getId(), SAME_DAY_BLOCKING_STATUSES, today, today)) {
+            throw new IllegalArgumentException("You already have a pending or approved leave request for today");
         }
 
         BigDecimal totalDays = req.isHalfDay()
