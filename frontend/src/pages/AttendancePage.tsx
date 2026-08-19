@@ -13,7 +13,6 @@ import {
   type RegularizationRecord,
   type SubmitRegularizationPayload,
   type RegularizationBalance,
-  type ApproverOption,
   type Punch,
 } from '../api/attendance';
 import {
@@ -114,11 +113,19 @@ function hasMetFullEffectiveHours(workedMinutes: number | null | undefined, conf
 
 // Requirement 1 (date-window restriction): Employee/Manager/HR may only pick today or one of
 // the previous REGULARIZATION_LOOKBACK_DAYS-1 days (today counts as one of the allowed days —
-// e.g. 3 with today=6th allows 6th/5th/4th, blocks 3rd onward). Super Admin is exempt (no
-// restriction). This mirrors RegularizationService.validateLookbackWindow on the backend, which
-// is the source of truth and enforces the same rule server-side — this is a UX convenience only,
-// not the actual security boundary, since the API rejects out-of-window dates regardless.
-const REGULARIZATION_LOOKBACK_DAYS = 3;
+// e.g. 7 with today=19th allows the 19th through the 13th, blocks the 12th onward). Super Admin
+// is exempt (no restriction). This mirrors RegularizationService.validateLookbackWindow on the
+// backend, which is the source of truth and enforces the same rule server-side — this is a UX
+// convenience only, not the actual security boundary, since the API rejects out-of-window dates
+// regardless.
+const REGULARIZATION_LOOKBACK_DAYS = 7;
+
+/** "13 Aug 2026" — matches RegularizationService's NOTIFICATION_DATE_FMT ("d MMM yyyy") so the
+ * cutoff date in the lookback-window error reads identically on both sides. */
+function formatCutoffDay(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 /** ISO date N days before today, in the browser's local calendar. */
 function isoDaysAgo(n: number): string {
@@ -194,6 +201,26 @@ function parseTimeText(text: string): TimeValue | null {
   const match = TIME_TEXT_PATTERN.exec(text.trim());
   if (!match) return null;
   return { hour: String(parseInt(match[1], 10)), minute: match[2], period: match[3].toUpperCase() as Period };
+}
+
+/** A complete TimeValue + an ISO date -> a server-shaped "YYYY-MM-DDTHH:mm:ss" datetime. */
+function timeValueToIso(date: string, t: TimeValue): string {
+  let hour24 = parseInt(t.hour, 10) % 12;
+  if (t.period === 'PM') hour24 += 12;
+  return `${date}T${pad2(hour24)}:${t.minute}:00`;
+}
+
+/** Inverse of timeValueToIso's clock-time formatting — for pre-filling a manual entry field
+ * from a previously-submitted request's stored requestedCheckIn/Out. */
+function isoToTimeText(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const timePart = iso.slice(11, 16);
+  if (timePart.length < 5) return '';
+  const [hStr, minute] = timePart.split(':');
+  let hour = Number(hStr);
+  const period: Period = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12 || 12;
+  return `${hour}:${minute} ${period}`;
 }
 
 /**
@@ -590,10 +617,12 @@ function TruncatedText({ text, style }: { text: string | null | undefined; style
 }
 
 // ─── Request Regularization Modal (create or edit-while-pending) ──────────────
-// Matches Keka's flow: a Selected Date / Shift Timings header, check-in/check-out shown
-// read-only from the day's on-file attendance record (no manual time entry at all), a fixed
-// "exempt this day from penalty" statement, a remaining-balance readout with View Details, and
-// a single required Note.
+// A Selected Date / Shift Timings header, editable Corrected Check-in / Corrected Check-out
+// fields (pre-filled from the day's on-file attendance record when one exists, blank otherwise
+// — a date with no attendance record at all never blocks submission, only requires at least one
+// of the two corrected times), a fixed "exempt this day from penalty" statement, a
+// remaining-balance readout with View Details, and a single required Note. No "Assign To" field
+// — the backend always routes to the employee's current reporting manager.
 function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuperAdmin, initialDate }: {
   onClose: () => void;
   onSaved: (r: RegularizationRecord) => void;
@@ -607,19 +636,24 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   initialDate?: string;
 }) {
   const { showToast } = useToast();
-  const { formatTime } = useTimeFormat();
+  const { formatDuration } = useTimeFormat();
   const today = todayIsoDate();
-  // Employee/Manager/HR: earliest attendance date selectable in the calendar picker. Super
-  // Admin has no lower bound — "any number of previous days" per Requirement 1.
+  // Earliest attendance date the request window allows — not enforced via the date picker's
+  // min/max (any date remains pickable there), only as a submit-time check below (and by the
+  // backend, which is the actual source of truth). Super Admin has no lower bound at all — "any
+  // number of previous days" per Requirement 1.
   const minDate = isSuperAdmin ? undefined : isoDaysAgo(REGULARIZATION_LOOKBACK_DAYS - 1);
   const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? initialDate ?? today);
   const [reason, setReason] = useState(editing?.reason ?? '');
   // No manual approver selection and no "Assign To" display — the backend always routes to
   // the employee's current reporting manager (EmployeeManagerHistory) when managerUserId is
   // omitted from the submit payload below.
-  const [existingPunch, setExistingPunch] = useState<AttendanceRecord | null>(null);
   const [loadingPunch, setLoadingPunch] = useState(false);
-  const [config, setConfig] = useState<AttendanceConfig | null>(null);
+  // Manual fallback for a date with no attendance record on file at all (e.g. a missed punch) —
+  // pre-filled from the request being edited, if any, so re-opening an edit never loses a
+  // manually-entered time.
+  const [manualCheckInText, setManualCheckInText] = useState(isoToTimeText(editing?.requestedCheckIn));
+  const [manualCheckOutText, setManualCheckOutText] = useState(isoToTimeText(editing?.requestedCheckOut));
   const [balance, setBalance] = useState<RegularizationBalance | null>(null);
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -627,30 +661,49 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
-  }, [token]);
-
-  useEffect(() => {
     regularizationApi.balance(token).then(setBalance).catch(() => setBalance(null));
   }, [token]);
 
-  // Punch lookup: what's already on file for the chosen date — the only source for
-  // requestedCheckIn/Out now (no manual time entry, matching Keka's flow). Clearing to null
-  // immediately (not just when the date is blank) avoids a stale flash of the previous date's
-  // values while the new lookup is in flight.
+  // Punch lookup: what's already on file for the chosen date, if anything — used only to seed
+  // the editable Corrected Check-in/Check-out fields below with a starting value. Re-seeds
+  // whenever the date changes: prefers this same request's own previously-submitted correction
+  // (when editing a request already filed for this exact date) over the day's on-file punch, and
+  // falls back to blank when neither exists — never blocks on a date with no punch at all.
   useEffect(() => {
-    setExistingPunch(null);
     if (!attendanceDate) return;
     let cancelled = false;
     setLoadingPunch(true);
+    const seedFromEditing = editing?.attendanceDate === attendanceDate;
     attendanceApi.punchForDate(attendanceDate, token)
-      .then((punch) => { if (!cancelled) setExistingPunch(punch); })
-      .catch(() => { if (!cancelled) setExistingPunch(null); })
+      .then((punch) => {
+        if (cancelled) return;
+        setManualCheckInText(isoToTimeText(seedFromEditing ? editing?.requestedCheckIn : punch?.checkInAt));
+        setManualCheckOutText(isoToTimeText(seedFromEditing ? editing?.requestedCheckOut : punch?.checkOutAt));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setManualCheckInText(isoToTimeText(seedFromEditing ? editing?.requestedCheckIn : null));
+        setManualCheckOutText(isoToTimeText(seedFromEditing ? editing?.requestedCheckOut : null));
+      })
       .finally(() => { if (!cancelled) setLoadingPunch(false); });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `editing` is a stable prop for the modal's lifetime
   }, [attendanceDate, token]);
 
-  const hasAnyPunch = !!(existingPunch?.checkInAt || existingPunch?.checkOutAt);
+  const manualCheckInValue = parseTimeText(manualCheckInText);
+  const manualCheckOutValue = parseTimeText(manualCheckOutText);
+  const checkInInvalid = !!manualCheckInText.trim() && !manualCheckInValue;
+  const checkOutInvalid = !!manualCheckOutText.trim() && !manualCheckOutValue;
+  const hasManualEntry = !!manualCheckInValue || !!manualCheckOutValue;
+
+  // Total Hours readout — only once both corrected times are entered. Checkout at or before
+  // checkin's clock time on the same date means it rolls into the next calendar day (same
+  // overnight-shift assumption the backend applies in RegularizationService.resolveTimes).
+  const checkInMinutes = manualCheckInValue ? minutesSinceMidnight(timeValueToIso(attendanceDate, manualCheckInValue)) : null;
+  const checkOutMinutes = manualCheckOutValue ? minutesSinceMidnight(timeValueToIso(attendanceDate, manualCheckOutValue)) : null;
+  const totalMinutes = checkInMinutes != null && checkOutMinutes != null
+    ? (checkOutMinutes <= checkInMinutes ? checkOutMinutes + 1440 - checkInMinutes : checkOutMinutes - checkInMinutes)
+    : null;
 
   // A date that already has an APPROVED regularization can't be re-requested — editing that
   // same request (its own date, unchanged) is not a duplicate.
@@ -658,10 +711,9 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
     && attendanceDate !== editing?.attendanceDate
     && approvedDates.has(attendanceDate);
 
-  // Requirement 1: Employee/Manager/HR can only pick a date within the last
-  // REGULARIZATION_LOOKBACK_DAYS days (today counts as one). The `min` attribute on the date
-  // input below keeps this out of reach via the picker UI; this flag catches a typed/pasted
-  // value that slips past it (or an older date already set while editing). Super Admin never
+  // Requirement 1: Employee/Manager/HR can only submit for a date within the last
+  // REGULARIZATION_LOOKBACK_DAYS days (today counts as one) — checked only here, at submit
+  // time, not via the date picker (which allows picking any date freely). Super Admin never
   // trips this check. The backend re-validates the same rule regardless — see
   // RegularizationService.validateLookbackWindow.
   const dateOutsideWindow = !isSuperAdmin && !!attendanceDate && !!minDate && attendanceDate < minDate;
@@ -682,19 +734,23 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
       return;
     }
     if (dateOutsideWindow) {
-      setError(`Regularization requests are only allowed within the last ${REGULARIZATION_LOOKBACK_DAYS} days (including today).`);
+      setError(`You are not allowed to apply regularization for this date after ${formatCutoffDay(minDate!)}.`);
       return;
     }
-    if (!hasAnyPunch) {
-      setError('No attendance record on file for this date — nothing to regularize.');
+    if (checkInInvalid || checkOutInvalid) {
+      setError('Enter a valid 12-hour time, e.g. 09:30 AM or 5:45 PM.');
+      return;
+    }
+    if (!hasManualEntry) {
+      setError('Enter a Corrected Check-in or Corrected Check-out time.');
       return;
     }
     setSubmitting(true); setError(null);
     try {
       const payload: SubmitRegularizationPayload = {
         attendanceDate,
-        requestedCheckIn: existingPunch?.checkInAt ?? undefined,
-        requestedCheckOut: existingPunch?.checkOutAt ?? undefined,
+        requestedCheckIn: manualCheckInValue ? timeValueToIso(attendanceDate, manualCheckInValue) : undefined,
+        requestedCheckOut: manualCheckOutValue ? timeValueToIso(attendanceDate, manualCheckOutValue) : undefined,
         reason: reason.trim(),
       };
       const saved = editing
@@ -716,33 +772,46 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
         <ModalHeader title={editing ? 'Edit Regularization Request' : 'Request Attendance Regularization'} onClose={onClose} />
         <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <Field label="Selected Date *">
-                <input type="date" style={inputStyle} value={attendanceDate} max={today} min={minDate}
-                  onChange={e => { setAttendanceDate(e.target.value); setSubmitAttempted(false); }} />
-              </Field>
-              {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
-              {dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
-              {dateOutsideWindow && (
-                <div style={fieldErrorStyle}>Only the last {REGULARIZATION_LOOKBACK_DAYS} days (including today) are selectable.</div>
-              )}
-            </div>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <div style={labelStyle}>Shift Timings</div>
-              <div style={{ fontSize: 13.5, color: 'var(--txt)', fontWeight: 600, padding: '9px 0' }}>
-                {config?.shiftStart
-                  ? <>{formatTime(`${attendanceDate}T${config.shiftStart}`)}{config.shiftEnd && <> – {formatTime(`${attendanceDate}T${config.shiftEnd}`)}</>}</>
-                  : dash}
-              </div>
-            </div>
+          <div>
+            <Field label="Selected Date *">
+              <input type="date" style={inputStyle} value={attendanceDate}
+                onChange={e => { setAttendanceDate(e.target.value); setSubmitAttempted(false); }} />
+            </Field>
+            {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
+            {dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
+            {dateOutsideWindow && minDate && (
+              <div style={fieldErrorStyle}>You are not allowed to apply regularization for this date after {formatCutoffDay(minDate)}.</div>
+            )}
           </div>
 
-          <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
-            {loadingPunch ? 'Checking attendance…' : hasAnyPunch ? (
-              <>Check-in: {formatTime(existingPunch?.checkInAt ?? null) ?? 'not recorded'}, Check-out: {formatTime(existingPunch?.checkOutAt ?? null) ?? 'not recorded'}.</>
-            ) : (
-              <span style={{ color: 'var(--risk)' }}>No attendance record on file for this date — nothing to regularize.</span>
+          <div>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <Field label="Corrected Check-in">
+                  <input type="text" inputMode="text" maxLength={8} placeholder="e.g. 09:30 AM" disabled={loadingPunch}
+                    style={{ ...inputStyle, ...(checkInInvalid ? { borderColor: 'var(--risk)' } : {}) }}
+                    value={manualCheckInText}
+                    onChange={e => setManualCheckInText(maskTimeInput(e.target.value, manualCheckInText))} />
+                </Field>
+                {checkInInvalid && <div style={fieldErrorStyle}>Enter a valid 12-hour time, e.g. 09:30 AM.</div>}
+              </div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <Field label="Corrected Check-out">
+                  <input type="text" inputMode="text" maxLength={8} placeholder="e.g. 06:30 PM" disabled={loadingPunch}
+                    style={{ ...inputStyle, ...(checkOutInvalid ? { borderColor: 'var(--risk)' } : {}) }}
+                    value={manualCheckOutText}
+                    onChange={e => setManualCheckOutText(maskTimeInput(e.target.value, manualCheckOutText))} />
+                </Field>
+                {checkOutInvalid && <div style={fieldErrorStyle}>Enter a valid 12-hour time, e.g. 06:30 PM.</div>}
+              </div>
+            </div>
+            {totalMinutes != null && (
+              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 6 }}>
+                Total Hours: <strong style={{ color: 'var(--txt)' }}>{formatDuration(totalMinutes)}</strong>
+              </div>
+            )}
+            {submitAttempted && !hasManualEntry && !checkInInvalid && !checkOutInvalid && (
+              <div style={fieldErrorStyle}>Enter a Corrected Check-in or Corrected Check-out time.</div>
             )}
           </div>
 
@@ -804,11 +873,11 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || dateAlreadyApproved || dateOutsideWindow || !hasAnyPunch}
+            <button type="submit" disabled={submitting || dateAlreadyApproved || dateOutsideWindow || loadingPunch}
               style={{
                 background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600,
-                cursor: (submitting || dateAlreadyApproved || dateOutsideWindow || !hasAnyPunch) ? 'not-allowed' : 'pointer',
-                opacity: (submitting || dateAlreadyApproved || dateOutsideWindow || !hasAnyPunch) ? 0.7 : 1,
+                cursor: (submitting || dateAlreadyApproved || dateOutsideWindow || loadingPunch) ? 'not-allowed' : 'pointer',
+                opacity: (submitting || dateAlreadyApproved || dateOutsideWindow || loadingPunch) ? 0.7 : 1,
               }}>
               {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Request'}
             </button>
@@ -1392,7 +1461,17 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const { showToast } = useToast();
   const { formatTime } = useTimeFormat();
   const [requestType, setRequestType] = useState<AttendanceRequestType>(presetType ?? 'WFH');
-  const [requestDate, setRequestDate] = useState(initialDate ?? todayIsoDate());
+  // WFH supports a Keka-style multi-day From/To range (one request submitted per day in the
+  // range — the backend model is single-day only, same pattern as OvertimeRequestModal's
+  // fromDate/toDate/expandDateRange). Partial Day is inherently single-day, so it only ever
+  // reads `fromDate` and never shows the "To" field — see the Partial Day mode block below.
+  const [fromDate, setFromDate] = useState(initialDate ?? todayIsoDate());
+  const [toDate, setToDate] = useState(initialDate ?? todayIsoDate());
+  // Partial Day's date can't be a range — keep `toDate` pinned to it so a later switch back to
+  // WFH doesn't resurrect a stale range from before the switch.
+  useEffect(() => {
+    if (requestType === 'PARTIAL_DAY') setToDate(fromDate);
+  }, [requestType, fromDate]);
   const [partialDayMode, setPartialDayMode] = useState<PartialDayMode>('LATE_ARRIVE');
   const [partialDayMinutes, setPartialDayMinutes] = useState('60');
   // Intervening Time-off only — Keka anchors this mode to an explicit clock time ("Will leave
@@ -1401,9 +1480,9 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [leaveAtText, setLeaveAtText] = useState('');
   const [leaveAtTouched, setLeaveAtTouched] = useState(false);
   const [reason, setReason] = useState('');
-  const [managerUserId, setManagerUserId] = useState('');
+  // No manual approver selection — the backend always routes to the employee's current
+  // reporting manager (EmployeeManagerHistory) when managerUserId is omitted from the payload.
   const [notifyEntry, setNotifyEntry] = useState<DirectoryEntry | null>(null);
-  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
   const [balance, setBalance] = useState<{ usedHours: number; limitHours: number; remainingHours: number } | null>(null);
   const [showBalance, setShowBalance] = useState(false);
@@ -1411,14 +1490,22 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    regularizationApi.approvers(token).then(setApprovers).catch(() => { /* dropdown degrades to empty */ });
     attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
   }, [token]);
 
   useEffect(() => {
-    if (requestType !== 'PARTIAL_DAY' || !requestDate) { setBalance(null); return; }
-    attendanceRequestApi.partialDayBalance(requestDate, token).then(setBalance).catch(() => setBalance(null));
-  }, [requestType, requestDate, token]);
+    if (requestType !== 'PARTIAL_DAY' || !fromDate) { setBalance(null); return; }
+    attendanceRequestApi.partialDayBalance(fromDate, token).then(setBalance).catch(() => setBalance(null));
+  }, [requestType, fromDate, token]);
+
+  // Keka-style day count for the WFH From/To range — empty (not just zero) when To precedes
+  // From, so the count badge and the submit validation below agree on what counts as invalid.
+  const dateList = useMemo(
+    () => requestType === 'WFH'
+      ? (toDate >= fromDate ? expandDateRange(fromDate, toDate) : [])
+      : (fromDate ? [fromDate] : []),
+    [requestType, fromDate, toDate],
+  );
 
   // Reset mode-specific fields on switch so a stale value from one mode (e.g. a free-typed
   // number) never leaks into another mode's different widget (e.g. the fixed-option dropdown).
@@ -1457,18 +1544,22 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     setSubmitting(true);
     setError(null);
     try {
-      const payload: SubmitAttendanceRequestPayload = {
-        requestType,
-        requestDate,
-        reason: reason.trim(),
-        partialDayHours: requestType === 'PARTIAL_DAY' ? partialDayHours : undefined,
-        partialDayMode: requestType === 'PARTIAL_DAY' ? partialDayMode : undefined,
-        managerUserId: managerUserId || undefined,
-        notifyUserId: notifyEntry?.userId || undefined,
-      };
-      const created = await attendanceRequestApi.submit(payload, token);
-      showToast('success', `${requestType === 'WFH' ? 'Work From Home' : 'Partial Day'} request submitted for approval`);
-      onSaved(created);
+      // One request per day in the range — Partial Day's dateList is always exactly [fromDate],
+      // so this is a single submission for that type, same as before the WFH range was added.
+      const created = await Promise.all(dateList.map((date) => {
+        const payload: SubmitAttendanceRequestPayload = {
+          requestType,
+          requestDate: date,
+          reason: reason.trim(),
+          partialDayHours: requestType === 'PARTIAL_DAY' ? partialDayHours : undefined,
+          partialDayMode: requestType === 'PARTIAL_DAY' ? partialDayMode : undefined,
+          notifyUserId: notifyEntry?.userId || undefined,
+        };
+        return attendanceRequestApi.submit(payload, token);
+      }));
+      const typeLabel = requestType === 'WFH' ? 'Work From Home' : 'Partial Day';
+      showToast('success', created.length > 1 ? `${created.length} ${typeLabel} requests submitted for approval` : `${typeLabel} request submitted for approval`);
+      created.forEach(onSaved);
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to submit request';
@@ -1483,7 +1574,11 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     if (!reason.trim()) { setError('Reason is required'); return; }
     // Any date is selectable while typing (no min/max on the field) — validated only now, at
     // submit time.
-    if (requestDate < todayIsoDate()) {
+    if (requestType === 'WFH' && toDate < fromDate) {
+      setError('To date must be on or after From date');
+      return;
+    }
+    if (fromDate < todayIsoDate()) {
       setError('Cannot request for past dates');
       return;
     }
@@ -1534,9 +1629,32 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
               </select>
             </Field>
           )}
-          <Field label="Select Date">
-            <input type="date" value={requestDate} onChange={(e) => setRequestDate(e.target.value)} style={inputStyle} />
-          </Field>
+          {requestType === 'WFH' ? (
+            <>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <Field label="From">
+                    <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={inputStyle} />
+                  </Field>
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', paddingBottom: 10, whiteSpace: 'nowrap' }}>
+                  {dateList.length > 0 ? `${dateList.length} day${dateList.length > 1 ? 's' : ''}` : '—'}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Field label="To">
+                    <input type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
+                  </Field>
+                </div>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+                Clock in is necessary on WFH days to avoid being marked absent.
+              </div>
+            </>
+          ) : (
+            <Field label="Select Date">
+              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={inputStyle} />
+            </Field>
+          )}
           {requestType === 'PARTIAL_DAY' && (
             <>
               {config?.shiftStart && (
@@ -1607,11 +1725,11 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                         </thead>
                         <tbody>
                           <tr>
-                            <td style={{ padding: '8px 12px', color: 'var(--txt)' }}>{formatShortDay(requestDate)}</td>
+                            <td style={{ padding: '8px 12px', color: 'var(--txt)' }}>{formatShortDay(fromDate)}</td>
                             <td style={{ padding: '8px 12px', color: 'var(--txt)', textAlign: 'right' }}>{remainingMinutes}/{limitMinutes} minutes</td>
                           </tr>
                           <tr>
-                            <td style={{ padding: '8px 12px', color: 'var(--txt)' }}>{formatShortDay(monthStartIso(requestDate))} - {formatShortDay(monthEndIso(requestDate))}</td>
+                            <td style={{ padding: '8px 12px', color: 'var(--txt)' }}>{formatShortDay(monthStartIso(fromDate))} - {formatShortDay(monthEndIso(fromDate))}</td>
                             <td style={{ padding: '8px 12px', color: 'var(--txt)', textAlign: 'right' }}>{remainingMinutes}/{limitMinutes} minutes</td>
                           </tr>
                         </tbody>
@@ -1630,14 +1748,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
               placeholder="Why are you requesting this?"
               autoFocus
             />
-          </Field>
-          <Field label="Assign To (optional)">
-            <select value={managerUserId} onChange={(e) => setManagerUserId(e.target.value)} style={inputStyle}>
-              <option value="">Current manager</option>
-              {approvers.map((a) => (
-                <option key={a.userId} value={a.userId}>{a.fullName} ({a.roleCode})</option>
-              ))}
-            </select>
           </Field>
           <NotifyEmployeeField token={token} value={notifyEntry} onChange={setNotifyEntry} />
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
