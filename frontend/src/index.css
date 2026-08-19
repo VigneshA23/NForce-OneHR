@@ -298,6 +298,14 @@ input[type="date"] {
   }
 }
 
+/* My Documents & Policies (Employee) search bar -> auto-adjust to fill the
+   screen on mobile instead of staying a fixed 200px, which left excess
+   empty space on the right on narrow phones. */
+@media (max-width: 767px) {
+  .nf-search-full-mobile { width: 100% !important; }
+  .nf-search-full-mobile-input { width: 100% !important; box-sizing: border-box; }
+}
+
 /* Policies & Announcements stat tiles -> stay a 3-column row on mobile (no
    layout change, no scroll) but let the tile padding and type sizes scale
    down fluidly with `clamp()` so all three keep fitting cleanly at any
