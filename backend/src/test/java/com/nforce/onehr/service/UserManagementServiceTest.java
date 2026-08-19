@@ -264,4 +264,18 @@ class UserManagementServiceTest {
         assertEquals(3, targetUser.getTokenVersion());
         verifyNoInteractions(forceLogoutBroadcaster);
     }
+
+    // Admin-initiated reset (ONEHR-179): must also invalidate any session issued under the old
+    // password, same as the self-service changePassword/forgotPassword paths in AuthService.
+    @Test
+    void resetPassword_bumpsTokenVersion() {
+        when(userRepository.findById(targetUserId)).thenReturn(Optional.of(targetUser));
+        when(passwordEncoder.encode(anyString())).thenReturn("temp-hash");
+
+        userManagementService.resetPassword(targetUserId, actorEmail);
+
+        assertEquals(4, targetUser.getTokenVersion());
+        assertTrue(targetUser.isMustChangePassword());
+        verify(userRepository).save(targetUser);
+    }
 }

@@ -1,6 +1,8 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.MutableClock;
+import com.nforce.onehr.dto.ChangePasswordRequest;
+import com.nforce.onehr.dto.ChangePasswordResponse;
 import com.nforce.onehr.dto.ForgotPasswordResponse;
 import com.nforce.onehr.dto.LoginRequest;
 import com.nforce.onehr.dto.LoginResponse;
@@ -84,6 +86,14 @@ class AuthServiceTest {
         LoginRequest r = new LoginRequest();
         r.setEmail(email);
         r.setPassword(password);
+        return r;
+    }
+
+    private ChangePasswordRequest changePasswordRequest(String currentPassword, String newPassword, String confirmPassword) {
+        ChangePasswordRequest r = new ChangePasswordRequest();
+        r.setCurrentPassword(currentPassword);
+        r.setNewPassword(newPassword);
+        r.setConfirmPassword(confirmPassword);
         return r;
     }
 
@@ -242,6 +252,60 @@ class AuthServiceTest {
         verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString(), eq("http://localhost:5180"));
         verify(auditService).log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
         verify(notificationService).send(eq(user.getId()), eq("SECURITY"), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void forgotPassword_bumpsTokenVersion_invalidatingSessionsIssuedUnderOldPassword() {
+        user.setTokenVersion(2);
+        when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        authService.forgotPassword(EMAIL, "http://localhost:5180");
+
+        assertEquals(3, user.getTokenVersion());
+        verify(userRepository).save(user);
+    }
+
+    // --- changePassword: token-version bump (ONEHR-179) ---------------------------------------
+
+    @Test
+    void changePassword_success_bumpsTokenVersionAndMintsNewTokenWithIt() {
+        user.setTokenVersion(5);
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        ChangePasswordResponse response = authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "NewPassword123!"), EMAIL);
+
+        assertEquals(6, user.getTokenVersion());
+        assertEquals("jwt-token", response.getToken());
+        verify(userRepository).save(user);
+        // The session performing the change must receive a token minted with the POST-bump
+        // version, so it stays valid under the very check that just invalidated every other one.
+        verify(jwtTokenProvider).generateToken(EMAIL, false, 6);
+        verify(auditService).log(user.getId(), "PASSWORD_CHANGED", user.getId());
+    }
+
+    @Test
+    void changePassword_wrongCurrentPassword_doesNotBumpTokenVersion() {
+        user.setTokenVersion(5);
+
+        assertThrows(BadCredentialsException.class, () -> authService.changePassword(
+                changePasswordRequest(WRONG_PASSWORD, "NewPassword123!", "NewPassword123!"), EMAIL));
+
+        assertEquals(5, user.getTokenVersion());
+        verify(userRepository, never()).save(any());
+        verify(jwtTokenProvider, never()).generateToken(anyString(), any(Boolean.class), any(Integer.class));
+    }
+
+    @Test
+    void changePassword_confirmationMismatch_doesNotBumpTokenVersion() {
+        user.setTokenVersion(5);
+
+        assertThrows(IllegalArgumentException.class, () -> authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "Different123!"), EMAIL));
+
+        assertEquals(5, user.getTokenVersion());
+        verify(userRepository, never()).save(any());
     }
 
     @Test
