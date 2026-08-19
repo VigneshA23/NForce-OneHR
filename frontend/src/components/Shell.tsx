@@ -175,8 +175,8 @@ export function Shell() {
     return () => clearInterval(id);
   }, [refreshCount]);
 
-  // Server-initiated logout: an admin changing this user's role bumps their tokenVersion and
-  // pushes a FORCE_LOGOUT event (see UserManagementService#updateUser /
+  // Server-initiated logout: a Super Admin changing this user's profile bumps their tokenVersion
+  // and pushes a FORCE_LOGOUT event (see UserManagementService#updateUser /
   // ForceLogoutBroadcaster on the backend) so an open tab reacts within roughly a network
   // round-trip instead of waiting for its next API call to 401. Backend still enforces this
   // regardless — token_version is checked on every request — so a missed/dropped push here is

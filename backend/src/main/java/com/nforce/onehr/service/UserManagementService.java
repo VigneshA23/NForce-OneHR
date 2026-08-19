@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -134,61 +136,118 @@ public class UserManagementService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
         String before = auditSnapshot.toJson(userSnapshot(emp, target));
+        String currentRole = RoleUtils.primaryRoleCode(target.getRoles(), null);
+        UUID currentManagerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId)
+                .map(EmployeeManagerHistory::getManagerUserId)
+                .orElse(null);
+        boolean forceLogoutRequired = false;
+        boolean roleChanged = false;
+        boolean managerChanged = false;
 
-        if (req.getFullName() != null && !req.getFullName().isBlank())
-            emp.setFullName(req.getFullName().trim());
-        if (req.getEmploymentType() != null && !req.getEmploymentType().isBlank())
+        if (req.getFullName() != null && !req.getFullName().isBlank()) {
+            String fullName = req.getFullName().trim();
+            if (!Objects.equals(emp.getFullName(), fullName)) {
+                emp.setFullName(fullName);
+                forceLogoutRequired = true;
+            }
+        }
+        if (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType())) {
             emp.setEmploymentType(req.getEmploymentType());
-        if (req.getWorkMode() != null && !req.getWorkMode().isBlank())
+            forceLogoutRequired = true;
+        }
+        if (req.getWorkMode() != null && !req.getWorkMode().isBlank()
+                && !Objects.equals(emp.getWorkMode(), req.getWorkMode())) {
             emp.setWorkMode(req.getWorkMode());
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+            forceLogoutRequired = true;
+        }
+        if (req.getDepartmentId() != null) {
+            Department newDepartment = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+            UUID newDepartmentId = newDepartment != null ? newDepartment.getId() : null;
+            if (!Objects.equals(currentDepartmentId, newDepartmentId)) {
+                emp.setDepartment(newDepartment);
+                forceLogoutRequired = true;
+            }
+        }
+        if (req.getDesignationId() != null) {
+            Designation newDesignation = designationRepository.findById(req.getDesignationId()).orElse(null);
+            UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+            UUID newDesignationId = newDesignation != null ? newDesignation.getId() : null;
+            if (!Objects.equals(currentDesignationId, newDesignationId)) {
+                emp.setDesignation(newDesignation);
+                forceLogoutRequired = true;
+            }
+        }
+        if (req.getLocationId() != null) {
+            Location newLocation = locationRepository.findById(req.getLocationId()).orElse(null);
+            UUID currentLocationId = emp.getLocation() != null ? emp.getLocation().getId() : null;
+            UUID newLocationId = newLocation != null ? newLocation.getId() : null;
+            if (!Objects.equals(currentLocationId, newLocationId)) {
+                emp.setLocation(newLocation);
+                forceLogoutRequired = true;
+            }
+        }
 
         // Role change
         if (req.getRole() != null && !req.getRole().isBlank()) {
             String roleCode = req.getRole().toUpperCase();
             if (!PHASE1_ROLES.contains(roleCode))
                 throw new IllegalArgumentException("Invalid role: " + roleCode);
-            Role newRole = roleRepository.findByCode(roleCode)
-                    .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
-            target.getRoles().clear();
-            target.getRoles().addAll(rolesFor(newRole));
-            // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
-            // their very next API call fails auth under the old token regardless of whether the
-            // SSE push below reaches an open tab in time.
-            target.setTokenVersion(target.getTokenVersion() + 1);
-            userRepository.save(target);
-            notificationService.send(target.getId(), "ACCOUNT",
-                    "Role Updated",
-                    "Your role has been updated to " + roleCode.replace("_", " ") + ".",
-                    "/profile");
-            // Force any open tab/device to log out immediately instead of waiting to hit the
-            // now-invalid token on its next request.
-            forceLogoutBroadcaster.forceLogout(target.getId());
+            if (!Objects.equals(currentRole, roleCode)) {
+                Role newRole = roleRepository.findByCode(roleCode)
+                        .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
+                target.getRoles().clear();
+                target.getRoles().addAll(rolesFor(newRole));
+                forceLogoutRequired = true;
+                roleChanged = true;
+            }
         }
 
         // Manager change — effective-dating: close current, insert new
         if (req.getManagerId() != null) {
-            Optional<EmployeeManagerHistory> current =
-                    historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId);
-            boolean changed = current.map(h -> !h.getManagerUserId().equals(req.getManagerId())).orElse(true);
-            if (changed) {
+            if (!Objects.equals(currentManagerId, req.getManagerId())) {
                 historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
                 historyRepository.save(EmployeeManagerHistory.builder()
                         .employeeUserId(userId)
                         .managerUserId(req.getManagerId())
                         .changedBy(actor.getId())
                         .build());
+                forceLogoutRequired = true;
+                managerChanged = true;
             }
         }
 
+        if (forceLogoutRequired) {
+            // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
+            // their very next API call fails auth under the old token even if their open tab
+            // misses the SSE push.
+            target.setTokenVersion(target.getTokenVersion() + 1);
+            userRepository.save(target);
+        }
+
         emp = employeeRepository.save(emp);
+
+        if (roleChanged) {
+            notificationService.send(target.getId(), "ACCOUNT",
+                    "Role Updated",
+                    "Your role has been updated to " + RoleUtils.primaryRoleCode(target.getRoles(), "").replace("_", " ") + ".",
+                    "/profile");
+        }
+        if (managerChanged) {
+            notificationService.send(target.getId(), "ACCOUNT",
+                    "Manager Updated",
+                    "Your manager has been updated.",
+                    "/profile");
+        }
+
         String after = auditSnapshot.toJson(userSnapshot(emp, target));
         auditService.log(actor.getId(), "USER_UPDATED", userId, before, after);
+
+        if (forceLogoutRequired) {
+            forceLogoutAfterCommit(target.getId());
+        }
+
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 
@@ -350,5 +409,18 @@ public class UserManagementService {
     private String generateTempPassword() {
         int digits = 100000 + RANDOM.nextInt(900000);
         return "OneHR@" + digits;
+    }
+
+    private void forceLogoutAfterCommit(UUID userId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    forceLogoutBroadcaster.forceLogout(userId);
+                }
+            });
+            return;
+        }
+        forceLogoutBroadcaster.forceLogout(userId);
     }
 }
