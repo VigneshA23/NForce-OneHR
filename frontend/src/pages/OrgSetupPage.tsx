@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, Plus, Search, X } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -10,8 +10,9 @@ import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
 } from '../api/documents';
+import PolicyListSection from './penalization/PolicyListSection';
 
-type OrgTab = 'departments' | 'designations' | 'locations' | 'doctypes';
+type OrgTab = 'departments' | 'designations' | 'locations' | 'doctypes' | 'penalization';
 
 interface TabDef {
   label: string;
@@ -47,6 +48,14 @@ const TABS: Record<OrgTab, TabDef> = {
     columns: ['Name', 'Needs Verification', 'Needs Expiry', 'Employment Types', 'Locations', 'Usage', 'Status'],
     addLabel: 'Add Document Type',
     emptyLine: 'No document types configured yet. Add one to start collecting employee documents.',
+  },
+  // Not a row-per-item table like the other tabs above — the Policy List (Section 5), rendered
+  // by PolicyListSection, which in turn opens PenalizationPolicySection per-policy for editing.
+  // columns/addLabel/emptyLine are unused for this tab (see the search/add-button and
+  // table-vs-section guards below).
+  penalization: {
+    label: 'Penalization Policy', icon: ShieldAlert,
+    columns: [], addLabel: '', emptyLine: '',
   },
 };
 
@@ -210,7 +219,43 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
     setError('');
     const trimmed = name.trim();
     if (!trimmed) { setError(`${primaryLabel} is required`); return; }
-    if (/\d/.test(trimmed)) { setError(`${primaryLabel} cannot contain numbers`); return; }
+    if (tab === 'designations') {
+      // Letters, numbers, spaces, - and / are allowed (e.g. "SDET-01", "Developer L2"), but the
+      // title must include at least one letter — this rejects numeric-only ("12345") and
+      // special-character-only values while still allowing a trailing level/grade number.
+      if (!/^(?=.*[A-Za-z])[A-Za-z0-9 \-/]+$/.test(trimmed)) {
+        setError(`${primaryLabel} must include letters, and may only contain letters, numbers, spaces, - and /`);
+        return;
+      }
+      const trimmedGrade = grade.trim();
+      if (trimmedGrade && !/^[A-Za-z][0-9]$/.test(trimmedGrade)) {
+        setError('Grade/Band must contain exactly 1 letter followed by 1 number (e.g. L1)');
+        return;
+      }
+    } else if (tab === 'locations') {
+      // Location names are alphabetic only — letters and spaces (for multi-word names like
+      // "Chennai HQ"), no digits, no hyphens, no other special characters.
+      if (!/^[A-Za-z]+( [A-Za-z]+)*$/.test(trimmed)) {
+        setError(`${primaryLabel} must contain only letters (spaces allowed between words) — no numbers or special characters`);
+        return;
+      }
+    } else if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmed)) {
+      // Department names may contain most non-digit characters (e.g. "R&D",
+      // "Sales & Marketing"), but must include at least one letter — this rejects
+      // numeric-only ("12345") and special-character-only ("@#$%^&*") values.
+      setError(`${primaryLabel} must contain letters and cannot contain numbers or be made up of special characters only`);
+      return;
+    }
+    if (tab === 'locations') {
+      if (/\d/.test(city.trim())) { setError('City cannot contain numbers'); return; }
+      if (/\d/.test(state.trim())) { setError('State / Province cannot contain numbers'); return; }
+      if (/\d/.test(country.trim())) { setError('Country cannot contain numbers'); return; }
+      const trimmedRegion = holidayRegion.trim();
+      if (trimmedRegion && !/^[A-Za-z]{2}$/.test(trimmedRegion)) {
+        setError('Region must contain exactly 2 letters (e.g. TN)');
+        return;
+      }
+    }
     setLoading(true);
     try {
       if (isEdit && editRow) {
@@ -317,7 +362,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
 
           {tab === 'locations' && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <label style={labelStyle}>
                   <span style={labelTextStyle}>City</span>
                   <input value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. Chennai" style={inputStyle} />
@@ -327,14 +372,14 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
                   <input value={state} onChange={e => setState(e.target.value)} placeholder="e.g. Tamil Nadu" style={inputStyle} />
                 </label>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <label style={labelStyle}>
                   <span style={labelTextStyle}>Country</span>
                   <input value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. India" style={inputStyle} />
                 </label>
                 <label style={labelStyle}>
                   <span style={labelTextStyle}>Holiday Region</span>
-                  <input value={holidayRegion} onChange={e => setHolidayRegion(e.target.value)} placeholder="e.g. IN-TN" style={inputStyle} />
+                  <input value={holidayRegion} onChange={e => setHolidayRegion(e.target.value)} placeholder="e.g. TN" style={inputStyle} />
                 </label>
               </div>
             </>
@@ -712,35 +757,44 @@ export default function OrgSetupPage() {
               );
             })}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={12} aria-hidden="true" style={{
-                position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-                color: 'var(--txt-dim)', pointerEvents: 'none',
-              }} />
-              <input
-                type="search" value={search} onChange={e => setSearch(e.target.value)}
-                placeholder={`Search ${tab.label.toLowerCase()}…`}
-                aria-label={`Search ${tab.label}`}
-                style={{
-                  background: 'var(--raised)', border: '1px solid var(--line2)',
-                  borderRadius: 6, padding: '5px 10px 5px 26px',
-                  fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
-                }}
-              />
+          {activeTab !== 'penalization' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={12} aria-hidden="true" style={{
+                  position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                  color: 'var(--txt-dim)', pointerEvents: 'none',
+                }} />
+                <input
+                  type="search" value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder={`Search ${tab.label.toLowerCase()}…`}
+                  aria-label={`Search ${tab.label}`}
+                  style={{
+                    background: 'var(--raised)', border: '1px solid var(--line2)',
+                    borderRadius: 6, padding: '5px 10px 5px 26px',
+                    fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
+                  }}
+                />
+              </div>
+              <button onClick={openAdd} aria-label={tab.addLabel} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>
+                <Plus size={13} aria-hidden="true" />
+                {tab.addLabel}
+              </button>
             </div>
-            <button onClick={openAdd} aria-label={tab.addLabel} style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-            }}>
-              <Plus size={13} aria-hidden="true" />
-              {tab.addLabel}
-            </button>
-          </div>
+          )}
         </div>
 
-        {/* Table */}
+        {/* Penalization Policy is a Policy List (Section 5), not a row-per-item table like the
+            tabs below — rendered by PolicyListSection, reusing this page's shell/tab-bar/toast/
+            loading/error patterns but not the generic table below. */}
+        {activeTab === 'penalization' ? (
+          <div style={{ padding: 18 }}>
+            <PolicyListSection token={token} />
+          </div>
+        ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead>
@@ -848,6 +902,7 @@ export default function OrgSetupPage() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );

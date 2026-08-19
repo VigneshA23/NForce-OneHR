@@ -8,6 +8,7 @@ export interface NotificationItem {
   message: string;
   linkPath: string | null;
   read: boolean;
+  priority: string;
   createdAt: string;
 }
 
@@ -29,6 +30,11 @@ async function handle<T>(res: Response): Promise<T> {
 export const notificationsApi = {
   list: (token: string, page = 0, size = 20) =>
     fetch(`${BASE}?page=${page}&size=${size}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(handle<PagedNotifications>),
+
+  unread: (token: string, page = 0, size = 8) =>
+    fetch(`${BASE}/unread?page=${page}&size=${size}`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(handle<PagedNotifications>),
 

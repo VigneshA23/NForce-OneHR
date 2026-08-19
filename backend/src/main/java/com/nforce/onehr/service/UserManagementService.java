@@ -3,6 +3,8 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.ForceLogoutBroadcaster;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -33,6 +35,8 @@ public class UserManagementService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final LeaveService leaveService;
+    private final ForceLogoutBroadcaster forceLogoutBroadcaster;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -77,6 +81,7 @@ public class UserManagementService {
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
 
         emp = employeeRepository.save(emp);
+        leaveService.initializeDefaultBalances(newUser.getId());
 
         if (req.getManagerId() != null) {
             historyRepository.save(EmployeeManagerHistory.builder()
@@ -96,15 +101,15 @@ public class UserManagementService {
     }
 
     /**
-     * Employee/Manager/HR Admin are all staff first — they get the base EMPLOYEE role
-     * alongside whatever admin role they're assigned, so self-service features (attendance
-     * punch, leave, etc.) work for them too. Super Admin is the one deliberate exception:
-     * see AttendanceController's "never a punch clock of their own" comment.
+     * Every Phase 1 role is staff first — everyone gets the base EMPLOYEE role alongside
+     * whatever admin role they're assigned, so self-service features (attendance punch, leave,
+     * etc.) work for them too, Super Admin included. (V111/V115 previously stripped this from
+     * Super Admin and back; V116 restores it again.)
      */
     private Set<Role> rolesFor(Role assignedRole) {
         Set<Role> roles = new HashSet<>();
         roles.add(assignedRole);
-        if (!"SUPER_ADMIN".equals(assignedRole.getCode()) && !"EMPLOYEE".equals(assignedRole.getCode())) {
+        if (!"EMPLOYEE".equals(assignedRole.getCode())) {
             roleRepository.findByCode("EMPLOYEE").ifPresent(roles::add);
         }
         return roles;
@@ -152,11 +157,18 @@ public class UserManagementService {
                     .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
             target.getRoles().clear();
             target.getRoles().addAll(rolesFor(newRole));
+            // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
+            // their very next API call fails auth under the old token regardless of whether the
+            // SSE push below reaches an open tab in time.
+            target.setTokenVersion(target.getTokenVersion() + 1);
             userRepository.save(target);
             notificationService.send(target.getId(), "ACCOUNT",
                     "Role Updated",
                     "Your role has been updated to " + roleCode.replace("_", " ") + ".",
                     "/profile");
+            // Force any open tab/device to log out immediately instead of waiting to hit the
+            // now-invalid token on its next request.
+            forceLogoutBroadcaster.forceLogout(target.getId());
         }
 
         // Manager change — effective-dating: close current, insert new
@@ -180,6 +192,32 @@ public class UserManagementService {
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 
+    /**
+     * Super Admin only (enforced at the controller). Joining date drives probation,
+     * leave accrual and seniority elsewhere in the system, so it's deliberately not
+     * part of the general updateUser fields — every change goes through here with a
+     * mandatory audit trail of the old date, new date, and the reason.
+     */
+    @Transactional
+    public EmployeeResponse updateJoiningDate(UUID userId, UpdateJoiningDateRequest req, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        Employee emp = employeeRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        User target = emp.getUser();
+
+        String before = auditSnapshot.toJson(Map.of("joiningDate", emp.getJoiningDate().toString()));
+        emp.setJoiningDate(req.getNewJoiningDate());
+        emp = employeeRepository.save(emp);
+
+        Map<String, Object> afterSnapshot = new LinkedHashMap<>();
+        afterSnapshot.put("joiningDate", emp.getJoiningDate().toString());
+        if (req.getNote() != null && !req.getNote().isBlank()) afterSnapshot.put("note", req.getNote().trim());
+        String after = auditSnapshot.toJson(afterSnapshot);
+
+        auditService.log(actor.getId(), "JOINING_DATE_UPDATED", userId, before, after);
+        return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
     /** Role and manager are the two fields most worth diffing here — everything else mirrors EmployeeService. */
     private Map<String, Object> userSnapshot(Employee emp, User user) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
@@ -189,7 +227,7 @@ public class UserManagementService {
         snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
         snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
         snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
-        snapshot.put("role", user.getRoles().stream().findFirst().map(Role::getCode).orElse(null));
+        snapshot.put("role", RoleUtils.primaryRoleCode(user.getRoles(), null));
         snapshot.put("managerId", historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
                 .map(EmployeeManagerHistory::getManagerUserId).orElse(null));
         return snapshot;
@@ -269,7 +307,7 @@ public class UserManagementService {
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {
-        String role = user.getRoles().stream().findFirst().map(Role::getCode).orElse("");
+        String role = RoleUtils.primaryRoleCode(user.getRoles(), "");
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
                 .employeeCode(emp.getEmployeeCode())

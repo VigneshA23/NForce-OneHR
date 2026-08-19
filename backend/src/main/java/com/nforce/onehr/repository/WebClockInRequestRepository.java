@@ -23,13 +23,26 @@ public interface WebClockInRequestRepository extends JpaRepository<WebClockInReq
 
     List<WebClockInRequest> findByStatus(String status);
 
-    Optional<WebClockInRequest> findByEmployeeUserIdAndWorkDateAndStatus(
+    // Every Web Clock-In cycle for the day, oldest first — an employee can Web Clock-In and
+    // Web Clock-Out more than once per day (see WebClockInService#submit), so this is a List,
+    // not a single Optional result. Backs AttendanceService#collectPunches's punch-history merge.
+    List<WebClockInRequest> findByEmployeeUserIdAndWorkDateAndStatusOrderByRequestedCheckInAsc(
             UUID employeeUserId, LocalDate workDate, String status);
-
-    boolean existsByEmployeeUserIdAndWorkDateAndStatus(UUID employeeUserId, LocalDate workDate, String status);
 
     // Backs the "Remote Clock-ins" / "Remote Clock-in Requests Summary" / "Web Clock-ins" report
     // cards (ONEHR-109) — one entity backs all three, a manager's team over a date range.
     List<WebClockInRequest> findByEmployeeUserIdInAndWorkDateBetween(
             Collection<UUID> employeeUserIds, LocalDate from, LocalDate to);
+
+    // The employee's approved-but-not-yet-checked-out request, if any — independent of
+    // calendar date. A web clock-in approved before midnight (shift crosses into the next
+    // day) is still filed under *yesterday's* work_date once the clock rolls over, so "today"
+    // is the wrong key to look it up by. See WebClockInService.checkOut.
+    //
+    // "findFirst...OrderBy..." (LIMIT 1), not a bare uniqueness-assuming lookup — same reasoning
+    // as AttendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc:
+    // a plain findBy...IsNull() throws IncorrectResultSizeDataAccessException the moment an
+    // employee ever ends up with more than one open approved request, rather than just picking
+    // the most recent one.
+    Optional<WebClockInRequest> findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(UUID employeeUserId, String status);
 }

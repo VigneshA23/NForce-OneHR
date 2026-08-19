@@ -33,3 +33,11 @@ Thumbs.db
 logs/
 
 # Backend secrets — real DB password + JWT secret live here
+
+
+
+# Local HRMS product screenshots
+docs/penalization-policy/
+docs/HR_FEATURE_IMPLEMENTATION_HISTORY.md
+.vercel
+.env*

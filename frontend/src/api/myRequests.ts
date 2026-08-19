@@ -12,7 +12,7 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type RequestType = 'LEAVE' | 'REGULARIZATION' | 'WEB_CLOCK_IN';
+export type RequestType = 'LEAVE' | 'REGULARIZATION' | 'WEB_CLOCK_IN' | 'WFH' | 'PARTIAL_DAY' | 'OVERTIME';
 
 export interface MyRequestItem {
   id: string;
@@ -33,11 +33,13 @@ export interface MyRequestItem {
   leaveHalfDay?: boolean;
   leaveReason?: string;
 
-  // Regularization
+  // Regularization / WFH / Partial Day / Overtime (shared — see backend MyRequestItemDto)
   attendanceDate?: string;
   requestedCheckIn?: string;
   requestedCheckOut?: string;
   regularizationReason?: string;
+  /** PARTIAL_DAY only. */
+  partialDayHours?: number;
 }
 
 export const myRequestsApi = {

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -26,6 +27,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code IN ('HR_ADMIN', 'SUPER_ADMIN') AND u.deletedAt IS NULL")
     Set<UUID> findAdminUserIds();
 
+    // Help Content approver-resolution fallback: the final authority when an author's reporting
+    // chain has no active manager. Ordered by createdAt for a deterministic pick.
+    @Query("SELECT u FROM User u JOIN u.roles r WHERE r.code = 'SUPER_ADMIN' AND u.active = true AND u.deletedAt IS NULL ORDER BY u.createdAt ASC")
+    List<User> findActiveSuperAdmins();
+
     // Backs audit-log actor/target search: resolves a free-text name/email fragment to candidate
     // user ids without requiring a @ManyToOne join on AuditLog (which has none).
     @Query("""
@@ -36,9 +42,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     Set<UUID> findUserIdsByEmailOrFullNameContaining(@Param("q") String q);
 
-    // Mirrors EmployeeService.listEmployees()'s own definition of "employee" — holds the
-    // EMPLOYEE role — so any dashboard filtering by this stays consistent with the
-    // Employee Master page rather than re-deriving its own notion of who counts.
-    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL")
+    // Exception Dashboard subjects: accounts holding EMPLOYEE and none of
+    // MANAGER/HR_ADMIN/SUPER_ADMIN. A plain "holds EMPLOYEE" whitelist isn't enough —
+    // some accounts (e.g. an HR Admin or Manager also granted EMPLOYEE so they can
+    // punch in/out themselves) hold EMPLOYEE alongside an admin/manager role, and must
+    // still never appear as exception subjects, company-wide or as a direct report.
+    @Query("""
+            SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL
+            AND u.id NOT IN (
+                SELECT u2.id FROM User u2 JOIN u2.roles r2 WHERE r2.code IN ('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')
+            )
+            """)
     Set<UUID> findEmployeeRoleUserIds();
 }

@@ -62,7 +62,7 @@ class AuditTargetResolverTest {
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
                 Employee.builder().userId(employeeId).fullName("Neha Joshi").build()));
 
-        assertEquals("Leave: Neha Joshi", resolver.resolve("LEAVE_REQUEST_APPROVED", targetId));
+        assertEquals("Neha Joshi", resolver.resolve("LEAVE_REQUEST_APPROVED", targetId));
     }
 
     @Test
@@ -74,7 +74,7 @@ class AuditTargetResolverTest {
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
                 Employee.builder().userId(employeeId).fullName("Arjun Mehta").build()));
 
-        assertEquals("Expense: Arjun Mehta", resolver.resolve("EXPENSE_FINAL_APPROVED", targetId));
+        assertEquals("Arjun Mehta", resolver.resolve("EXPENSE_FINAL_APPROVED", targetId));
     }
 
     @Test

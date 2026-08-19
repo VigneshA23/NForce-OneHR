@@ -12,4 +12,6 @@ public class PunchResponse {
     private UUID id;
     private LocalDateTime checkInAt;
     private LocalDateTime checkOutAt;
+    /** "SYSTEM" (normal Check-In/Check-Out) or "WEB_REMOTE" (Web Check-In/Check-Out) — mirrors Attendance.source. */
+    private String source;
 }

@@ -12,6 +12,7 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.LocationRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +37,7 @@ public class OrgService {
 
     @Transactional(readOnly = true)
     public List<DepartmentResponse> listDepartments() {
-        return departmentRepo.findAll().stream()
+        return departmentRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
                 .map(d -> DepartmentResponse.from(d, employeeRepo.countByDepartmentId(d.getId())))
                 .toList();
     }
@@ -44,7 +45,7 @@ public class OrgService {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
     @Transactional
     public DepartmentResponse createDepartment(CreateDepartmentRequest req) {
-        if (departmentRepo.existsByName(req.getName().trim())) {
+        if (departmentRepo.existsByNameIgnoreCase(req.getName().trim())) {
             throw new IllegalArgumentException("A department named '" + req.getName().trim() + "' already exists");
         }
         Department saved = departmentRepo.save(
@@ -58,7 +59,7 @@ public class OrgService {
         Department dept = departmentRepo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Department not found"));
         String trimmed = req.getName().trim();
-        if (!dept.getName().equalsIgnoreCase(trimmed) && departmentRepo.existsByName(trimmed)) {
+        if (!dept.getName().equalsIgnoreCase(trimmed) && departmentRepo.existsByNameIgnoreCase(trimmed)) {
             throw new IllegalArgumentException("A department named '" + trimmed + "' already exists");
         }
         dept.setName(trimmed);
@@ -93,7 +94,7 @@ public class OrgService {
 
     @Transactional(readOnly = true)
     public List<DesignationResponse> listDesignations() {
-        return designationRepo.findAll().stream()
+        return designationRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
                 .map(d -> DesignationResponse.from(d, employeeRepo.countByDesignationId(d.getId())))
                 .toList();
     }
@@ -101,7 +102,7 @@ public class OrgService {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
     @Transactional
     public DesignationResponse createDesignation(CreateDesignationRequest req) {
-        if (designationRepo.existsByTitle(req.getTitle().trim())) {
+        if (designationRepo.existsByTitleIgnoreCase(req.getTitle().trim())) {
             throw new IllegalArgumentException("A designation titled '" + req.getTitle().trim() + "' already exists");
         }
         Designation saved = designationRepo.save(
@@ -119,7 +120,7 @@ public class OrgService {
         Designation desig = designationRepo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Designation not found"));
         String trimmed = req.getTitle().trim();
-        if (!desig.getTitle().equalsIgnoreCase(trimmed) && designationRepo.existsByTitle(trimmed)) {
+        if (!desig.getTitle().equalsIgnoreCase(trimmed) && designationRepo.existsByTitleIgnoreCase(trimmed)) {
             throw new IllegalArgumentException("A designation titled '" + trimmed + "' already exists");
         }
         desig.setTitle(trimmed);
@@ -156,7 +157,7 @@ public class OrgService {
 
     @Transactional(readOnly = true)
     public List<LocationResponse> listLocations() {
-        return locationRepo.findAll().stream()
+        return locationRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
                 .map(l -> LocationResponse.from(l, employeeRepo.countByLocationId(l.getId())))
                 .toList();
     }
@@ -164,7 +165,7 @@ public class OrgService {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
     @Transactional
     public LocationResponse createLocation(CreateLocationRequest req) {
-        if (locationRepo.existsByName(req.getName().trim())) {
+        if (locationRepo.existsByNameIgnoreCase(req.getName().trim())) {
             throw new IllegalArgumentException("A location named '" + req.getName().trim() + "' already exists");
         }
         Location saved = locationRepo.save(
@@ -184,7 +185,7 @@ public class OrgService {
         Location loc = locationRepo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Location not found"));
         String trimmed = req.getName().trim();
-        if (!loc.getName().equalsIgnoreCase(trimmed) && locationRepo.existsByName(trimmed)) {
+        if (!loc.getName().equalsIgnoreCase(trimmed) && locationRepo.existsByNameIgnoreCase(trimmed)) {
             throw new IllegalArgumentException("A location named '" + trimmed + "' already exists");
         }
         loc.setName(trimmed);

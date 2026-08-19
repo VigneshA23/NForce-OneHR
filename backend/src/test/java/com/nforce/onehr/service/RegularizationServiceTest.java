@@ -55,6 +55,7 @@ class RegularizationServiceTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties attendanceProps;
+    @Mock private NotificationService notificationService;
 
     @InjectMocks private RegularizationService regularizationService;
 
@@ -193,6 +194,147 @@ class RegularizationServiceTest {
 
         assertEquals(existingCheckIn, resp.getRequestedCheckIn());
         assertEquals(today.atTime(18, 30), resp.getRequestedCheckOut());
+    }
+
+    // ---------------------------------------------------------------- overnight check-in/check-out
+
+    @Test
+    void submit_overnightShift_330pmTo1230am_isAcceptedAndCheckoutRollsToNextDay() {
+        // Scenario F: check-in's business date (today, since 15:30 >= 07:00) and the rolled-over
+        // check-out's business date (also today, since 00:30 < 07:00 attributes it back to the
+        // previous business day) agree — both belong to attendanceDate=today — so this passes the
+        // new business-date consistency check. The actual stored check-out timestamp remains the
+        // real next-calendar-day value; only its BUSINESS-date attribution rolls back, not the
+        // timestamp itself.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        // The frontend always sends both times on the same attendanceDate (RequestModal in
+        // AttendancePage.tsx never does its own day-rollover) — 12:30 AM here is check-out's
+        // clock time on that same date, exactly as the real request payload looks.
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(0, 30), "Overnight shift");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(today.atTime(15, 30), resp.getRequestedCheckIn());
+        assertEquals(today.plusDays(1).atTime(0, 30), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenarioG_overnightCheckout_18Aug659AM_businessDateRemains17Aug() {
+        // Same shape as scenario F but at the boundary's edge: check-out rolls over to next-day
+        // 06:59, still < 07:00, so it's still attributed back to check-in's business date.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(20, 0), today.atTime(6, 59), "Overnight shift, boundary edge");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(today.atTime(20, 0), resp.getRequestedCheckIn());
+        assertEquals(today.plusDays(1).atTime(6, 59), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenarioH_checkoutOnlyAtSevenAM_businessDateIsItsOwnDay() {
+        // Check-out submitted alone (no check-in in this request, none on file either) — at
+        // exactly 07:00 it belongs to its OWN calendar date as the business date (rule 3), not
+        // the previous one, so it must be validated against that same day's attendanceDate.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, null, today.atTime(7, 0), "Checkout-only correction");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertNull(resp.getRequestedCheckIn());
+        assertEquals(today.atTime(7, 0), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenario8_overnightShift_17AugTo18Aug_literalDates_attendanceDateIs17AugAndCheckoutStays18Aug() {
+        // Literal Aug-17/18-2026 dates per the spec's exact example. Submitted as the Super Admin
+        // fixture (also holds EMPLOYEE, exempt from the lookback window) purely so this test can
+        // use fixed calendar dates instead of "today" — the business-date/rollover logic under
+        // test doesn't care who the actor is.
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        LocalDate aug17 = LocalDate.of(2026, 8, 17);
+        CreateRegularizationRequest req = request(aug17, aug17.atTime(15, 30), aug17.atTime(0, 30), "Overnight shift");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, superAdminEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(aug17, resp.getAttendanceDate());
+        assertEquals(LocalDateTime.of(2026, 8, 17, 15, 30), resp.getRequestedCheckIn());
+        // Checkout must remain the real next calendar day — never rewritten back to 17-Aug.
+        assertEquals(LocalDateTime.of(2026, 8, 18, 0, 30), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenario9_overnightCheckoutAt659am_18Aug_literalDates_businessDateRemains17Aug() {
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        LocalDate aug17 = LocalDate.of(2026, 8, 17);
+        CreateRegularizationRequest req = request(aug17, aug17.atTime(20, 0), aug17.atTime(6, 59), "Overnight shift, boundary edge");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, superAdminEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(aug17, resp.getAttendanceDate());
+        assertEquals(LocalDateTime.of(2026, 8, 18, 6, 59), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void submit_normalSameDayInterval_330pmTo1130pm_isUnaffected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(23, 30), "Normal shift");
+        req.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(today.atTime(15, 30), resp.getRequestedCheckIn());
+        assertEquals(today.atTime(23, 30), resp.getRequestedCheckOut()); // same date — no rollover applied
+    }
+
+    @Test
+    void submit_checkoutClockTimeAfterSevenAMOnRolledOverDay_isRejectedForBusinessDateMismatch() {
+        // Check-out's clock time (3:00 PM) is earlier than check-in's (3:30 PM), so the same-day
+        // rollover fix (above) still shifts it to the next calendar day. But 3:00 PM on that next
+        // day is itself >= the 07:00 AM boundary, so resolveBusinessDate attributes it to ITS OWN
+        // business date, not check-in's — the two sides now disagree on which attendanceDate this
+        // request belongs to. A genuinely valid overnight case never has this problem (its
+        // check-out clock time is always < 07:00, per the boundary rule); this ~23.5h interval is
+        // the case the boundary rule is NOT meant to cover, and must still fail.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(15, 0), "Long overnight shift");
+        req.setManagerUserId(hrId);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> regularizationService.submit(req, employeeEmail));
+        assertEquals("Corrected check-out time must fall on the attendance date", ex.getMessage());
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void submit_equalCheckInAndCheckOutTimes_isGenuinelyInvalid() {
+        // Not "earlier than" check-in (equal, not before) — no rollover applies, so this stays a
+        // same-day, zero-duration interval and is correctly rejected by the existing ordering rule.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate today = LocalDate.now();
+        CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(15, 30), "Same time");
+        req.setManagerUserId(hrId);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> regularizationService.submit(req, employeeEmail));
+        assertEquals("Check-out time must be after check-in time", ex.getMessage());
+        verify(regularizationRepository, never()).save(any());
     }
 
     @Test
@@ -393,8 +535,9 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void approve_byHrAdmin_onPending_isDenied() {
-        // HR_ADMIN is a final-stage-only approver — must wait for the manager stage first.
+    void approve_byHrAdmin_bypassesFromPending_directlyToApproved() {
+        // ONEHR-140 follow-up: HR_ADMIN now has the same PENDING-stage bypass SUPER_ADMIN
+        // already had — need not be the employee's manager, and may act before the manager does.
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -403,11 +546,37 @@ class RegularizationServiceTest {
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        // HR_ADMIN isn't a recognized actor for the PENDING stage (only MANAGER/SUPER_ADMIN are) —
-        // denied the same way an unrelated stranger would be.
-        assertThrows(AccessDeniedException.class, () -> regularizationService.approve(pending.getId(), null, hrEmail));
-        verify(regularizationRepository, never()).save(any());
+        RegularizationResponse resp = regularizationService.approve(pending.getId(), null, hrEmail);
+
+        assertEquals("APPROVED", resp.getStatus());
+        assertNull(pending.getApprovedBy()); // bypass skips the manager stage entirely, same as SUPER_ADMIN
+        assertEquals(hrId, pending.getFinalApprovedBy());
+        verify(regularizationApprovalRepository).save(argThat(a -> "HR_ADMIN".equals(a.getActorRole())));
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_APPROVED"), any(), any(), any());
+    }
+
+    @Test
+    void approve_byHrAdmin_calledTwice_secondCallRejectedAndNoDuplicateNotification() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        regularizationService.approve(pending.getId(), null, hrEmail);
+        // The request is now APPROVED (terminal) in-memory, so a second decision attempt falls
+        // into the else-branch "only pending or partially-approved" guard.
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.approve(pending.getId(), null, hrEmail));
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_APPROVED"), any(), any(), any());
     }
 
     @Test
@@ -477,7 +646,9 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void reject_byHrAdmin_onPending_isDenied() {
+    void reject_byHrAdmin_onPending_succeeds() {
+        // ONEHR-140 follow-up: same bypass as approve() above — HR_ADMIN may reject a PENDING
+        // request without being the employee's manager and before the manager has acted.
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -487,8 +658,66 @@ class RegularizationServiceTest {
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
 
-        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(pending.getId(), "No", hrEmail));
+        RegularizationResponse resp = regularizationService.reject(pending.getId(), "No", hrEmail);
+
+        assertEquals("REJECTED", resp.getStatus());
+        assertEquals("No", resp.getReviewComment());
+        verify(regularizationApprovalRepository).save(argThat(a ->
+                a.getActionType().equals("REJECTED") && "HR_ADMIN".equals(a.getActorRole())));
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
+    }
+
+    @Test
+    void reject_bySuperAdmin_fromPending_succeeds() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        RegularizationResponse resp = regularizationService.reject(pending.getId(), "Not valid", superAdminEmail);
+
+        assertEquals("REJECTED", resp.getStatus());
+        verify(regularizationApprovalRepository).save(argThat(a ->
+                a.getActionType().equals("REJECTED") && "SUPER_ADMIN".equals(a.getActorRole())));
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
+    }
+
+    @Test
+    void reject_byUnauthorizedEmployee_isDenied() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(strangerUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(pending.getId(), "No", strangerEmail));
         verify(regularizationRepository, never()).save(any());
+        verify(regularizationApprovalRepository, never()).save(any());
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void reject_byHrAdmin_calledTwice_secondCallRejectedAndNoDuplicateNotification() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        regularizationService.reject(pending.getId(), "No", hrEmail);
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.reject(pending.getId(), "No", hrEmail));
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
     }
 
     @Test
@@ -527,6 +756,53 @@ class RegularizationServiceTest {
         assertEquals("Updated reason", resp.getReason());
         assertEquals(hrId, resp.getAssignedApproverId());
         assertEquals(date.atTime(9, 15), resp.getRequestedCheckIn());
+    }
+
+    @Test
+    void update_toOvernightShift_appliesSameBusinessDateAndRolloverAsSubmit() {
+        // update() calls the same resolveTimes() as submit() — confirms the overnight rollover
+        // and 07:00 AM business-date consistency check behave identically on the edit path.
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Old reason").status("PENDING").build();
+
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        CreateRegularizationRequest edit = request(date, date.atTime(15, 30), date.atTime(0, 30), "Switched to night shift");
+        edit.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.update(pending.getId(), edit, employeeEmail);
+
+        assertEquals(date.atTime(15, 30), resp.getRequestedCheckIn());
+        assertEquals(date.plusDays(1).atTime(0, 30), resp.getRequestedCheckOut());
+    }
+
+    @Test
+    void scenario12_update_overnightShift_17AugTo18Aug_literalDates_sameRuleAsSubmit() {
+        // Literal-dated counterpart to scenario 8, via update() instead of submit() — same
+        // resolveTimes() call, so the business-date/rollover outcome must be identical. Owned by
+        // the Super Admin fixture (exempt from the lookback window) so the edit's new attendance
+        // date can be a fixed 2026-08-17 rather than "today".
+        LocalDate aug17 = LocalDate.of(2026, 8, 17);
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(superAdminId).assignedApproverId(managerId).attendanceDate(aug17)
+                .requestedCheckIn(aug17.atTime(9, 0)).requestedCheckOut(aug17.atTime(18, 0))
+                .reason("Old reason").status("PENDING").build();
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        CreateRegularizationRequest edit = request(aug17, aug17.atTime(15, 30), aug17.atTime(0, 30), "Switched to night shift");
+        edit.setManagerUserId(hrId);
+
+        RegularizationResponse resp = regularizationService.update(pending.getId(), edit, superAdminEmail);
+
+        assertEquals(aug17, resp.getAttendanceDate());
+        assertEquals(LocalDateTime.of(2026, 8, 17, 15, 30), resp.getRequestedCheckIn());
+        assertEquals(LocalDateTime.of(2026, 8, 18, 0, 30), resp.getRequestedCheckOut());
     }
 
     @Test
@@ -692,5 +968,230 @@ class RegularizationServiceTest {
         List<?> approvers = regularizationService.listApprovers();
 
         assertEquals(1, approvers.size());
+    }
+
+    // ── 07:00 AM business-day boundary — pure, wall-clock-independent (see resolveBusinessDate) ──
+
+    @Test
+    void resolveBusinessDate_beforeSevenAM_belongsToPreviousDay() {
+        LocalDateTime justBeforeBoundary = LocalDateTime.of(2026, 3, 11, 6, 59, 59);
+
+        assertEquals(LocalDate.of(2026, 3, 10), RegularizationService.resolveBusinessDate(justBeforeBoundary));
+    }
+
+    @Test
+    void resolveBusinessDate_atExactlySevenAM_startsNewDay() {
+        LocalDateTime exactlyBoundary = LocalDateTime.of(2026, 3, 11, 7, 0, 0);
+
+        assertEquals(LocalDate.of(2026, 3, 11), RegularizationService.resolveBusinessDate(exactlyBoundary));
+    }
+
+    @Test
+    void resolveBusinessDate_earlyMorningWellBeforeBoundary_belongsToPreviousDay() {
+        LocalDateTime fiveAM = LocalDateTime.of(2026, 3, 11, 5, 0, 0);
+
+        assertEquals(LocalDate.of(2026, 3, 10), RegularizationService.resolveBusinessDate(fiveAM));
+    }
+
+    @Test
+    void resolveBusinessDate_wellAfterBoundary_belongsToSameCalendarDay() {
+        LocalDateTime afternoon = LocalDateTime.of(2026, 3, 11, 15, 30, 0);
+
+        assertEquals(LocalDate.of(2026, 3, 11), RegularizationService.resolveBusinessDate(afternoon));
+    }
+
+    // ── Scenarios A-E from the spec, applied to both check-in- and check-out-shaped timestamps —
+    //    resolveBusinessDate is one pure function used for both, so "consistently for both" holds
+    //    by construction; these pin the exact letter-labeled boundary values against 17/18-Aug. ──
+
+    @Test
+    void scenarioA_checkIn_17Aug7AM_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 7, 0, 0)));
+    }
+
+    @Test
+    void scenarioB_checkIn_17Aug1159PM_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 23, 59, 0)));
+    }
+
+    @Test
+    void scenarioC_checkIn_18AugMidnight_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 0, 0, 0)));
+    }
+
+    @Test
+    void scenarioD_checkIn_18Aug659AM_belongsTo17Aug() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 6, 59, 0)));
+    }
+
+    @Test
+    void scenarioE_checkIn_18Aug7AM_belongsTo18Aug() {
+        assertEquals(LocalDate.of(2026, 8, 18),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 7, 0, 0)));
+    }
+
+    @Test
+    void scenarioD_checkOut_18Aug659AM_belongsTo17Aug_sameRuleAsCheckIn() {
+        // Same function, same rule, applied to a check-out-shaped value — confirms consistency
+        // between check-in and check-out per requirement 4, not just check-in in isolation.
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 6, 59, 0)));
+    }
+
+    @Test
+    void scenarioH_checkOut_18Aug7AM_belongsTo18Aug_sameRuleAsCheckIn() {
+        assertEquals(LocalDate.of(2026, 8, 18),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 7, 0, 0)));
+    }
+
+    // ── Exact numbered scenarios 1, 3, 10 from the cycle-boundary spec, pinned to their literal
+    //    Aug 16/17/18 dates for direct traceability (1 and 3 aren't otherwise covered by an exact
+    //    literal value; 10 mirrors scenario E/H's rule but is added explicitly for that item). ──
+
+    @Test
+    void scenario1_659am_Aug17_belongsToAug16Cycle() {
+        assertEquals(LocalDate.of(2026, 8, 16),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 6, 59, 0)));
+    }
+
+    @Test
+    void scenario3_2pm_Aug17_belongsToAug17Cycle() {
+        assertEquals(LocalDate.of(2026, 8, 17),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 17, 14, 0, 0)));
+    }
+
+    @Test
+    void scenario10_700am_Aug18_belongsToAug18Cycle() {
+        assertEquals(LocalDate.of(2026, 8, 18),
+                RegularizationService.resolveBusinessDate(LocalDateTime.of(2026, 8, 18, 7, 0, 0)));
+    }
+
+    // ── Notifications: reuse the existing NotificationService, only for Request Regularization ──
+
+    @Test
+    void submit_notifiesTheAssignedApprover_onCreation() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        Employee employeeRecord = Employee.builder().userId(employeeId).fullName("Alex Employee").user(employeeUser).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employeeRecord));
+
+        LocalDate today = LocalDate.now();
+        regularizationService.submit(request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot badge"), employeeEmail);
+
+        verify(notificationService, times(1)).send(eq(managerId), eq("REGULARIZATION_SUBMITTED"),
+                eq("Regularization Request Submitted"),
+                argThat(msg -> msg.contains("Alex Employee") && msg.contains(today.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")))),
+                eq("/approvals?type=REGULARIZATION"));
+    }
+
+    @Test
+    void submit_withNoManagerOnFile_sendsNoNotification() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.empty());
+
+        LocalDate today = LocalDate.now();
+        RegularizationResponse resp = regularizationService.submit(
+                request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot badge"), employeeEmail);
+
+        assertNull(resp.getAssignedApproverId());
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void approve_byManager_interimStage_doesNotNotifyEmployee() {
+        // PENDING -> PARTIALLY_APPROVED is not yet "approved" from the employee's perspective —
+        // only the terminal APPROVED status is one of the 3 requested lifecycle notifications.
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        regularizationService.approve(pending.getId(), null, managerEmail);
+
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void approve_byHrAdmin_finalStage_notifiesEmployeeExactlyOnce() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PARTIALLY_APPROVED")
+                .approvedBy(managerId).approvedAt(LocalDateTime.now()).build();
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(partiallyApproved.getId())).thenReturn(Optional.of(partiallyApproved));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+        Employee hrEmployee = Employee.builder().userId(hrId).fullName("Priya HR").user(hrUser).build();
+        when(employeeRepository.findById(hrId)).thenReturn(Optional.of(hrEmployee));
+
+        regularizationService.approve(partiallyApproved.getId(), "Looks good", hrEmail);
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_APPROVED"),
+                eq("Regularization Request Approved"),
+                argThat(msg -> msg.contains("Priya HR") && msg.contains("Looks good")
+                        && msg.contains(date.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")))),
+                eq("/requests?type=REGULARIZATION"));
+    }
+
+    @Test
+    void approve_bySuperAdmin_bypass_notifiesEmployee() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        regularizationService.approve(pending.getId(), null, superAdminEmail);
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_APPROVED"), any(), any(), any());
+    }
+
+    @Test
+    void reject_notifiesEmployee_withReasonIncluded_exactlyOnce() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        Employee managerEmployee = Employee.builder().userId(managerId).fullName("Sam Manager").user(managerUser).build();
+        when(employeeRepository.findById(managerId)).thenReturn(Optional.of(managerEmployee));
+
+        regularizationService.reject(pending.getId(), "Not a valid correction", managerEmail);
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"),
+                eq("Regularization Request Rejected"),
+                argThat(msg -> msg.contains("Sam Manager") && msg.contains("Not a valid correction")),
+                eq("/requests?type=REGULARIZATION"));
+    }
+
+    @Test
+    void reject_withoutComment_stillNotifiesEmployee_withoutReasonClause() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        regularizationService.reject(pending.getId(), null, managerEmail);
+
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
     }
 }

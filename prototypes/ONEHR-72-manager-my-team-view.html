@@ -192,6 +192,8 @@ main.nf-content { flex: 1; padding: 26px; }
 .nf-kpi-head span { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 .nf-kpi-num { font: 700 30px 'Space Grotesk', sans-serif; color: var(--txt); line-height: 1; }
 .nf-kpi-note { font-size: 11.5px; color: var(--txt-dim); margin-top: 4px; }
+.nf-kpi-viewlink { display: block; margin-top: 10px; background: none; border: none; padding: 0; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--info); }
+.nf-kpi-viewlink:hover { text-decoration: underline; color: var(--brand-bright); }
 
 /* ── Body grid ── */
 .nf-body-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
@@ -480,16 +482,19 @@ table.nf-cal { border-collapse: collapse; }
           <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Employees on time</span></div>
           <div class="nf-kpi-num">3</div>
           <div class="nf-kpi-note">arrived on schedule</div>
+          <button class="nf-kpi-viewlink" data-view-filter="ontime">View Employees</button>
         </div>
         <div class="nf-kpi-card">
           <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span>Late arrivals</span></div>
           <div class="nf-kpi-num">1</div>
           <div class="nf-kpi-note">Karan Mehta</div>
+          <button class="nf-kpi-viewlink" data-view-filter="late">View Employees</button>
         </div>
         <div class="nf-kpi-card">
           <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 2l9 7.5"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg><span>WFH / On duty</span></div>
           <div class="nf-kpi-num">1</div>
           <div class="nf-kpi-note">Meera Nair · client site</div>
+          <button class="nf-kpi-viewlink" data-view-filter="onduty">View Employees</button>
         </div>
         <div class="nf-kpi-card">
           <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--txt-mut)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg><span>Remote clock-ins</span></div>
@@ -574,7 +579,7 @@ table.nf-cal { border-collapse: collapse; }
       <div class="nf-body-grid">
 
         <!-- ── Roster ── -->
-        <div class="nf-panel">
+        <div class="nf-panel" id="rosterPanel">
           <div class="nf-panel-head">
             <span class="nf-panel-title">Team roster</span>
             <span class="nf-panel-count" id="rosterCount">8 people</span>
@@ -589,10 +594,13 @@ table.nf-cal { border-collapse: collapse; }
             <button class="nf-chip" data-filter="out">Out</button>
             <button class="nf-chip" data-filter="not-in-yet">Not in yet</button>
             <button class="nf-chip" data-filter="leave">On leave</button>
+            <button class="nf-chip" data-filter="ontime">On time</button>
+            <button class="nf-chip" data-filter="late">Late</button>
+            <button class="nf-chip" data-filter="onduty">On duty</button>
           </div>
           <div class="nf-roster-grid" id="rosterGrid">
 
-              <div class="nf-roster-card" data-status="out" data-name="ananya rao emp-0142" data-code="AR">
+              <div class="nf-roster-card" data-status="out" data-ontime="1" data-name="ananya rao emp-0142" data-code="AR">
                 <div class="nf-rc-top">
                   <div class="nf-emp-avatar" style="background:#B5652F">AR</div>
                   <div class="nf-rc-info">
@@ -609,7 +617,7 @@ table.nf-cal { border-collapse: collapse; }
                   <button class="nf-viewbtn">View</button>
                 </div>
               </div>
-              <div class="nf-roster-card" data-status="in" data-name="karan mehta emp-0156" data-code="KM">
+              <div class="nf-roster-card" data-status="in" data-late="1" data-name="karan mehta emp-0156" data-code="KM">
                 <div class="nf-rc-top">
                   <div class="nf-emp-avatar" style="background:#4C6EDB">KM</div>
                   <div class="nf-rc-info">
@@ -664,7 +672,7 @@ table.nf-cal { border-collapse: collapse; }
                   <button class="nf-viewbtn">View</button>
                 </div>
               </div>
-              <div class="nf-roster-card" data-status="in" data-name="farah sheikh emp-0148" data-code="FS">
+              <div class="nf-roster-card" data-status="in" data-ontime="1" data-name="farah sheikh emp-0148" data-code="FS">
                 <div class="nf-rc-top">
                   <div class="nf-emp-avatar" style="background:#B0468A">FS</div>
                   <div class="nf-rc-info">
@@ -682,7 +690,7 @@ table.nf-cal { border-collapse: collapse; }
                   <button class="nf-viewbtn">View</button>
                 </div>
               </div>
-              <div class="nf-roster-card" data-status="out" data-name="rohan kulkarni emp-0139" data-code="RK">
+              <div class="nf-roster-card" data-status="out" data-ontime="1" data-name="rohan kulkarni emp-0139" data-code="RK">
                 <div class="nf-rc-top">
                   <div class="nf-emp-avatar" style="background:#C48B2F">RK</div>
                   <div class="nf-rc-info">
@@ -700,7 +708,7 @@ table.nf-cal { border-collapse: collapse; }
                   <button class="nf-viewbtn">View</button>
                 </div>
               </div>
-              <div class="nf-roster-card" data-status="in" data-name="meera nair emp-0152" data-code="MN">
+              <div class="nf-roster-card" data-status="in" data-onduty="1" data-name="meera nair emp-0152" data-code="MN">
                 <div class="nf-rc-top">
                   <div class="nf-emp-avatar" style="background:#3D8FC4">MN</div>
                   <div class="nf-rc-info">
@@ -927,11 +935,23 @@ table.nf-cal { border-collapse: collapse; }
   var rosterEmpty = document.getElementById('rosterEmpty');
   var activeFilter = 'all';
 
+  // Filters keyed by "on time / late / on duty" match an explicit data-* flag on the card
+  // (set from the same numbers the KPI cards above are showing); every other filter matches
+  // the coarse data-status attribute, same as before.
+  var FLAG_FILTERS = { ontime: 'data-ontime', late: 'data-late', onduty: 'data-onduty' };
+
   function refreshRoster() {
     var q = searchInput.value.trim().toLowerCase();
     var visible = 0;
     rows.forEach(function (row) {
-      var matchesFilter = activeFilter === 'all' || row.getAttribute('data-status') === activeFilter;
+      var matchesFilter;
+      if (activeFilter === 'all') {
+        matchesFilter = true;
+      } else if (FLAG_FILTERS[activeFilter]) {
+        matchesFilter = row.getAttribute(FLAG_FILTERS[activeFilter]) === '1';
+      } else {
+        matchesFilter = row.getAttribute('data-status') === activeFilter;
+      }
       var matchesSearch = !q || row.getAttribute('data-name').indexOf(q) !== -1;
       var show = matchesFilter && matchesSearch;
       row.style.display = show ? '' : 'none';
@@ -941,13 +961,22 @@ table.nf-cal { border-collapse: collapse; }
     rosterEmpty.style.display = visible === 0 ? 'block' : 'none';
   }
 
+  function setFilter(filterKey) {
+    activeFilter = filterKey;
+    chips.forEach(function (c) { c.classList.toggle('active', c.getAttribute('data-filter') === filterKey); });
+    refreshRoster();
+  }
+
   searchInput.addEventListener('input', refreshRoster);
   chips.forEach(function (chip) {
-    chip.addEventListener('click', function () {
-      chips.forEach(function (c) { c.classList.remove('active'); });
-      chip.classList.add('active');
-      activeFilter = chip.getAttribute('data-filter');
-      refreshRoster();
+    chip.addEventListener('click', function () { setFilter(chip.getAttribute('data-filter')); });
+  });
+
+  // ── KPI "View Employees" links — jump to the roster, pre-filtered ──
+  document.querySelectorAll('.nf-kpi-viewlink').forEach(function (link) {
+    link.addEventListener('click', function () {
+      setFilter(link.getAttribute('data-view-filter'));
+      document.getElementById('rosterPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
 

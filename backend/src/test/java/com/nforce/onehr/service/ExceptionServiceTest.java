@@ -37,7 +37,14 @@ class ExceptionServiceTest {
     @Mock private AttendanceExceptionRepository attendanceExceptionRepository;
     @Mock private AttendanceRepository attendanceRepository;
     @Mock private LeaveRequestRepository leaveRequestRepository;
+    @Mock private RegularizationRequestRepository regularizationRequestRepository;
     @Mock private AttendanceProperties attendanceProperties;
+    @Mock private AttendancePenaltyEvaluationService attendancePenaltyEvaluationService;
+    @Mock private EmailService emailService;
+    @Mock private WorkingDayService workingDayService;
+    @Mock private PenalizationPolicyVersionRepository penalizationPolicyVersionRepository;
+    @Mock private HolidayRepository holidayRepository;
+    @Mock private PenalizationPolicyService penalizationPolicyService;
 
     @InjectMocks private ExceptionService exceptionService;
 
@@ -47,8 +54,13 @@ class ExceptionServiceTest {
     private final String managerEmail = "manager@test.com";
     private final String hrEmail = "hr@test.com";
 
-    private final LocalDate from = LocalDate.now().minusDays(6);
-    private final LocalDate to = LocalDate.now();
+    // Zone-matched to AttendanceProperties.getZone() ("Asia/Kolkata", stubbed below) — the service
+    // computes "today" against that zone, not the JVM's default zone; using a plain LocalDate.now()
+    // here made this test's "today" and the service's "today" disagree (and openToday/missingPunch
+    // assertions flip) whenever the machine's local date and Kolkata's calendar date differ, e.g.
+    // late evening in an zone west of Kolkata.
+    private final LocalDate to = LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate();
+    private final LocalDate from = to.minusDays(6);
 
     @BeforeEach
     void setUp() {
@@ -159,15 +171,15 @@ class ExceptionServiceTest {
 
         Attendance missingPunchYesterday = Attendance.builder()
                 .employeeUserId(employeeId)
-                .workDate(LocalDate.now().minusDays(1))
-                .checkInAt(LocalDateTime.now().minusDays(1).withHour(9).withMinute(30))
+                .workDate(to.minusDays(1))
+                .checkInAt(to.minusDays(1).atTime(9, 30))
                 .checkOutAt(null)
                 .lateByMinutes(0)
                 .build();
         Attendance openToday = Attendance.builder()
                 .employeeUserId(employeeId)
-                .workDate(LocalDate.now())
-                .checkInAt(LocalDateTime.now().withHour(9).withMinute(30))
+                .workDate(to)
+                .checkInAt(to.atTime(9, 30))
                 .checkOutAt(null)
                 .lateByMinutes(0)
                 .build();

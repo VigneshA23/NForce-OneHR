@@ -34,7 +34,15 @@ export function KebabMenu({
       const rect = btnRef.current.getBoundingClientRect();
       const menuHeight = items.length * ITEM_HEIGHT + 8;
       const spaceBelow = window.innerHeight - rect.bottom;
-      const right = window.innerWidth - rect.right;
+      const viewportMargin = 8;
+      // `right` is normally measured from the trigger button's own right edge,
+      // which works when the button sits near the right side of the screen.
+      // On narrow/mobile widths a button nearer the left would push a
+      // right-anchored menu past the left edge of the viewport, so clamp it
+      // to the widest right-offset that still keeps the menu's minWidth
+      // fully on-screen.
+      const maxRight = Math.max(viewportMargin, window.innerWidth - minWidth - viewportMargin);
+      const right = Math.min(window.innerWidth - rect.right, maxRight);
       if (spaceBelow < menuHeight) {
         setPos({ bottom: window.innerHeight - rect.top + 4, right });
       } else {
@@ -87,6 +95,8 @@ export function KebabMenu({
                 boxShadow: '0 12px 32px rgba(0,0,0,.55)',
                 zIndex: 1000,
                 minWidth,
+                maxWidth: 'calc(100vw - 16px)',
+                boxSizing: 'border-box',
                 overflow: 'hidden',
               }}
             >

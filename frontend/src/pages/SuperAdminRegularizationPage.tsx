@@ -53,7 +53,7 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
             <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Requested Check-In</div>{fmtDateTime(request.requestedCheckIn)}</div>
             <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Requested Check-Out</div>{fmtDateTime(request.requestedCheckOut)}</div>
             <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Total Hours</div>{formatDuration(request.totalMinutes)}</div>
@@ -68,7 +68,7 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
 
           {/* Two-stage approval summary — shown once each stage has actually happened. */}
           {(request.approvedByName || request.finalApprovedByName) && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
               {request.approvedByName && (
                 <>
                   <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Approved By (Manager)</div>{request.approvedByName}</div>

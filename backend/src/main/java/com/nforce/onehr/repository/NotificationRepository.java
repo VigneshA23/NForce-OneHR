@@ -15,6 +15,9 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     Page<Notification> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
 
+    // Backs the notification bell — the bell must show unread only, never the full history.
+    Page<Notification> findByUserIdAndReadFalseOrderByCreatedAtDesc(UUID userId, Pageable pageable);
+
     long countByUserIdAndReadFalse(UUID userId);
 
     @Modifying

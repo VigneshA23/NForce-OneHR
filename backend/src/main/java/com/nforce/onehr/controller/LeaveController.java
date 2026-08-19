@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -56,6 +57,24 @@ public class LeaveController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             Principal principal) {
         return leaveService.listTeamLeave(principal.getName(), from, to);
+    }
+
+    /** Approved leave org-wide overlapping [from, to] — HR/Super Admin's "On Leave" KPI. */
+    @GetMapping("/organization")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public List<LeaveRequestResponse> organization(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return leaveService.listOrgLeave(from, to);
+    }
+
+    /** Approved leave for the caller's current peers — My Team: Peers view (ONEHR-73). */
+    @GetMapping("/peers")
+    public List<LeaveRequestResponse> peers(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return leaveService.listPeerLeave(principal.getName(), from, to);
     }
 
     @PostMapping("/requests/{id}/approve")
