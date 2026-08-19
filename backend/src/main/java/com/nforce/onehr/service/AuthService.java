@@ -157,6 +157,10 @@ public class AuthService {
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
+        // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
+        // their very next API call fails auth. The token minted just below carries this new
+        // version, so the session performing the change stays logged in.
+        user.setTokenVersion(user.getTokenVersion() + 1);
         userRepository.save(user);
 
         auditService.log(user.getId(), "PASSWORD_CHANGED", user.getId());
@@ -193,6 +197,8 @@ public class AuthService {
         String tempPassword = generateTempPassword();
         user.setPasswordHash(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
+        // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
+        user.setTokenVersion(user.getTokenVersion() + 1);
         userRepository.save(user);
 
         String fullName = employeeRepository.findById(user.getId())
