@@ -23,6 +23,12 @@ const TLD_COM_WITH_TRAILING_CHARS_RE = /^com.+/i;
 const NAME_RE = /^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$/;
 const digitsOnly = (v: string) => v.replace(/\D/g, '');
 const nameCharsOnly = (v: string) => v.replace(/[^A-Za-z '.-]/g, '');
+// Strips emoji/pictographs (plus the variation-selector and zero-width-joiner marks used to
+// combine them, e.g. skin-tone modifiers, flag sequences) from free-text fields like Address —
+// unlike Name, Address needs to stay open to digits/punctuation/most Unicode text, so this only
+// removes emoji specifically rather than restricting to an allow-list.
+const EMOJI_RE = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u{1F1E6}-\u{1F1FF}]|[\u200D\uFE0F]/gu;
+const stripEmoji = (v: string) => v.replace(EMOJI_RE, '');
 
 function validateEmail(v: string): string | null {
   if (!v) return null;
@@ -330,7 +336,7 @@ export default function ProfilePage() {
               <EditField label="Personal Email" value={field('personalEmail')} onChange={set('personalEmail')} type="email" placeholder="personal@email.com" error={errors.personalEmail} />
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>Address</label>
-                <textarea value={field('address')} onChange={e => set('address')(e.target.value)}
+                <textarea value={field('address')} onChange={e => set('address')(stripEmoji(e.target.value))}
                   placeholder="Your address…" rows={3}
                   style={{ ...INPUT_STYLE, resize: 'vertical', fontFamily: 'inherit' }} />
               </div>
