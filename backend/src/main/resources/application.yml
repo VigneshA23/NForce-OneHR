@@ -57,9 +57,9 @@ app:
     regularization:
       # N-day lookback window (counting today itself) for regularization requests submitted by
       # anyone other than Super Admin, who is exempt entirely — see
-      # RegularizationService.submit/update/validateLookbackWindow. E.g. 3 with today=6th
-      # allows the 6th/5th/4th and blocks the 3rd onward.
-      employee-lookback-days: 3
+      # RegularizationService.submit/update/validateLookbackWindow. E.g. 7 with today=19th
+      # allows the 19th through the 13th and blocks the 12th onward.
+      employee-lookback-days: 7
       # Max regularization requests a non-Super-Admin employee may submit per calendar month
       # (counts every submission regardless of eventual status). Super Admin is exempt.
       monthly-limit: 3

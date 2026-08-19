@@ -105,7 +105,7 @@ public class RegularizationService {
     // Lookback window (N days): how far back a non-Super-Admin employee may request a
     // correction. Super Admin submitters (also holding EMPLOYEE in this org) are exempt
     // entirely — see submit()/update().
-    @Value("${app.attendance.regularization.employee-lookback-days:3}")
+    @Value("${app.attendance.regularization.employee-lookback-days:7}")
     private int employeeLookbackDays;
 
     // Max regularization requests a non-Super-Admin employee may submit per calendar month
@@ -668,7 +668,8 @@ public class RegularizationService {
         LocalDate earliestAllowed = today.minusDays(Math.max(windowDays, 1) - 1);
         if (attendanceDate.isBefore(earliestAllowed)) {
             throw new IllegalArgumentException(
-                    "Regularization requests are only allowed within the last " + windowDays + " days (including today)");
+                    "You are not allowed to apply regularization for this date after "
+                            + earliestAllowed.format(NOTIFICATION_DATE_FMT) + ".");
         }
     }
 
