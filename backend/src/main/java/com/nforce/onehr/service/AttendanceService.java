@@ -169,10 +169,11 @@ public class AttendanceService {
     /**
      * Every check-in/check-out session for one employee/day, from BOTH entry points — normal
      * Check-In/Out ({@link AttendancePunch}, source SYSTEM) and Web Check-In/Out
-     * ({@link WebClockInRequest}, source WEB_REMOTE, at most one per day — see
-     * WebClockInService#submit) — merged and sorted chronologically by check-in time. Used for
-     * both the punch-history display and the break/gross/effective-hours math, so a session
-     * started one way and continued the other still contributes correctly to each.
+     * ({@link WebClockInRequest}, source WEB_REMOTE — an employee may Web Clock-In/Out more than
+     * once per day, see WebClockInService#submit) — merged and sorted chronologically by
+     * check-in time. Used for both the punch-history display and the break/gross/effective-hours
+     * math, so a session started one way and continued the other still contributes correctly to
+     * each, and no session (from either source) is ever double-counted or dropped.
      */
     private List<PunchResponse> collectPunches(UUID employeeId, UUID attendanceRecordId, LocalDate workDate) {
         List<PunchResponse> punches = new ArrayList<>();
@@ -185,8 +186,8 @@ public class AttendanceService {
                             .source("SYSTEM")
                             .build()));
         }
-        webClockInRequestRepository.findByEmployeeUserIdAndWorkDateAndStatus(employeeId, workDate, "APPROVED")
-                .ifPresent(req -> punches.add(PunchResponse.builder()
+        webClockInRequestRepository.findByEmployeeUserIdAndWorkDateAndStatusOrderByRequestedCheckInAsc(employeeId, workDate, "APPROVED")
+                .forEach(req -> punches.add(PunchResponse.builder()
                         .id(req.getId())
                         .checkInAt(req.getRequestedCheckIn())
                         .checkOutAt(req.getCheckedOutAt())

@@ -160,36 +160,36 @@ public class EmailService {
                   <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
                     <tr><td align="center">
                       <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
+                        <tr><td style="background:#B11116;padding:22px 36px;">
+                          <table cellpadding="0" cellspacing="0" border="0"><tr>
+                            <td style="padding-right:10px;"><img src="%s/favicon-48.png" width="32" height="32" alt="" style="display:block;border-radius:50%%;border:0;"></td>
+                            <td style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</td>
+                          </tr></table>
                         </td></tr>
                         <tr><td style="padding:36px;">
                           <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Reset your password</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, a password reset was requested for your NForce OneHR account. Use the temporary password below to sign in.</p>
+                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, a password reset was requested for %s. Use the temporary password below to sign in.</p>
 
-                          <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #2A2E37;border-radius:8px;margin-bottom:28px;">
+                          <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #34506E;border-radius:8px;margin-bottom:28px;">
                             <tr><td style="padding:20px 24px;">
-                              <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.06em;">New temporary password</p>
-                              <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Email: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                              <p style="margin:0;font-size:13px;color:#9BA1AC;">Temp password: <span style="font-family:'Courier New',monospace;background:#080808;color:#E8EAED;padding:3px 8px;border-radius:4px;font-size:14px;font-weight:600;">%s</span></p>
+                              <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.06em;">Password</p>
+                              <p style="margin:0;font-family:'Courier New',monospace;background:#080808;color:#E8EAED;padding:8px 12px;border-radius:4px;font-size:15px;font-weight:600;display:inline-block;">%s</p>
                             </td></tr>
                           </table>
 
-                          <div style="background:rgba(228,55,61,.08);border:1px solid rgba(228,55,61,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
-                            <p style="margin:0;font-size:13px;color:#f4a5a8;line-height:1.5;">You will be required to set a new password on sign-in. If you didn't request this, contact your HR administrator immediately.</p>
+                          <div style="background:rgba(224,169,59,.08);border:1px solid rgba(224,169,59,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
+                            <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#E0A93B;">⚠️ Password reset required</p>
+                            <p style="margin:0;font-size:13px;color:#c9a668;line-height:1.5;">You will be asked to create a new password after signing in. If you didn't request this reset, contact your HR administrator immediately.</p>
                           </div>
 
                           <a href="%s/login" style="display:inline-block;background:#B11116;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 28px;border-radius:8px;">Sign in to OneHR →</a>
-                        </td></tr>
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR. If you didn't request a password reset, please ignore this email.</p>
                         </td></tr>
                       </table>
                     </td></tr>
                   </table>
                 </body>
                 </html>
-                """.formatted(fullName, email, tempPassword, baseUrl);
+                """.formatted(baseUrl, fullName, email, tempPassword, baseUrl);
     }
 
     private String buildLateArrivalHtml(String fullName, LocalDate date, LocalTime expectedTime,
