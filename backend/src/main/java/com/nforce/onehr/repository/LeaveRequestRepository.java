@@ -35,4 +35,18 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     // Organization-wide pending queue, no employeeUserId scoping — backs HR_ADMIN/SUPER_ADMIN
     // visibility in Approval Center (see LeaveService#listPendingApprovals's override branch).
     List<LeaveRequest> findByStatusOrderByCreatedAtAsc(String status);
+
+    // Backs LeaveService#availableBalance: sums PENDING days across a set of leave-type IDs
+    // within a calendar year for one employee, so the available balance excludes in-flight requests.
+    @Query("SELECT COALESCE(SUM(r.totalDays), 0) FROM LeaveRequest r " +
+           "WHERE r.employeeUserId = :employeeUserId " +
+           "AND r.leaveType.id IN :leaveTypeIds " +
+           "AND r.status = :status " +
+           "AND r.startDate BETWEEN :startDate AND :endDate")
+    BigDecimal sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+            @Param("employeeUserId") UUID employeeUserId,
+            @Param("leaveTypeIds") Collection<UUID> leaveTypeIds,
+            @Param("status") String status,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate);
 }
