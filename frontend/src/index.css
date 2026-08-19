@@ -223,6 +223,27 @@ input[type="date"] {
   .nf-main-area { margin-left: 0 !important; }
   .nf-topbar-search { display: none !important; }
 }
+
+/* Sidebar logo (top-left, inside the off-canvas drawer) -> was a fixed
+   34px mark + fixed 13px/8px text regardless of phone width. Scale it
+   fluidly with clamp() based on viewport width instead, scoped to
+   `.shell-sidebar` so it doesn't affect the same BrandMark component used
+   elsewhere (e.g. the sign-in page's logo, which scales on its own vh/vw
+   ranges). Row height/border stay untouched — they must keep matching the
+   topbar exactly. */
+@media (max-width: 767px) {
+  .shell-sidebar .nf-sidebar-logo { gap: clamp(6px, 2.4vw, 10px) !important; padding: 0 clamp(10px, 4vw, 14px) !important; }
+  .shell-sidebar .nf-brandmark, .shell-sidebar .nf-brandmark-ring, .shell-sidebar .nf-brandmark-img {
+    width: clamp(26px, 9vw, 34px) !important;
+    height: clamp(26px, 9vw, 34px) !important;
+  }
+  .shell-sidebar .nf-brandmark-glow {
+    width: clamp(40px, 13.6vw, 52px) !important;
+    height: clamp(40px, 13.6vw, 52px) !important;
+  }
+  .shell-sidebar .nf-sidebar-logo-title { font-size: clamp(11px, 3.4vw, 13px) !important; }
+  .shell-sidebar .nf-sidebar-logo-sub { font-size: clamp(7px, 2.2vw, 8px) !important; }
+}
 .nf-nav-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 90; }
 
 /* Main content padding reduction */
