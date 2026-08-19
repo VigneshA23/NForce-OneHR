@@ -46,12 +46,20 @@ public class AttendanceRequestService {
     private static final String TYPE_WFH = "WFH";
     private static final String TYPE_PARTIAL_DAY = "PARTIAL_DAY";
     private static final Set<String> PARTIAL_DAY_MODES = Set.of("LATE_ARRIVE", "INTERVENING_TIMEOFF", "LEAVING_EARLY");
+    private static final Set<String> WFH_DAY_MODES = Set.of("FULL_DAY", "FIRST_HALF", "SECOND_HALF");
+    private static final BigDecimal WFH_FULL_DAY = new BigDecimal("1.00");
+    private static final BigDecimal WFH_HALF_DAY = new BigDecimal("0.50");
 
     // Partial Day's advisory allowance per calendar month, spendable on any day(s) within that
     // month. Not enforced as a hard cap in submit() — see resolvePartialDayHours — the employee
     // sees usage-vs-allowance via getPartialDayBalance, and the frontend asks them to confirm
     // before submitting past it; the assigned approver makes the actual call.
     private static final BigDecimal PARTIAL_DAY_MONTHLY_LIMIT_HOURS = new BigDecimal("2");
+
+    // WFH's monthly allowance, in days (Full Day = 1, First/Second Half = 0.5 each) — unlike
+    // Partial Day's advisory cap above, this one IS enforced as a hard limit in submit(): a
+    // request that would push the month's total past this is rejected outright.
+    private static final BigDecimal WFH_MONTHLY_LIMIT_DAYS = new BigDecimal("2");
 
     private final AttendanceRequestRepository requestRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
@@ -66,7 +74,17 @@ public class AttendanceRequestService {
         String type = normalizeType(req.getRequestType());
         BigDecimal partialDayHours = resolvePartialDayHours(type, req.getPartialDayHours());
         String partialDayMode = resolvePartialDayMode(type, req.getPartialDayMode());
+        BigDecimal wfhDayFraction = resolveWfhDayFraction(type, partialDayMode);
         UUID notifyUserId = resolveNotifyUser(req.getNotifyUserId());
+
+        if (TYPE_WFH.equals(type)) {
+            BigDecimal usedThisMonth = wfhDaysUsedInMonth(actor.getId(), req.getRequestDate());
+            if (usedThisMonth.add(wfhDayFraction).compareTo(WFH_MONTHLY_LIMIT_DAYS) > 0) {
+                throw new IllegalArgumentException(
+                        "This request exceeds your remaining Work From Home balance of "
+                                + WFH_MONTHLY_LIMIT_DAYS.subtract(usedThisMonth).max(BigDecimal.ZERO) + " day(s) for this month");
+            }
+        }
 
         AttendanceRequest entity = AttendanceRequest.builder()
                 .employeeUserId(actor.getId())
@@ -75,6 +93,7 @@ public class AttendanceRequestService {
                 .requestDate(req.getRequestDate())
                 .partialDayHours(partialDayHours)
                 .partialDayMode(partialDayMode)
+                .wfhDayFraction(wfhDayFraction)
                 .notifyUserId(notifyUserId)
                 .reason(req.getReason().trim())
                 .status(STATUS_PENDING)
@@ -102,16 +121,30 @@ public class AttendanceRequestService {
         return type;
     }
 
-    /** LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY — required for PARTIAL_DAY, ignored for WFH. */
+    /**
+     * PARTIAL_DAY: LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY, required. WFH: FULL_DAY |
+     * FIRST_HALF | SECOND_HALF, defaulting to FULL_DAY when omitted (a plain single/multi-day
+     * request with no half-day split).
+     */
     private String resolvePartialDayMode(String type, String partialDayMode) {
-        if (TYPE_WFH.equals(type)) {
-            return null;
-        }
         String mode = partialDayMode == null ? "" : partialDayMode.trim().toUpperCase();
+        if (TYPE_WFH.equals(type)) {
+            if (mode.isEmpty()) return "FULL_DAY";
+            if (!WFH_DAY_MODES.contains(mode)) {
+                throw new IllegalArgumentException("partialDayMode must be one of " + WFH_DAY_MODES + " for WFH");
+            }
+            return mode;
+        }
         if (!PARTIAL_DAY_MODES.contains(mode)) {
             throw new IllegalArgumentException("partialDayMode must be one of " + PARTIAL_DAY_MODES);
         }
         return mode;
+    }
+
+    /** FULL_DAY -> 1.00, FIRST_HALF/SECOND_HALF -> 0.50 — null for PARTIAL_DAY (uses partialDayHours instead). */
+    private BigDecimal resolveWfhDayFraction(String type, String wfhMode) {
+        if (!TYPE_WFH.equals(type)) return null;
+        return "FULL_DAY".equals(wfhMode) ? WFH_FULL_DAY : WFH_HALF_DAY;
     }
 
     private UUID resolveNotifyUser(UUID notifyUserId) {
@@ -131,6 +164,33 @@ public class AttendanceRequestService {
     }
 
     public record PartialDayBalance(BigDecimal usedHours, BigDecimal limitHours, BigDecimal remainingHours) {}
+
+    /** WFH's remaining-balance line — days used this month vs. the enforced monthly cap. */
+    @Transactional(readOnly = true)
+    public WfhBalance getWfhBalance(String actorEmail, LocalDate forDate) {
+        User actor = requireActor(actorEmail);
+        BigDecimal used = wfhDaysUsedInMonth(actor.getId(), forDate);
+        return new WfhBalance(used, WFH_MONTHLY_LIMIT_DAYS, WFH_MONTHLY_LIMIT_DAYS.subtract(used).max(BigDecimal.ZERO));
+    }
+
+    public record WfhBalance(BigDecimal usedDays, BigDecimal limitDays, BigDecimal remainingDays) {}
+
+    /**
+     * Sum of wfhDayFraction across every non-rejected WFH request the employee has for the
+     * calendar month requestDate falls in — PENDING counts too, same reasoning as
+     * partialDayHoursUsedInMonth (and this one backs a hard cap, so it must never undercount).
+     */
+    private BigDecimal wfhDaysUsedInMonth(UUID employeeUserId, LocalDate requestDate) {
+        LocalDate monthStart = requestDate.withDayOfMonth(1);
+        LocalDate monthEnd = requestDate.withDayOfMonth(requestDate.lengthOfMonth());
+        return requestRepository
+                .findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(employeeUserId, TYPE_WFH, monthStart, monthEnd)
+                .stream()
+                .filter(r -> !STATUS_REJECTED.equals(r.getStatus()))
+                .map(AttendanceRequest::getWfhDayFraction)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
 
     /**
      * The monthly cap (PARTIAL_DAY_MONTHLY_LIMIT_HOURS) is advisory, not enforced here — the
@@ -314,6 +374,7 @@ public class AttendanceRequestService {
                 .requestDate(req.getRequestDate())
                 .partialDayHours(req.getPartialDayHours())
                 .partialDayMode(req.getPartialDayMode())
+                .wfhDayFraction(req.getWfhDayFraction())
                 .reason(req.getReason())
                 .status(req.getStatus())
                 .assignedApproverId(req.getAssignedApproverId())

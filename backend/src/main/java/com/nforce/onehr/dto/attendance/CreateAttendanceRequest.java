@@ -21,8 +21,9 @@ public class CreateAttendanceRequest {
     // see AttendanceRequestService.submit.
     private BigDecimal partialDayHours;
 
-    // Required when requestType=PARTIAL_DAY: LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY.
-    // Ignored/forced null for WFH — see AttendanceRequestService.submit.
+    // PARTIAL_DAY (required): LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY.
+    // WFH (optional, defaults to FULL_DAY): FULL_DAY | FIRST_HALF | SECOND_HALF.
+    // See AttendanceRequestService.submit.
     private String partialDayMode;
 
     @NotBlank(message = "Reason is required")
