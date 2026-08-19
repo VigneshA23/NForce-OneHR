@@ -20,6 +20,8 @@ import {
   type AttendanceRequestRecord,
   type AttendanceRequestType,
   type PartialDayMode,
+  type WfhDayMode,
+  type WfhBalance,
   type SubmitAttendanceRequestPayload,
 } from '../api/attendanceRequests';
 import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeRequests';
@@ -132,6 +134,13 @@ function isoDaysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return isoOf(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** ISO date N days after a given ISO date. */
+function isoDaysAfter(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, m - 1, d + n);
+  return isoOf(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 // ─── Month-calendar helpers ────────────────────────────────────────────────────
@@ -1357,6 +1366,22 @@ function MonthCalendar({
 // used for an early, single-request client-side check before hitting the network.
 const PARTIAL_DAY_MONTHLY_LIMIT_HOURS = 2;
 
+// Mirrors AttendanceRequestService.WFH_MONTHLY_LIMIT_DAYS — unlike Partial Day's advisory cap
+// above, the backend enforces this one as a hard limit; this constant is only used for an early
+// client-side check (and for capping the date-range width itself) before hitting the network.
+const WFH_MONTHLY_LIMIT_DAYS = 2;
+
+const WFH_SINGLE_DAY_MODE_OPTIONS: { value: WfhDayMode; label: string }[] = [
+  { value: 'FULL_DAY', label: 'Full Day' },
+  { value: 'FIRST_HALF', label: 'First Half' },
+  { value: 'SECOND_HALF', label: 'Second Half' },
+];
+type WfhRangeMode = 'FULL_DAYS' | 'CUSTOM';
+const WFH_RANGE_MODE_OPTIONS: { value: WfhRangeMode; label: string }[] = [
+  { value: 'FULL_DAYS', label: 'Full Days' },
+  { value: 'CUSTOM', label: 'Custom' },
+];
+
 /**
  * Keka's "Notify" field — search and pick a specific colleague to alert about this request.
  * Purely informational (distinct from the Assign To approver above it) — per product rule, only
@@ -1446,10 +1471,12 @@ const PARTIAL_DAY_MODE_OPTIONS: { value: PartialDayMode; label: string }[] = [
 const INTERVENING_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120];
 
 // ─── Attendance Request (WFH / Partial Day) submit modal ──────────────────────
-// Reuses the regularization approver-assignment pattern (Assign To dropdown sourced from the
-// existing GET /attendance/regularization/approvers endpoint) rather than duplicating it.
-// Partial Day itself is one request type with three Keka-reference sub-modes (radio), not three
-// separate request types — see PARTIAL_DAY_MODE_OPTIONS / AttendanceRequestService.
+// No manual approver selection — the backend always routes to the employee's current reporting
+// manager (see resolveAssignedApprover in AttendanceRequestService) when managerUserId is
+// omitted from the payload. Partial Day itself is one request type with three Keka-reference
+// sub-modes (radio), not three separate request types — see PARTIAL_DAY_MODE_OPTIONS /
+// AttendanceRequestService. WFH supports a day-type (Full Day/First Half/Second Half, or Custom
+// per boundary day for a 2-day range) — see WFH_SINGLE_DAY_MODE_OPTIONS / WFH_RANGE_MODE_OPTIONS.
 function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDate }: {
   presetType?: AttendanceRequestType;
   onClose: () => void;
@@ -1472,6 +1499,16 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   useEffect(() => {
     if (requestType === 'PARTIAL_DAY') setToDate(fromDate);
   }, [requestType, fromDate]);
+  // WFH day-type: a single day picks Full Day/First Half/Second Half directly; a 2-day range
+  // picks Full Days (every day counts as a full day) or Custom (the from-day and to-day are each
+  // independently Full Day/First Half/Second Half — there's no "day in between" since the range
+  // is capped at 2 days, see WFH_MONTHLY_LIMIT_DAYS).
+  const [wfhSingleMode, setWfhSingleMode] = useState<WfhDayMode>('FULL_DAY');
+  const [wfhRangeMode, setWfhRangeMode] = useState<WfhRangeMode>('FULL_DAYS');
+  const [wfhCustomFromMode, setWfhCustomFromMode] = useState<WfhDayMode>('FIRST_HALF');
+  const [wfhCustomToMode, setWfhCustomToMode] = useState<WfhDayMode>('SECOND_HALF');
+  const [wfhBalance, setWfhBalance] = useState<WfhBalance | null>(null);
+  const [showWfhBalance, setShowWfhBalance] = useState(false);
   const [partialDayMode, setPartialDayMode] = useState<PartialDayMode>('LATE_ARRIVE');
   const [partialDayMinutes, setPartialDayMinutes] = useState('60');
   // Intervening Time-off only — Keka anchors this mode to an explicit clock time ("Will leave
@@ -1498,6 +1535,11 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     attendanceRequestApi.partialDayBalance(fromDate, token).then(setBalance).catch(() => setBalance(null));
   }, [requestType, fromDate, token]);
 
+  useEffect(() => {
+    if (requestType !== 'WFH' || !fromDate) { setWfhBalance(null); return; }
+    attendanceRequestApi.wfhBalance(fromDate, token).then(setWfhBalance).catch(() => setWfhBalance(null));
+  }, [requestType, fromDate, token]);
+
   // Keka-style day count for the WFH From/To range — empty (not just zero) when To precedes
   // From, so the count badge and the submit validation below agree on what counts as invalid.
   const dateList = useMemo(
@@ -1506,6 +1548,18 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       : (fromDate ? [fromDate] : []),
     [requestType, fromDate, toDate],
   );
+
+  /** Which WFH day-type applies to the Nth date in dateList, per the single/range mode above. */
+  const wfhModeForIndex = useCallback((index: number): WfhDayMode => {
+    if (dateList.length <= 1) return wfhSingleMode;
+    if (wfhRangeMode === 'FULL_DAYS') return 'FULL_DAY';
+    return index === 0 ? wfhCustomFromMode : wfhCustomToMode;
+  }, [dateList.length, wfhSingleMode, wfhRangeMode, wfhCustomFromMode, wfhCustomToMode]);
+
+  const wfhDayFraction = (mode: WfhDayMode) => mode === 'FULL_DAY' ? 1 : 0.5;
+  const totalWfhDays = requestType === 'WFH'
+    ? dateList.reduce((sum, _d, i) => sum + wfhDayFraction(wfhModeForIndex(i)), 0)
+    : 0;
 
   // Reset mode-specific fields on switch so a stale value from one mode (e.g. a free-typed
   // number) never leaks into another mode's different widget (e.g. the fixed-option dropdown).
@@ -1544,19 +1598,23 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     setSubmitting(true);
     setError(null);
     try {
-      // One request per day in the range — Partial Day's dateList is always exactly [fromDate],
-      // so this is a single submission for that type, same as before the WFH range was added.
-      const created = await Promise.all(dateList.map((date) => {
+      // One request per day in the range — Partial Day's dateList is always exactly [fromDate].
+      // Submitted sequentially (not Promise.all) so WFH's hard monthly-balance check on the
+      // backend sees each prior day's row already committed before checking the next.
+      const created: AttendanceRequestRecord[] = [];
+      for (let i = 0; i < dateList.length; i++) {
+        const date = dateList[i];
         const payload: SubmitAttendanceRequestPayload = {
           requestType,
           requestDate: date,
           reason: reason.trim(),
           partialDayHours: requestType === 'PARTIAL_DAY' ? partialDayHours : undefined,
-          partialDayMode: requestType === 'PARTIAL_DAY' ? partialDayMode : undefined,
+          partialDayMode: requestType === 'PARTIAL_DAY' ? partialDayMode
+            : requestType === 'WFH' ? wfhModeForIndex(i) : undefined,
           notifyUserId: notifyEntry?.userId || undefined,
         };
-        return attendanceRequestApi.submit(payload, token);
-      }));
+        created.push(await attendanceRequestApi.submit(payload, token));
+      }
       const typeLabel = requestType === 'WFH' ? 'Work From Home' : 'Partial Day';
       showToast('success', created.length > 1 ? `${created.length} ${typeLabel} requests submitted for approval` : `${typeLabel} request submitted for approval`);
       created.forEach(onSaved);
@@ -1580,6 +1638,14 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     }
     if (fromDate < todayIsoDate()) {
       setError('Cannot request for past dates');
+      return;
+    }
+    if (requestType === 'WFH' && dateList.length > WFH_MONTHLY_LIMIT_DAYS) {
+      setError(`Work From Home requests can span at most ${WFH_MONTHLY_LIMIT_DAYS} days.`);
+      return;
+    }
+    if (requestType === 'WFH' && wfhBalance && totalWfhDays > wfhBalance.remainingDays) {
+      setError(`This request exceeds your remaining Work From Home balance of ${wfhBalance.remainingDays} day(s) for this month.`);
       return;
     }
     if (requestType === 'PARTIAL_DAY' && (!partialDayMinutes || Number(partialDayMinutes) <= 0)) {
@@ -1642,9 +1708,79 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                 </div>
                 <div style={{ flex: 1 }}>
                   <Field label="To">
-                    <input type="date" value={toDate} min={fromDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
+                    <input type="date" value={toDate} min={fromDate} max={isoDaysAfter(fromDate, WFH_MONTHLY_LIMIT_DAYS - 1)}
+                      onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
                   </Field>
                 </div>
+              </div>
+
+              {dateList.length === 1 && (
+                <FilterTabs value={wfhSingleMode} onChange={setWfhSingleMode} options={WFH_SINGLE_DAY_MODE_OPTIONS} />
+              )}
+              {dateList.length > 1 && (
+                <>
+                  <FilterTabs value={wfhRangeMode} onChange={setWfhRangeMode} options={WFH_RANGE_MODE_OPTIONS} />
+                  {wfhRangeMode === 'CUSTOM' && (
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <Field label={`From ${formatShortDay(dateList[0])}`}>
+                          <select value={wfhCustomFromMode} onChange={(e) => setWfhCustomFromMode(e.target.value as WfhDayMode)} style={inputStyle}>
+                            {WFH_SINGLE_DAY_MODE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                          </select>
+                        </Field>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <Field label={`To ${formatShortDay(dateList[dateList.length - 1])}`}>
+                          <select value={wfhCustomToMode} onChange={(e) => setWfhCustomToMode(e.target.value as WfhDayMode)} style={inputStyle}>
+                            {WFH_SINGLE_DAY_MODE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                          </select>
+                        </Field>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {dateList.length > 0 && (
+                <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
+                  You are requesting for <strong style={{ color: 'var(--txt)' }}>{totalWfhDays}</strong> day{totalWfhDays === 1 ? '' : 's'} of work from home
+                </div>
+              )}
+              <div style={{ position: 'relative' }}>
+                <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Info size={13} />
+                  Remaining balance: <strong style={{ color: 'var(--txt)' }}>{wfhBalance ? wfhBalance.remainingDays : '—'}</strong> days
+                  <button type="button" onClick={() => setShowWfhBalance((v) => !v)}
+                    style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                    View Details
+                  </button>
+                </div>
+                {showWfhBalance && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 30, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: '0 8px 24px rgba(0,0,0,.35)', minWidth: 260, overflow: 'hidden' }}>
+                    {!wfhBalance ? (
+                      <div style={{ padding: 12, fontSize: 12, color: 'var(--txt-mut)' }}>Loading balance…</div>
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--txt-dim)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>Period</th>
+                            <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--txt-dim)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td style={{ padding: '8px 12px', color: 'var(--txt)' }}>
+                              {formatShortDay(monthStartIso(fromDate))} - {formatShortDay(monthEndIso(fromDate))}
+                            </td>
+                            <td style={{ padding: '8px 12px', color: 'var(--txt)', textAlign: 'right' }}>
+                              {wfhBalance.remainingDays}/{wfhBalance.limitDays} days
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
                 Clock in is necessary on WFH days to avoid being marked absent.
@@ -3653,7 +3789,10 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
   }
 
   function typeLabel(r: AttendanceRequestRecord) {
-    if (r.requestType === 'WFH') return 'Work From Home';
+    if (r.requestType === 'WFH') {
+      const wfhModeLabel = WFH_SINGLE_DAY_MODE_OPTIONS.find((o) => o.value === r.partialDayMode)?.label;
+      return wfhModeLabel && wfhModeLabel !== 'Full Day' ? `Work From Home (${wfhModeLabel})` : 'Work From Home';
+    }
     const modeLabel = PARTIAL_DAY_MODE_OPTIONS.find((o) => o.value === r.partialDayMode)?.label;
     return modeLabel ? `Partial Day (${modeLabel})` : 'Partial Day';
   }
