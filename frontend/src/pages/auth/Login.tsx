@@ -164,9 +164,6 @@ export default function Login() {
           <h1 className="nf-login-heading" style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
             Welcome back
           </h1>
-          <p className="nf-login-subtext" style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-            Use your company email and password.
-          </p>
         </motion.div>
 
         <motion.div variants={reduced ? undefined : itemVariants}>
@@ -193,7 +190,7 @@ export default function Login() {
         <motion.div variants={reduced ? undefined : itemVariants}>
           <div className="nf-login-divider" style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--txt-dim)', fontSize: 12, margin: '20px 0' }}>
             <span style={{ flex: 1, height: 1, background: 'var(--line)', display: 'block' }} />
-            or use company credentials
+            or use organizational credentials
             <span style={{ flex: 1, height: 1, background: 'var(--line)', display: 'block' }} />
           </div>
         </motion.div>

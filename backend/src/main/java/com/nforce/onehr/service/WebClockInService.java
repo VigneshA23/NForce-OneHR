@@ -29,6 +29,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -70,6 +71,23 @@ public class WebClockInService {
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
 
+        // An already-open session — from EITHER entry point, a regular Check-In or a still-open
+        // earlier Web Clock-In — must block a fresh Web Clock-In exactly like AttendanceService
+        // .checkIn blocks a fresh Check-In: only one session open at a time, however it started.
+        // This is NOT a once-per-day restriction — an employee may Web Clock-In and Web Clock-Out
+        // more than once in the same day (see collectPunches), this only blocks trying to open a
+        // *second, concurrent* session while one is already running. A session left open past
+        // its own workday/grace window (a forgotten checkout from days ago) is stale, not really
+        // "still checked in" — flag it Missing Check-Out (mirrors AttendanceService.checkIn /
+        // flagMissingCheckoutIfStale) instead of letting it block Web Clock-In forever.
+        Optional<Attendance> openSession = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(actor.getId());
+        if (openSession.isPresent()) {
+            LocalDateTime openNow = LocalDateTime.now(resolveZone(openSession.get(), actor.getId(), req.getTimezone()));
+            if (!flagMissingCheckoutIfStale(openSession.get(), openNow)) {
+                throw new IllegalArgumentException("You have already checked in today");
+            }
+        }
+
         // Resolved from the browser-reported zone (req.getTimezone(), e.g. from Intl
         // .DateTimeFormat().resolvedOptions().timeZone), falling back to the employee's
         // configured Location.timezone — mirrors AttendanceService.checkIn's resolveZone. Locked
@@ -78,10 +96,6 @@ public class WebClockInService {
         ZoneId zone = resolveZone(req.getTimezone(), actor.getId());
         LocalDateTime now = LocalDateTime.now(zone);
         LocalDate today = shiftDayOf(now);
-
-        if (webClockInRepository.existsByEmployeeUserIdAndWorkDateAndStatus(actor.getId(), today, "APPROVED")) {
-            throw new IllegalArgumentException("You have already checked in today");
-        }
 
         // No manager approval needed — self-approved the moment it's submitted.
         WebClockInRequest entity = WebClockInRequest.builder()
@@ -220,6 +234,18 @@ public class WebClockInService {
                 .findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
 
+        // The underlying session can also be closed through the OTHER entry point — a regular
+        // Check-Out — while this request is still marked open, since both share the same
+        // Attendance row. If that already happened, the record's own checkOutAt is the source
+        // of truth: sync this request to it and stop, rather than recomputing a second,
+        // overlapping session on top of one already closed and counted — that would both
+        // double-count worked minutes and push checkOutAt later than what actually happened.
+        if (record.getCheckOutAt() != null) {
+            req.setCheckedOutAt(record.getCheckOutAt());
+            webClockInRepository.save(req);
+            return toResponse(req);
+        }
+
         // The session's own zone, locked in at Web Clock-In — NOT this click's browser zone,
         // which may have drifted since (travel, DST) — governs its Check-Out, so worked-minutes
         // math and the grace-window check below stay on one consistent clock for the whole
@@ -281,6 +307,27 @@ public class WebClockInService {
     }
 
     // ---------------------------------------------------------------- internals
+
+    /**
+     * Mirrors AttendanceService.flagMissingCheckoutIfStale — a session left open past its own
+     * workday/grace window (shiftDayCutover, e.g. 7:00 AM the next calendar day) must not go on
+     * blocking a fresh Web Clock-In ({@link #submit}) forever. Flags it Missing Check-Out right
+     * then — deliberately WITHOUT fabricating a checkOutAt or computing workedMinutes — and
+     * returns whether the record is now, or already was, flagged, so the caller can fall through
+     * to treating this employee as having no open session.
+     */
+    private boolean flagMissingCheckoutIfStale(Attendance record, LocalDateTime now) {
+        if (record.getCheckOutAt() != null) return false;
+        if (STATUS_MISSING_CHECKOUT.equals(record.getStatus())) return true;
+        if (!shiftDayOf(now).isAfter(record.getWorkDate())) return false;
+
+        String before = auditSnapshot.toJson(Map.of("status", record.getStatus()));
+        record.setStatus(STATUS_MISSING_CHECKOUT);
+        Attendance saved = attendanceRepository.save(record);
+        String after = auditSnapshot.toJson(Map.of("status", STATUS_MISSING_CHECKOUT));
+        auditService.log(record.getEmployeeUserId(), "ATTENDANCE_MISSING_CHECKOUT", saved.getId(), before, after);
+        return true;
+    }
 
     /**
      * Upserts the day's Attendance row from a (now-always-approved) request's requestedCheckIn.

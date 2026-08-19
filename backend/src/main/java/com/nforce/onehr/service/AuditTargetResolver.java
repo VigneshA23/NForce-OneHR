@@ -40,7 +40,9 @@ import java.util.UUID;
  * actor's own id.
  *
  * <p>A plain prefix dispatch is preferred over a pluggable strategy registry — the action set is
- * small and unlikely to grow fast enough to need more abstraction.
+ * small and unlikely to grow fast enough to need more abstraction. The resolved label is always
+ * just the affected employee's name/email — no domain prefix (e.g. "Leave: ") — matching how
+ * ASSET_* rows have always displayed.
  */
 @Component
 @RequiredArgsConstructor
@@ -60,8 +62,7 @@ public class AuditTargetResolver {
         if (targetId == null) return "—";
         try {
             UUID affectedUserId = resolveAffectedUserId(action, targetId);
-            String name = employeeNameOrEmail(affectedUserId).orElseGet(() -> shortId(affectedUserId));
-            return domainPrefix(action) + name;
+            return employeeNameOrEmail(affectedUserId).orElseGet(() -> shortId(affectedUserId));
         } catch (Exception e) {
             log.warn("Failed to resolve audit target label for action={} targetId={}", action, targetId, e);
             return shortId(targetId);
@@ -108,15 +109,6 @@ public class AuditTargetResolver {
         // WEB_CLOCK_IN_APPROVED/REJECTED: target_id already IS the affected employee's own id —
         // no domain-record lookup needed or possible.
         return targetId;
-    }
-
-    /** Domain label prefix for the rows where target_id required a record lookup to resolve. */
-    private String domainPrefix(String action) {
-        if (action == null) return "";
-        if (action.startsWith("LEAVE_REQUEST_")) return "Leave: ";
-        if (action.startsWith("EXPENSE_")) return "Expense: ";
-        if (action.startsWith("ATTENDANCE_")) return "Attendance: ";
-        return "";
     }
 
     /**

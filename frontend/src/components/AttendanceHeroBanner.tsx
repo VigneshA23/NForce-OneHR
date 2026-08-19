@@ -10,11 +10,19 @@ import { WebClockInRequestModal } from './WebClockInRequestModal';
 
 // ── Private helpers ──────────────────────────────────────────────────────────────
 
+// Backend LocalDateTime strings are naive wall-clock digits already in the record's own
+// resolved zone (browser-reported at Check-In/Web Clock-In, see AttendanceService.resolveZone)
+// — there is nothing left to convert. Parsing with 'Z' and formatting with timeZone: 'UTC'
+// reads those digits back out verbatim, regardless of the *viewer's* own browser timezone.
+// Previously this appended '+05:30' (assumed IST) and let toLocaleTimeString re-project into
+// the viewer's local zone — for any employee whose resolved zone isn't IST, or any viewer whose
+// browser isn't IST either, that mislabeled the digits and then shifted them again, showing a
+// check-in/check-out time that didn't match when the action actually happened.
 function formatClockTime(iso: string | null): string | null {
   if (!iso) return null;
-  const d = new Date(iso + '+05:30');
+  const d = new Date(iso + 'Z');
   if (isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
 
 function formatElapsedMs(ms: number): string {
@@ -100,38 +108,73 @@ function HeroPill({ dot, label, pulse = false }: { dot: string; label: string; p
   );
 }
 
-// Web clock-in prompt — shows only in State 1 (pre-check-in) when no pending request exists.
-function WebClockInRow({ today, loading, onSubmitted }: {
+// Web Clock section — always rendered by every state below (pre-check-in, active session, on
+// break, checked out), not just pre-check-in. Its own current action/status is driven entirely
+// by `openWeb` (this employee's own currently-open Web Clock-In, if any — independent of
+// `today`, which only tracks whichever session is currently open regardless of source), so it
+// never disappears just because a Check-In/Check-Out or Web Clock-In/Out happened. Multiple
+// Web Clock-In → Web Clock-Out cycles in one day are allowed (see WebClockInService.submit) —
+// this row simply reflects whatever the current cycle's state is, same as before.
+function WebClockInRow({ today, onSubmitted }: {
   today: TodayAttendance | null;
-  loading: boolean;
   onSubmitted: () => void;
 }) {
   const token = useAuthStore(s => s.token) ?? '';
+  const { showToast } = useToast();
   const [showModal, setShowModal] = useState(false);
+  const [openWeb, setOpenWeb] = useState<WebClockInRecord | null>(null);
   const [legacy, setLegacy] = useState<WebClockInRecord | null>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
 
-  useEffect(() => {
+  const refreshMine = useCallback(() => {
     webClockInApi.mine(token).then(list => {
-      setLegacy(list.find(r => r.workDate === todayIsoDate() && r.status !== 'APPROVED') ?? null);
-    }).catch(() => setLegacy(null));
+      const todayIso = todayIsoDate();
+      setOpenWeb(list.find(r => r.workDate === todayIso && r.status === 'APPROVED' && !r.checkedOutAt) ?? null);
+      setLegacy(list.find(r => r.workDate === todayIso && r.status !== 'APPROVED') ?? null);
+    }).catch(() => { setOpenWeb(null); setLegacy(null); });
   }, [token]);
 
-  if (loading) return null;
+  useEffect(() => { refreshMine(); }, [refreshMine]);
+
+  async function handleCheckOut() {
+    setCheckingOut(true);
+    try {
+      await webClockInApi.checkOut(token);
+      showToast('success', 'Web clock-out recorded');
+      refreshMine();
+      onSubmitted();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
+    } finally {
+      setCheckingOut(false);
+    }
+  }
+
+  // A regular (non-web) session is currently open — Web Clock-In can't start a second,
+  // concurrent session (same one-session-at-a-time rule as regular Check-In), but the section
+  // itself still stays visible with an accurate status instead of vanishing.
+  const otherSessionOpen = !openWeb && !today?.canCheckIn && !!today?.canCheckOut;
 
   return (
     <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      {today?.canCheckIn && !legacy && (
-        <button
-          onClick={() => setShowModal(true)}
-          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-        >
-          Working remotely? Web Clock In →
-        </button>
+      {openWeb && (
+        <>
+          <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
+            Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '—'}
+          </span>
+          <button
+            onClick={handleCheckOut}
+            disabled={checkingOut}
+            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: checkingOut ? 'not-allowed' : 'pointer' }}
+          >
+            {checkingOut ? 'Web clocking out…' : 'Web Clock Out →'}
+          </button>
+        </>
       )}
-      {legacy?.status === 'PENDING' && (
+      {!openWeb && legacy?.status === 'PENDING' && (
         <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Web clock-in pending approval.</span>
       )}
-      {legacy?.status === 'REJECTED' && (
+      {!openWeb && legacy?.status === 'REJECTED' && (
         <>
           <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{legacy.reviewComment ? `: ${legacy.reviewComment}` : '.'}</span>
           <button
@@ -142,8 +185,21 @@ function WebClockInRow({ today, loading, onSubmitted }: {
           </button>
         </>
       )}
+      {!openWeb && !legacy && today?.canCheckIn && (
+        <button
+          onClick={() => setShowModal(true)}
+          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          Working remotely? Web Clock In →
+        </button>
+      )}
+      {!openWeb && !legacy && otherSessionOpen && (
+        <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
+          Web Clock In will be available once you check out.
+        </span>
+      )}
       {showModal && (
-        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => { onSubmitted(); }} />
+        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => { refreshMine(); onSubmitted(); }} />
       )}
     </div>
   );
@@ -241,21 +297,12 @@ export function AttendanceHeroBanner() {
       // formatWorkedMinutes gives "1h 30m"/"1h"/"45m" — matches how worked/elapsed time is
       // already formatted on this same banner, instead of a raw, unconverted minute count.
       LATE:             { dot: '#E0A93B', label: `Late${record.lateByMinutes ? ` by ${formatWorkedMinutes(record.lateByMinutes)}` : ''}` },
-      HALF_DAY:         { dot: '#4E9EE8', label: 'Half day' },
       ABSENT:           { dot: '#B11116', label: 'Absent' },
       MISSING_CHECKOUT: { dot: '#F97316', label: 'Missing checkout' },
     };
     const def = map[record.status];
     return def ? <HeroPill key="status" dot={def.dot} label={def.label} /> : null;
   })();
-
-  const workModePill = record?.workMode ? (
-    <HeroPill
-      key="mode"
-      dot="#6B7280"
-      label={record.workMode.charAt(0) + record.workMode.slice(1).toLowerCase()}
-    />
-  ) : null;
 
   // ── State 3: Checked out ──────────────────────────────────────────────────────
   if (!today?.canCheckIn && !today?.canCheckOut) {
@@ -266,9 +313,6 @@ export function AttendanceHeroBanner() {
     const subtitle = isComplete
       ? `Checked in at ${formatClockTime(checkInAt)} · Checked out at ${formatClockTime(checkOutAt)}`
       : undefined;
-    const breakNote = today?.breakUsedMinutes != null
-      ? `${today.breakUsedMinutes}m break of ${today.breakBudgetMinutes}m budget used`
-      : null;
 
     return (
       <HeroCard>
@@ -276,11 +320,9 @@ export function AttendanceHeroBanner() {
           {headline}
         </div>
         {subtitle && <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{subtitle}</p>}
-        {breakNote && <p style={{ margin: 0, fontSize: 12, color: 'rgba(229,231,235,0.4)' }}>{breakNote}</p>}
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           <HeroPill dot="#2FB67C" label="Completed" />
           {statusPill}
-          {workModePill}
         </div>
         <button
           onClick={() => navigate('/attendance')}
@@ -288,6 +330,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
+        <WebClockInRow today={today} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -298,9 +341,6 @@ export function AttendanceHeroBanner() {
     const sessionLabel = priorWorked > 0
       ? `Session started at ${formatClockTime(sessionStart) ?? '—'} · ${formatElapsedMs(liveElapsedMs)} elapsed · ${formatWorkedMinutes(priorWorked)} prior`
       : `Checked in at ${formatClockTime(sessionStart) ?? '—'}${liveElapsedMs > 0 ? ` · ${formatElapsedMs(liveElapsedMs)} elapsed` : ''}`;
-    const breakNote = today.breakUsedMinutes != null
-      ? `${today.breakUsedMinutes}m break of ${today.breakBudgetMinutes}m budget used`
-      : null;
 
     return (
       <HeroCard>
@@ -308,11 +348,9 @@ export function AttendanceHeroBanner() {
           Working now.
         </div>
         <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{sessionLabel}</p>
-        {breakNote && <p style={{ margin: 0, fontSize: 12, color: 'rgba(229,231,235,0.4)' }}>{breakNote}</p>}
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           <HeroPill dot="#4E9EE8" label="Working" pulse />
           {statusPill}
-          {workModePill}
         </div>
         <button
           onClick={() => handlePunch('out')}
@@ -327,6 +365,7 @@ export function AttendanceHeroBanner() {
           <LogOut size={14} />
           {submitting ? 'Checking out…' : 'Check Out'}
         </button>
+        <WebClockInRow today={today} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -334,9 +373,6 @@ export function AttendanceHeroBanner() {
   // ── State 1b: On break ────────────────────────────────────────────────────────
   if (today?.canCheckIn && record) {
     const workedSoFar = record.workedMinutes ?? 0;
-    const breakNote = today.breakUsedMinutes != null
-      ? `${today.breakUsedMinutes}m break of ${today.breakBudgetMinutes}m budget used`
-      : null;
 
     return (
       <HeroCard>
@@ -346,11 +382,8 @@ export function AttendanceHeroBanner() {
         <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>
           You've worked {formatWorkedMinutes(workedSoFar)} today — check in again to resume.
         </p>
-        {breakNote && <p style={{ margin: 0, fontSize: 12, color: 'rgba(229,231,235,0.4)' }}>{breakNote}</p>}
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-          <HeroPill dot="#E0A93B" label="On break" />
           {statusPill}
-          {workModePill}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
@@ -373,6 +406,7 @@ export function AttendanceHeroBanner() {
             View full record →
           </button>
         </div>
+        <WebClockInRow today={today} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -411,8 +445,8 @@ export function AttendanceHeroBanner() {
           <LogIn size={14} />
           {submitting ? 'Checking in…' : 'Check In'}
         </button>
-        <WebClockInRow today={today} loading={false} onSubmitted={refresh} />
       </div>
+      <WebClockInRow today={today} onSubmitted={refresh} />
     </HeroCard>
   );
 }

@@ -48,13 +48,17 @@ function addDays(d: Date, n: number): Date {
 function toISO(d: Date): string {
   return toISODate(d.getFullYear(), d.getMonth(), d.getDate());
 }
-// Backend timestamps are IST (UTC+5:30) LocalDateTime strings — append offset so the browser
-// converts to the viewer's own local timezone instead of displaying raw IST.
+// Backend LocalDateTime strings are naive wall-clock digits already in the record's own
+// resolved zone (browser-reported at Check-In/Web Clock-In, see AttendanceService.resolveZone)
+// — there is nothing left to convert. Parsing with 'Z' and formatting with timeZone: 'UTC' reads
+// those digits back out verbatim, regardless of the *viewer's* own browser timezone. Previously
+// this appended '+05:30' (assumed IST) and let toLocaleTimeString re-project into the viewer's
+// local zone, mislabeling and re-shifting any non-IST employee's recorded time.
 function fmtTime(iso?: string | null) {
   if (!iso) return '—';
-  const d = new Date(iso + '+05:30');
+  const d = new Date(iso + 'Z');
   if (isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
 function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';

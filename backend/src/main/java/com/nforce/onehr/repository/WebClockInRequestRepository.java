@@ -23,10 +23,11 @@ public interface WebClockInRequestRepository extends JpaRepository<WebClockInReq
 
     List<WebClockInRequest> findByStatus(String status);
 
-    Optional<WebClockInRequest> findByEmployeeUserIdAndWorkDateAndStatus(
+    // Every Web Clock-In cycle for the day, oldest first — an employee can Web Clock-In and
+    // Web Clock-Out more than once per day (see WebClockInService#submit), so this is a List,
+    // not a single Optional result. Backs AttendanceService#collectPunches's punch-history merge.
+    List<WebClockInRequest> findByEmployeeUserIdAndWorkDateAndStatusOrderByRequestedCheckInAsc(
             UUID employeeUserId, LocalDate workDate, String status);
-
-    boolean existsByEmployeeUserIdAndWorkDateAndStatus(UUID employeeUserId, LocalDate workDate, String status);
 
     // Backs the "Remote Clock-ins" / "Remote Clock-in Requests Summary" / "Web Clock-ins" report
     // cards (ONEHR-109) — one entity backs all three, a manager's team over a date range.
