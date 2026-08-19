@@ -23,7 +23,7 @@ import {
   type SubmitAttendanceRequestPayload,
 } from '../api/attendanceRequests';
 import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeRequests';
-import { webClockInApi } from '../api/webClockIn';
+import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -2001,23 +2001,31 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   onSubmitted: () => Promise<unknown>;
 }) {
   const { showToast } = useToast();
+  const { formatTime } = useTimeFormat();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
+  // for every later cycle the same day/shift so the employee is only asked once. Mirrors
+  // AttendanceHeroBanner's WebClockInRow.
+  const [reusableReason, setReusableReason] = useState<string | null>(null);
+
+  useEffect(() => {
+    webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
+      const todayIso = todayIsoDate();
+      setReusableReason(list.find(r => r.workDate === todayIso)?.reason ?? null);
+    }).catch(() => setReusableReason(null));
+  }, [token, today]);
 
   const disabled = loading || !today?.canCheckIn;
 
-  async function handleSubmit() {
-    const trimmed = reason.trim();
-    if (!trimmed) {
-      showToast('error', 'Please enter a comment for the web clock-in request');
-      return;
-    }
+  async function submitReason(trimmed: string) {
     setBusy(true);
     try {
-      await webClockInApi.submit(trimmed, token);
+      const created = await webClockInApi.submit(trimmed, token);
       await onSubmitted();
-      showToast('success', 'Checked in remotely');
+      const at = formatTime(created.requestedCheckIn);
+      showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
       setOpen(false);
       setReason('');
     } catch (err) {
@@ -2027,14 +2035,23 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
     }
   }
 
+  function handleSubmit() {
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      showToast('error', 'Please enter a comment for the web clock-in request');
+      return;
+    }
+    submitReason(trimmed);
+  }
+
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        style={{ ...actionStyle, opacity: disabled ? 0.6 : 1, cursor: disabled ? 'default' : 'pointer' }}
+        onClick={() => (reusableReason ? submitReason(reusableReason) : setOpen(true))}
+        disabled={disabled || busy}
+        style={{ ...actionStyle, opacity: (disabled || busy) ? 0.6 : 1, cursor: (disabled || busy) ? 'default' : 'pointer' }}
       >
-        <Wifi size={14} style={{ color: 'var(--brand)' }} /> Web Check-In
+        <Wifi size={14} style={{ color: 'var(--brand)' }} /> {busy ? 'Checking in…' : 'Web Check-In'}
       </button>
       {open && (
         <div style={overlayStyle}>

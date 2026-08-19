@@ -3,10 +3,24 @@ import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 
+// Backend LocalDateTime strings are naive wall-clock digits already in the record's own
+// resolved zone (browser-reported at Web Clock-In, see AttendanceService.resolveZone) — there is
+// nothing left to convert. Parsing with 'Z' and formatting with timeZone: 'UTC' reads those
+// digits back out verbatim, regardless of the viewer's own browser timezone — mirrors
+// AttendanceHeroBanner's formatClockTime.
+function formatClockTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso + 'Z');
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
+}
+
 /**
  * Web Clock-In Request (Keka reference): a comment explaining the remote check-in, Cancel and
- * Confirm. Self-approved the moment it's submitted — no manager approval step, see
- * WebClockInService.submit. Shared by DashboardPage and AttendancePage's own Web Check-In action.
+ * Confirm. The attendance effect is immediate — worked time starts counting the moment this is
+ * confirmed — but the request itself starts PENDING and is routed to HR/the employee's manager
+ * for a real approve/reject decision, see WebClockInService.submit. Shared by DashboardPage and
+ * AttendancePage's own Web Check-In action.
  */
 export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void }) {
   const token = useAuthStore(s => s.token) ?? '';
@@ -23,7 +37,8 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
     setSubmitting(true);
     try {
       const created = await webClockInApi.submit(trimmed, token);
-      showToast('success', 'Checked in remotely');
+      const at = formatClockTime(created.requestedCheckIn);
+      showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
       onSubmitted(created);
       onClose();
     } catch (err) {

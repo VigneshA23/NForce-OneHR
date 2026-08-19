@@ -24,6 +24,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -368,5 +369,37 @@ class AttendanceServiceTest {
         assertFalse(response.getCheckOutAt().isBefore(beforeLordHowe));
         assertFalse(response.getCheckOutAt().isAfter(afterLordHowe));
         assertTrue(response.getWorkedMinutes() < 120, "roughly the 1-hour session, not skewed by the mismatched browser zone");
+    }
+
+    /**
+     * A pure LocalTime-of-day comparison (the old bug) silently breaks lateness for any check-in
+     * that has crossed midnight relative to an overnight shift: 1:00 AM as a bare LocalTime reads
+     * as "before" a 20:30 shift start, so it would wrongly compute 0 minutes late / PRESENT for a
+     * check-in that's actually ~4.5 hours late. Uses a browser-timezone OFFSET chosen so "now" is
+     * always exactly 1:00 AM local, regardless of when this test actually runs — avoids a flaky
+     * dependency on real wall-clock time while still exercising the exact scenario.
+     */
+    @Test
+    void checkIn_computesLatenessCorrectly_forACheckInThatHasCrossedMidnightOnAnOvernightShift() {
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(1, 0).toSecondOfDay();
+        int nowSecondOfDay = utcNow.toLocalTime().toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - nowSecondOfDay;
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
+
+        AttendanceResponse resp = service.checkIn(employeeEmail, offset.getId());
+
+        assertEquals("LATE", resp.getStatus());
+        assertTrue(resp.getLateByMinutes() > 200,
+                "expected several hours late (shift started 20:30 the previous day), was " + resp.getLateByMinutes());
     }
 }

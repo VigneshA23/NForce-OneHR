@@ -186,7 +186,11 @@ public class AttendanceService {
                             .source("SYSTEM")
                             .build()));
         }
-        webClockInRequestRepository.findByEmployeeUserIdAndWorkDateAndStatusOrderByRequestedCheckInAsc(employeeId, workDate, "APPROVED")
+        // Not filtered by status (PENDING/APPROVED/REJECTED all included) — a Web Clock-In
+        // session is real the moment it's submitted (see WebClockInService#submit's doc
+        // comment); HR review only sets a separate approval record, it isn't a gate on whether
+        // the session happened or how long it ran.
+        webClockInRequestRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(employeeId, workDate)
                 .forEach(req -> punches.add(PunchResponse.builder()
                         .id(req.getId())
                         .checkInAt(req.getRequestedCheckIn())
@@ -309,11 +313,21 @@ public class AttendanceService {
         // Both are measured against the employee's actually-assigned Shift (ONEHR-108) when
         // present — falling back to the global shiftStart would judge lateness against the
         // wrong time of day entirely.
+        //
+        // Compared as full date-aware instants (shiftStart anchored to `today`, the already-
+        // resolved shift-day), NOT bare LocalTime-of-day — a pure LocalTime comparison silently
+        // breaks the moment a check-in crosses midnight relative to an overnight shift: e.g. for
+        // a 20:30-05:30 shift, a 1:11 AM check-in is genuinely ~4h41m late, but 01:11 as a bare
+        // LocalTime is "before" 20:30, so isAfter(shiftStart) would wrongly read false and report
+        // 0 minutes late / PRESENT for an obviously-late arrival. Anchoring both sides to `today`
+        // fixes this for any shift shape, not just the original 15:30-00:30 case (where this same
+        // bug existed but only affected the narrow 00:00-00:30 tail of the shift).
         LocalTime shiftStart = resolveShiftStart(employee);
-        LocalTime deadline = shiftStart.plusMinutes(props.getLateGraceMinutes());
-        boolean isLate = now.toLocalTime().isAfter(deadline);
-        int lateByMinutes = now.toLocalTime().isAfter(shiftStart)
-                ? (int) Math.ceil(Duration.between(shiftStart, now.toLocalTime()).getSeconds() / 60.0)
+        LocalDateTime shiftStartAt = LocalDateTime.of(today, shiftStart);
+        LocalDateTime deadlineAt = shiftStartAt.plusMinutes(props.getLateGraceMinutes());
+        boolean isLate = now.isAfter(deadlineAt);
+        int lateByMinutes = now.isAfter(shiftStartAt)
+                ? (int) Math.ceil(Duration.between(shiftStartAt, now).getSeconds() / 60.0)
                 : 0;
 
         Attendance record = attendanceRepository.save(Attendance.builder()

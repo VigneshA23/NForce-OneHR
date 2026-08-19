@@ -23,6 +23,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -34,9 +36,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * ONEHR-140: even though {@code submit()} now self-approves every new web clock-in (see this
- * service's class javadoc — approve/reject only remain reachable for pre-existing legacy PENDING
- * rows), any PENDING row that IS reviewed must still notify the original requester exactly once.
+ * Every new Web Clock-In starts PENDING and requires a real HR/manager approve or reject
+ * decision (see the service's own class Javadoc) — the attendance effect (Attendance row,
+ * worked minutes) is applied immediately regardless, decoupled from that review status. A
+ * reviewed PENDING row must notify the original requester exactly once either way.
  */
 @ExtendWith(MockitoExtension.class)
 class WebClockInServiceTest {
@@ -112,6 +115,37 @@ class WebClockInServiceTest {
         verify(notificationService, times(1)).send(eq(employeeId), eq("WEB_CLOCK_IN_APPROVED"), any(), any(), any());
     }
 
+    /**
+     * approve() must NOT re-touch the Attendance row — submit() already applied the check-in
+     * effect immediately. Re-applying it here (the old behavior, from before requests started
+     * PENDING again) would silently reopen a session the employee may have already checked out
+     * of or resumed since — the exact double-counting bug checkOut's own "already closed
+     * elsewhere" guard exists to prevent, just triggered from the other direction.
+     */
+    @Test
+    void approve_doesNotReopenOrModifyAnAlreadyClosedAttendanceRecord() {
+        WebClockInRequest req = pendingRequest();
+        when(webClockInRepository.findById(req.getId())).thenReturn(Optional.of(req));
+
+        Attendance closedRecord = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(req.getWorkDate())
+                .checkInAt(req.getRequestedCheckIn())
+                .checkOutAt(req.getRequestedCheckIn().plusHours(2))
+                .workedMinutes(120)
+                .status("PRESENT")
+                .build();
+        lenient().when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, req.getWorkDate()))
+                .thenReturn(Optional.of(closedRecord));
+
+        service.approve(req.getId(), "ok", hrAdminEmail);
+
+        verify(attendanceRepository, never()).save(any(Attendance.class));
+        assertNotNull(closedRecord.getCheckOutAt());
+        assertEquals(120, closedRecord.getWorkedMinutes());
+    }
+
     @Test
     void reject_notifiesOriginalRequesterWithReason() {
         WebClockInRequest req = pendingRequest();
@@ -158,7 +192,7 @@ class WebClockInServiceTest {
                 .requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(17, 35)))
                 .status("APPROVED")
                 .build();
-        when(webClockInRepository.findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId, "APPROVED"))
+        when(webClockInRepository.findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId))
                 .thenReturn(Optional.of(req));
 
         Attendance record = Attendance.builder()
@@ -190,7 +224,29 @@ class WebClockInServiceTest {
 
         WebClockInResponse resp = service.submit(req, employeeEmail);
 
-        assertEquals("APPROVED", resp.getStatus());
+        // PENDING, not self-approved — a real HR/manager decision is required (see class Javadoc).
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    /**
+     * The attendance effect is immediate regardless of review status, but the request itself
+     * must still be routed to whoever it's assigned to for a real decision.
+     */
+    @Test
+    void submit_notifiesTheAssignedApprover() {
+        String employeeEmail = "employee@test.com";
+        lenient().when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser(employeeEmail)));
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+        com.nforce.onehr.entity.EmployeeManagerHistory history = com.nforce.onehr.entity.EmployeeManagerHistory.builder()
+                .managerUserId(hrAdminId).build();
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.of(history));
+
+        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Working from home").timezone("Asia/Kolkata").build();
+
+        service.submit(req, employeeEmail);
+
+        verify(notificationService, times(1)).send(eq(hrAdminId), eq("WEB_CLOCK_IN_SUBMITTED"), any(), any(), any());
     }
 
     /**
@@ -251,9 +307,10 @@ class WebClockInServiceTest {
 
         WebClockInResponse resp = service.submit(req, employeeEmail);
 
-        assertEquals("APPROVED", resp.getStatus());
+        assertEquals("PENDING", resp.getStatus());
         // Resumed the SAME record — reopened (checkOutAt cleared) with the prior worked-minutes
-        // total preserved, not reset to zero and not double-counted.
+        // total preserved, not reset to zero and not double-counted. This happens immediately,
+        // independent of the request's own PENDING review status.
         assertNull(closedRecord.getCheckOutAt());
         assertEquals(120, closedRecord.getWorkedMinutes());
         assertEquals("WEB_REMOTE", closedRecord.getSource());
@@ -286,7 +343,7 @@ class WebClockInServiceTest {
 
         WebClockInResponse resp = service.submit(req, employeeEmail);
 
-        assertEquals("APPROVED", resp.getStatus());
+        assertEquals("PENDING", resp.getStatus());
         assertEquals("MISSING_CHECKOUT", staleOpenRecord.getStatus());
         assertNull(staleOpenRecord.getCheckOutAt());
     }
@@ -315,7 +372,7 @@ class WebClockInServiceTest {
                 .requestedCheckIn(checkInAt)
                 .status("APPROVED")
                 .build();
-        when(webClockInRepository.findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId, "APPROVED"))
+        when(webClockInRepository.findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId))
                 .thenReturn(Optional.of(req));
 
         // Already closed via a regular Check-Out — 120 worked minutes already counted once.
@@ -338,5 +395,43 @@ class WebClockInServiceTest {
         // Untouched — no second session was recomputed on top of the one already counted.
         assertEquals(120, record.getWorkedMinutes());
         assertEquals(regularCheckOutAt, record.getCheckOutAt());
+    }
+
+    /**
+     * Mirrors AttendanceServiceTest's identical fix/test — recomputeDerivedFields must compare
+     * full date-aware instants, not bare LocalTime-of-day, or a Web Clock-In that's crossed
+     * midnight relative to an overnight shift wrongly reads as on-time. Uses a browser-timezone
+     * OFFSET chosen so "now" is always exactly 1:00 AM local, regardless of when this test
+     * actually runs.
+     */
+    @Test
+    void submit_computesLatenessCorrectly_forAFreshCheckInThatHasCrossedMidnightOnAnOvernightShift() {
+        String employeeEmail = "employee@test.com";
+        lenient().when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser(employeeEmail)));
+        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+
+        com.nforce.onehr.entity.Shift overnightShift = com.nforce.onehr.entity.Shift.builder()
+                .name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
+        com.nforce.onehr.entity.Employee employee = com.nforce.onehr.entity.Employee.builder()
+                .userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(1, 0).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Late remote start").timezone(offset.getId()).build();
+
+        WebClockInResponse resp = service.submit(req, employeeEmail);
+
+        // The request's own status is PENDING (review status) — the underlying attendance effect
+        // (checked via the saved Attendance record) is what carries the lateness computation.
+        assertEquals("PENDING", resp.getStatus());
+        verify(attendanceRepository).save(argThat(a ->
+                "LATE".equals(a.getStatus()) && a.getLateByMinutes() != null && a.getLateByMinutes() > 200));
     }
 }
