@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, X, ChevronDown } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
@@ -57,6 +57,10 @@ const TYPE_TEXT: Record<RequestType, string> = {
   HELP_CONTENT: '#14B8A6',
 };
 
+const EMPTY_VALUE = '—';
+
+type ReviewMode = 'approve' | 'reject';
+
 function TypeBadge({ type }: { type: RequestType }) {
   return (
     <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: TYPE_COLORS[type], color: TYPE_TEXT[type], whiteSpace: 'nowrap' }}>
@@ -70,89 +74,88 @@ function fmtCurrency(n: number) {
 }
 
 function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return EMPTY_VALUE;
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function fmtTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return EMPTY_VALUE;
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
-// ── Type-aware row detail summary ─────────────────────────
-
-function ItemDetail({ item }: { item: ApprovalItem }) {
+function getRequestedDates(item: ApprovalItem) {
   if (item.requestType === 'LEAVE') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.leaveTypeName} · {item.leaveStartDate}{item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''} · {item.leaveTotalDays} day{item.leaveTotalDays !== 1 ? 's' : ''}{item.leaveHalfDay ? ' (half)' : ''}
-      </div>
-    );
+    if (!item.leaveStartDate) return EMPTY_VALUE;
+    return `${item.leaveStartDate}${item.leaveEndDate && item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
   }
-  if (item.requestType === 'REGULARIZATION') {
-    const missing = item.requestedCheckIn && item.requestedCheckOut ? 'Check-in & check-out'
-      : item.requestedCheckIn ? 'Check-in' : 'Check-out';
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate} · Missing: {missing}
-      </div>
-    );
-  }
-  if (item.requestType === 'WEB_CLOCK_IN') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate} · Requested {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
-      </div>
-    );
+  if (item.requestType === 'REGULARIZATION' || item.requestType === 'WEB_CLOCK_IN' || item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY' || item.requestType === 'OVERTIME') {
+    return item.attendanceDate ?? EMPTY_VALUE;
   }
   if (item.requestType === 'EXPENSE') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{item.expenseCategoryName}</span>
-        {' · '}
-        <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(item.expenseAmount ?? 0)}</span>
-        {item.approvalStage === 'FINAL' && (
-          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: 'rgba(16,185,129,.15)', color: '#10B981' }}>Final clearance</span>
-        )}
-      </div>
-    );
+    return item.expenseDate ?? EMPTY_VALUE;
   }
-  if (item.requestType === 'ASSET_REQUEST') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.requestedCategoryName}
-      </div>
-    );
-  }
-  if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${item.partialDayHours}h` : ''}
-      </div>
-    );
-  }
-  if (item.requestType === 'OVERTIME') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
-      </div>
-    );
-  }
-  if (item.requestType === 'HELP_CONTENT') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{item.helpContentTitle}</span>
-        {' · '}attempt #{item.helpContentAttemptNumber}
-        {item.helpContentModifiedSincePrevious && (
-          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: 'rgba(245,158,11,.15)', color: '#F59E0B' }}>Modified</span>
-        )}
-      </div>
-    );
-  }
-  return null;
+  return EMPTY_VALUE;
 }
 
-/** "View Changes" — field-level diff plus attachment changes vs. the immediately preceding attempt. */
+function getReason(item: ApprovalItem) {
+  if (item.requestType === 'LEAVE') return item.leaveReason ?? EMPTY_VALUE;
+  if (item.requestType === 'EXPENSE') return item.businessPurpose ?? EMPTY_VALUE;
+  if (item.requestType === 'ASSET_REQUEST') return item.assetRequestReason ?? EMPTY_VALUE;
+  if (
+    item.requestType === 'REGULARIZATION' ||
+    item.requestType === 'WEB_CLOCK_IN' ||
+    item.requestType === 'WFH' ||
+    item.requestType === 'PARTIAL_DAY' ||
+    item.requestType === 'OVERTIME'
+  ) {
+    return item.regularizationReason ?? EMPTY_VALUE;
+  }
+  return EMPTY_VALUE;
+}
+
+function ActionIconButton({
+  label,
+  title,
+  color,
+  background,
+  border,
+  onClick,
+  children,
+}: {
+  label: string;
+  title: string;
+  color: string;
+  background: string;
+  border: string;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={title}
+      onClick={onClick}
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: '50%',
+        border,
+        background,
+        color,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        padding: 0,
+        flexShrink: 0,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => void }) {
   const changedFields = diff.fieldChanges.filter(f => f.changed);
   const attachmentChanges = diff.attachmentChanges.filter(c => c.changeType !== 'UNCHANGED');
@@ -173,11 +176,16 @@ function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => vo
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>{f.fieldName}</div>
                   <div style={{ fontSize: 13, lineHeight: 1.6 }}>
                     {f.segments.map((s, i) => (
-                      <span key={i} style={{
-                        background: s.type === 'ADDED' ? 'rgba(16,185,129,.18)' : s.type === 'REMOVED' ? 'rgba(228,55,61,.18)' : 'transparent',
-                        textDecoration: s.type === 'REMOVED' ? 'line-through' : 'none',
-                        color: s.type === 'REMOVED' ? 'var(--txt-dim)' : 'var(--txt)',
-                      }}>{s.text}</span>
+                      <span
+                        key={i}
+                        style={{
+                          background: s.type === 'ADDED' ? 'rgba(16,185,129,.18)' : s.type === 'REMOVED' ? 'rgba(228,55,61,.18)' : 'transparent',
+                          textDecoration: s.type === 'REMOVED' ? 'line-through' : 'none',
+                          color: s.type === 'REMOVED' ? 'var(--txt-dim)' : 'var(--txt)',
+                        }}
+                      >
+                        {s.text}
+                      </span>
                     ))}
                   </div>
                 </div>
@@ -199,7 +207,6 @@ function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => vo
   );
 }
 
-/** FAQ/Guide review section — snapshot fields, attachments (shared viewer), and the change-vs-previous-submission callout. */
 function HelpContentReviewSection({ item, token }: { item: ApprovalItem; token: string }) {
   const [diff, setDiff] = useState<ApprovalDiff | null>(null);
   const [viewingAttachments, setViewingAttachments] = useState(false);
@@ -219,7 +226,7 @@ function HelpContentReviewSection({ item, token }: { item: ApprovalItem; token: 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {(diff?.current.attachments.length ?? 0) > 0 && (
           <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-            📎 This submission has {diff?.current.attachments.length} attachment{(diff?.current.attachments.length ?? 0) === 1 ? '' : 's'}. Would you like to take a look?
+            This submission has {diff?.current.attachments.length} attachment{(diff?.current.attachments.length ?? 0) === 1 ? '' : 's'}. Would you like to take a look?
           </span>
         )}
         <button
@@ -250,8 +257,6 @@ function HelpContentReviewSection({ item, token }: { item: ApprovalItem; token: 
   );
 }
 
-// ── Review modal ──────────────────────────────────────────
-
 function ReceiptLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, cursor: 'zoom-out' }}>
@@ -261,8 +266,9 @@ function ReceiptLightbox({ src, onClose }: { src: string; onClose: () => void })
   );
 }
 
-function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
+function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   item: ApprovalItem;
+  mode: ReviewMode;
   onClose: () => void;
   onApproved: () => void;
   onRejected: () => void;
@@ -270,7 +276,6 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
 }) {
   const { showToast } = useToast();
   const [rejectReason, setRejectReason] = useState('');
-  const [mode, setMode] = useState<'view' | 'reject'>('view');
   const [submitting, setSubmitting] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -355,7 +360,6 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
         </div>
 
         <div style={{ padding: 20 }}>
-          {/* Type-specific details */}
           {item.requestType === 'LEAVE' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               <Row label="Type" value={item.leaveTypeName} />
@@ -436,19 +440,21 @@ function ReviewModal({ item, onClose, onApproved, onRejected, token }: {
           {mode === 'reject' ? (
             <>
               <label style={labelStyle}>Rejection Reason *</label>
-              <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12 }} value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Why is this request being rejected?" autoFocus />
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button onClick={() => setMode('view')} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Back</button>
+              <textarea
+                style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12 }}
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                placeholder="Why is this request being rejected?"
+                autoFocus
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={handleReject} disabled={!rejectReason.trim() || submitting} style={{ background: rejectReason.trim() ? '#C0392B' : 'var(--raised2)', color: rejectReason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: !rejectReason.trim() || submitting ? 'not-allowed' : 'pointer' }}>
                   {submitting ? 'Rejecting…' : 'Confirm Reject'}
                 </button>
               </div>
             </>
           ) : (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setMode('reject')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 7, padding: '9px 16px', fontSize: 13, color: '#E4373D', cursor: 'pointer', fontWeight: 600 }}>
-                <X size={13} /> Reject
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={handleApprove} disabled={submitting} style={{ display: 'flex', alignItems: 'center', gap: 5, background: submitting ? 'var(--raised2)' : 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 7, padding: '9px 18px', fontSize: 13, color: '#2FB67C', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
                 <Check size={13} /> {submitting ? 'Approving…' : 'Approve'}
               </button>
@@ -465,12 +471,10 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
       <div style={labelStyle}>{label}</div>
-      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value ?? '—'}</div>
+      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value ?? EMPTY_VALUE}</div>
     </div>
   );
 }
-
-// ── Main page ─────────────────────────────────────────────
 
 const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
 
@@ -483,7 +487,7 @@ export default function ApprovalsPage() {
     const t = searchParams.get('type');
     return (ALL_TYPES as string[]).includes(t ?? '') ? (t as RequestType) : 'ALL';
   });
-  const [reviewing, setReviewing] = useState<ApprovalItem | null>(null);
+  const [reviewing, setReviewing] = useState<{ item: ApprovalItem; mode: ReviewMode } | null>(null);
 
   useEffect(() => {
     approvalCenterApi.listPending(token)
@@ -507,15 +511,22 @@ export default function ApprovalsPage() {
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All pending requests requiring your decision.</p>
       </div>
 
-      {/* Type filter bar */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {(['ALL', ...ALL_TYPES] as const).map(t => (
-          <button key={t} onClick={() => setTypeFilter(t)} style={{
-            padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-            cursor: 'pointer', border: 'none',
-            background: typeFilter === t ? 'var(--brand)' : 'var(--raised)',
-            color: typeFilter === t ? '#fff' : 'var(--txt-mut)',
-          }}>
+          <button
+            key={t}
+            onClick={() => setTypeFilter(t)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: 'none',
+              background: typeFilter === t ? 'var(--brand)' : 'var(--raised)',
+              color: typeFilter === t ? '#fff' : 'var(--txt-mut)',
+            }}
+          >
             {t === 'ALL' ? 'All' : TYPE_LABELS[t]} {counts[t] > 0 && <span style={{ marginLeft: 4, background: 'rgba(255,255,255,.2)', borderRadius: 10, padding: '0 5px' }}>{counts[t]}</span>}
           </button>
         ))}
@@ -536,25 +547,58 @@ export default function ApprovalsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Type', 'Employee', 'Summary', 'Submitted', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Type', 'Employee', 'Requested Dates', 'Reason', 'Submitted', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(item => (
-                  <tr key={`${item.requestType}:${item.id}`} style={{ cursor: 'pointer' }} onClick={() => setReviewing(item)}>
-                    <td style={tdStyle}><TypeBadge type={item.requestType} /></td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{item.employeeName}</td>
-                    <td style={tdStyle}><ItemDetail item={item} /></td>
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDate(item.createdAt)}</td>
-                    <td style={{ ...tdStyle, padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => setReviewing(item)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}>
-                          Review <ChevronDown size={10} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map(item => {
+                  const requestedDates = getRequestedDates(item);
+                  const reason = getReason(item);
+
+                  return (
+                    <tr key={`${item.requestType}:${item.id}`}>
+                      <td style={tdStyle}><TypeBadge type={item.requestType} /></td>
+                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{item.employeeName}</td>
+                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{requestedDates}</td>
+                      <td style={tdStyle}>
+                        <div style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={reason}>
+                          {reason}
+                        </div>
+                      </td>
+                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDate(item.createdAt)}</td>
+                      <td style={{ ...tdStyle, padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <ActionIconButton
+                            label={`Approve ${item.employeeName}'s ${TYPE_LABELS[item.requestType]} request`}
+                            title="Approve request"
+                            color="#2FB67C"
+                            background="rgba(47,182,124,.12)"
+                            border="1px solid rgba(47,182,124,.3)"
+                            onClick={event => {
+                              event.stopPropagation();
+                              setReviewing({ item, mode: 'approve' });
+                            }}
+                          >
+                            <Check size={14} />
+                          </ActionIconButton>
+                          <ActionIconButton
+                            label={`Reject ${item.employeeName}'s ${TYPE_LABELS[item.requestType]} request`}
+                            title="Reject request"
+                            color="#E4373D"
+                            background="rgba(228,55,61,.12)"
+                            border="1px solid rgba(228,55,61,.28)"
+                            onClick={event => {
+                              event.stopPropagation();
+                              setReviewing({ item, mode: 'reject' });
+                            }}
+                          >
+                            <X size={14} />
+                          </ActionIconButton>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -563,11 +607,12 @@ export default function ApprovalsPage() {
 
       {reviewing && (
         <ReviewModal
-          item={reviewing}
+          item={reviewing.item}
+          mode={reviewing.mode}
           token={token}
           onClose={() => setReviewing(null)}
-          onApproved={() => removeFromQueue(reviewing.id, reviewing.requestType)}
-          onRejected={() => removeFromQueue(reviewing.id, reviewing.requestType)}
+          onApproved={() => removeFromQueue(reviewing.item.id, reviewing.item.requestType)}
+          onRejected={() => removeFromQueue(reviewing.item.id, reviewing.item.requestType)}
         />
       )}
     </div>

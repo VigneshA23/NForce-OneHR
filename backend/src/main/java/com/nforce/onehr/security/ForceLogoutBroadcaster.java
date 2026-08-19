@@ -13,8 +13,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * In-memory registry of open SSE connections per user, so UserManagementService can push a
- * FORCE_LOGOUT event the instant a role change commits, instead of the client finding out on its
- * next request/poll. token_version (see JwtAuthenticationFilter) is the actual enforcement layer
+ * FORCE_LOGOUT event the instant a Super Admin profile change commits, instead of the client
+ * finding out on its next request/poll. token_version (see JwtAuthenticationFilter) is the
+ * actual enforcement layer
  * — this only makes the client react fast; if the push never arrives (tab asleep, connection
  * dropped), the version check still guarantees the same outcome on that user's next API call.
  *
@@ -49,7 +50,7 @@ public class ForceLogoutBroadcaster {
         }
         for (SseEmitter emitter : emitters) {
             try {
-                emitter.send(SseEmitter.event().name("FORCE_LOGOUT").data("role-changed"));
+                emitter.send(SseEmitter.event().name("FORCE_LOGOUT").data("profile-updated"));
                 emitter.complete();
             } catch (IOException e) {
                 log.debug("Failed to push FORCE_LOGOUT to {}: {}", userId, e.getMessage());

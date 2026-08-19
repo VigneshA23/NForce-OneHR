@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Push channel for server-initiated logout (currently: a role change — see
+ * Push channel for server-initiated logout (currently: a Super Admin profile change — see
  * UserManagementService#updateUser). Kept separate from AuthController/AuthService since this is
  * a connection-lifecycle concern, not a login/credentials one.
  *
