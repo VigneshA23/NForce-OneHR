@@ -376,10 +376,11 @@ export default function DocumentsCompliancePage() {
 
       {/* Search + Filter */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative' }}>
+        <div className="nf-search-full-mobile" style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={tab === 'missing' ? 'Search by name, type…' : 'Search by name, type, file…'}
+            className="nf-search-full-mobile-input"
             style={{ paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, outline: 'none', width: 240 }} />
         </div>
         {allDocTypes.length > 1 && (

@@ -160,13 +160,10 @@ export default function Login() {
       showStats
     >
       <motion.div variants={reduced ? undefined : containerVariants} initial={reduced ? undefined : 'hidden'} animate={reduced ? undefined : 'show'}>
-        <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 28 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
+        <motion.div className="nf-login-heading-block" variants={reduced ? undefined : itemVariants} style={{ marginBottom: 28 }}>
+          <h1 className="nf-login-heading" style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
             Welcome back
           </h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-            Use your company email and password.
-          </p>
         </motion.div>
 
         <motion.div variants={reduced ? undefined : itemVariants}>
@@ -174,6 +171,7 @@ export default function Login() {
             type="button"
             disabled
             title="Microsoft SSO arrives in a later phase, once Azure AD coordination is ready"
+            className="nf-login-sso-btn"
             style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               padding: '12px 16px', background: 'var(--raised2)', color: 'var(--txt-dim)',
@@ -190,9 +188,9 @@ export default function Login() {
         </motion.div>
 
         <motion.div variants={reduced ? undefined : itemVariants}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--txt-dim)', fontSize: 12, margin: '20px 0' }}>
+          <div className="nf-login-divider" style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--txt-dim)', fontSize: 12, margin: '20px 0' }}>
             <span style={{ flex: 1, height: 1, background: 'var(--line)', display: 'block' }} />
-            or use company credentials
+            or use organizational credentials
             <span style={{ flex: 1, height: 1, background: 'var(--line)', display: 'block' }} />
           </div>
         </motion.div>
@@ -228,25 +226,27 @@ export default function Login() {
         )}
 
         <form onSubmit={handleCredentialSubmit} noValidate>
-          <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 14 }}>
-            <label htmlFor={emailId} style={{ display: 'block', fontSize: 12, fontWeight: 550, color: 'var(--txt-mut)', marginBottom: 6 }}>Email</label>
+          <motion.div className="nf-login-field" variants={reduced ? undefined : itemVariants} style={{ marginBottom: 14 }}>
+            <label htmlFor={emailId} className="nf-login-label" style={{ display: 'block', fontSize: 12, fontWeight: 550, color: 'var(--txt-mut)', marginBottom: 6 }}>Email</label>
             <input
               ref={emailRef} id={emailId} type="text" inputMode="email" autoComplete="email" placeholder="you@nforceone.com"
               value={email} onChange={(e) => setEmail(e.target.value)}
               disabled={locked}
               aria-invalid={hasError} aria-describedby={(hasError || locked) ? errorId : undefined}
+              className="nf-login-input"
               style={{ width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '10px 12px', color: 'var(--txt)', fontSize: 14, outline: 'none', fontFamily: 'Inter, sans-serif', boxSizing: 'border-box', opacity: locked ? 0.6 : 1, cursor: locked ? 'not-allowed' : 'text' }}
             />
           </motion.div>
 
-          <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 14 }}>
-            <label htmlFor={passId} style={{ display: 'block', fontSize: 12, fontWeight: 550, color: 'var(--txt-mut)', marginBottom: 6 }}>Password</label>
+          <motion.div className="nf-login-field" variants={reduced ? undefined : itemVariants} style={{ marginBottom: 14 }}>
+            <label htmlFor={passId} className="nf-login-label" style={{ display: 'block', fontSize: 12, fontWeight: 550, color: 'var(--txt-mut)', marginBottom: 6 }}>Password</label>
             <div style={{ position: 'relative' }}>
               <input
                 id={passId} type={showPass ? 'text' : 'password'} autoComplete="current-password" placeholder="••••••••"
                 value={password} onChange={(e) => setPassword(e.target.value)}
                 disabled={locked}
                 aria-invalid={hasError} aria-describedby={(hasError || locked) ? errorId : undefined}
+                className="nf-login-input"
                 style={{ width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '10px 44px 10px 12px', color: 'var(--txt)', fontSize: 14, outline: 'none', fontFamily: 'Inter, sans-serif', boxSizing: 'border-box', opacity: locked ? 0.6 : 1, cursor: locked ? 'not-allowed' : 'text' }}
               />
               <button
@@ -260,7 +260,7 @@ export default function Login() {
           </motion.div>
 
           {!locked && (
-            <motion.div variants={reduced ? undefined : itemVariants} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18, marginTop: -4 }}>
+            <motion.div className="nf-login-forgot-row" variants={reduced ? undefined : itemVariants} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18, marginTop: -4 }}>
               <Link to="/forgot-password" style={{ fontSize: 12, color: 'var(--txt-mut)', textDecoration: 'none', cursor: 'pointer' }}>
                 Forgot password?
               </Link>
@@ -270,6 +270,7 @@ export default function Login() {
           <motion.div variants={reduced ? undefined : itemVariants}>
             <button
               type="submit" disabled={submitting || locked}
+              className="nf-login-submit"
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '11px 16px',
                 background: 'var(--brand)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 600,
                 cursor: (submitting || locked) ? 'not-allowed' : 'pointer', opacity: (submitting || locked) ? 0.75 : 1 }}

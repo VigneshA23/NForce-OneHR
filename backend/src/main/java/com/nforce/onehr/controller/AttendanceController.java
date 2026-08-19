@@ -258,6 +258,12 @@ public class AttendanceController {
         return regularizationService.listApprovers();
     }
 
+    /** "N requests remaining this month" for the Request Regularization modal's balance display. */
+    @GetMapping("/regularization/balance")
+    public RegularizationService.RegularizationBalance regularizationBalance(Principal principal) {
+        return regularizationService.getBalance(principal.getName());
+    }
+
     /**
      * "View Regularization History" — Manager (direct report only), HR Admin, or Super Admin.
      * Backs the read-only history modal opened from the Penalties table's kebab menu.

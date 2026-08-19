@@ -19,9 +19,8 @@ function item(key: string, label: string, icon: LucideIcon, phase: 1 | 2): NavIt
 
 export const NAV: Record<Role, NavItem[]> = {
   Employee: [
-    item('dashboard', 'My Dashboard', Home, 1),
+    item('dashboard', 'Home', Home, 1),
     item('my-team', 'My Team', Users, 1),
-    item('notifications', 'Notifications', Bell, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('attendance', 'My Attendance', Clock, 1),
@@ -33,9 +32,8 @@ export const NAV: Record<Role, NavItem[]> = {
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   Manager: [
-    item('dashboard', 'Manager Dashboard', Home, 1),
+    item('dashboard', 'Home', Home, 1),
     item('my-team', 'My Team', Users, 1),
-    item('notifications', 'Notifications', Bell, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('attendance', 'Team Attendance', Clock, 1),
@@ -45,14 +43,14 @@ export const NAV: Record<Role, NavItem[]> = {
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('performance', 'Team Performance', GitBranch, 2),
     item('assets', 'Team Assets & Expenses', Package, 1),
+    item('documents', 'My Documents & Policies', FileText, 1),
     item('reports', 'Reports & Analytics', FileText, 2),
     item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   'HR Admin': [
-    item('dashboard', 'HR Dashboard', Home, 1),
+    item('dashboard', 'Home', Home, 1),
     item('my-team', 'My Team', Users, 1),
-    item('notifications', 'Notifications', Bell, 1),
     item('employees', 'Employee Master', Users, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
@@ -72,8 +70,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   'Super Admin': [
-    item('dashboard', 'My Dashboard', Home, 1),
-    item('notifications', 'Notifications', Bell, 1),
+    item('dashboard', 'Home', Home, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('access', 'User Management', Shield, 1),
@@ -119,7 +116,7 @@ type HierarchyEntry = HierarchyLeaf | HierarchyGroup;
  * it never grants/hides a module beyond what NAV[role] already decides.
  */
 const NAV_HIERARCHY: HierarchyEntry[] = [
-  { key: 'home', label: 'Home', icon: Home, children: ['dashboard', 'notifications'] },
+  { key: 'home', label: 'Home', icon: Home, children: ['dashboard'] },
   {
     key: 'people', label: 'People', icon: Users, children: [
       'my-team',

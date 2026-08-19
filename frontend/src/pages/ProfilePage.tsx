@@ -8,17 +8,44 @@ import { useToast } from '../context/ToastContext';
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Rejects: multiple/misplaced '@', missing local or domain part, spaces, consecutive dots in
+// the domain, and trailing junk after the TLD. A syntactically well-formed but non-existent
+// TLD (e.g. "gmail.comabc") is otherwise indistinguishable from a real one by format alone —
+// see the explicit ".com" check in validateEmail below for the one case called out by name.
+const EMAIL_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+// Once the TLD starts with "com", nothing may follow it (blocks "gmail.comabc" while still
+// allowing "gmail.com" itself) — a deliberate special case for the specific reported input,
+// not a general TLD whitelist.
+const TLD_COM_WITH_TRAILING_CHARS_RE = /^com.+/i;
+// Letters only, with a single space/hyphen/apostrophe/period allowed between word groups
+// (e.g. "Mary Jane", "O'Brien", "Anne-Marie") — no digits, no leading/trailing/consecutive
+// separators, no other symbols.
+const NAME_RE = /^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$/;
 const digitsOnly = (v: string) => v.replace(/\D/g, '');
+const nameCharsOnly = (v: string) => v.replace(/[^A-Za-z '.-]/g, '');
+// Strips emoji/pictographs (plus the variation-selector and zero-width-joiner marks used to
+// combine them, e.g. skin-tone modifiers, flag sequences) from free-text fields like Address —
+// unlike Name, Address needs to stay open to digits/punctuation/most Unicode text, so this only
+// removes emoji specifically rather than restricting to an allow-list.
+const EMOJI_RE = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u{1F1E6}-\u{1F1FF}]|[\u200D\uFE0F]/gu;
+const stripEmoji = (v: string) => v.replace(EMOJI_RE, '');
 
 function validateEmail(v: string): string | null {
   if (!v) return null;
-  return EMAIL_RE.test(v) ? null : 'Enter a valid email address (e.g. name@example.com).';
+  if (!EMAIL_RE.test(v)) return 'Enter a valid email address (e.g. name@example.com).';
+  const tld = v.slice(v.lastIndexOf('.') + 1);
+  if (TLD_COM_WITH_TRAILING_CHARS_RE.test(tld)) return 'Enter a valid email address (e.g. name@example.com).';
+  return null;
 }
 
 function validatePhone(v: string, label: string): string | null {
   if (!v) return null;
   return digitsOnly(v).length === 10 ? null : `${label} must be exactly 10 digits.`;
+}
+
+function validateName(v: string, label: string): string | null {
+  if (!v) return null;
+  return NAME_RE.test(v) ? null : `${label} can only contain letters, spaces, hyphens, apostrophes, and periods.`;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -117,6 +144,7 @@ export default function ProfilePage() {
     personalEmail: validateEmail(form.personalEmail ?? ''),
     phone: validatePhone(form.phone ?? '', 'Phone number'),
     emergencyContactPhone: validatePhone(form.emergencyContactPhone ?? '', 'Contact phone'),
+    emergencyContactName: validateName(form.emergencyContactName ?? '', 'Contact name'),
   };
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -151,6 +179,10 @@ export default function ProfilePage() {
     }
     if (errors.emergencyContactPhone) {
       showToast('error', errors.emergencyContactPhone);
+      return;
+    }
+    if (errors.emergencyContactName) {
+      showToast('error', errors.emergencyContactName);
       return;
     }
     setSaving(true);
@@ -304,7 +336,7 @@ export default function ProfilePage() {
               <EditField label="Personal Email" value={field('personalEmail')} onChange={set('personalEmail')} type="email" placeholder="personal@email.com" error={errors.personalEmail} />
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>Address</label>
-                <textarea value={field('address')} onChange={e => set('address')(e.target.value)}
+                <textarea value={field('address')} onChange={e => set('address')(stripEmoji(e.target.value))}
                   placeholder="Your address…" rows={3}
                   style={{ ...INPUT_STYLE, resize: 'vertical', fontFamily: 'inherit' }} />
               </div>
@@ -352,7 +384,7 @@ export default function ProfilePage() {
         <SectionHeader title="Emergency Contact" />
         {editing ? (
           <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <EditField label="Contact Name" value={field('emergencyContactName')} onChange={set('emergencyContactName')} placeholder="Full name" />
+            <EditField label="Contact Name" value={field('emergencyContactName')} onChange={v => set('emergencyContactName')(nameCharsOnly(v))} placeholder="Full name" error={errors.emergencyContactName} />
             <PhoneField label="Contact Phone" value={field('emergencyContactPhone')} onChange={set('emergencyContactPhone')} placeholder="9876543210" error={errors.emergencyContactPhone} />
           </div>
         ) : (

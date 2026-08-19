@@ -259,7 +259,7 @@ export default function DocumentsPage() {
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
 
       {/* KPI tiles */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+      <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Required', value: required.length, color: 'var(--txt)' },
           { label: 'Verified', value: verified.length, color: '#22c55e' },
@@ -280,88 +280,94 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
-        <button style={tabStyle('docs')} onClick={() => setTab('docs')}>My Documents</button>
-        <button style={tabStyle('policies')} onClick={() => setTab('policies')}>
-          Policies {pendingPolicies.length > 0 && <span style={{ background: '#A01418', color: '#fff', borderRadius: '50%', fontSize: 10, fontWeight: 700, padding: '1px 6px', marginLeft: 6 }}>{pendingPolicies.length}</span>}
+      <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
+        <button className="nf-doc-tab-btn" style={tabStyle('docs')} onClick={() => setTab('docs')}>
+          <span className="nf-doc-tab-label">My Documents</span>
         </button>
-        <button style={tabStyle('announcements')} onClick={() => setTab('announcements')}>Announcements</button>
+        <button className="nf-doc-tab-btn" style={tabStyle('policies')} onClick={() => setTab('policies')}>
+          <span className="nf-doc-tab-label">Policies</span> {pendingPolicies.length > 0 && <span style={{ background: '#A01418', color: '#fff', borderRadius: '50%', fontSize: 10, fontWeight: 700, padding: '1px 6px', marginLeft: 6 }}>{pendingPolicies.length}</span>}
+        </button>
+        <button className="nf-doc-tab-btn" style={tabStyle('announcements')} onClick={() => setTab('announcements')}>
+          <span className="nf-doc-tab-label">Announcements</span>
+        </button>
       </div>
 
       {/* ── My Documents Tab ── */}
       {tab === 'docs' && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button style={secStyle('pending')} onClick={() => setSection('pending')}>
-                Pending Review {pending.length > 0 && <span style={{ marginLeft: 4, background: '#eab308', color: '#000', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{pending.length}</span>}
-              </button>
-              <button style={secStyle('verified')} onClick={() => setSection('verified')}>
-                Verified {verified.length > 0 && <span style={{ marginLeft: 4, background: '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{verified.length}</span>}
-              </button>
-              <button style={secStyle('missing')} onClick={() => setSection('missing')}>
-                Not Submitted {missing.length > 0 && <span style={{ marginLeft: 4, background: '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{missing.length}</span>}
-              </button>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents…"
-                style={{ paddingLeft: 28, padding: '6px 10px 6px 28px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 12, width: 200, outline: 'none' }} />
-            </div>
+          <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            <button className="nf-doc-tab-btn" style={secStyle('pending')} onClick={() => setSection('pending')}>
+              <span className="nf-doc-tab-label">Pending Review</span> {pending.length > 0 && <span style={{ marginLeft: 4, background: '#eab308', color: '#000', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{pending.length}</span>}
+            </button>
+            <button className="nf-doc-tab-btn" style={secStyle('verified')} onClick={() => setSection('verified')}>
+              <span className="nf-doc-tab-label">Verified</span> {verified.length > 0 && <span style={{ marginLeft: 4, background: '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{verified.length}</span>}
+            </button>
+            <button className="nf-doc-tab-btn" style={secStyle('missing')} onClick={() => setSection('missing')}>
+              <span className="nf-doc-tab-label">Not Submitted</span> {missing.length > 0 && <span style={{ marginLeft: 4, background: '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{missing.length}</span>}
+            </button>
+          </div>
+
+          <div className="nf-search-full-mobile" style={{ position: 'relative', marginBottom: 14 }}>
+            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents…"
+              className="nf-search-full-mobile-input"
+              style={{ paddingLeft: 28, padding: '6px 10px 6px 28px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 12, width: 200, outline: 'none' }} />
           </div>
 
           <div style={card}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={thS}>Document</th>
-                  <th style={thS}>Status</th>
-                  <th style={thS}>Expiry</th>
-                  <th style={thS}>Rejection Reason</th>
-                  <th style={thS}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDocs.length === 0 ? (
-                  <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                    {q ? 'No results.' : section === 'verified' ? 'No verified documents yet.' : section === 'pending' ? 'No documents pending review.' : 'All required documents submitted!'}
-                  </td></tr>
-                ) : filteredDocs.map(r => {
-                  const doc = docForType(r.documentTypeId);
-                  return (
-                    <tr key={r.documentTypeId}>
-                      <td style={tdS}>
-                        <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{r.documentTypeName}</div>
-                        {r.requiresVerification && <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requires HR verification</div>}
-                      </td>
-                      <td style={tdS}><StatusBadge status={r.status} /></td>
-                      <td style={tdS}>
-                        {doc?.expiryDate ? (
-                          <span style={{ color: r.expiringSoon ? '#eab308' : 'var(--txt-mut)', fontSize: 13 }}>
-                            {r.expiringSoon && <AlertTriangle size={12} style={{ marginRight: 4 }} />}
-                            {new Date(doc.expiryDate).toLocaleDateString()}
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td style={tdS}>
-                        {doc?.rejectionReason
-                          ? <span style={{ color: '#ef4444', fontSize: 12 }}>{doc.rejectionReason}</span>
-                          : '—'}
-                      </td>
-                      <td style={tdS}>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <button onClick={() => setUploadTarget({ type: r, existing: doc })}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A01418', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                            <Upload size={12} /> {doc ? 'Re-upload' : 'Upload'}
-                          </button>
-                          {doc && <ViewButton docId={doc.id} />}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="nf-doc-table-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thS}>Document</th>
+                    <th style={thS}>Status</th>
+                    <th style={thS}>Expiry</th>
+                    <th style={thS}>Rejection Reason</th>
+                    <th style={thS}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDocs.length === 0 ? (
+                    <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                      {q ? 'No results.' : section === 'verified' ? 'No verified documents yet.' : section === 'pending' ? 'No documents pending review.' : 'All required documents submitted!'}
+                    </td></tr>
+                  ) : filteredDocs.map(r => {
+                    const doc = docForType(r.documentTypeId);
+                    return (
+                      <tr key={r.documentTypeId}>
+                        <td style={tdS}>
+                          <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{r.documentTypeName}</div>
+                          {r.requiresVerification && <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requires HR verification</div>}
+                        </td>
+                        <td style={tdS}><StatusBadge status={r.status} /></td>
+                        <td style={tdS}>
+                          {doc?.expiryDate ? (
+                            <span style={{ color: r.expiringSoon ? '#eab308' : 'var(--txt-mut)', fontSize: 13 }}>
+                              {r.expiringSoon && <AlertTriangle size={12} style={{ marginRight: 4 }} />}
+                              {new Date(doc.expiryDate).toLocaleDateString()}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td style={tdS}>
+                          {doc?.rejectionReason
+                            ? <span style={{ color: '#ef4444', fontSize: 12 }}>{doc.rejectionReason}</span>
+                            : '—'}
+                        </td>
+                        <td style={tdS}>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setUploadTarget({ type: r, existing: doc })}
+                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A01418', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                              <Upload size={12} /> {doc ? 'Re-upload' : 'Upload'}
+                            </button>
+                            {doc && <ViewButton docId={doc.id} />}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Upload from docTypes for any not in required list */}
