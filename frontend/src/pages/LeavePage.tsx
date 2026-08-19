@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -11,7 +11,10 @@ const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, backgro
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+// color: var(--txt-mut), not var(--txt-dim) — higher-contrast in both themes (see index.css's
+// token table), so headers read as clearly bold/prominent rather than washed out. Same weight/
+// size/uppercase/letter-spacing convention used app-wide (AttendancePage/ApprovalsPage/etc).
+const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 // Holiday table only — compact, center-aligned, distinct from the Leave Requests table above.
 const holidayThStyle: React.CSSProperties = { ...thStyle, textAlign: 'center', padding: '8px 10px' };
@@ -23,6 +26,10 @@ const holidayTdStyle: React.CSSProperties = { ...tdStyle, textAlign: 'center', p
 // ("New Year's Day", "Eid-ul-Fitr").
 const HOLIDAY_NAME_PATTERN = /^(?=.*[\p{L}])[\p{L}\p{N} '-]+$/u;
 const HOLIDAY_NAME_MAX_LENGTH = 100;
+
+// Shared by "Request Leave" and "Add Holiday" — both are the primary add-action button for their
+// section, so they should match in size/weight rather than drifting independently.
+const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
@@ -55,12 +62,19 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// Same recharts primitives/colors as DashboardPage's LeaveBalancePanel donut, applied to a single
-// balance: two slices (Available vs Consumed/Reserved) summing to that leave type's annual quota.
-// The backend (LeaveService#availableBalance) is the sole source of truth for both numbers — this
-// component only visualizes remainingDays/totalDays as returned by GET /api/leave/balances; it
-// never recomputes or re-derives the balance itself.
-const BALANCE_DONUT_COLORS = { available: '#2FB67C', consumed: '#E0A93B' };
+// Same recharts primitives as DashboardPage's LeaveBalancePanel donut (a PieChart + an
+// absolutely-positioned center-label overlay), applied to a single balance: two slices
+// (Available vs Consumed/Reserved) summing to that leave type's annual quota. The backend
+// (LeaveService#availableBalance) is the sole source of truth for both numbers — this component
+// only visualizes remainingDays/totalDays as returned by GET /api/leave/balances; it never
+// recomputes or re-derives the balance itself.
+//
+// Dark/light brand-red pair (not the green/amber pair used elsewhere) so the chart reads as
+// professional and on-brand: Available gets the darker, more prominent shade since it's the
+// actionable number; Consumed/Reserved gets the lighter tint since it's already spent. The same
+// two colors double as the swatches in the Available/Consumed line above the chart, so that line
+// also serves as the chart's legend.
+const BALANCE_DONUT_COLORS = { available: '#7A0C10', consumed: '#E8B4B6' };
 
 function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
   const total = Number(balance.totalDays);
@@ -73,51 +87,68 @@ function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
   const isEmptyQuota = total <= 0;
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
-      <div style={{ position: 'relative', width: 76, height: 76, flexShrink: 0 }}>
-        <PieChart width={76} height={76}>
-          <Pie
-            data={isEmptyQuota ? [{ name: 'No quota', value: 1 }] : data}
-            cx={38}
-            cy={38}
-            innerRadius={24}
-            outerRadius={36}
-            dataKey="value"
-            startAngle={90}
-            endAngle={-270}
-            strokeWidth={0}
-          >
-            {isEmptyQuota
-              ? <Cell fill="var(--line2)" />
-              : data.map((d, i) => (
-                  <Cell key={d.name} fill={i === 0 ? BALANCE_DONUT_COLORS.available : BALANCE_DONUT_COLORS.consumed} />
-                ))}
-          </Pie>
-          {!isEmptyQuota && (
-            <Tooltip
-              contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
-              formatter={(val, name) => [`${val} day${val === 1 ? '' : 's'}`, name ?? '']}
-            />
-          )}
-        </PieChart>
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', lineHeight: 1 }}>{available}</span>
-        </div>
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', justifyContent: 'center', boxSizing: 'border-box' }}>
+      {/* Content is capped/centered, not stretched — the outer card fills its grid track (so the
+          section uses the page's available width instead of leaving a blank gap), but the
+          heading/legend/chart/quota stack stays compact instead of sprawling on wide screens. */}
+      <div style={{ width: '100%', maxWidth: 260 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'center', marginBottom: 10 }}>
           {balance.leaveTypeName}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 3 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.available, flexShrink: 0 }} />
-          Available <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 600 }}>{available}d</span>
+
+        {/* Available/Consumed — sits above the chart and doubles as its legend (color swatches
+            match the Cell fills below), per the requested Available/Consumed-then-chart order. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', columnGap: 16, rowGap: 4, marginBottom: 10, fontSize: 12, color: 'var(--txt-mut)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.available, flexShrink: 0 }} />
+            Available: <b style={{ color: 'var(--txt)', fontWeight: 700 }}>{available}</b> day{available === 1 ? '' : 's'}
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.consumed, flexShrink: 0 }} />
+            Consumed: <b style={{ color: 'var(--txt)', fontWeight: 700 }}>{consumed}</b> day{consumed === 1 ? '' : 's'}
+          </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 3 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.consumed, flexShrink: 0 }} />
-          Consumed/Reserved <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 600 }}>{consumed}d</span>
+
+        {/* aspect-ratio + ResponsiveContainer (percentage cx/cy/radii), not a fixed pixel
+            PieChart — scales with the card instead of relying on a small fixed size, and the 8%
+            margin between outerRadius and the container edge means the ring is never clipped. */}
+        <div style={{ position: 'relative', width: '100%', maxWidth: 150, aspectRatio: '1 / 1', margin: '0 auto' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={isEmptyQuota ? [{ name: 'No quota', value: 1 }] : data}
+                cx="50%"
+                cy="50%"
+                innerRadius="58%"
+                outerRadius="92%"
+                dataKey="value"
+                startAngle={90}
+                endAngle={-270}
+                strokeWidth={0}
+              >
+                {isEmptyQuota
+                  ? <Cell fill="var(--line2)" />
+                  : data.map((d, i) => (
+                      <Cell key={d.name} fill={i === 0 ? BALANCE_DONUT_COLORS.available : BALANCE_DONUT_COLORS.consumed} />
+                    ))}
+              </Pie>
+              {!isEmptyQuota && (
+                <Tooltip
+                  contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
+                  formatter={(val, name) => [`${val} day${val === 1 ? '' : 's'}`, name ?? '']}
+                />
+              )}
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <span style={{ fontSize: 20, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)', lineHeight: 1 }}>{available}</span>
+          </div>
         </div>
-        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', paddingTop: 4, marginTop: 4 }}>
-          Annual Quota: {total}d
+
+        {/* Annual Quota — below the chart, set off by a divider + brand-colored value so it reads
+            as distinct from the Available/Consumed legend above while matching the page's palette. */}
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--line)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)' }}>
+          Annual Quota: <span style={{ color: 'var(--brand)', fontWeight: 700 }}>{total}</span> day{total === 1 ? '' : 's'}
         </div>
       </div>
     </div>
@@ -126,7 +157,11 @@ function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
 
 function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { types: LeaveType[]; balances: LeaveBalance[]; onClose: () => void; onCreated: (r: LeaveRequestRecord) => void; token: string }) {
   const { showToast } = useToast();
-  const today = new Date().toISOString().slice(0, 10);
+  // Local calendar date, not new Date().toISOString().slice(0, 10) — the ISO/UTC form can land
+  // on the wrong side of midnight relative to the user's actual local day, which would let the
+  // date picker's min slip a day off from what "today" really is.
+  const now = new Date();
+  const today = toISODate(now.getFullYear(), now.getMonth(), now.getDate());
   const [form, setForm] = useState<SubmitLeaveRequestPayload>({ leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +181,9 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.reason.trim()) { setError('A reason is required.'); return; }
+    // Early-UX only, same as the balance check below — the backend independently re-validates
+    // this against its own (timezone-correct) notion of "today" regardless of what's checked here.
+    if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
     if (exceedsBalance && selectedBalance) {
       setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${selectedBalance.remainingDays} days.`);
       return;
@@ -183,7 +221,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
             )}
           </div>
           <Field label="Start Date *">
-            <input type="date" style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
+            <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
           </Field>
           <Field label="End Date *">
             <input type="date" style={inputStyle} value={form.halfDay ? form.startDate : form.endDate} disabled={form.halfDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
@@ -221,6 +259,12 @@ const HOLIDAY_STATUS_BADGE = (active: boolean) => (
 function formatHolidayDate(iso: string) {
   const d = new Date(iso + 'T00:00:00');
   return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// r.decidedAt is an ISO instant (see LeaveRequestResponse#decidedAt) — formatted for the
+// "Approved/Rejected By" column, e.g. "18 Aug 2026, 10:30 AM".
+function formatDecisionTimestamp(iso: string) {
+  return new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 function daysInMonth(year: number, month: number) {
@@ -506,9 +550,17 @@ export default function LeavePage() {
     }
   }
 
-  function handleCreated(r: LeaveRequestRecord) {
+  // A newly-submitted PENDING request is immediately reserved against the balance (see
+  // LeaveService#availableBalance — it subtracts PENDING days, not just APPROVED usedDays), so
+  // the pie chart must be refreshed right away instead of waiting for the next full page load.
+  async function handleCreated(r: LeaveRequestRecord) {
     setRequests(prev => [r, ...prev]);
-    setBalances(prev => prev); // balance only changes on approval
+    try {
+      const freshBalances = await leaveApi.listBalances(token);
+      setBalances(freshBalances);
+    } catch (e) {
+      setLeaveError(e instanceof Error ? e.message : 'Failed to refresh leave balance');
+    }
   }
 
   const holidayScopeLabel = isAdmin
@@ -517,12 +569,12 @@ export default function LeavePage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 22 }}>
         <div>
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Leave & Holidays</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>View your balance, request leave, and track approvals.</p>
         </div>
-        <button onClick={() => setShowRequest(true)} disabled={types.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: types.length === 0 ? 'not-allowed' : 'pointer', opacity: types.length === 0 ? 0.6 : 1 }}>
+        <button onClick={() => setShowRequest(true)} disabled={types.length === 0} style={{ ...primaryButtonStyle, cursor: types.length === 0 ? 'not-allowed' : 'pointer', opacity: types.length === 0 ? 0.6 : 1 }}>
           <CalendarPlus size={14} /> Request Leave
         </button>
       </div>
@@ -534,7 +586,10 @@ export default function LeavePage() {
       )}
 
       {!loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 22 }}>
+        // auto-fit + 1fr (same responsive-card-row convention as AuditStatCards) — a single
+        // balance card fills the row instead of leaving a blank gap beside it, and any future
+        // additional balance types would wrap into an even multi-column row instead of overflowing.
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 22 }}>
           {balances.map(b => <LeaveBalanceDonut key={b.leaveTypeCode} balance={b} />)}
         </div>
       )}
@@ -552,7 +607,7 @@ export default function LeavePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Decision'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -562,12 +617,28 @@ export default function LeavePage() {
                     <td style={tdStyle}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
                     <td style={tdStyle}>{r.totalDays}</td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
-                    <td style={tdStyle}>{r.employeeReason}</td>
-                    <td style={tdStyle}>
-                      {r.status === 'PENDING' && <span style={{ color: 'var(--txt-dim)' }}>Awaiting decision</span>}
-                      {r.status === 'APPROVED' && <span>Approved by <b style={{ color: 'var(--txt)' }}>{r.decidedByName}</b>{r.decidedAt ? ` on ${new Date(r.decidedAt).toLocaleDateString()}` : ''}</span>}
-                      {r.status === 'REJECTED' && (
-                        <span>Rejected by <b style={{ color: 'var(--txt)' }}>{r.decidedByName}</b>: {r.decisionReason}</span>
+                    <td style={{ ...tdStyle, maxWidth: 220 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeReason}>{r.employeeReason}</div>
+                    </td>
+                    <td style={{ ...tdStyle, maxWidth: 240 }}>
+                      {r.status === 'PENDING' ? (
+                        <span style={{ color: 'var(--txt-dim)' }}>Awaiting decision</span>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: r.status === 'APPROVED' ? 'var(--ok)' : 'var(--risk)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                            {r.status === 'APPROVED' ? 'Approved by' : 'Rejected by'}
+                          </span>
+                          <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{r.decidedByName}</span>
+                          {r.decidedAt && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{formatDecisionTimestamp(r.decidedAt)}</span>}
+                          {r.decisionReason && (
+                            <span
+                              style={{ fontSize: 12, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220, display: 'block' }}
+                              title={r.decisionReason}
+                            >
+                              Comment: {r.decisionReason}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -604,8 +675,8 @@ export default function LeavePage() {
               </select>
             )}
             {isAdmin && (
-              <button onClick={() => setShowAddHoliday(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-                <Plus size={13} /> Add Holiday
+              <button onClick={() => setShowAddHoliday(true)} style={primaryButtonStyle}>
+                <Plus size={14} /> Add Holiday
               </button>
             )}
           </div>

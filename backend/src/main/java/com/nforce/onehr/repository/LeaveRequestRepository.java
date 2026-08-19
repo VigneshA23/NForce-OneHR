@@ -36,6 +36,14 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     // visibility in Approval Center (see LeaveService#listPendingApprovals's override branch).
     List<LeaveRequest> findByStatusOrderByCreatedAtAsc(String status);
 
+    // Backs LeaveService#submitRequest's same-day duplicate guard: true if the employee already
+    // has a request in one of the given statuses (PENDING/APPROVED) whose date range covers
+    // `date` (pass the same date for both bounds to test coverage of a single day). REJECTED is
+    // deliberately excluded by the caller's status set, not by this query, so a rejected request
+    // never blocks a new same-day submission.
+    boolean existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+            UUID employeeUserId, Collection<String> statuses, LocalDate startDateAtOrBefore, LocalDate endDateAtOrAfter);
+
     // Backs LeaveService#availableBalance: sums PENDING days across a set of leave-type IDs
     // within a calendar year for one employee, so the available balance excludes in-flight requests.
     @Query("SELECT COALESCE(SUM(r.totalDays), 0) FROM LeaveRequest r " +
