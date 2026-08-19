@@ -23,25 +23,33 @@ public interface WebClockInRequestRepository extends JpaRepository<WebClockInReq
 
     List<WebClockInRequest> findByStatus(String status);
 
-    Optional<WebClockInRequest> findByEmployeeUserIdAndWorkDateAndStatus(
-            UUID employeeUserId, LocalDate workDate, String status);
-
-    boolean existsByEmployeeUserIdAndWorkDateAndStatus(UUID employeeUserId, LocalDate workDate, String status);
+    // Every Web Clock-In cycle for the day, oldest first — an employee can Web Clock-In and
+    // Web Clock-Out more than once per day (see WebClockInService#submit), so this is a List,
+    // not a single Optional result. Backs AttendanceService#collectPunches's punch-history merge.
+    // Deliberately NOT filtered by status: the attendance effect (and the worked time it
+    // represents) is applied the moment the request is submitted, regardless of PENDING/
+    // APPROVED/REJECTED — HR review is a separate, parallel record, not a gate on whether the
+    // session happened or how long it ran. See WebClockInService's class Javadoc.
+    List<WebClockInRequest> findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(
+            UUID employeeUserId, LocalDate workDate);
 
     // Backs the "Remote Clock-ins" / "Remote Clock-in Requests Summary" / "Web Clock-ins" report
     // cards (ONEHR-109) — one entity backs all three, a manager's team over a date range.
     List<WebClockInRequest> findByEmployeeUserIdInAndWorkDateBetween(
             Collection<UUID> employeeUserIds, LocalDate from, LocalDate to);
 
-    // The employee's approved-but-not-yet-checked-out request, if any — independent of
-    // calendar date. A web clock-in approved before midnight (shift crosses into the next
-    // day) is still filed under *yesterday's* work_date once the clock rolls over, so "today"
-    // is the wrong key to look it up by. See WebClockInService.checkOut.
+    // The employee's currently-open request (submitted but not yet checked out), if any —
+    // independent of calendar date AND of review status: whether HR has approved, rejected, or
+    // not yet looked at it, the employee must still be able to check out (or cancel) their own
+    // real, in-progress session — review status is never a gate on that. Independent of calendar
+    // date because a web clock-in from before midnight (shift crosses into the next day) is
+    // still filed under *yesterday's* work_date once the clock rolls over, so "today" is the
+    // wrong key to look it up by. See WebClockInService.checkOut/cancel.
     //
     // "findFirst...OrderBy..." (LIMIT 1), not a bare uniqueness-assuming lookup — same reasoning
     // as AttendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc:
     // a plain findBy...IsNull() throws IncorrectResultSizeDataAccessException the moment an
-    // employee ever ends up with more than one open approved request, rather than just picking
-    // the most recent one.
-    Optional<WebClockInRequest> findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(UUID employeeUserId, String status);
+    // employee ever ends up with more than one open request, rather than just picking the most
+    // recent one.
+    Optional<WebClockInRequest> findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(UUID employeeUserId);
 }

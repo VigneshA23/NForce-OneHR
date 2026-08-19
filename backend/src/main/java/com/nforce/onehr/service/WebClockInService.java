@@ -29,16 +29,20 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Web Clock-In / Check-in: any employee working remotely can self-declare a check-in — no
- * manager approval needed, it upserts the day's {@link Attendance} row (source WEB_REMOTE)
- * immediately. {@code approve}/{@code reject} remain only to let a manager clear out any
- * pre-existing PENDING rows from before this changed; nothing new is ever submitted as
- * PENDING anymore, so those two paths are otherwise dead going forward. Check-out and cancel
- * (undo today's check-in before checking out) both need no approval either.
+ * Web Clock-In / Check-in: any employee working remotely can self-declare a check-in — it
+ * upserts the day's {@link Attendance} row (source WEB_REMOTE) and starts counting worked time
+ * immediately, the same instant it's submitted, with NO wait for HR review. That immediate
+ * attendance effect is deliberately decoupled from the request's own approval lifecycle: every
+ * new request starts {@code PENDING} and is routed to the employee's manager (or HR/Super Admin)
+ * for a real approve/reject decision via {@link #approve}/{@link #reject} — it does not
+ * self-approve. Check-out and cancel need no approval either, and neither is gated by review
+ * status at all (PENDING, APPROVED, or REJECTED) — whether HR has looked at the request yet is
+ * independent of the employee actually finishing (or undoing) their own real session.
  */
 @Service
 @RequiredArgsConstructor
@@ -51,6 +55,7 @@ public class WebClockInService {
     private static final String STATUS_HALF_DAY = "HALF_DAY";
     // Mirrors AttendanceService.STATUS_MISSING_CHECKOUT — see checkOut's own doc comment.
     private static final String STATUS_MISSING_CHECKOUT = "MISSING_CHECKOUT";
+    private static final String STATUS_PENDING = "PENDING";
     private static final String SOURCE_WEB_REMOTE = "WEB_REMOTE";
 
     private final WebClockInRequestRepository webClockInRepository;
@@ -70,6 +75,23 @@ public class WebClockInService {
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
 
+        // An already-open session — from EITHER entry point, a regular Check-In or a still-open
+        // earlier Web Clock-In — must block a fresh Web Clock-In exactly like AttendanceService
+        // .checkIn blocks a fresh Check-In: only one session open at a time, however it started.
+        // This is NOT a once-per-day restriction — an employee may Web Clock-In and Web Clock-Out
+        // more than once in the same day (see collectPunches), this only blocks trying to open a
+        // *second, concurrent* session while one is already running. A session left open past
+        // its own workday/grace window (a forgotten checkout from days ago) is stale, not really
+        // "still checked in" — flag it Missing Check-Out (mirrors AttendanceService.checkIn /
+        // flagMissingCheckoutIfStale) instead of letting it block Web Clock-In forever.
+        Optional<Attendance> openSession = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(actor.getId());
+        if (openSession.isPresent()) {
+            LocalDateTime openNow = LocalDateTime.now(resolveZone(openSession.get(), actor.getId(), req.getTimezone()));
+            if (!flagMissingCheckoutIfStale(openSession.get(), openNow)) {
+                throw new IllegalArgumentException("You have already checked in today");
+            }
+        }
+
         // Resolved from the browser-reported zone (req.getTimezone(), e.g. from Intl
         // .DateTimeFormat().resolvedOptions().timeZone), falling back to the employee's
         // configured Location.timezone — mirrors AttendanceService.checkIn's resolveZone. Locked
@@ -79,26 +101,31 @@ public class WebClockInService {
         LocalDateTime now = LocalDateTime.now(zone);
         LocalDate today = shiftDayOf(now);
 
-        if (webClockInRepository.existsByEmployeeUserIdAndWorkDateAndStatus(actor.getId(), today, "APPROVED")) {
-            throw new IllegalArgumentException("You have already checked in today");
-        }
-
-        // No manager approval needed — self-approved the moment it's submitted.
+        UUID approverId = resolveAssignedApprover(actor.getId());
         WebClockInRequest entity = WebClockInRequest.builder()
                 .employeeUserId(actor.getId())
-                .assignedApproverId(resolveAssignedApprover(actor.getId()))
+                .assignedApproverId(approverId)
                 .workDate(today)
                 .requestedCheckIn(now)
                 .reason(req.getReason().trim())
-                .status("APPROVED")
-                .reviewedBy(actor.getId())
-                .reviewedAt(now)
+                .status(STATUS_PENDING)
                 .build();
         entity = webClockInRepository.save(entity);
 
+        // The attendance effect is immediate and real-time — the employee is checked in and
+        // worked time starts accruing the moment they submit, regardless of how long HR takes to
+        // review. See this class's own Javadoc for why these two things are deliberately
+        // decoupled.
         applyCheckInToAttendance(entity, zone.getId());
 
         auditService.log(actor.getId(), "WEB_CLOCK_IN_CHECKED_IN", entity.getId());
+
+        if (approverId != null) {
+            notificationService.send(approverId, "WEB_CLOCK_IN_SUBMITTED",
+                    "Web Clock-In Request Submitted",
+                    employeeName(actor.getId()) + " has submitted a web clock-in request for " + today + ".",
+                    "/approvals?type=WEB_CLOCK_IN");
+        }
         return toResponse(entity);
     }
 
@@ -112,7 +139,7 @@ public class WebClockInService {
     public void cancel(String actorEmail) {
         User actor = requireActor(actorEmail);
         WebClockInRequest req = webClockInRepository
-                .findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId(), "APPROVED")
+                .findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId())
                 .orElseThrow(() -> new IllegalArgumentException("No active check-in to cancel"));
 
         attendanceRepository.findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
@@ -146,19 +173,18 @@ public class WebClockInService {
     }
 
     /**
-     * Only reachable for a PENDING row that predates the no-approval-needed change — nothing
-     * new is ever submitted as PENDING anymore, see {@link #submit}.
+     * HR/manager approval of a Web Clock-In request. The attendance effect (the Attendance row,
+     * worked minutes, punch history) was ALREADY applied the moment the employee submitted — see
+     * {@link #submit}'s own doc comment — so this only ever updates the request's own review
+     * status; it must NOT re-touch the Attendance row. Re-applying it here would silently reopen
+     * a session the employee may have already checked out of (or resumed since), reintroducing
+     * exactly the double-counting bug fixed in checkOut's own "already closed elsewhere" guard.
      */
     @Transactional
     public WebClockInResponse approve(UUID requestId, String comment, String actorEmail) {
         User actor = requireActor(actorEmail);
         WebClockInRequest req = requirePending(requestId);
         assertCanReview(req, actor);
-
-        // A manager approving someone else's old PENDING row — no browser-timezone signal from
-        // the original requester is available here, so this falls straight to their configured
-        // Location.timezone (then the global business zone). See resolveZone.
-        applyCheckInToAttendance(req, resolveZone(null, req.getEmployeeUserId()).getId());
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         req.setStatus("APPROVED");
@@ -202,23 +228,36 @@ public class WebClockInService {
     }
 
     /**
-     * No approval needed — the employee closes out their own approved web clock-in day.
-     * Mirrors AttendanceService.checkOut's derived-field logic for a single-session day.
+     * No approval needed to check out — the employee closes out their own web clock-in day
+     * regardless of whether HR has reviewed it yet. Mirrors AttendanceService.checkOut's
+     * derived-field logic for a single-session day.
      */
     @Transactional
     public WebClockInResponse checkOut(String actorEmail, String clientTimezone) {
         User actor = requireActor(actorEmail);
 
-        // Looked up by "approved and not yet checked out", not by today's work_date — a web
-        // clock-in approved before midnight (shift crosses into the next day) can still be
-        // open under yesterday's work_date once the calendar date rolls over.
+        // Looked up by "not yet checked out" regardless of review status, not by today's
+        // work_date — a web clock-in from before midnight (shift crosses into the next day) can
+        // still be open under yesterday's work_date once the calendar date rolls over.
         WebClockInRequest req = webClockInRepository
-                .findFirstByEmployeeUserIdAndStatusAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId(), "APPROVED")
-                .orElseThrow(() -> new IllegalArgumentException("No approved web clock-in found for today"));
+                .findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId())
+                .orElseThrow(() -> new IllegalArgumentException("No web clock-in found for today"));
 
         Attendance record = attendanceRepository
                 .findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
                 .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
+
+        // The underlying session can also be closed through the OTHER entry point — a regular
+        // Check-Out — while this request is still marked open, since both share the same
+        // Attendance row. If that already happened, the record's own checkOutAt is the source
+        // of truth: sync this request to it and stop, rather than recomputing a second,
+        // overlapping session on top of one already closed and counted — that would both
+        // double-count worked minutes and push checkOutAt later than what actually happened.
+        if (record.getCheckOutAt() != null) {
+            req.setCheckedOutAt(record.getCheckOutAt());
+            webClockInRepository.save(req);
+            return toResponse(req);
+        }
 
         // The session's own zone, locked in at Web Clock-In — NOT this click's browser zone,
         // which may have drifted since (travel, DST) — governs its Check-Out, so worked-minutes
@@ -281,6 +320,27 @@ public class WebClockInService {
     }
 
     // ---------------------------------------------------------------- internals
+
+    /**
+     * Mirrors AttendanceService.flagMissingCheckoutIfStale — a session left open past its own
+     * workday/grace window (shiftDayCutover, e.g. 7:00 AM the next calendar day) must not go on
+     * blocking a fresh Web Clock-In ({@link #submit}) forever. Flags it Missing Check-Out right
+     * then — deliberately WITHOUT fabricating a checkOutAt or computing workedMinutes — and
+     * returns whether the record is now, or already was, flagged, so the caller can fall through
+     * to treating this employee as having no open session.
+     */
+    private boolean flagMissingCheckoutIfStale(Attendance record, LocalDateTime now) {
+        if (record.getCheckOutAt() != null) return false;
+        if (STATUS_MISSING_CHECKOUT.equals(record.getStatus())) return true;
+        if (!shiftDayOf(now).isAfter(record.getWorkDate())) return false;
+
+        String before = auditSnapshot.toJson(Map.of("status", record.getStatus()));
+        record.setStatus(STATUS_MISSING_CHECKOUT);
+        Attendance saved = attendanceRepository.save(record);
+        String after = auditSnapshot.toJson(Map.of("status", STATUS_MISSING_CHECKOUT));
+        auditService.log(record.getEmployeeUserId(), "ATTENDANCE_MISSING_CHECKOUT", saved.getId(), before, after);
+        return true;
+    }
 
     /**
      * Upserts the day's Attendance row from a (now-always-approved) request's requestedCheckIn.
@@ -421,15 +481,34 @@ public class WebClockInService {
                 .orElse(attendanceProps.getShiftStart());
     }
 
+    /**
+     * Mirrors AttendanceService.checkIn's identical two-independent-things split (see its own
+     * doc comment): {@code isLate}/status is grace-aware (deadline = shiftStart + grace), while
+     * {@code lateByMinutes} is the raw, no-forgiveness minutes past shiftStart itself shown to
+     * the employee — these must NOT collapse into the same reference point, or a check-in one
+     * second past the deadline would under-report how late it actually was by the whole grace
+     * window. Both are compared as full date-aware instants (shiftStart anchored to the record's
+     * own workDate — the already-resolved shift-day), NOT bare LocalTime-of-day: a pure LocalTime
+     * comparison silently breaks the moment a check-in crosses midnight relative to an overnight
+     * shift (e.g. a 20:30-05:30 shift's 1:11 AM check-in is genuinely hours late, but 01:11 as a
+     * bare LocalTime reads as "before" 20:30).
+     */
     private void recomputeDerivedFields(Attendance record, UUID employeeUserId) {
-        LocalTime deadline = resolveShiftStart(employeeUserId).plusMinutes(attendanceProps.getLateGraceMinutes());
-        int lateByMinutes = record.getCheckInAt().toLocalTime().isAfter(deadline)
-                ? (int) Duration.between(deadline, record.getCheckInAt().toLocalTime()).toMinutes()
+        LocalDateTime shiftStartAt = LocalDateTime.of(record.getWorkDate(), resolveShiftStart(employeeUserId));
+        LocalDateTime deadlineAt = shiftStartAt.plusMinutes(attendanceProps.getLateGraceMinutes());
+        LocalDateTime checkInAt = record.getCheckInAt();
+        boolean isLate = checkInAt.isAfter(deadlineAt);
+        int lateByMinutes = checkInAt.isAfter(shiftStartAt)
+                ? (int) Math.ceil(Duration.between(shiftStartAt, checkInAt).getSeconds() / 60.0)
                 : 0;
         record.setLateByMinutes(lateByMinutes);
         record.setWorkedMinutes(null);
         record.setCheckOutAt(null);
-        record.setStatus(lateByMinutes > 0 ? STATUS_LATE : STATUS_PRESENT);
+        // Status/penalty-relevant lateness is grace-aware (isLate) — matches AttendanceService
+        // .checkIn: a check-in that's late by less than the grace window must not count as an
+        // official LATE arrival just because lateByMinutes (its own no-forgiveness display
+        // value) is nonzero.
+        record.setStatus(isLate ? STATUS_LATE : STATUS_PRESENT);
     }
 
     private WebClockInRequest requirePending(UUID requestId) {

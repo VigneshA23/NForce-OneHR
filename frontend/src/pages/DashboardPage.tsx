@@ -23,13 +23,18 @@ import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
-// Backend LocalDateTime strings are IST (Asia/Kolkata, UTC+5:30). Appending the offset
-// lets the browser convert to the viewer's own local timezone for display.
+// Backend LocalDateTime strings are naive wall-clock digits already in the record's own
+// resolved zone (browser-reported at Check-In/Web Clock-In, see AttendanceService.resolveZone)
+// — there is nothing left to convert. Parsing with 'Z' and formatting with timeZone: 'UTC' reads
+// those digits back out verbatim, regardless of the *viewer's* own browser timezone. Previously
+// this appended '+05:30' (assumed IST) and let toLocaleTimeString re-project into the viewer's
+// local zone — for any employee whose resolved zone isn't IST, or any viewer whose browser isn't
+// IST either, that mislabeled the digits and then shifted them again.
 function formatClockTime(iso: string | null): string | null {
   if (!iso) return null;
-  const d = new Date(iso + '+05:30');
+  const d = new Date(iso + 'Z');
   if (isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
 
 function todayIsoDate(): string {
@@ -137,7 +142,9 @@ function calCellTooltip(day: MonthDay): string {
   if (day.status == null) return `${label} — No record`;
   const statusLabel: Record<string, string> = {
     PRESENT:          'Present',
-    LATE:             `Late${day.lateByMinutes ? ` by ${day.lateByMinutes}m` : ''}`,
+    // formatWorkedMinutes gives "1h 30m"/"1h"/"45m", consistent with the "worked" text below
+    // instead of a raw, unconverted minute count.
+    LATE:             `Late${day.lateByMinutes ? ` by ${formatWorkedMinutes(day.lateByMinutes)}` : ''}`,
     HALF_DAY:         'Half day',
     ABSENT:           'Absent',
     MISSING_CHECKOUT: 'Missing checkout',
@@ -357,7 +364,7 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
                 <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.checkInAt) ?? '—'}</div>
                 {r.status === 'LATE' && (
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
-                    Late{r.lateByMinutes ? ` by ${r.lateByMinutes}m` : ''}
+                    Late{r.lateByMinutes ? ` by ${formatWorkedMinutes(r.lateByMinutes)}` : ''}
                   </div>
                 )}
               </div>
