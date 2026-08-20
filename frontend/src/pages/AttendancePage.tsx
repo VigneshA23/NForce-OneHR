@@ -1675,13 +1675,18 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       setError('Duration must be greater than zero');
       return;
     }
-    // The block is based on the monthly allowance already being fully used, not on the
-    // requested value itself — a request of exactly (or under) the cap is always allowed as
-    // long as some balance remains; once the 120-minute allowance is fully used, any further
-    // request is blocked regardless of how many minutes it asks for.
+    // Blocks once this request's own minutes would push the month's total past the cap — not
+    // just once the allowance is already fully used, which let a single request larger than the
+    // whole monthly cap (e.g. 200 minutes against a 120-minute allowance) through untouched.
+    // Mirrors the hard check AttendanceRequestService.submit enforces server-side.
     const partialDayLimitMinutes = PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60;
-    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && remainingMinutes <= 0) {
-      setError(`You have used your ${partialDayLimitMinutes} minutes. You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
+    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && Number(partialDayMinutes) > remainingMinutes) {
+      // Only claim the allowance is "used up" when it actually is (remainingMinutes <= 0) —
+      // e.g. 0/120 used, requesting 200 minutes in one shot isn't "you've used your 120
+      // minutes", it's simply asking for more than the cap allows in a single request.
+      setError(remainingMinutes <= 0
+        ? `You have used your ${partialDayLimitMinutes} minutes. You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`
+        : `You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
       return;
     }
     if (partialDayMode === 'INTERVENING_TIMEOFF' && requestType === 'PARTIAL_DAY') {

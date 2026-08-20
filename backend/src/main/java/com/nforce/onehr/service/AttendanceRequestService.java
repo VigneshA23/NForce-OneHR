@@ -50,15 +50,16 @@ public class AttendanceRequestService {
     private static final BigDecimal WFH_FULL_DAY = new BigDecimal("1.00");
     private static final BigDecimal WFH_HALF_DAY = new BigDecimal("0.50");
 
-    // Partial Day's advisory allowance per calendar month, spendable on any day(s) within that
-    // month. Not enforced as a hard cap in submit() — see resolvePartialDayHours — the employee
-    // sees usage-vs-allowance via getPartialDayBalance, and the frontend asks them to confirm
-    // before submitting past it; the assigned approver makes the actual call.
+    // Partial Day's allowance per calendar month, spendable on any day(s) within that month —
+    // enforced as a hard cap in submit() (a request that would push the month's total past this
+    // is rejected outright), same as WFH's cap below. The employee also sees usage-vs-allowance
+    // via getPartialDayBalance before submitting.
     private static final BigDecimal PARTIAL_DAY_MONTHLY_LIMIT_HOURS = new BigDecimal("2");
+    private static final int PARTIAL_DAY_MONTHLY_LIMIT_MINUTES = 120;
 
-    // WFH's monthly allowance, in days (Full Day = 1, First/Second Half = 0.5 each) — unlike
-    // Partial Day's advisory cap above, this one IS enforced as a hard limit in submit(): a
-    // request that would push the month's total past this is rejected outright.
+    // WFH's monthly allowance, in days (Full Day = 1, First/Second Half = 0.5 each) — same
+    // hard-limit treatment as Partial Day's cap above: a request that would push the month's
+    // total past this is rejected outright.
     private static final BigDecimal WFH_MONTHLY_LIMIT_DAYS = new BigDecimal("2");
 
     private final AttendanceRequestRepository requestRepository;
@@ -83,6 +84,19 @@ public class AttendanceRequestService {
                 throw new IllegalArgumentException(
                         "This request exceeds your remaining Work From Home balance of "
                                 + WFH_MONTHLY_LIMIT_DAYS.subtract(usedThisMonth).max(BigDecimal.ZERO) + " day(s) for this month");
+            }
+        }
+        if (TYPE_PARTIAL_DAY.equals(type)) {
+            BigDecimal usedThisMonth = partialDayHoursUsedInMonth(actor.getId(), req.getRequestDate());
+            if (usedThisMonth.add(partialDayHours).compareTo(PARTIAL_DAY_MONTHLY_LIMIT_HOURS) > 0) {
+                // "You have used your 120 minutes" only holds when the allowance is actually
+                // already exhausted — a fresh 0-used request for 200 minutes isn't "used up",
+                // it's just larger than the cap allows in one request.
+                boolean allowanceExhausted = usedThisMonth.compareTo(PARTIAL_DAY_MONTHLY_LIMIT_HOURS) >= 0;
+                throw new IllegalArgumentException(allowanceExhausted
+                        ? "You have used your " + PARTIAL_DAY_MONTHLY_LIMIT_MINUTES + " minutes. You are not allowed to raise a request for more than "
+                                + PARTIAL_DAY_MONTHLY_LIMIT_MINUTES + " minutes."
+                        : "You are not allowed to raise a request for more than " + PARTIAL_DAY_MONTHLY_LIMIT_MINUTES + " minutes.");
             }
         }
 
@@ -193,11 +207,9 @@ public class AttendanceRequestService {
     }
 
     /**
-     * The monthly cap (PARTIAL_DAY_MONTHLY_LIMIT_HOURS) is advisory, not enforced here — the
-     * employee sees it via getPartialDayBalance and the frontend's "View Available Balance" /
-     * over-balance confirmation, but submitting past it is still allowed (it just stays PENDING
-     * for the assigned approver to judge, same as any other request). Only a structurally invalid
-     * amount (zero or negative) is rejected.
+     * Validates the structural shape only (must be present and positive) — the monthly cap
+     * (PARTIAL_DAY_MONTHLY_LIMIT_HOURS) is a separate hard check in submit(), since it needs the
+     * employee's other requests this month to evaluate, not just this one field.
      */
     private BigDecimal resolvePartialDayHours(String type, BigDecimal partialDayHours) {
         if (TYPE_WFH.equals(type)) {
