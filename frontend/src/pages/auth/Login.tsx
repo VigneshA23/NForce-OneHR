@@ -131,7 +131,9 @@ export default function Login() {
         role: data.role,
       });
       if (data.mustChangePassword) {
-        navigate('/change-password', { replace: true });
+        // Not `replace: true` — keeps /login in history so the browser back
+        // button can return the user to sign-in from the password-setup page.
+        navigate('/change-password');
       } else {
         navigate('/dashboard', { replace: true });
       }
