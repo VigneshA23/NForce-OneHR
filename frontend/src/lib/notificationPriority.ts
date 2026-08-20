@@ -13,6 +13,7 @@ export type NotificationCategory =
 
 const CATEGORY_BY_TYPE: Record<string, NotificationCategory> = {
   // Leave & Attendance
+  LEAVE_REQUEST_SUBMITTED:           'Leave & Attendance',
   LEAVE_APPROVED:                    'Leave & Attendance',
   LEAVE_REJECTED:                    'Leave & Attendance',
   ATTENDANCE:                        'Leave & Attendance',

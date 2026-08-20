@@ -26,6 +26,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
@@ -56,6 +57,12 @@ public class LeaveService {
 
     // A REJECTED request never blocks a new same-day submission — only these two statuses do.
     private static final Set<String> SAME_DAY_BLOCKING_STATUSES = Set.of("PENDING", "APPROVED");
+
+    // Matches RegularizationService's NOTIFICATION_DATE_FMT — same "d MMM yyyy" convention used
+    // app-wide for dates embedded in notification text.
+    private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
+    private static final String APPROVALS_LINK = "/approvals?type=LEAVE";
+    private static final String EMPLOYEE_LEAVE_LINK = "/requests?type=LEAVE";
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -181,6 +188,7 @@ public class LeaveService {
         request = leaveRequestRepository.save(request);
 
         auditService.log(actor.getId(), "LEAVE_REQUEST_SUBMITTED", request.getId());
+        notifySubmission(request, type, actor);
         return toRequestResponse(request);
     }
 
@@ -300,17 +308,13 @@ public class LeaveService {
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("APPROVED");
         request.setDecidedBy(actor.getId());
-        request.setDecidedAt(LocalDateTime.now());
+        request.setDecidedAt(LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())));
         request = leaveRequestRepository.save(request);
 
         String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "decidedBy", actor.getId().toString()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId(), before, after);
 
-        notificationService.send(request.getEmployeeUserId(), "LEAVE_APPROVED",
-                "Leave Request Approved",
-                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
-                        + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=LEAVE");
+        notifyDecision(request, "LEAVE_APPROVED", "Leave Request Approved", "approved", null, actor);
         return toRequestResponse(request);
     }
 
@@ -328,18 +332,57 @@ public class LeaveService {
         request.setStatus("REJECTED");
         request.setDecisionReason(reason.trim());
         request.setDecidedBy(actor.getId());
-        request.setDecidedAt(LocalDateTime.now());
+        request.setDecidedAt(LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())));
         request = leaveRequestRepository.save(request);
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId(), before, after);
 
-        notificationService.send(request.getEmployeeUserId(), "LEAVE_REJECTED",
-                "Leave Request Rejected",
-                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
-                        + " has been rejected by " + employeeName(actor.getId()) + ". Reason: " + request.getDecisionReason(),
-                "/requests?type=LEAVE");
+        notifyDecision(request, "LEAVE_REJECTED", "Leave Request Rejected", "rejected", request.getDecisionReason(), actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Notifies the employee's current reporting manager only — mirrors RegularizationService's
+     * and AssetService's submission notifications, which deliberately notify just the resolved
+     * approver rather than broadcasting to every HR Admin/Super Admin: those roles already have
+     * blanket queue visibility (see {@link #listPendingApprovals}), so a per-request notification
+     * to every admin in the org would be exactly the "blindly notify every user" pattern the
+     * project avoids elsewhere. No-op if the employee has no manager on file. Reuses
+     * {@link NotificationService#send} as-is — no new notification model/queue/delivery mechanism.
+     */
+    private void notifySubmission(LeaveRequest request, LeaveType type, User actor) {
+        historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId())
+                .map(EmployeeManagerHistory::getManagerUserId)
+                .ifPresent(managerId -> notificationService.send(managerId, "LEAVE_REQUEST_SUBMITTED", "New Leave Request",
+                        employeeName(actor.getId()) + " has submitted a " + type.getName() + " request from "
+                                + request.getStartDate().format(NOTIFICATION_DATE_FMT) + " to "
+                                + request.getEndDate().format(NOTIFICATION_DATE_FMT) + " (" + dayLabel(request.getTotalDays()) + ").",
+                        APPROVALS_LINK));
+    }
+
+    /**
+     * Notifies the employee of the decision — same single recipient as the pre-existing behavior
+     * this method replaces (only the message content is richer: leave type, formatted dates, and
+     * total days are now included alongside the approver/rejecter name and reason). HR Admin/Super
+     * Admin are not separately notified here, matching {@link #notifySubmission}'s reasoning —
+     * their blanket approval visibility already covers this. Reuses the existing
+     * {@code LEAVE_APPROVED}/{@code LEAVE_REJECTED} notification types rather than introducing new
+     * ones, per the project's "reuse the equivalent event" convention.
+     */
+    private void notifyDecision(LeaveRequest request, String type, String title, String verb, String reason, User actor) {
+        String employeeOf = request.getLeaveType().getName() + " request from "
+                + request.getStartDate().format(NOTIFICATION_DATE_FMT) + " to "
+                + request.getEndDate().format(NOTIFICATION_DATE_FMT) + " (" + dayLabel(request.getTotalDays()) + ")";
+        String reasonSuffix = reason != null && !reason.isBlank() ? " Reason: " + reason : "";
+
+        notificationService.send(request.getEmployeeUserId(), type, title,
+                "Your " + employeeOf + " has been " + verb + " by " + employeeName(actor.getId()) + "." + reasonSuffix,
+                EMPLOYEE_LEAVE_LINK);
+    }
+
+    private static String dayLabel(BigDecimal days) {
+        return formatDays(days) + " day" + (days.compareTo(BigDecimal.ONE) == 0 ? "" : "s");
     }
 
     /**

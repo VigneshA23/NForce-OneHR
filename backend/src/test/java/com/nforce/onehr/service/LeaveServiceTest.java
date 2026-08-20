@@ -544,11 +544,18 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balance));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        java.time.LocalDateTime before = java.time.LocalDateTime.now(ZoneId.systemDefault());
         LeaveRequestResponse approved = leaveService.approve(pending.getId(), managerEmail);
+        java.time.LocalDateTime after = java.time.LocalDateTime.now(ZoneId.systemDefault());
 
         assertEquals("APPROVED", approved.getStatus());
         assertEquals(managerId, pending.getDecidedBy());
         assertNotNull(approved.getDecidedAt());
+        // decidedAt must be the backend/application system time captured at the moment of the
+        // approval action — bounded between timestamps taken immediately before and after the
+        // call, in the same (test-configured) zone as AttendanceProperties#getZone.
+        assertFalse(approved.getDecidedAt().isBefore(before));
+        assertFalse(approved.getDecidedAt().isAfter(after));
         assertEquals(new BigDecimal("4"), balance.getUsedDays());
         verify(leaveBalanceRepository).save(balance);
         verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_APPROVED"), eq(pending.getId()), any(), any());
@@ -567,14 +574,174 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        java.time.LocalDateTime before = java.time.LocalDateTime.now(ZoneId.systemDefault());
         LeaveRequestResponse rejected = leaveService.reject(pending.getId(), "Team coverage conflict", managerEmail);
+        java.time.LocalDateTime after = java.time.LocalDateTime.now(ZoneId.systemDefault());
 
         assertEquals("REJECTED", rejected.getStatus());
         assertEquals("Team coverage conflict", rejected.getDecisionReason());
+        assertEquals(managerId, pending.getDecidedBy());
+        assertNotNull(rejected.getDecidedAt());
+        assertFalse(rejected.getDecidedAt().isBefore(before));
+        assertFalse(rejected.getDecidedAt().isAfter(after));
         verify(leaveBalanceRepository, never()).save(any());
         verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_REJECTED"), eq(pending.getId()), any(), any());
         verify(notificationService, times(1)).send(eq(employeeId), eq("LEAVE_REJECTED"), any(),
                 contains("Team coverage conflict"), any());
+    }
+
+    @Test
+    void approve_decidedAt_isGeneratedFromTheConfiguredApplicationTimezone_notClientOrJvmDefault() {
+        // Prove decidedAt is derived from AttendanceProperties#getZone() (the existing
+        // OneHR application timezone config used elsewhere, e.g. #submitRequest's "today"
+        // resolution) rather than the JVM default zone or any client-supplied value.
+        ZoneId configuredZone = ZoneId.of("UTC").equals(ZoneId.systemDefault())
+                ? ZoneId.of("Asia/Kolkata") : ZoneId.of("UTC");
+        when(attendanceProperties.getZone()).thenReturn(configuredZone.getId());
+
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        java.time.LocalDateTime before = java.time.LocalDateTime.now(configuredZone);
+        LeaveRequestResponse approved = leaveService.approve(pending.getId(), managerEmail);
+        java.time.LocalDateTime after = java.time.LocalDateTime.now(configuredZone);
+
+        assertFalse(approved.getDecidedAt().isBefore(before));
+        assertFalse(approved.getDecidedAt().isAfter(after));
+    }
+
+    // ── Leave notification flow ─────────────────────────────────────────────────────────────
+
+    @Test
+    void submitRequest_notifiesCurrentManager_andNeverNotifiesTheSubmitterThemselves() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
+
+        // employeeRepository has no Employee row for this fixture (see setUp's lenient stub), so
+        // employeeName() falls back to the actor's own email — asserted here instead of duplicating
+        // that fallback logic.
+        verify(notificationService).send(eq(managerId), eq("LEAVE_REQUEST_SUBMITTED"), any(),
+                contains(employeeEmail), eq("/approvals?type=LEAVE"));
+        verify(notificationService, never()).send(eq(employeeId), any(), any(), any(), any());
+    }
+
+    @Test
+    void submitRequest_withNoManagerOnFile_sendsNoNotification() {
+        // Mirrors AssetService/RegularizationService: submission notifies only the resolved
+        // manager. With no manager on file (unstubbed historyRepository -> Optional.empty()),
+        // there is nobody to notify — this must not throw, and must not fall back to notifying
+        // HR/Super Admin instead (that broadcast was deliberately not built; see #notifySubmission).
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(notificationService, never()).send(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void submitRequest_failedValidation_neverSendsAnyNotification() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("2"), BigDecimal.ZERO)));
+
+        LocalDate start = LocalDate.now();
+        assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(start, start.plusDays(5), false, "Too long"), employeeEmail));
+
+        verify(notificationService, never()).send(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void approve_employeeNotification_includesLeaveTypeDatesAndTotalDays() {
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.of(2026, 8, 20)).endDate(LocalDate.of(2026, 8, 22))
+                .totalDays(new BigDecimal("3")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        leaveService.approve(pending.getId(), managerEmail);
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).send(eq(employeeId), eq("LEAVE_APPROVED"), eq("Leave Request Approved"),
+                messageCaptor.capture(), eq("/requests?type=LEAVE"));
+        String message = messageCaptor.getValue();
+        assertTrue(message.contains("Annual Leave"));
+        assertTrue(message.contains("20 Aug 2026"));
+        assertTrue(message.contains("22 Aug 2026"));
+        assertTrue(message.contains("3 days"));
+    }
+
+    @Test
+    void reject_notifiesEmployee_withRejectionReasonIncluded() {
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        leaveService.reject(pending.getId(), "Team coverage conflict", managerEmail);
+
+        verify(notificationService).send(eq(employeeId), eq("LEAVE_REJECTED"), eq("Leave Request Rejected"),
+                contains("Team coverage conflict"), eq("/requests?type=LEAVE"));
+    }
+
+    @Test
+    void approve_alreadyDecided_neverSendsASecondApprovalNotification() {
+        // Reprocessing an already-decided request must not create duplicate notifications — the
+        // PENDING guard blocks it before any notification code (employee or admin) is reached.
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        leaveService.approve(pending.getId(), managerEmail);
+        assertThrows(IllegalStateException.class, () -> leaveService.approve(pending.getId(), managerEmail));
+
+        verify(notificationService, times(1)).send(any(), eq("LEAVE_APPROVED"), any(), any(), any());
     }
 
     @Test

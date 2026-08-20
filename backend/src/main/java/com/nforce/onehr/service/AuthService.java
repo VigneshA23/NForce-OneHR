@@ -8,6 +8,7 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
 import com.nforce.onehr.util.RoleUtils;
+import com.nforce.onehr.validation.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -139,6 +140,14 @@ public class AuthService {
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
             auditService.log(user.getId(), "PASSWORD_CHANGE_FAILED", user.getId());
             throw new BadCredentialsException("Current password is incorrect");
+        }
+
+        // newPassword is already checked for spaces by @ValidPassword on ChangePasswordRequest,
+        // but confirmPassword carries no such annotation (it only needs to equal newPassword) —
+        // check it explicitly so a space-only difference is reported as a space error rather
+        // than a generic mismatch.
+        if (PasswordPolicy.containsSpace(request.getConfirmPassword())) {
+            throw new IllegalArgumentException(PasswordPolicy.SPACE_MESSAGE);
         }
 
         if (!request.getNewPassword().equals(request.getConfirmPassword())) {
