@@ -32,6 +32,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u FROM User u JOIN u.roles r WHERE r.code = 'SUPER_ADMIN' AND u.active = true AND u.deletedAt IS NULL ORDER BY u.createdAt ASC")
     List<User> findActiveSuperAdmins();
 
+    // Deliberately HR_ADMIN only (not findAdminUserIds, which also includes SUPER_ADMIN) — used
+    // to notify HR of newly-submitted Regularization/WFH/Partial Day requests without also
+    // paging every Super Admin on every single submission.
+    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'HR_ADMIN' AND u.active = true AND u.deletedAt IS NULL")
+    Set<UUID> findActiveHrAdminUserIds();
+
     // Backs audit-log actor/target search: resolves a free-text name/email fragment to candidate
     // user ids without requiring a @ManyToOne join on AuditLog (which has none).
     @Query("""

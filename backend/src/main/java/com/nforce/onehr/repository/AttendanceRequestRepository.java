@@ -18,4 +18,10 @@ public interface AttendanceRequestRepository extends JpaRepository<AttendanceReq
     // Backs the Partial Day monthly-hours cap — see AttendanceRequestService.resolvePartialDayHours.
     List<AttendanceRequest> findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(
             UUID employeeUserId, String requestType, LocalDate from, LocalDate to);
+
+    // Backs the WFH one-request-per-date rule — see AttendanceRequestService.submit. Partial Day
+    // deliberately has no equivalent: multiple same-day Partial Day requests are fine as long as
+    // their combined minutes stay within the monthly cap (see partialDayHoursUsedInMonth).
+    List<AttendanceRequest> findByEmployeeUserIdAndRequestTypeAndRequestDate(
+            UUID employeeUserId, String requestType, LocalDate requestDate);
 }

@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
 import com.nforce.onehr.dto.attendance.CreateAttendanceRequest;
 import com.nforce.onehr.entity.AttendanceRequest;
@@ -18,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -62,10 +65,18 @@ public class AttendanceRequestService {
     // total past this is rejected outright.
     private static final BigDecimal WFH_MONTHLY_LIMIT_DAYS = new BigDecimal("2");
 
+    // Minimum lead time before a WFH request's date — matches the policy text ("requires 2
+    // day(s) of prior notice, containing at least 0 working day(s)") and Keka's own reference
+    // behavior: a flat calendar-day minimum (the working-day sub-requirement is configured as 0,
+    // so it never adds anything beyond this). Subsumes "no past dates" — today+2 is always
+    // strictly in the future.
+    private static final int WFH_PRIOR_NOTICE_DAYS = 2;
+
     private final AttendanceRequestRepository requestRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
+    private final AttendanceProperties attendanceProps;
     private final AuditService auditService;
     private final NotificationService notificationService;
 
@@ -79,6 +90,22 @@ public class AttendanceRequestService {
         UUID notifyUserId = resolveNotifyUser(req.getNotifyUserId());
 
         if (TYPE_WFH.equals(type)) {
+            LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
+            LocalDate earliestAllowed = today.plusDays(WFH_PRIOR_NOTICE_DAYS);
+            if (req.getRequestDate().isBefore(earliestAllowed)) {
+                throw new IllegalArgumentException("WFH request requires " + WFH_PRIOR_NOTICE_DAYS + " day(s) of prior notice.");
+            }
+            // One WFH request per date, full day or half day alike — unlike Partial Day (below),
+            // which allows several same-day requests as long as their combined minutes stay
+            // within the monthly cap. A REJECTED prior request for the same date doesn't count;
+            // it never happened as far as the employee's standing requests go.
+            boolean alreadyRequestedThisDate = requestRepository
+                    .findByEmployeeUserIdAndRequestTypeAndRequestDate(actor.getId(), TYPE_WFH, req.getRequestDate())
+                    .stream()
+                    .anyMatch(r -> !STATUS_REJECTED.equals(r.getStatus()));
+            if (alreadyRequestedThisDate) {
+                throw new IllegalArgumentException("You already have a Work From Home request for this date.");
+            }
             BigDecimal usedThisMonth = wfhDaysUsedInMonth(actor.getId(), req.getRequestDate());
             if (usedThisMonth.add(wfhDayFraction).compareTo(WFH_MONTHLY_LIMIT_DAYS) > 0) {
                 throw new IllegalArgumentException(
@@ -115,12 +142,33 @@ public class AttendanceRequestService {
         entity = requestRepository.save(entity);
 
         auditService.log(actor.getId(), "ATTENDANCE_REQUEST_SUBMITTED", entity.getId());
+
+        Employee requester = employeeRepository.findById(actor.getId()).orElse(null);
+        String requesterName = requester != null ? requester.getFullName() : "A colleague";
+        String typeLabel = TYPE_WFH.equals(type) ? "Work From Home" : "Partial Day";
+
+        // Action-needed notification to whoever can actually approve this: the resolved approver
+        // (reporting manager, or a manually-picked eligible approver) plus every active HR Admin
+        // — mirrors RegularizationService.submit's notifyRecipients pattern. Deliberately
+        // HR_ADMIN only, not findAdminUserIds — Super Admin already has blanket queue visibility
+        // (see listPendingForApprover) so isn't separately paged on every submission.
+        Set<UUID> approvalRecipients = new LinkedHashSet<>();
+        if (entity.getAssignedApproverId() != null) approvalRecipients.add(entity.getAssignedApproverId());
+        approvalRecipients.addAll(userRepository.findActiveHrAdminUserIds());
+        for (UUID recipientId : approvalRecipients) {
+            notificationService.send(recipientId, "ATTENDANCE",
+                    "Attendance Request Submitted",
+                    requesterName + " has submitted a " + typeLabel + " request for " + req.getRequestDate() + ".",
+                    "/approvals?type=" + type);
+        }
+
+        // Separate, purely informational "FYI" to whichever colleague the employee optionally
+        // chose to notify — distinct from the approval-recipients block above, and independent
+        // of whether that colleague has any role in reviewing the request.
         if (notifyUserId != null) {
-            Employee requester = employeeRepository.findById(actor.getId()).orElse(null);
-            String requesterName = requester != null ? requester.getFullName() : "A colleague";
             notificationService.send(notifyUserId, "ATTENDANCE",
                     "Attendance request submitted",
-                    requesterName + " submitted a " + (TYPE_WFH.equals(type) ? "Work From Home" : "Partial Day")
+                    requesterName + " submitted a " + typeLabel
                             + " request for " + req.getRequestDate() + " and wanted you to know.",
                     "/attendance");
         }

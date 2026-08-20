@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
 import com.nforce.onehr.dto.attendance.CreateAttendanceRequest;
 import com.nforce.onehr.entity.AttendanceRequest;
@@ -29,11 +30,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * Pure Mockito unit tests for Partial Day's monthly-hours allowance (2h/month, spendable on any
- * day(s) within the month). It's advisory only: submit() never rejects for being over it (the
- * frontend confirms with the employee first, and the assigned approver makes the real call) —
- * getPartialDayBalance is what reports usage-vs-allowance for that confirmation prompt.
- * Mirrors RegularizationServiceTest's isolation approach.
+ * Pure Mockito unit tests for Partial Day's monthly-hours cap (2h/month, spendable on any day(s)
+ * within the month) and WFH's 2-day prior-notice rule. Both are hard limits enforced in submit()
+ * — Partial Day's cap used to be advisory-only (see git history) but is now rejected outright,
+ * same as WFH's monthly cap; getPartialDayBalance still reports usage-vs-cap for the UI's
+ * "View Available Balance" display. Mirrors RegularizationServiceTest's isolation approach.
  */
 @ExtendWith(MockitoExtension.class)
 class AttendanceRequestServiceTest {
@@ -42,6 +43,7 @@ class AttendanceRequestServiceTest {
     @Mock private EmployeeManagerHistoryRepository historyRepository;
     @Mock private UserRepository userRepository;
     @Mock private EmployeeRepository employeeRepository;
+    @Mock private AttendanceProperties attendanceProps;
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
 
@@ -59,6 +61,7 @@ class AttendanceRequestServiceTest {
         // toResponse() looks these up defensively — absent is fine, it degrades to nulls/"Unknown".
         lenient().when(employeeRepository.findById(any())).thenReturn(java.util.Optional.empty());
         lenient().when(userRepository.findById(any())).thenReturn(java.util.Optional.empty());
+        lenient().when(attendanceProps.getZone()).thenReturn("Asia/Kolkata");
     }
 
     private CreateAttendanceRequest partialDayRequest(LocalDate date, double hours) {
@@ -90,13 +93,13 @@ class AttendanceRequestServiceTest {
     }
 
     @Test
-    void allowsPartialDayRequestThatExceedsTheAdvisoryAllowance() {
-        // The allowance is advisory (see getPartialDayBalance) — submit() itself never rejects
-        // for being over it; the frontend confirms with the employee first, and the assigned
-        // approver makes the real call.
-        AttendanceRequestResponse response = service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 3), employeeEmail);
-
-        assertEquals(BigDecimal.valueOf(3.0), response.getPartialDayHours());
+    void rejectsPartialDayRequestThatExceedsTheMonthlyCap() {
+        // The 2h/month cap is a hard limit (see ATTENDANCE_POLICY: "not allowed to raise a
+        // request for more than 120 minutes") — a single request larger than the whole cap is
+        // rejected outright, not left for the approver to judge.
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 3), employeeEmail));
+        assertTrue(ex.getMessage().contains("120 minutes"));
     }
 
     @Test
@@ -110,14 +113,43 @@ class AttendanceRequestServiceTest {
     void wfhRequestsAreUnaffectedByThePartialDayAllowance() {
         CreateAttendanceRequest wfh = CreateAttendanceRequest.builder()
                 .requestType("WFH")
-                .requestDate(LocalDate.of(2026, 8, 3))
+                .requestDate(LocalDate.now().plusDays(10))
                 .reason("test")
                 .build();
 
         AttendanceRequestResponse response = service.submit(wfh, employeeEmail);
 
         assertNull(response.getPartialDayHours());
-        verify(requestRepository, never()).findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(any(), any(), any(), any());
+        // The same repository method backs both WFH's and Partial Day's monthly-cap lookup
+        // (see wfhDaysUsedInMonth/partialDayHoursUsedInMonth) — it's called here for WFH's own
+        // cap, just never with PARTIAL_DAY as the type.
+        verify(requestRepository, never()).findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(any(), eq("PARTIAL_DAY"), any(), any());
+    }
+
+    // ---------------------------------------------------------------- WFH prior notice
+
+    private CreateAttendanceRequest wfhRequest(LocalDate date) {
+        return CreateAttendanceRequest.builder().requestType("WFH").requestDate(date).reason("test").build();
+    }
+
+    @Test
+    void rejectsWfhRequestForToday() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.submit(wfhRequest(LocalDate.now()), employeeEmail));
+        assertEquals("WFH request requires 2 day(s) of prior notice.", ex.getMessage());
+    }
+
+    @Test
+    void rejectsWfhRequestForTomorrow_oneDayIsNotEnoughNotice() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.submit(wfhRequest(LocalDate.now().plusDays(1)), employeeEmail));
+        assertEquals("WFH request requires 2 day(s) of prior notice.", ex.getMessage());
+    }
+
+    @Test
+    void allowsWfhRequestExactlyTwoDaysOut() {
+        AttendanceRequestResponse response = service.submit(wfhRequest(LocalDate.now().plusDays(2)), employeeEmail);
+        assertEquals("WFH", response.getRequestType());
     }
 
     // ---------------------------------------------------------------- getPartialDayBalance
