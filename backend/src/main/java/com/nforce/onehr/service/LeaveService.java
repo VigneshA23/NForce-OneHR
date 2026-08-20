@@ -300,7 +300,7 @@ public class LeaveService {
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("APPROVED");
         request.setDecidedBy(actor.getId());
-        request.setDecidedAt(LocalDateTime.now());
+        request.setDecidedAt(LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())));
         request = leaveRequestRepository.save(request);
 
         String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "decidedBy", actor.getId().toString()));
@@ -328,7 +328,7 @@ public class LeaveService {
         request.setStatus("REJECTED");
         request.setDecisionReason(reason.trim());
         request.setDecidedBy(actor.getId());
-        request.setDecidedAt(LocalDateTime.now());
+        request.setDecidedAt(LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())));
         request = leaveRequestRepository.save(request);
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
