@@ -216,6 +216,18 @@ input[type="date"] {
   .nf-hamburger-btn { display: flex !important; }
 }
 
+/* Topbar search -> was a fixed 260px bar that just vanished entirely
+   (`display: none`) once the screen got too narrow to fit it, along with
+   the workspace breadcrumb and the rest of the topbar row. Collapse it to
+   a magnifying-glass icon button instead so the search affordance stays
+   present at every width — same icon-button treatment (padding/hover) as
+   the theme toggle and notification bell beside it — rather than
+   disappearing outright. Desktop/tablet keep the full bar unchanged. */
+.nf-topbar-search-icon { display: none; }
+@media (max-width: 767px) {
+  .nf-topbar-search-icon { display: flex !important; }
+}
+
 /* Shell sidebar -> off-canvas drawer, mobile only */
 @media (max-width: 767px) {
   .shell-sidebar { transform: translateX(-100%); transition: transform 200ms ease; z-index: 100; }
@@ -225,25 +237,40 @@ input[type="date"] {
 }
 
 /* Sidebar logo (top-left, inside the off-canvas drawer) -> was a fixed
-   34px mark + fixed 13px/8px text regardless of phone width. Scale it
-   fluidly with clamp() based on viewport width instead, scoped to
+   34px mark + fixed 13px/8px text at every width above 767px (the previous
+   version of this rule only fired inside a `max-width: 767px` query, so
+   dragging a desktop/tablet browser window narrower did nothing at all
+   until it crossed that one cutoff, then suddenly "activated"). Scoped to
    `.shell-sidebar` so it doesn't affect the same BrandMark component used
    elsewhere (e.g. the sign-in page's logo, which scales on its own vh/vw
    ranges). Row height/border stay untouched — they must keep matching the
-   topbar exactly. */
-@media (max-width: 767px) {
-  .shell-sidebar .nf-sidebar-logo { gap: clamp(6px, 2.4vw, 10px) !important; padding: 0 clamp(10px, 4vw, 14px) !important; }
-  .shell-sidebar .nf-brandmark, .shell-sidebar .nf-brandmark-ring, .shell-sidebar .nf-brandmark-img {
-    width: clamp(26px, 9vw, 34px) !important;
-    height: clamp(26px, 9vw, 34px) !important;
-  }
-  .shell-sidebar .nf-brandmark-glow {
-    width: clamp(40px, 13.6vw, 52px) !important;
-    height: clamp(40px, 13.6vw, 52px) !important;
-  }
-  .shell-sidebar .nf-sidebar-logo-title { font-size: clamp(11px, 3.4vw, 13px) !important; }
-  .shell-sidebar .nf-sidebar-logo-sub { font-size: clamp(7px, 2.2vw, 8px) !important; }
+   topbar exactly.
+   No media query at all this time: every size below is `clamp(min, calc(px
+   + vw), max)`, a linear function of viewport width (not a plain `Nvw`
+   percentage), tuned so the *middle* term stays within [min, max] — and so
+   keeps changing continuously — across the entire practical browser-resize
+   range (a 320px phone up through a 1440px laptop), only saturating at the
+   floor/ceiling beyond that. So it now visibly resizes at every width, not
+   just below the old 767px cliff, including tablet widths and ordinary
+   desktop window resizing. Sidebar column width itself stays a fixed
+   236px at every breakpoint (by design — only its on/off-canvas visibility
+   changes on mobile, see the block above), so the logo intentionally stops
+   growing past its original 34px desktop size beyond ~1440px viewport
+   width instead of ballooning on an ultrawide monitor. */
+.shell-sidebar .nf-sidebar-logo {
+  gap: clamp(6px, calc(7px + 0.21vw), 10px) !important;
+  padding: 0 clamp(10px, calc(12.5px + 0.11vw), 14px) !important;
 }
+.shell-sidebar .nf-brandmark, .shell-sidebar .nf-brandmark-ring, .shell-sidebar .nf-brandmark-img {
+  width: clamp(26px, calc(27.3px + 0.47vw), 34px) !important;
+  height: clamp(26px, calc(27.3px + 0.47vw), 34px) !important;
+}
+.shell-sidebar .nf-brandmark-glow {
+  width: clamp(40px, calc(36.6px + 1.07vw), 52px) !important;
+  height: clamp(40px, calc(36.6px + 1.07vw), 52px) !important;
+}
+.shell-sidebar .nf-sidebar-logo-title { font-size: clamp(11px, calc(10.4px + 0.18vw), 13px) !important; }
+.shell-sidebar .nf-sidebar-logo-sub { font-size: clamp(7px, calc(6.7px + 0.09vw), 8px) !important; }
 .nf-nav-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 90; }
 
 /* Main content padding reduction */
@@ -496,3 +523,113 @@ input[type="date"] {
   .nf-login-forgot-row { margin-bottom: clamp(8px, 2vh, 12px) !important; margin-top: 0 !important; }
   .nf-login-submit { padding: clamp(7px, 1.8vh, 9px) clamp(12px, 3vw, 16px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
 }
+
+/* Employee dashboard — Attendance Calendar -> was built with a hardcoded
+   48px cell size (7 cols * 48px + gaps = 366px fixed width), which exceeds
+   the available width once panel padding is subtracted on narrower phones
+   (~360px and below), forcing the whole calendar to overflow/get cut off
+   instead of shrinking. Every row (nav bar, day-header row, day grid,
+   loading skeleton, legend) had its width pinned to that same fixed value
+   inline via the `gridWidth` JS constant — override all of them to 100% on
+   mobile so the grid itself, not a fixed px box, defines the available
+   space. Columns switch from fixed-px to `1fr` and cells switch from
+   fixed width/height to `aspect-ratio: 1` so each cell's size is purely a
+   function of the (now fluid) container width, scaling continuously with
+   the phone instead of jumping or overflowing. Desktop/tablet keep the
+   original fixed-px sizing set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-atn-cal-panel { padding: clamp(12px, 4vw, 20px) clamp(12px, 4vw, 22px) !important; }
+  .nf-atn-cal-row { width: 100% !important; }
+  .nf-atn-cal-grid { grid-template-columns: repeat(7, 1fr) !important; gap: clamp(3px, 1.4vw, 5px) !important; }
+  .nf-atn-cal-skeleton { width: 100% !important; height: auto !important; aspect-ratio: 7 / 6 !important; }
+  .nf-atn-cal-cell { width: auto !important; height: auto !important; aspect-ratio: 1 / 1 !important; }
+  .nf-atn-cal-cell span:first-child { font-size: clamp(9px, 3.2vw, 12px) !important; }
+}
+
+/* Employee dashboard — Leave Balance donut -> the PieChart was given a
+   literal 160x160 pixel size (Recharts requires numeric px, not CSS,
+   unless wrapped in ResponsiveContainer), so it never adapted to the
+   viewport at all. Wrapping it in the already-imported ResponsiveContainer
+   (see JSX) and switching cx/cy/radii to percentages lets the chart follow
+   its container's actual size; this rule shrinks that container fluidly
+   on mobile instead of staying a fixed 160px regardless of phone width.
+   Desktop/tablet keep the fixed 160px set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-leave-panel { padding: clamp(12px, 4vw, 20px) clamp(12px, 4vw, 22px) !important; }
+  .nf-leave-donut-wrap { width: clamp(120px, 34vw, 160px) !important; height: clamp(120px, 34vw, 160px) !important; }
+}
+
+/* Employee dashboard — Upcoming Holidays (3-card row) -> the cards kept a
+   fixed 44px icon box, fixed card padding, and fixed type sizes inside a
+   3-column grid, so on narrower phones the shrunk 1fr columns didn't leave
+   enough room for the icon + "In N days" badge on one row, squeezing/
+   wrapping them. Scale padding, gaps, icon box, and every type size down
+   fluidly with clamp() so all three cards keep fitting cleanly at any
+   phone width; the icon/badge row is also allowed to wrap as a defensive
+   fallback on the very narrowest phones. Desktop/tablet keep the original
+   fixed sizes set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-holiday-panel { padding: clamp(12px, 4vw, 20px) clamp(12px, 4vw, 22px) !important; }
+  .nf-holiday-grid { gap: clamp(6px, 2vw, 12px) !important; }
+  .nf-holiday-card { padding: clamp(8px, 3vw, 16px) !important; gap: clamp(6px, 2vw, 10px) !important; }
+  .nf-holiday-top-row { flex-wrap: wrap; }
+  .nf-holiday-icon { width: clamp(30px, 11vw, 44px) !important; height: clamp(30px, 11vw, 44px) !important; }
+  .nf-holiday-month { font-size: clamp(6px, 2vw, 8px) !important; }
+  .nf-holiday-day { font-size: clamp(12px, 4vw, 18px) !important; }
+  .nf-holiday-badge { font-size: clamp(7px, 2.2vw, 9.5px) !important; padding: clamp(2px, 0.8vw, 3px) clamp(4px, 1.6vw, 7px) !important; }
+  .nf-holiday-name { font-size: clamp(10px, 3vw, 12.5px) !important; }
+  .nf-holiday-date { font-size: clamp(8px, 2.4vw, 11px) !important; }
+}
+
+/* Profile page (all roles) — avatar/identity card -> the Edit Profile /
+   Cancel + Save Changes button group sat in the same flex row as the
+   avatar + name/email/badges block with no wrap and no shrink guard, so on
+   mobile there wasn't enough room for both: the button group and the
+   identity text squeezed into overlapping space instead of the row simply
+   getting taller. Stack the header into two rows (avatar+identity, then
+   actions) on mobile and give the actions their own full-width row below,
+   so the buttons never share horizontal space with the name/email/badges
+   again. Desktop/tablet keep the original single-row layout, untouched. */
+@media (max-width: 767px) {
+  .nf-profile-header { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; }
+  .nf-profile-actions { width: 100% !important; }
+  .nf-profile-actions button { flex: 1 1 0; justify-content: center; }
+}
+
+/* Attendance page header — "Export selected month" / "Request Regularization".
+   This header is a single component shared verbatim by every role (Employee,
+   Manager, HR Admin, Super Admin all render the exact same AttendancePageInner
+   JSX), so the two buttons already sit in one common place in the markup —
+   this hardens that placement so it also holds at every screen size instead
+   of only looking right at typical desktop widths.
+   Every size below is `clamp(min, calc(px + vw), max)` — a linear function
+   of viewport width, not a plain `Nvw` percentage (same technique used for
+   the sidebar logo elsewhere in this file, for the same reason): a plain
+   `Nvw` clamp saturates at its ceiling by ~700-800px viewport width, so
+   resizing an ordinary desktop/laptop browser window (900-1900px) did
+   nothing at all — only the narrow phone range was ever "live". These
+   formulas instead keep changing continuously from a 320px phone all the
+   way up to a 1600px desktop window, only saturating at the floor/ceiling
+   beyond that, so dragging the window narrower visibly shrinks the buttons
+   at every width, not just below one mobile cutoff. The low end is anchored
+   to match the previous phone-width rendering (no regression there); the
+   high end reaches the original 9px/16px/13px desktop values by ~1600px
+   and holds there for wider monitors, matching the original design.
+   As the viewport narrows, the buttons' own width shrinks (flex-basis
+   clamps down to 90px, well below the labels' un-wrapped text width) rather
+   than only shaving a few px of padding — the label wraps onto a second
+   line instead of truncating or forcing nowrap overflow, the same "wrap,
+   don't truncate/scroll" pattern used for the Documents & Compliance tab
+   labels elsewhere in this file. If the two buttons still can't both fit on
+   one line, the row wraps and they share it equally. */
+.nf-attendance-actions { flex-wrap: wrap; }
+.nf-attendance-action-btn {
+  flex: 1 1 clamp(90px, calc(62.5px + 8.59vw), 200px);
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+  padding: clamp(7px, calc(6.5px + 0.16vw), 9px) clamp(8px, calc(6px + 0.63vw), 16px) !important;
+  font-size: clamp(11px, calc(10.5px + 0.16vw), 13px) !important;
+}
+.nf-attendance-action-icon { flex-shrink: 0; }
+.nf-attendance-action-label { white-space: normal; word-break: break-word; line-height: 1.25; }

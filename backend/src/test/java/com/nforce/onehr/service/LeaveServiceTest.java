@@ -920,6 +920,261 @@ class LeaveServiceTest {
         verify(historyRepository, never()).findByEmployeeUserIdAndEffectiveToIsNull(any());
     }
 
+    // ── SUPER_ADMIN leave request routing (SUPER_ADMIN's OWN leave is exempt from the blanket
+    // HR_ADMIN/SUPER_ADMIN override above — routes to their reporting manager, or to themselves
+    // if they have none; HR_ADMIN/other SUPER_ADMIN never receive it merely by role) ───────────
+
+    @Test
+    void submitRequest_bySuperAdminWithReportingManager_notifiesOnlyTheManager() {
+        UUID superAdminId = UUID.randomUUID();
+        String superAdminEmail = "superadmin@test.com";
+        User superAdminUser = userWithRole(superAdminId, superAdminEmail, "SUPER_ADMIN");
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(superAdminId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(LeaveBalance.builder().employeeUserId(superAdminId).leaveType(annual)
+                        .year(LocalDate.now().getYear()).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ZERO).build()));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(3);
+        leaveService.submitRequest(request(start, start.plusDays(1), false, "Vacation"), superAdminEmail);
+
+        verify(notificationService).send(eq(managerId), eq("LEAVE_REQUEST_SUBMITTED"), any(), any(), eq("/approvals?type=LEAVE"));
+        // Not the requester (even though they're the fallback approver in the OTHER case) and
+        // not any HR_ADMIN — this codebase never broadcasts leave submissions to admins at all
+        // (see #notifySubmission), so this simply confirms that holds for a SUPER_ADMIN submitter too.
+        verify(notificationService, never()).send(eq(superAdminId), any(), any(), any(), any());
+    }
+
+    @Test
+    void submitRequest_bySuperAdminWithoutReportingManager_notifiesTheSuperAdminThemselvesAsFallbackApprover() {
+        UUID superAdminId = UUID.randomUUID();
+        String superAdminEmail = "superadmin@test.com";
+        User superAdminUser = userWithRole(superAdminId, superAdminEmail, "SUPER_ADMIN");
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        // No manager on file (historyRepository unstubbed for superAdminId -> Optional.empty()).
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(superAdminId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(LeaveBalance.builder().employeeUserId(superAdminId).leaveType(annual)
+                        .year(LocalDate.now().getYear()).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ZERO).build()));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(3);
+        leaveService.submitRequest(request(start, start.plusDays(1), false, "Vacation"), superAdminEmail);
+
+        verify(notificationService, times(1)).send(eq(superAdminId), eq("LEAVE_REQUEST_SUBMITTED"), any(), any(), eq("/approvals?type=LEAVE"));
+    }
+
+    @Test
+    void listPendingApprovals_superAdminRequestWithReportingManager_visibleToManagerOnly() {
+        UUID superAdminId = UUID.randomUUID();
+        UUID otherSuperAdminId = UUID.randomUUID();
+        String otherSuperAdminEmail = "othersuperadmin@test.com";
+        User hrAdmin = userWithRole(strangerId, strangerEmail, "HR_ADMIN");
+        User otherSuperAdmin = userWithRole(otherSuperAdminId, otherSuperAdminEmail, "SUPER_ADMIN");
+
+        LeaveRequest saRequest = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(userWithRole(superAdminId, "sa@test.com", "SUPER_ADMIN")));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+
+        // Reporting manager (non-override branch, unaffected by this rule): sees it via the
+        // existing direct-reports query, exactly as any other direct report would be seen.
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(historyRepository.findByManagerUserIdAndEffectiveToIsNull(managerId))
+                .thenReturn(List.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+        when(leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(List.of(superAdminId), "PENDING"))
+                .thenReturn(List.of(saRequest));
+        List<LeaveRequestResponse> managerQueue = leaveService.listPendingApprovals(managerEmail);
+        assertEquals(1, managerQueue.size());
+        assertEquals(saRequest.getId(), managerQueue.get(0).getId());
+
+        // HR_ADMIN's blanket override queue: the request is globally PENDING, but must be
+        // filtered out since this HR_ADMIN is not the routed approver.
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(hrAdmin));
+        when(leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING")).thenReturn(List.of(saRequest));
+        assertTrue(leaveService.listPendingApprovals(strangerEmail).isEmpty());
+
+        // A different SUPER_ADMIN's blanket override queue: same exclusion.
+        when(userRepository.findByEmail(otherSuperAdminEmail)).thenReturn(Optional.of(otherSuperAdmin));
+        assertTrue(leaveService.listPendingApprovals(otherSuperAdminEmail).isEmpty());
+    }
+
+    @Test
+    void listPendingApprovals_superAdminRequestWithoutReportingManager_visibleOnlyToRequesterThemselves() {
+        UUID superAdminId = UUID.randomUUID();
+        String superAdminEmail = "superadmin@test.com";
+        User superAdminUser = userWithRole(superAdminId, superAdminEmail, "SUPER_ADMIN");
+        User hrAdmin = userWithRole(strangerId, strangerEmail, "HR_ADMIN");
+
+        LeaveRequest saRequest = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        // No manager on file -> fallback approver is the requester themselves.
+        when(leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING")).thenReturn(List.of(saRequest));
+
+        // The requester, browsing their own override-blanket queue, sees their own request —
+        // they ARE the fallback approver.
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        List<LeaveRequestResponse> ownQueue = leaveService.listPendingApprovals(superAdminEmail);
+        assertEquals(1, ownQueue.size());
+
+        // HR_ADMIN must still not see it.
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(hrAdmin));
+        assertTrue(leaveService.listPendingApprovals(strangerEmail).isEmpty());
+    }
+
+    @Test
+    void approve_bySuperAdminsReportingManager_isAllowed() {
+        UUID superAdminId = UUID.randomUUID();
+        User superAdminUser = userWithRole(superAdminId, "superadmin@test.com", "SUPER_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("2")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = LeaveBalance.builder().employeeUserId(superAdminId).leaveType(annual)
+                .year(LocalDate.now().getYear()).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ZERO).build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(superAdminId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LeaveRequestResponse approved = leaveService.approve(pending.getId(), managerEmail);
+
+        assertEquals("APPROVED", approved.getStatus());
+        assertEquals(managerId, pending.getDecidedBy());
+        assertEquals(new BigDecimal("2"), balance.getUsedDays());
+    }
+
+    @Test
+    void approve_bySuperAdminsReportingManager_deniedForUnrelatedHrAdmin() {
+        // An HR_ADMIN who is NOT the routed approver must be denied — normally HR_ADMIN's
+        // override role would bypass this check entirely (see #requireCurrentManagerOf), but a
+        // SUPER_ADMIN's own leave is exempt from that blanket override.
+        UUID superAdminId = UUID.randomUUID();
+        User superAdminUser = userWithRole(superAdminId, "superadmin@test.com", "SUPER_ADMIN");
+        User hrAdmin = userWithRole(strangerId, strangerEmail, "HR_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(hrAdmin));
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+
+        assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), strangerEmail));
+        verify(leaveBalanceRepository, never()).save(any());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void approve_bySuperAdminsReportingManager_deniedForAnotherSuperAdmin() {
+        UUID superAdminId = UUID.randomUUID();
+        UUID otherSuperAdminId = UUID.randomUUID();
+        String otherSuperAdminEmail = "othersuperadmin@test.com";
+        User superAdminUser = userWithRole(superAdminId, "superadmin@test.com", "SUPER_ADMIN");
+        User otherSuperAdmin = userWithRole(otherSuperAdminId, otherSuperAdminEmail, "SUPER_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findByEmail(otherSuperAdminEmail)).thenReturn(Optional.of(otherSuperAdmin));
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+
+        assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), otherSuperAdminEmail));
+    }
+
+    @Test
+    void approve_superAdminWithNoReportingManager_canApproveTheirOwnRequestAsFallbackApprover() {
+        UUID superAdminId = UUID.randomUUID();
+        String superAdminEmail = "superadmin@test.com";
+        User superAdminUser = userWithRole(superAdminId, superAdminEmail, "SUPER_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = LeaveBalance.builder().employeeUserId(superAdminId).leaveType(annual)
+                .year(LocalDate.now().getYear()).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ZERO).build();
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        // No manager on file -> fallback approver is the requester themselves.
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(superAdminId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LeaveRequestResponse approved = leaveService.approve(pending.getId(), superAdminEmail);
+
+        assertEquals("APPROVED", approved.getStatus());
+        assertEquals(superAdminId, pending.getDecidedBy());
+    }
+
+    @Test
+    void approve_superAdminWithNoReportingManager_deniedForHrAdmin() {
+        UUID superAdminId = UUID.randomUUID();
+        User superAdminUser = userWithRole(superAdminId, "superadmin@test.com", "SUPER_ADMIN");
+        User hrAdmin = userWithRole(strangerId, strangerEmail, "HR_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(hrAdmin));
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        // No manager on file -> fallback approver is the requester themselves, never HR_ADMIN.
+
+        assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), strangerEmail));
+        verify(leaveBalanceRepository, never()).save(any());
+    }
+
+    @Test
+    void reject_bySuperAdminsReportingManager_isAllowed_deniedForUnrelatedAdmins() {
+        UUID superAdminId = UUID.randomUUID();
+        User superAdminUser = userWithRole(superAdminId, "superadmin@test.com", "SUPER_ADMIN");
+        User hrAdmin = userWithRole(strangerId, strangerEmail, "HR_ADMIN");
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(superAdminId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+
+        // Unrelated HR_ADMIN denied first (reject() guards authorization before mutating anything).
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(hrAdmin));
+        assertThrows(AccessDeniedException.class, () -> leaveService.reject(pending.getId(), "Policy conflict", strangerEmail));
+        assertEquals("PENDING", pending.getStatus());
+
+        // The actual routed approver (the reporting manager) can reject it.
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        LeaveRequestResponse rejected = leaveService.reject(pending.getId(), "Policy conflict", managerEmail);
+
+        assertEquals("REJECTED", rejected.getStatus());
+        assertEquals(managerId, pending.getDecidedBy());
+    }
+
     @Test
     void approve_byEmployeeLevelUser_withNoOverrideRoleAndNotTheManager_isDenied() {
         // strangerUser deliberately carries no roles (see setUp) — same shape as a plain

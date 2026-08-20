@@ -37,4 +37,9 @@ public class ProfileController {
             Authentication auth) throws IOException {
         return ResponseEntity.ok(profileService.uploadPhoto(auth.getName(), file));
     }
+
+    @DeleteMapping("/photo")
+    public ResponseEntity<ProfileResponse> removePhoto(Authentication auth) {
+        return ResponseEntity.ok(profileService.removePhoto(auth.getName()));
+    }
 }
