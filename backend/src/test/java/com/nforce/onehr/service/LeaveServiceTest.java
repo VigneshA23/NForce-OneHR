@@ -544,11 +544,18 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balance));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        java.time.LocalDateTime before = java.time.LocalDateTime.now(ZoneId.systemDefault());
         LeaveRequestResponse approved = leaveService.approve(pending.getId(), managerEmail);
+        java.time.LocalDateTime after = java.time.LocalDateTime.now(ZoneId.systemDefault());
 
         assertEquals("APPROVED", approved.getStatus());
         assertEquals(managerId, pending.getDecidedBy());
         assertNotNull(approved.getDecidedAt());
+        // decidedAt must be the backend/application system time captured at the moment of the
+        // approval action — bounded between timestamps taken immediately before and after the
+        // call, in the same (test-configured) zone as AttendanceProperties#getZone.
+        assertFalse(approved.getDecidedAt().isBefore(before));
+        assertFalse(approved.getDecidedAt().isAfter(after));
         assertEquals(new BigDecimal("4"), balance.getUsedDays());
         verify(leaveBalanceRepository).save(balance);
         verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_APPROVED"), eq(pending.getId()), any(), any());
@@ -567,14 +574,50 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        java.time.LocalDateTime before = java.time.LocalDateTime.now(ZoneId.systemDefault());
         LeaveRequestResponse rejected = leaveService.reject(pending.getId(), "Team coverage conflict", managerEmail);
+        java.time.LocalDateTime after = java.time.LocalDateTime.now(ZoneId.systemDefault());
 
         assertEquals("REJECTED", rejected.getStatus());
         assertEquals("Team coverage conflict", rejected.getDecisionReason());
+        assertEquals(managerId, pending.getDecidedBy());
+        assertNotNull(rejected.getDecidedAt());
+        assertFalse(rejected.getDecidedAt().isBefore(before));
+        assertFalse(rejected.getDecidedAt().isAfter(after));
         verify(leaveBalanceRepository, never()).save(any());
         verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_REJECTED"), eq(pending.getId()), any(), any());
         verify(notificationService, times(1)).send(eq(employeeId), eq("LEAVE_REJECTED"), any(),
                 contains("Team coverage conflict"), any());
+    }
+
+    @Test
+    void approve_decidedAt_isGeneratedFromTheConfiguredApplicationTimezone_notClientOrJvmDefault() {
+        // Prove decidedAt is derived from AttendanceProperties#getZone() (the existing
+        // OneHR application timezone config used elsewhere, e.g. #submitRequest's "today"
+        // resolution) rather than the JVM default zone or any client-supplied value.
+        ZoneId configuredZone = ZoneId.of("UTC").equals(ZoneId.systemDefault())
+                ? ZoneId.of("Asia/Kolkata") : ZoneId.of("UTC");
+        when(attendanceProperties.getZone()).thenReturn(configuredZone.getId());
+
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        java.time.LocalDateTime before = java.time.LocalDateTime.now(configuredZone);
+        LeaveRequestResponse approved = leaveService.approve(pending.getId(), managerEmail);
+        java.time.LocalDateTime after = java.time.LocalDateTime.now(configuredZone);
+
+        assertFalse(approved.getDecidedAt().isBefore(before));
+        assertFalse(approved.getDecidedAt().isAfter(after));
     }
 
     @Test
