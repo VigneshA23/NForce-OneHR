@@ -228,9 +228,20 @@ export function AttendanceHeroBanner() {
   const [config, setConfig]   = useState<AttendanceConfig | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  // Today's Web Clock-In records — fetched alongside the normal `today` so the "Checked out at"
+  // summary below can reflect whichever of Check-Out / Web Clock-Out actually happened most
+  // recently. Web Clock-Out never writes to the normal record's own checkOutAt (the two sessions
+  // are deliberately independent — see WebClockInService's own class Javadoc), so without this
+  // the summary would silently ignore a Web Clock-Out entirely.
+  const [webToday, setWebToday] = useState<WebClockInRecord[]>([]);
 
-  const refresh = useCallback(() =>
+  const refresh = useCallback(() => Promise.all([
     attendanceApi.today(token).then(setToday).catch(() => {}),
+    webClockInApi.mine(token).then(list => {
+      const todayIso = todayIsoDate();
+      setWebToday(list.filter(r => r.workDate === todayIso));
+    }).catch(() => {}),
+  ]),
   [token]);
 
   useEffect(() => {
@@ -259,6 +270,16 @@ export function AttendanceHeroBanner() {
   const record     = today?.record ?? null;
   const checkInAt  = record?.checkInAt  ?? null;
   const checkOutAt = record?.checkOutAt ?? null;
+
+  // The later of the normal Check-Out and the most recent closed Web Clock-Out today, whichever
+  // actually happened last — so the summary line reflects reality regardless of which of the two
+  // independent sessions the employee used most recently.
+  const latestCheckOutAt = useMemo(() => {
+    const candidates = [checkOutAt, ...webToday.map(r => r.checkedOutAt)].filter((v): v is string => !!v);
+    if (candidates.length === 0) return null;
+    return candidates.reduce((latest, cur) =>
+      new Date(cur + 'Z').getTime() > new Date(latest + 'Z').getTime() ? cur : latest);
+  }, [checkOutAt, webToday]);
 
   const shiftInfo = useMemo(() => {
     if (!config) return null;
@@ -312,7 +333,7 @@ export function AttendanceHeroBanner() {
       ? `You completed today's workday. Total worked time: ${formatWorkedMinutes(record?.workedMinutes ?? null)}.`
       : 'No attendance recorded today.';
     const subtitle = isComplete
-      ? `Checked in at ${formatClockTime(checkInAt)} · Checked out at ${formatClockTime(checkOutAt)}`
+      ? `Checked in at ${formatClockTime(checkInAt)} · Checked out at ${formatClockTime(latestCheckOutAt)}`
       : undefined;
 
     return (
@@ -338,14 +359,20 @@ export function AttendanceHeroBanner() {
 
   // ── State 2: Active session ───────────────────────────────────────────────────
   if (today?.canCheckOut) {
-    // No "Working now." headline / "Session started at… elapsed… prior" line here by design —
-    // removed per explicit request; Check-In/Check-Out functionality itself is unaffected.
+    // No "Working now." headline / "…elapsed… prior" narrative here by design — removed per
+    // explicit request. The factual check-in time is still shown (just the timestamp, no
+    // elapsed/worked-minutes narrative) so the employee's status is legible at a glance.
     return (
       <HeroCard>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           <HeroPill dot="#4E9EE8" label="Working" pulse />
           {statusPill}
         </div>
+        {checkInAt && (
+          <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>
+            Checked in at {formatClockTime(checkInAt)}
+          </p>
+        )}
         <button
           onClick={() => handlePunch('out')}
           disabled={submitting}
@@ -372,10 +399,11 @@ export function AttendanceHeroBanner() {
 
   // ── State 1b: Checked out for a break, can check in again ─────────────────────
   if (today?.canCheckIn && record) {
-    // No "On a break." headline / "You've worked… check in again to resume." line here by
+    // No "On a break." headline / "You've worked… check in again to resume." narrative here by
     // design — removed per explicit request, same as State 2's "Working now." removal above.
     // Check-In/Check-Out functionality itself, and the worked-minutes total it's based on, are
-    // unaffected — only this descriptive text is gone.
+    // unaffected. The factual check-in/check-out timestamps of the last completed session are
+    // still shown (no elapsed/worked-minutes narrative) so status stays legible at a glance.
     return (
       <HeroCard>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
@@ -402,6 +430,11 @@ export function AttendanceHeroBanner() {
             View full record →
           </button>
         </div>
+        {checkInAt && (
+          <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>
+            Checked in at {formatClockTime(checkInAt)}{latestCheckOutAt ? ` · Checked out at ${formatClockTime(latestCheckOutAt)}` : ''}
+          </p>
+        )}
         <WebClockInRow onSubmitted={refresh} />
       </HeroCard>
     );

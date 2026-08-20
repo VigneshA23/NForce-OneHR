@@ -42,6 +42,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     Set<UUID> findUserIdsByEmailOrFullNameContaining(@Param("q") String q);
 
+    // Backs EmployeeService.listPotentialManagers — same rows as plain findAll() (active-only
+    // filtering still happens in the caller's stream, unchanged), just fetch-joined so it's one
+    // query instead of one lazy "load roles" query per row (User.roles is EAGER, but without an
+    // explicit join fetch that still means a secondary select per entity).
+    @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.roles")
+    List<User> findAllWithRoles();
+
     // Exception Dashboard subjects: accounts holding EMPLOYEE and none of
     // MANAGER/HR_ADMIN/SUPER_ADMIN. A plain "holds EMPLOYEE" whitelist isn't enough —
     // some accounts (e.g. an HR Admin or Manager also granted EMPLOYEE so they can

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -448,13 +448,17 @@ function RegularizationStatusPill({ status }: { status: string }) {
 }
 
 /**
- * Every check-in/check-out session for a single day — shows a lunch-break gap explicitly.
+ * Every check-in/check-out session for a single day, grouped by source — normal Check-In/Out and
+ * Web Check-In/Out each get their own labeled section (reuses PunchSourceGroup, same grouping
+ * DayPunchIntervals already uses for past days), rather than one flat interleaved list that hides
+ * which entries came from where. The combined worked-time total itself is unaffected — that still
+ * comes from AttendanceService.recomputeCombinedWorkedMinutes and is shown elsewhere on this page
+ * as a single figure; this only changes how the per-punch list is grouped for display.
  * `refreshKey` exists solely so the caller can force a re-fetch after a punch: `date`/`token`
  * alone never change when a new punch happens today, so without it this list would only ever
  * reflect whatever was on file when the panel first mounted, not the punch that just happened.
  */
 function PunchHistoryList({ date, token, refreshKey }: { date: string; token: string; refreshKey?: unknown }) {
-  const { formatTime } = useTimeFormat();
   const [punches, setPunches] = useState<Punch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -476,30 +480,17 @@ function PunchHistoryList({ date, token, refreshKey }: { date: string; token: st
   }
   if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
 
+  const officeSessions = punches.filter(p => p.source !== 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
+  const webSessions = punches.filter(p => p.source === 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
         <Clock size={10.5} /> Punch History
       </div>
-      {/* A grid (rather than one flex row per punch) so the Check In / arrow / Check Out cells
-          line up in the same columns across every row. `minmax(0,1fr)` on the time columns lets
-          them shrink instead of overflowing the panel — no horizontal scrollbar/drag ever
-          appears, even in a narrow side panel — while still centering their content. */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'auto auto minmax(0,1fr) auto auto minmax(0,1fr)',
-        columnGap: 6, rowGap: 4, alignItems: 'center', fontSize: 12, color: 'var(--txt-mut)',
-        maxWidth: '100%', overflow: 'hidden',
-      }}>
-        {punches.map((p, i) => (
-          <Fragment key={p.id}>
-            <span style={{ color: 'var(--txt-dim)', fontSize: 10.5 }}>{i + 1}.</span>
-            <LogIn size={11} style={{ color: 'var(--txt-dim)' }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatTime(p.checkInAt) ?? dash}</span>
-            <span style={{ color: 'var(--txt-dim)', textAlign: 'center' }}>→</span>
-            <LogOut size={11} style={{ color: 'var(--txt-dim)' }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatTime(p.checkOutAt) ?? 'still open'}</span>
-          </Fragment>
-        ))}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} />
+        <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} />
       </div>
     </div>
   );
