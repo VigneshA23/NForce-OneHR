@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, X } from 'lucide-react';
+import { Check, Search, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
@@ -60,6 +60,47 @@ const TYPE_TEXT: Record<RequestType, string> = {
 const EMPTY_VALUE = '—';
 
 type ReviewMode = 'approve' | 'reject';
+
+/** Composite identity for a queue row — a plain requestType+id pair collides across types
+ *  (e.g. a LEAVE id and an EXPENSE id can be numerically equal), so every place that needs to
+ *  key/select/dedupe a row (table row key, checkbox selection) goes through this. */
+function rowKey(item: Pick<ApprovalItem, 'id' | 'requestType'>): string {
+  return `${item.requestType}:${item.id}`;
+}
+
+/** Single source of truth for "which endpoint approves this request type" — shared by the
+ *  single-item ReviewModal and the bulk-action modal so the per-type dispatch is never
+ *  duplicated (and never drifts) between the two. */
+function approveItem(item: ApprovalItem, token: string) {
+  if (item.requestType === 'LEAVE') return leaveApi.approve(item.id, token);
+  if (item.requestType === 'REGULARIZATION') return regularizationApi.approve(item.id, token);
+  if (item.requestType === 'WEB_CLOCK_IN') return webClockInApi.approve(item.id, token);
+  if (item.requestType === 'EXPENSE') {
+    return item.approvalStage === 'MANAGER'
+      ? expensesApi.managerApprove(item.id, token)
+      : expensesApi.finalApprove(item.id, token);
+  }
+  if (item.requestType === 'ASSET_REQUEST') return assetsApi.approveRequest(Number(item.id), token);
+  if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') return attendanceRequestApi.approve(item.id, token);
+  if (item.requestType === 'OVERTIME') return overtimeRequestApi.approve(item.id, token);
+  return helpContentApprovalApi.approve(item.id, token);
+}
+
+/** Reject-side counterpart of {@link approveItem} — same per-type dispatch, same reuse rationale. */
+function rejectItem(item: ApprovalItem, reason: string, token: string) {
+  if (item.requestType === 'LEAVE') return leaveApi.reject(item.id, reason, token);
+  if (item.requestType === 'REGULARIZATION') return regularizationApi.reject(item.id, reason, token);
+  if (item.requestType === 'WEB_CLOCK_IN') return webClockInApi.reject(item.id, reason, token);
+  if (item.requestType === 'EXPENSE') {
+    return item.approvalStage === 'MANAGER'
+      ? expensesApi.managerReject(item.id, reason, token)
+      : expensesApi.finalReject(item.id, reason, token);
+  }
+  if (item.requestType === 'ASSET_REQUEST') return assetsApi.rejectRequest(Number(item.id), reason, token);
+  if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') return attendanceRequestApi.reject(item.id, reason, token);
+  if (item.requestType === 'OVERTIME') return overtimeRequestApi.reject(item.id, reason, token);
+  return helpContentApprovalApi.reject(item.id, reason, token);
+}
 
 function TypeBadge({ type }: { type: RequestType }) {
   return (
@@ -282,27 +323,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   async function handleApprove() {
     setSubmitting(true);
     try {
-      if (item.requestType === 'LEAVE') {
-        await leaveApi.approve(item.id, token);
-      } else if (item.requestType === 'REGULARIZATION') {
-        await regularizationApi.approve(item.id, token);
-      } else if (item.requestType === 'WEB_CLOCK_IN') {
-        await webClockInApi.approve(item.id, token);
-      } else if (item.requestType === 'EXPENSE') {
-        if (item.approvalStage === 'MANAGER') {
-          await expensesApi.managerApprove(item.id, token);
-        } else {
-          await expensesApi.finalApprove(item.id, token);
-        }
-      } else if (item.requestType === 'ASSET_REQUEST') {
-        await assetsApi.approveRequest(Number(item.id), token);
-      } else if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
-        await attendanceRequestApi.approve(item.id, token);
-      } else if (item.requestType === 'OVERTIME') {
-        await overtimeRequestApi.approve(item.id, token);
-      } else if (item.requestType === 'HELP_CONTENT') {
-        await helpContentApprovalApi.approve(item.id, token);
-      }
+      await approveItem(item, token);
       showToast('success', `Approved ${item.employeeName}'s request`);
       onApproved();
       onClose();
@@ -316,27 +337,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
     if (!rejectReason.trim()) return;
     setSubmitting(true);
     try {
-      if (item.requestType === 'LEAVE') {
-        await leaveApi.reject(item.id, rejectReason.trim(), token);
-      } else if (item.requestType === 'REGULARIZATION') {
-        await regularizationApi.reject(item.id, rejectReason.trim(), token);
-      } else if (item.requestType === 'WEB_CLOCK_IN') {
-        await webClockInApi.reject(item.id, rejectReason.trim(), token);
-      } else if (item.requestType === 'EXPENSE') {
-        if (item.approvalStage === 'MANAGER') {
-          await expensesApi.managerReject(item.id, rejectReason.trim(), token);
-        } else {
-          await expensesApi.finalReject(item.id, rejectReason.trim(), token);
-        }
-      } else if (item.requestType === 'ASSET_REQUEST') {
-        await assetsApi.rejectRequest(Number(item.id), rejectReason.trim(), token);
-      } else if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
-        await attendanceRequestApi.reject(item.id, rejectReason.trim(), token);
-      } else if (item.requestType === 'OVERTIME') {
-        await overtimeRequestApi.reject(item.id, rejectReason.trim(), token);
-      } else if (item.requestType === 'HELP_CONTENT') {
-        await helpContentApprovalApi.reject(item.id, rejectReason.trim(), token);
-      }
+      await rejectItem(item, rejectReason.trim(), token);
       showToast('success', `Rejected ${item.employeeName}'s request`);
       onRejected();
       onClose();
@@ -467,6 +468,110 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   );
 }
 
+/**
+ * Confirmation for a bulk approve/reject — deliberately just the warning (+ a shared rejection
+ * reason for reject) and Confirm/Cancel, no per-item detail, since the point of "select several
+ * and approve/reject them" is to skip reviewing each one individually. Runs every item's
+ * approve/reject concurrently via Promise.allSettled rather than aborting the whole batch on
+ * the first failure — one flaky request shouldn't force re-selecting and re-submitting the
+ * rest that would have succeeded.
+ */
+function BulkActionModal({ items, mode, onClose, onDone, token }: {
+  items: ApprovalItem[];
+  mode: ReviewMode;
+  onClose: () => void;
+  onDone: (succeeded: ApprovalItem[]) => void;
+  token: string;
+}) {
+  const { showToast } = useToast();
+  const [rejectReason, setRejectReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const verb = mode === 'approve' ? 'approve' : 'reject';
+
+  async function handleConfirm() {
+    if (mode === 'reject' && !rejectReason.trim()) return;
+    setSubmitting(true);
+    const results = await Promise.allSettled(
+      items.map(item => (mode === 'approve' ? approveItem(item, token) : rejectItem(item, rejectReason.trim(), token)))
+    );
+    const succeeded = items.filter((_, i) => results[i].status === 'fulfilled');
+    const failedCount = items.length - succeeded.length;
+
+    if (succeeded.length > 0) {
+      const verbed = mode === 'approve' ? 'Approved' : 'Rejected';
+      showToast('success', `${verbed} ${succeeded.length} request${succeeded.length === 1 ? '' : 's'}${failedCount > 0 ? ` — ${failedCount} failed` : ''}`);
+    }
+    if (failedCount > 0 && succeeded.length === 0) {
+      showToast('error', `Failed to ${verb} the selected requests`);
+    }
+
+    setSubmitting(false);
+    if (succeeded.length > 0) {
+      onDone(succeeded);
+      onClose();
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 440 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            {mode === 'approve' ? 'Approve Selected Requests' : 'Reject Selected Requests'}
+          </span>
+          <button onClick={onClose} disabled={submitting} style={{ background: 'none', border: 'none', cursor: submitting ? 'not-allowed' : 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          <p style={{ fontSize: 13.5, color: 'var(--txt)', margin: 0, marginBottom: mode === 'reject' ? 16 : 20, lineHeight: 1.5 }}>
+            Are you sure you want to {verb} all {items.length} selected request{items.length === 1 ? '' : 's'}?
+          </p>
+
+          {mode === 'reject' && (
+            <>
+              <label style={labelStyle}>Rejection Reason *</label>
+              <textarea
+                style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit', marginBottom: 16 }}
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                placeholder="This reason will be sent to every selected request being rejected."
+                autoFocus
+              />
+            </>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: submitting ? 'not-allowed' : 'pointer' }}
+            >
+              Cancel
+            </button>
+            {mode === 'approve' ? (
+              <button
+                onClick={handleConfirm}
+                disabled={submitting}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, background: submitting ? 'var(--raised2)' : 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 7, padding: '9px 18px', fontSize: 13, color: '#2FB67C', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+              >
+                <Check size={13} /> {submitting ? 'Approving…' : 'Confirm'}
+              </button>
+            ) : (
+              <button
+                onClick={handleConfirm}
+                disabled={!rejectReason.trim() || submitting}
+                style={{ background: rejectReason.trim() ? '#C0392B' : 'var(--raised2)', color: rejectReason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: !rejectReason.trim() || submitting ? 'not-allowed' : 'pointer' }}
+              >
+                {submitting ? 'Rejecting…' : 'Confirm'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
@@ -487,7 +592,10 @@ export default function ApprovalsPage() {
     const t = searchParams.get('type');
     return (ALL_TYPES as string[]).includes(t ?? '') ? (t as RequestType) : 'ALL';
   });
+  const [employeeSearch, setEmployeeSearch] = useState('');
   const [reviewing, setReviewing] = useState<{ item: ApprovalItem; mode: ReviewMode } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<ReviewMode | null>(null);
 
   useEffect(() => {
     approvalCenterApi.listPending(token)
@@ -495,20 +603,81 @@ export default function ApprovalsPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  const filtered = typeFilter === 'ALL' ? items : items.filter(i => i.requestType === typeFilter);
+  // Search narrows the whole queue by employee name first — category chips (and their counts)
+  // then further narrow within whatever the search already matched, so typing a name and
+  // switching categories compose instead of one silently overriding the other.
+  const searchTerm = employeeSearch.trim().toLowerCase();
+  const searched = searchTerm ? items.filter(i => i.employeeName.toLowerCase().includes(searchTerm)) : items;
+  const filtered = typeFilter === 'ALL' ? searched : searched.filter(i => i.requestType === typeFilter);
 
-  const counts: Record<string, number> = { ALL: items.length };
-  ALL_TYPES.forEach(t => { counts[t] = items.filter(i => i.requestType === t).length; });
+  const counts: Record<string, number> = { ALL: searched.length };
+  ALL_TYPES.forEach(t => { counts[t] = searched.filter(i => i.requestType === t).length; });
+
+  // "Select all" only ever governs the currently-filtered/searched rows, not the whole queue —
+  // selecting under one category filter and switching to another leaves that selection intact
+  // (and out of sight) rather than silently dropping it.
+  const visibleKeys = filtered.map(rowKey);
+  const allVisibleSelected = visibleKeys.length > 0 && visibleKeys.every(k => selected.has(k));
+  const someVisibleSelected = visibleKeys.some(k => selected.has(k));
+  const selectedItems = items.filter(i => selected.has(rowKey(i)));
 
   function removeFromQueue(id: string, type: RequestType) {
+    const key = `${type}:${id}`;
     setItems(prev => prev.filter(i => !(i.id === id && i.requestType === type)));
+    setSelected(prev => { if (!prev.has(key)) return prev; const next = new Set(prev); next.delete(key); return next; });
+  }
+
+  function toggleSelected(key: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleKeys.forEach(k => next.delete(k));
+      else visibleKeys.forEach(k => next.add(k));
+      return next;
+    });
+  }
+
+  function handleBulkDone(succeeded: ApprovalItem[]) {
+    const succeededKeys = new Set(succeeded.map(rowKey));
+    setItems(prev => prev.filter(i => !succeededKeys.has(rowKey(i))));
+    setSelected(prev => {
+      const next = new Set(prev);
+      succeededKeys.forEach(k => next.delete(k));
+      return next;
+    });
   }
 
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Approval Center</h1>
-        <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All pending requests requiring your decision.</p>
+        {/* Subheading stays left, search pushed to the far right of the same row via
+           space-between — search wraps below the subheading onto its own full-width line on
+           narrow/mobile viewports instead of being squeezed into the corner. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginTop: 6 }}>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0 }}>All pending requests requiring your decision.</p>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6, flex: '0 1 min(240px, 100%)',
+            background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px',
+          }}>
+            <Search size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} aria-hidden="true" />
+            <input
+              type="text"
+              value={employeeSearch}
+              onChange={e => setEmployeeSearch(e.target.value)}
+              placeholder="Search employee…"
+              aria-label="Search by employee name"
+              style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5, fontFamily: 'inherit' }}
+            />
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -532,6 +701,41 @@ export default function ApprovalsPage() {
         ))}
       </div>
 
+      {/* Bulk action bar — appears only once at least one row is selected, right above the
+         table it acts on. Wraps to two lines (count above, buttons below) on narrow viewports
+         instead of overflowing. */}
+      {selectedItems.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+          marginBottom: 12, padding: '10px 14px',
+          background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+            {selectedItems.length} selected
+          </span>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setBulkAction('approve')}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 7, padding: '7px 14px', fontSize: 12.5, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}
+            >
+              <Check size={13} /> Approve Selected
+            </button>
+            <button
+              onClick={() => setBulkAction('reject')}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(228,55,61,.12)', border: '1px solid rgba(228,55,61,.28)', borderRadius: 7, padding: '7px 14px', fontSize: 12.5, color: '#E4373D', cursor: 'pointer', fontWeight: 600 }}
+            >
+              <X size={13} /> Reject Selected
+            </button>
+            <button
+              onClick={() => setSelected(new Set())}
+              style={{ background: 'none', border: 'none', color: 'var(--txt-mut)', fontSize: 12.5, cursor: 'pointer', padding: '7px 6px' }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
@@ -539,7 +743,10 @@ export default function ApprovalsPage() {
           <div style={{ padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>Nothing pending</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
-              {typeFilter === 'ALL' ? 'No pending requests right now.' : `No pending ${TYPE_LABELS[typeFilter]} requests.`}
+              {typeFilter === 'ALL' && !searchTerm && 'No pending requests right now.'}
+              {typeFilter !== 'ALL' && !searchTerm && `No pending ${TYPE_LABELS[typeFilter]} requests.`}
+              {typeFilter === 'ALL' && searchTerm && `No pending requests match "${employeeSearch.trim()}".`}
+              {typeFilter !== 'ALL' && searchTerm && `No pending ${TYPE_LABELS[typeFilter]} requests match "${employeeSearch.trim()}".`}
             </div>
           </div>
         ) : (
@@ -547,6 +754,16 @@ export default function ApprovalsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
+                  <th style={{ ...thStyle, width: 34 }}>
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      ref={el => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+                      onChange={toggleSelectAllVisible}
+                      aria-label={allVisibleSelected ? 'Deselect all requests' : 'Select all requests'}
+                      style={{ cursor: 'pointer', accentColor: 'var(--brand)' }}
+                    />
+                  </th>
                   {['Type', 'Employee', 'Requested Dates', 'Reason', 'Submitted', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr>
               </thead>
@@ -554,9 +771,19 @@ export default function ApprovalsPage() {
                 {filtered.map(item => {
                   const requestedDates = getRequestedDates(item);
                   const reason = getReason(item);
+                  const key = rowKey(item);
 
                   return (
-                    <tr key={`${item.requestType}:${item.id}`}>
+                    <tr key={key}>
+                      <td style={{ ...tdStyle, padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(key)}
+                          onChange={() => toggleSelected(key)}
+                          aria-label={`Select ${item.employeeName}'s ${TYPE_LABELS[item.requestType]} request`}
+                          style={{ cursor: 'pointer', accentColor: 'var(--brand)' }}
+                        />
+                      </td>
                       <td style={tdStyle}><TypeBadge type={item.requestType} /></td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{item.employeeName}</td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{requestedDates}</td>
@@ -613,6 +840,16 @@ export default function ApprovalsPage() {
           onClose={() => setReviewing(null)}
           onApproved={() => removeFromQueue(reviewing.item.id, reviewing.item.requestType)}
           onRejected={() => removeFromQueue(reviewing.item.id, reviewing.item.requestType)}
+        />
+      )}
+
+      {bulkAction && (
+        <BulkActionModal
+          items={selectedItems}
+          mode={bulkAction}
+          token={token}
+          onClose={() => setBulkAction(null)}
+          onDone={handleBulkDone}
         />
       )}
     </div>

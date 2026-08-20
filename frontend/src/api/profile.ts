@@ -66,4 +66,10 @@ export const profileApi = {
       body: form,
     }).then(handle<ProfileData>);
   },
+
+  removePhoto: (token: string) =>
+    fetch(`${BASE}/photo`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(handle<ProfileData>),
 };

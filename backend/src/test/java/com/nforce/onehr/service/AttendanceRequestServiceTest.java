@@ -30,9 +30,9 @@ import static org.mockito.Mockito.*;
 
 /**
  * Pure Mockito unit tests for Partial Day's monthly-hours allowance (2h/month, spendable on any
- * day(s) within the month). It's advisory only: submit() never rejects for being over it (the
- * frontend confirms with the employee first, and the assigned approver makes the real call) —
- * getPartialDayBalance is what reports usage-vs-allowance for that confirmation prompt.
+ * day(s) within the month). It's a hard cap: submit() rejects outright once a request would push
+ * the month's total past it (mirroring WFH's existing hard cap) — getPartialDayBalance is what
+ * reports usage-vs-allowance so the frontend can warn the employee before they submit.
  * Mirrors RegularizationServiceTest's isolation approach.
  */
 @ExtendWith(MockitoExtension.class)
@@ -90,13 +90,12 @@ class AttendanceRequestServiceTest {
     }
 
     @Test
-    void allowsPartialDayRequestThatExceedsTheAdvisoryAllowance() {
-        // The allowance is advisory (see getPartialDayBalance) — submit() itself never rejects
-        // for being over it; the frontend confirms with the employee first, and the assigned
-        // approver makes the real call.
-        AttendanceRequestResponse response = service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 3), employeeEmail);
-
-        assertEquals(BigDecimal.valueOf(3.0), response.getPartialDayHours());
+    void rejectsPartialDayRequestThatExceedsTheMonthlyLimit() {
+        // The monthly allowance is a hard cap enforced in submit() (mirroring WFH's cap) — a
+        // request that alone pushes the month's total past 120 minutes is rejected outright.
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 3), employeeEmail));
+        assertTrue(ex.getMessage().contains("not allowed to raise a request for more than 120 minutes"));
     }
 
     @Test
@@ -117,7 +116,10 @@ class AttendanceRequestServiceTest {
         AttendanceRequestResponse response = service.submit(wfh, employeeEmail);
 
         assertNull(response.getPartialDayHours());
-        verify(requestRepository, never()).findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(any(), any(), any(), any());
+        // WFH has its own (pre-existing) monthly cap check, so the shared lookup is still called
+        // with type=WFH — what this test guards is that it's never called for PARTIAL_DAY.
+        verify(requestRepository, never())
+                .findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(any(), eq("PARTIAL_DAY"), any(), any());
     }
 
     // ---------------------------------------------------------------- getPartialDayBalance

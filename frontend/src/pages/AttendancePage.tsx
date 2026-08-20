@@ -4472,7 +4472,7 @@ function AttendancePageInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+      <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
         <div>
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
@@ -4480,14 +4480,17 @@ function AttendancePageInner() {
           }}>My Attendance</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="nf-attendance-actions" style={{ display: 'flex', gap: 10 }}>
           <button
+            className="nf-attendance-action-btn"
             onClick={() => myAttendanceRef.current?.exportMonth()}
             style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
-            <Download size={14} /> Export selected month
+            <Download className="nf-attendance-action-icon" size={14} />
+            <span className="nf-attendance-action-label">Export selected month</span>
           </button>
           <button
+            className="nf-attendance-action-btn"
             onClick={() => {
               if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
                 regularizationRef.current?.openNewRequest();
@@ -4499,7 +4502,8 @@ function AttendancePageInner() {
             }}
             style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
-            <CalendarPlus size={14} /> Request Regularization
+            <CalendarPlus className="nf-attendance-action-icon" size={14} />
+            <span className="nf-attendance-action-label">Request Regularization</span>
           </button>
         </div>
       </div>
