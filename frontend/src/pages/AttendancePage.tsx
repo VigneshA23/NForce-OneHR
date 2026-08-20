@@ -380,6 +380,23 @@ const fieldErrorStyle: React.CSSProperties = { fontSize: 11, color: 'var(--risk)
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────
 
+/**
+ * Closes a popover on any click outside `ref`'s element — the "View Available Balance"/"View
+ * Details" popovers below (Regularization, WFH, Partial Day) otherwise only close via their own
+ * toggle button. `onOutside` is expected to be a stable state setter (e.g. `() =>
+ * setShowBalance(false)`), so it's read once at mount rather than re-subscribing every render.
+ */
+function useCloseOnOutsideClick(ref: React.RefObject<HTMLElement | null>, onOutside: () => void) {
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onOutside();
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onOutside is a stable setter for the component's lifetime
+  }, [ref]);
+}
+
 function StatusPill({ status }: { status: AttendanceStatus | null }) {
   if (!status) return dash;
   const color = STATUS_COLORS[status] ?? 'var(--txt-mut)';
@@ -665,6 +682,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   const [manualCheckOutText, setManualCheckOutText] = useState(isoToTimeText(editing?.requestedCheckOut));
   const [balance, setBalance] = useState<RegularizationBalance | null>(null);
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
+  const balanceDetailsRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(balanceDetailsRef, () => setShowBalanceDetails(false));
   const [submitting, setSubmitting] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -831,7 +850,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             </span>
           </div>
 
-          <div style={{ position: 'relative' }}>
+          <div ref={balanceDetailsRef} style={{ position: 'relative' }}>
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Info size={13} />
               {balance ? (
@@ -1509,6 +1528,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [wfhCustomToMode, setWfhCustomToMode] = useState<WfhDayMode>('SECOND_HALF');
   const [wfhBalance, setWfhBalance] = useState<WfhBalance | null>(null);
   const [showWfhBalance, setShowWfhBalance] = useState(false);
+  const wfhBalanceRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(wfhBalanceRef, () => setShowWfhBalance(false));
   const [partialDayMode, setPartialDayMode] = useState<PartialDayMode>('LATE_ARRIVE');
   const [partialDayMinutes, setPartialDayMinutes] = useState('60');
   // Intervening Time-off only — Keka anchors this mode to an explicit clock time ("Will leave
@@ -1523,6 +1544,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
   const [balance, setBalance] = useState<{ usedHours: number; limitHours: number; remainingHours: number } | null>(null);
   const [showBalance, setShowBalance] = useState(false);
+  const partialBalanceRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(partialBalanceRef, () => setShowBalance(false));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1746,7 +1769,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                   You are requesting for <strong style={{ color: 'var(--txt)' }}>{totalWfhDays}</strong> day{totalWfhDays === 1 ? '' : 's'} of work from home
                 </div>
               )}
-              <div style={{ position: 'relative' }}>
+              <div ref={wfhBalanceRef} style={{ position: 'relative' }}>
                 <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Info size={13} />
                   Remaining balance: <strong style={{ color: 'var(--txt)' }}>{wfhBalance ? wfhBalance.remainingDays : '—'}</strong> days
@@ -1840,7 +1863,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                   {computedMessage}
                 </div>
               )}
-              <div style={{ position: 'relative' }}>
+              <div ref={partialBalanceRef} style={{ position: 'relative' }}>
                 <button
                   onClick={() => setShowBalance((v) => !v)}
                   style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}
