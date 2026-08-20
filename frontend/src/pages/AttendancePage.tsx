@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useImperativeHandle, useMemo, useRef,
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -669,6 +669,13 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   // backend, which is the actual source of truth). Super Admin has no lower bound at all — "any
   // number of previous days" per Requirement 1.
   const minDate = isSuperAdmin ? undefined : isoDaysAgo(REGULARIZATION_LOOKBACK_DAYS - 1);
+  // No pre-join dates — applies to everyone, including Super Admin (unlike the lookback window
+  // above): there's simply no attendance to correct before the employee existed. Mirrors
+  // RegularizationService.assertNotBeforeJoiningDate, the actual boundary.
+  const [joiningDate, setJoiningDate] = useState<string | null>(null);
+  useEffect(() => {
+    profileApi.get(token).then((p) => setJoiningDate(p.joiningDate)).catch(() => setJoiningDate(null));
+  }, [token]);
   const [attendanceDate, setAttendanceDate] = useState(editing?.attendanceDate ?? initialDate ?? today);
   const [reason, setReason] = useState(editing?.reason ?? '');
   // No manual approver selection and no "Assign To" display — the backend always routes to
@@ -745,6 +752,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   // trips this check. The backend re-validates the same rule regardless — see
   // RegularizationService.validateLookbackWindow.
   const dateOutsideWindow = !isSuperAdmin && !!attendanceDate && !!minDate && attendanceDate < minDate;
+  const beforeJoiningDate = !!attendanceDate && !!joiningDate && attendanceDate < joiningDate;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -759,6 +767,10 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
     }
     if (dateAlreadyApproved) {
       setError('Already raised regularization for this date.');
+      return;
+    }
+    if (beforeJoiningDate) {
+      setError(`You joined on ${formatCutoffDay(joiningDate!)}. You cannot request regularization for a date before that.`);
       return;
     }
     if (dateOutsideWindow) {
@@ -807,7 +819,10 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             </Field>
             {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
             {dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
-            {dateOutsideWindow && minDate && (
+            {beforeJoiningDate && joiningDate && (
+              <div style={fieldErrorStyle}>You joined on {formatCutoffDay(joiningDate)}. You cannot request regularization for a date before that.</div>
+            )}
+            {!beforeJoiningDate && dateOutsideWindow && minDate && (
               <div style={fieldErrorStyle}>You are not allowed to apply regularization for this date after {formatCutoffDay(minDate)}.</div>
             )}
           </div>
@@ -901,11 +916,11 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || dateAlreadyApproved || dateOutsideWindow || loadingPunch}
+            <button type="submit" disabled={submitting || dateAlreadyApproved || beforeJoiningDate || dateOutsideWindow || loadingPunch}
               style={{
                 background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600,
-                cursor: (submitting || dateAlreadyApproved || dateOutsideWindow || loadingPunch) ? 'not-allowed' : 'pointer',
-                opacity: (submitting || dateAlreadyApproved || dateOutsideWindow || loadingPunch) ? 0.7 : 1,
+                cursor: (submitting || dateAlreadyApproved || beforeJoiningDate || dateOutsideWindow || loadingPunch) ? 'not-allowed' : 'pointer',
+                opacity: (submitting || dateAlreadyApproved || beforeJoiningDate || dateOutsideWindow || loadingPunch) ? 0.7 : 1,
               }}>
               {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Request'}
             </button>
@@ -1390,6 +1405,12 @@ const PARTIAL_DAY_MONTHLY_LIMIT_HOURS = 2;
 // client-side check (and for capping the date-range width itself) before hitting the network.
 const WFH_MONTHLY_LIMIT_DAYS = 2;
 
+// Mirrors AttendanceRequestService.WFH_PRIOR_NOTICE_DAYS — matches the policy text ("requires 2
+// day(s) of prior notice") and Keka's own reference behavior. The date picker itself is never
+// disabled for these dates (see Keka's calendar UX) — this only drives the reactive inline
+// notice and the submit-time block, exactly like the backend's own hard check.
+const WFH_PRIOR_NOTICE_DAYS = 2;
+
 const WFH_SINGLE_DAY_MODE_OPTIONS: { value: WfhDayMode; label: string }[] = [
   { value: 'FULL_DAY', label: 'Full Day' },
   { value: 'FIRST_HALF', label: 'First Half' },
@@ -1548,9 +1569,22 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   useCloseOnOutsideClick(partialBalanceRef, () => setShowBalance(false));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Dates that already carry a non-rejected (PENDING/APPROVED) WFH request — one WFH request
+  // per date is enforced, unlike Partial Day, which allows several same-day requests as long as
+  // their combined minutes stay within the monthly cap (see the backend's mirrored check in
+  // AttendanceRequestService.submit, the actual boundary — this is purely early UX feedback).
+  const [existingWfhDates, setExistingWfhDates] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
+  }, [token]);
+
+  useEffect(() => {
+    attendanceRequestApi.mine(token)
+      .then(rows => setExistingWfhDates(new Set(
+        rows.filter(r => r.requestType === 'WFH' && r.status !== 'REJECTED').map(r => r.requestDate),
+      )))
+      .catch(() => setExistingWfhDates(new Set()));
   }, [token]);
 
   useEffect(() => {
@@ -1583,6 +1617,15 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const totalWfhDays = requestType === 'WFH'
     ? dateList.reduce((sum, _d, i) => sum + wfhDayFraction(wfhModeForIndex(i)), 0)
     : 0;
+
+  // Reactive — recomputed on every date-field change, not just at submit, so the notice
+  // appears/disappears live as the employee picks a date (Keka's own behavior: the date field
+  // itself is never disabled, but an invalid pick shows an immediate inline notice). Mirrors the
+  // backend's own hard check in AttendanceRequestService.submit.
+  const wfhPriorNoticeFloor = isoDaysAfter(todayIsoDate(), WFH_PRIOR_NOTICE_DAYS);
+  const wfhPriorNoticeMessage = requestType === 'WFH' && dateList.some(d => d < wfhPriorNoticeFloor)
+    ? `WFH request requires ${WFH_PRIOR_NOTICE_DAYS} day(s) of prior notice.`
+    : null;
 
   // Reset mode-specific fields on switch so a stale value from one mode (e.g. a free-typed
   // number) never leaks into another mode's different widget (e.g. the fixed-option dropdown).
@@ -1663,8 +1706,19 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       setError('Cannot request for past dates');
       return;
     }
+    // Already shown live as a persistent banner next to the date fields (see
+    // wfhPriorNoticeMessage below) — just block the network call here rather than duplicating
+    // the message into the dismissible submit-error banner too.
+    if (wfhPriorNoticeMessage) return;
     if (requestType === 'WFH' && dateList.length > WFH_MONTHLY_LIMIT_DAYS) {
       setError(`Work From Home requests can span at most ${WFH_MONTHLY_LIMIT_DAYS} days.`);
+      return;
+    }
+    // One WFH request per date (full or half day alike) — mirrors the backend's hard check in
+    // AttendanceRequestService.submit, the actual boundary.
+    const duplicateWfhDate = requestType === 'WFH' ? dateList.find(d => existingWfhDates.has(d)) : undefined;
+    if (duplicateWfhDate) {
+      setError(`You already have a Work From Home request for ${formatShortDay(duplicateWfhDate)}.`);
       return;
     }
     if (requestType === 'WFH' && wfhBalance && totalWfhDays > wfhBalance.remainingDays) {
@@ -1741,6 +1795,16 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                   </Field>
                 </div>
               </div>
+
+              {/* Reactive, non-dismissible — matches Keka's own calendar behavior: the date
+                  fields above are never disabled/greyed for a too-soon date, but picking one
+                  shows this notice immediately and it persists until a valid date is picked. */}
+              {wfhPriorNoticeMessage && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 7, padding: '9px 12px', fontSize: 12.5, color: 'var(--risk)', lineHeight: 1.5 }}>
+                  <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{wfhPriorNoticeMessage}</span>
+                </div>
+              )}
 
               {dateList.length === 1 && (
                 <FilterTabs value={wfhSingleMode} onChange={setWfhSingleMode} options={WFH_SINGLE_DAY_MODE_OPTIONS} />
