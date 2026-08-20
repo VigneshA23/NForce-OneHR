@@ -491,7 +491,8 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void approve_byAssignedManager_transitionsToPartiallyApproved() {
+    void approve_byAssignedManager_transitionsDirectlyToApproved() {
+        // A Manager's approval is now final on its own — no HR/Super Admin sign-off follows.
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -500,20 +501,21 @@ class RegularizationServiceTest {
 
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
 
         RegularizationResponse resp = regularizationService.approve(pending.getId(), null, managerEmail);
 
-        assertEquals("PARTIALLY_APPROVED", resp.getStatus());
+        assertEquals("APPROVED", resp.getStatus());
         assertEquals(managerId, pending.getReviewedBy());
-        assertEquals(managerId, pending.getApprovedBy());
-        assertNotNull(pending.getApprovedAt());
-        assertNull(pending.getFinalApprovedBy());
-        // Manager stage never touches the attendance record — only final approval does.
-        verify(attendanceRepository, never()).save(any());
+        assertNull(pending.getApprovedBy()); // no separate manager-stage marker — this is the final decision
+        assertEquals(managerId, pending.getFinalApprovedBy());
+        assertNotNull(pending.getFinalApprovedAt());
+        verify(attendanceRepository).save(any(Attendance.class));
         verify(regularizationApprovalRepository).save(argThat(a ->
                 a.getRequestId().equals(pending.getId()) && a.getActionType().equals("APPROVED")
                         && a.getActionBy().equals(managerId) && "MANAGER".equals(a.getActorRole())));
-        verify(auditService).log(managerId, "REGULARIZATION_PARTIALLY_APPROVED", employeeId);
+        verify(auditService).log(managerId, "REGULARIZATION_APPROVED", employeeId);
     }
 
     @Test
@@ -1103,9 +1105,9 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void approve_byManager_interimStage_doesNotNotifyEmployee() {
-        // PENDING -> PARTIALLY_APPROVED is not yet "approved" from the employee's perspective —
-        // only the terminal APPROVED status is one of the 3 requested lifecycle notifications.
+    void approve_byManager_notifiesEmployeeExactlyOnce() {
+        // A Manager's approval is final on its own now, so it fires the same "approved"
+        // notification a HR/Super Admin approval would.
         LocalDate date = LocalDate.now();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
@@ -1113,10 +1115,12 @@ class RegularizationServiceTest {
                 .reason("Missed punch").status("PENDING").build();
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
         when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
 
         regularizationService.approve(pending.getId(), null, managerEmail);
 
-        verifyNoInteractions(notificationService);
+        verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_APPROVED"), any(), any(), any());
     }
 
     @Test

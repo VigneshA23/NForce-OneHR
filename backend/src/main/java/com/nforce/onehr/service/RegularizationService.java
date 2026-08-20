@@ -119,6 +119,7 @@ public class RegularizationService {
         boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
 
         ResolvedTimes times = resolveTimes(req, actor.getId());
+        assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
         if (!isSuperAdmin) {
             validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
             assertMonthlyLimitNotExceeded(actor.getId());
@@ -138,12 +139,16 @@ public class RegularizationService {
 
         auditService.log(actor.getId(), "REGULARIZATION_REQUESTED", actor.getId());
 
-        // Request Created: notify the resolved approver only — never every Manager/HR/Super
-        // Admin in the system. Super Admin already has blanket queue visibility (see
-        // listPendingForApprover) so isn't separately notified per-request, matching "do not
-        // blindly notify" — only the one person this request is actually routed to.
-        if (entity.getAssignedApproverId() != null) {
-            notifyRecipients(List.of(entity.getAssignedApproverId()), "REGULARIZATION_SUBMITTED",
+        // Request Created: notify the resolved approver (the employee's reporting manager, or a
+        // manually-picked eligible approver) plus every active HR Admin, so HR isn't left to
+        // discover a new request only by checking their queue. Deliberately HR_ADMIN only, not
+        // findAdminUserIds — Super Admin already has blanket queue visibility (see
+        // listPendingForApprover), so isn't separately paged on every single submission.
+        Set<UUID> submittedRecipients = new LinkedHashSet<>();
+        if (entity.getAssignedApproverId() != null) submittedRecipients.add(entity.getAssignedApproverId());
+        submittedRecipients.addAll(userRepository.findActiveHrAdminUserIds());
+        if (!submittedRecipients.isEmpty()) {
+            notifyRecipients(submittedRecipients, "REGULARIZATION_SUBMITTED",
                     "Regularization Request Submitted",
                     employeeName(actor.getId()) + " has submitted a regularization request for "
                             + entity.getAttendanceDate().format(NOTIFICATION_DATE_FMT) + ".",
@@ -206,6 +211,7 @@ public class RegularizationService {
 
         String before = auditSnapshot.toJson(regularizationSnapshot(existing));
         ResolvedTimes times = resolveTimes(req, actor.getId());
+        assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
         if (!hasRole(actor, "SUPER_ADMIN")) {
             validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
         }
@@ -453,13 +459,15 @@ public class RegularizationService {
     }
 
     /**
-     * Status-first, stage-aware approval. From PENDING: SUPER_ADMIN or HR_ADMIN bypasses
-     * straight to the terminal APPROVED state, without needing to be the employee's manager and
-     * regardless of whether the manager has acted yet; MANAGER (their assigned request only)
-     * moves it to PARTIALLY_APPROVED. From PARTIALLY_APPROVED: SUPER_ADMIN or HR_ADMIN finalize
-     * to APPROVED. Branching on the request's current status first (rather than the actor's
-     * "highest" role) means a dual-role actor (e.g. MANAGER + HR_ADMIN) gets whichever authority
-     * actually matches the request's stage, instead of one role permanently shadowing the other.
+     * Status-first approval. From PENDING: SUPER_ADMIN, HR_ADMIN, or MANAGER (their assigned
+     * request only) all go straight to the terminal APPROVED state — a single approval from any
+     * one eligible approver is final; there is no longer a two-stage hand-off. The
+     * PARTIALLY_APPROVED branch below is kept only to let SUPER_ADMIN/HR_ADMIN finalize any
+     * request that already reached that status before this change (legacy data) — no new
+     * approval can produce PARTIALLY_APPROVED going forward. Branching on the request's current
+     * status first (rather than the actor's "highest" role) means a dual-role actor (e.g.
+     * MANAGER + HR_ADMIN) gets whichever authority actually matches the request's stage, instead
+     * of one role permanently shadowing the other.
      */
     @Transactional
     public RegularizationResponse approve(UUID requestId, String comment, String actorEmail) {
@@ -479,9 +487,11 @@ public class RegularizationService {
                 actingRole = "HR_ADMIN";
                 finalStage = true;
             } else if (hasRole(actor, "MANAGER")) {
+                // A Manager's approval is now final on its own — no HR/Super Admin sign-off
+                // required afterward. Still gated to their own assigned/reporting employee.
                 assertCanReview(req, actor);
                 actingRole = "MANAGER";
-                finalStage = false;
+                finalStage = true;
             } else {
                 throw new AccessDeniedException("You are not authorized to review this request");
             }
@@ -542,10 +552,10 @@ public class RegularizationService {
                 finalStage ? "REGULARIZATION_APPROVED" : "REGULARIZATION_PARTIALLY_APPROVED",
                 req.getEmployeeUserId());
 
-        // Request Approved: only the terminal APPROVED outcome is "approved" from the
-        // employee's perspective — the interim Manager sign-off (PARTIALLY_APPROVED) still
-        // awaits HR/Super Admin's final decision, so notifying "approved" at that stage would
-        // be misleading. Not one of the 3 requested lifecycle events, so nothing is sent then.
+        // finalStage is always true for a fresh approval now (Manager included) — this guard
+        // only still matters for finalizing a request that was already left PARTIALLY_APPROVED
+        // before this change; that legacy path also reaches here with finalStage true, so the
+        // guard itself is effectively redundant now, just defensive.
         if (finalStage) {
             notifyRecipients(List.of(req.getEmployeeUserId()), "REGULARIZATION_APPROVED",
                     "Regularization Request Approved",
@@ -670,6 +680,21 @@ public class RegularizationService {
             throw new IllegalArgumentException(
                     "You are not allowed to apply regularization for this date after "
                             + earliestAllowed.format(NOTIFICATION_DATE_FMT) + ".");
+        }
+    }
+
+    /**
+     * There's no attendance to correct for a date before the employee even joined — unlike the
+     * lookback window/monthly limit above, this is a data-integrity rule, not a business policy,
+     * so it applies to everyone with no Super Admin exemption. Silently allows when the employee
+     * record can't be resolved (never happens for a real actor, but fails open rather than
+     * blocking on an unrelated lookup issue).
+     */
+    private void assertNotBeforeJoiningDate(UUID employeeUserId, LocalDate attendanceDate) {
+        LocalDate joiningDate = employeeRepository.findById(employeeUserId).map(Employee::getJoiningDate).orElse(null);
+        if (joiningDate != null && attendanceDate.isBefore(joiningDate)) {
+            throw new IllegalArgumentException(
+                    "Cannot request regularization for a date before your joining date (" + joiningDate.format(NOTIFICATION_DATE_FMT) + ").");
         }
     }
 
