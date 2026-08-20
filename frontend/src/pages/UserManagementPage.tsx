@@ -182,25 +182,21 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token }: {
 }
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
-function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string }) {
+function AddModal({ onClose, onCreated, token, opts, setOpts }: {
+  onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string;
+  // Org-wide reference data (departments/designations/locations/managers/shifts) — fetched ONCE
+  // by the parent UserManagementPage and shared with EditModal, instead of each modal re-fetching
+  // it (including the expensive potential-managers lookup) on every single open. See
+  // UserManagementPage's own orgOptions state/effect for where this actually loads.
+  opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
+}) {
   const { showToast } = useToast();
   const [form, setForm] = useState<CreateUserPayload>({ fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
   const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
-
-  useEffect(() => {
-    Promise.all([
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-      orgApi.listShifts(token),
-    ]).then(([d, des, l, m, sh]) => setOpts({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
-  }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -364,7 +360,12 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
 }
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
-function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
+  user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
+  // Shared with AddModal — see AddModal's own comment on these two props for why this isn't
+  // fetched fresh here.
+  opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
+}) {
   const { showToast } = useToast();
   const [form, setForm] = useState<UpdateUserPayload>({
     fullName: user.fullName,
@@ -377,7 +378,6 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     workMode: user.workMode ?? 'ONSITE',
     managerId: user.currentManager?.userId ?? undefined,
   });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -388,16 +388,6 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
   // see UserManagementService.updateJoiningDate.
   const [joiningDate, setJoiningDate] = useState(user.joiningDate);
   const [joiningDateNote, setJoiningDateNote] = useState('');
-
-  useEffect(() => {
-    Promise.all([
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-      orgApi.listShifts(token),
-    ]).then(([d, des, l, m, sh]) => setOpts({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
-  }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -687,6 +677,13 @@ export default function UserManagementPage() {
   const [resetting, setResetting] = useState<EmployeeRecord | null>(null);
   const [toggling, setToggling] = useState<EmployeeRecord | null>(null);
   const [deleting, setDeleting] = useState<EmployeeRecord | null>(null);
+  // Reference data for the Add/Edit User forms — departments/designations/locations/managers/
+  // shifts. Fetched ONCE here (not per-modal-open) and shared by both AddModal and EditModal, so
+  // opening either repeatedly doesn't re-run 5 API calls (including the expensive
+  // potential-managers lookup) every single time. A newly-created location/shift from inside
+  // either modal is appended straight into this shared state, so it's immediately available to
+  // the other modal too without a re-fetch.
+  const [orgOptions, setOrgOptions] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
 
   // Filters
   const [search, setSearch] = useState('');
@@ -698,6 +695,16 @@ export default function UserManagementPage() {
 
   useEffect(() => {
     usersApi.list(token).then(setUsers).finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    Promise.all([
+      orgApi.listDepartments(token),
+      orgApi.listDesignations(token),
+      orgApi.listLocations(token),
+      employeesApi.potentialManagers(token),
+      orgApi.listShifts(token),
+    ]).then(([d, des, l, m, sh]) => setOrgOptions({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
   }, [token]);
 
   // Derived filter options from real data
@@ -885,8 +892,8 @@ export default function UserManagementPage() {
         )}
       </div>
 
-      {showAdd && <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
-      {editing && <EditModal user={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
+      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
       {toggling && <StatusModal user={toggling} token={token} onClose={() => setToggling(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
       {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />}

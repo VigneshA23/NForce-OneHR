@@ -162,21 +162,26 @@ public class EmployeeService {
      */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listPotentialManagers() {
-        return userRepository.findAll().stream()
+        List<User> eligible = userRepository.findAllWithRoles().stream()
                 .filter(u -> u.isActive() && u.getRoles().stream()
                         .anyMatch(r -> Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN").contains(r.getCode())))
-                .map(u -> {
-                    String name = employeeRepository.findById(u.getId())
-                            .map(Employee::getFullName).orElse(u.getEmail());
-                    String role = RoleUtils.primaryRoleCode(u.getRoles(), "");
-                    return EmployeeResponse.builder()
-                            .userId(u.getId())
-                            .email(u.getEmail())
-                            .fullName(name)
-                            .role(role)
-                            .active(u.isActive())
-                            .build();
-                })
+                .toList();
+        if (eligible.isEmpty()) {
+            return List.of();
+        }
+        // One batch lookup for full names instead of an employeeRepository.findById per user —
+        // same fallback-to-email behavior as before for a User with no Employee row.
+        Set<UUID> ids = eligible.stream().map(User::getId).collect(Collectors.toSet());
+        Map<UUID, String> namesByUserId = employeeRepository.findNamesByUserIds(ids).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        return eligible.stream()
+                .map(u -> EmployeeResponse.builder()
+                        .userId(u.getId())
+                        .email(u.getEmail())
+                        .fullName(namesByUserId.getOrDefault(u.getId(), u.getEmail()))
+                        .role(RoleUtils.primaryRoleCode(u.getRoles(), ""))
+                        .active(u.isActive())
+                        .build())
                 .collect(Collectors.toList());
     }
 

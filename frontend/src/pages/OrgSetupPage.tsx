@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock, Users } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { orgApi, type DepartmentRow, type DesignationRow, type LocationRow, type ShiftRow, type ShiftEmployeeRow } from '../api/org';
+import { usersApi } from '../api/employees';
 import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
@@ -98,22 +99,15 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-function CountBadge({ count, onClick }: { count: number; onClick?: () => void }) {
-  const style: React.CSSProperties = {
-    fontFamily: '"JetBrains Mono", monospace', fontSize: 12,
-    color: count > 0 ? 'var(--txt-mut)' : 'var(--txt-dim)',
-  };
-  if (onClick && count > 0) {
-    return (
-      <button
-        onClick={onClick}
-        style={{ ...style, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
-      >
-        {count}
-      </button>
-    );
-  }
-  return <span style={style}>{count}</span>;
+function CountBadge({ count }: { count: number }) {
+  return (
+    <span style={{
+      fontFamily: '"JetBrains Mono", monospace', fontSize: 12,
+      color: count > 0 ? 'var(--txt-mut)' : 'var(--txt-dim)',
+    }}>
+      {count}
+    </span>
+  );
 }
 
 
@@ -693,30 +687,64 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
   );
 }
 
-// ── ShiftEmployeesModal — drill-down for the Shifts tab's Employees count ──────
+// ── ShiftEmployeesModal — drill-down for the Shifts tab's "View Employees" action ──
+// Reuses the exact same shift-assignment path as Add/Edit User (usersApi.update with just
+// shiftId set) for the per-row "Update Shift" move, so there is only ever one place that writes
+// an employee's shift — see UserManagementService.updateUser.
 interface ShiftEmployeesModalProps {
   shift: ShiftRow;
+  shifts: ShiftRow[];
   token: string;
   onClose(): void;
+  // Called after any employee's shift is moved from within this modal — lets the parent
+  // re-fetch so both the old and new shift's Employees counts stay accurate immediately.
+  onShiftChanged(): void;
 }
 
-function ShiftEmployeesModal({ shift, token, onClose }: ShiftEmployeesModalProps) {
+function ShiftEmployeesModal({ shift, shifts, token, onClose, onShiftChanged }: ShiftEmployeesModalProps) {
+  const { showToast } = useToast();
   const [rows, setRows] = useState<ShiftEmployeeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [movingUserId, setMovingUserId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    orgApi.listShiftEmployees(token, shift.id)
-      .then(r => { if (!cancelled) setRows(r); })
-      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load employees'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [token, shift.id]);
+  function load(setsLoadingFlag: boolean) {
+    if (setsLoadingFlag) setLoading(true);
+    return orgApi.listShiftEmployees(token, shift.id)
+      .then(r => setRows(r))
+      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load employees'))
+      .finally(() => { if (setsLoadingFlag) setLoading(false); });
+  }
+
+  useEffect(() => { load(true); }, [token, shift.id]);
+
+  async function handleMove(row: ShiftEmployeeRow, newShiftId: string) {
+    if (!newShiftId || newShiftId === shift.id) return;
+    const newShift = shifts.find(s => s.id === newShiftId);
+    setMovingUserId(row.userId);
+    try {
+      await usersApi.update(row.userId, { shiftId: newShiftId }, token);
+      // Moved off this shift — drop it from the list shown here rather than re-fetching the
+      // whole thing, and let the parent refresh every shift row's employee count.
+      setRows(prev => prev.filter(r => r.userId !== row.userId));
+      showToast('success', `${row.fullName} moved to ${newShift?.name ?? 'the new shift'}`);
+      onShiftChanged();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to update shift');
+      load(false);
+    } finally {
+      setMovingUserId(null);
+    }
+  }
+
+  const selectS: React.CSSProperties = {
+    background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6,
+    padding: '5px 8px', fontSize: 11.5, color: 'var(--txt)', maxWidth: 180,
+  };
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Employees on ${shift.name}`} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 520, maxWidth: '94vw', maxHeight: '84vh', overflowY: 'auto' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 620, maxWidth: '94vw', maxHeight: '84vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{shift.name}</h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}><X size={16} /></button>
@@ -733,12 +761,26 @@ function ShiftEmployeesModal({ shift, token, onClose }: ShiftEmployeesModalProps
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {rows.map(r => (
-              <div key={r.userId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 4px', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
-                <div>
+              <div key={r.userId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '9px 4px', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{r.fullName}</div>
-                  <div style={{ color: 'var(--txt-mut)', fontSize: 11.5 }}>{r.email}{r.departmentName ? ` · ${r.departmentName}` : ''}</div>
+                  <div style={{ color: 'var(--txt-mut)', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.email}{r.departmentName ? ` · ${r.departmentName}` : ''} · {r.employeeCode}
+                  </div>
                 </div>
-                <div style={{ color: 'var(--txt-dim)', fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Shift</span>
+                  <select
+                    style={selectS}
+                    value={shift.id}
+                    disabled={movingUserId === r.userId}
+                    onChange={e => handleMove(r, e.target.value)}
+                  >
+                    {shifts.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} — {fmtShiftTime(s.startTime)}–{fmtShiftTime(s.endTime)}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             ))}
           </div>
@@ -783,24 +825,26 @@ export default function OrgSetupPage() {
   const tab = TABS[activeTab];
   const Icon = tab.icon;
 
+  // Promise.allSettled, not Promise.all — each section loads (and fails) independently, so a
+  // single backend error (e.g. one bad row in Document Types) doesn't blank the whole page and
+  // hide the other three tabs that loaded fine. Failed sections keep whatever they last had
+  // (empty on first load) and their specific error is surfaced, not swallowed into one generic
+  // "unexpected error" that gives no clue which section actually failed.
   async function fetchAll() {
-    setLoadError('');
-    try {
-      const [deps, desigs, locs, shiftRows, dts] = await Promise.all([
-        orgApi.listDepartments(token),
-        orgApi.listDesignations(token),
-        orgApi.listLocations(token),
-        orgApi.listShifts(token),
-        listAllDocTypes(token),
-      ]);
-      setDepartments(deps);
-      setDesignations(desigs);
-      setLocations(locs);
-      setShifts(shiftRows);
-      setDocTypes(dts);
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : 'Failed to load data');
-    }
+    const [deps, desigs, locs, shiftRows, dts] = await Promise.allSettled([
+      orgApi.listDepartments(token),
+      orgApi.listDesignations(token),
+      orgApi.listLocations(token),
+      orgApi.listShifts(token),
+      listAllDocTypes(token),
+    ]);
+    const failed: string[] = [];
+    if (deps.status === 'fulfilled') setDepartments(deps.value); else failed.push(`Departments (${deps.reason instanceof Error ? deps.reason.message : 'failed to load'})`);
+    if (desigs.status === 'fulfilled') setDesignations(desigs.value); else failed.push(`Designations (${desigs.reason instanceof Error ? desigs.reason.message : 'failed to load'})`);
+    if (locs.status === 'fulfilled') setLocations(locs.value); else failed.push(`Locations (${locs.reason instanceof Error ? locs.reason.message : 'failed to load'})`);
+    if (shiftRows.status === 'fulfilled') setShifts(shiftRows.value); else failed.push(`Shifts (${shiftRows.reason instanceof Error ? shiftRows.reason.message : 'failed to load'})`);
+    if (dts.status === 'fulfilled') setDocTypes(dts.value); else failed.push(`Document Types (${dts.reason instanceof Error ? dts.reason.message : 'failed to load'})`);
+    setLoadError(failed.length > 0 ? `Couldn't load: ${failed.join(', ')}` : '');
   }
 
   useEffect(() => { if (token) fetchAll(); }, [token]);
@@ -1045,8 +1089,10 @@ export default function OrgSetupPage() {
       {shiftEmployeesRow && (
         <ShiftEmployeesModal
           shift={shiftEmployeesRow}
+          shifts={shifts}
           token={token}
           onClose={() => setShiftEmployeesRow(null)}
+          onShiftChanged={fetchAll}
         />
       )}
       {confirmState && (
@@ -1233,7 +1279,27 @@ export default function OrgSetupPage() {
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{fmtShiftTime(s.startTime)} – {fmtShiftTime(s.endTime)}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.flexible ? 'Flexible' : 'Fixed'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.breakMinutes != null ? `${s.breakMinutes}m` : '—'}</td>
-                    <td style={{ padding: '10px 16px' }}><CountBadge count={s.employeeCount} onClick={() => setShiftEmployeesRow(s)} /></td>
+                    <td style={{ padding: '10px 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <CountBadge count={s.employeeCount} />
+                        <button
+                          onClick={() => setShiftEmployeesRow(s)}
+                          disabled={s.employeeCount === 0}
+                          title="View employees on this shift"
+                          aria-label={`View employees on ${s.name}`}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: 24, height: 24, padding: 0, borderRadius: 6,
+                            background: 'var(--raised)', border: '1px solid var(--line2)',
+                            color: s.employeeCount === 0 ? 'var(--txt-dim)' : 'var(--brand-bright)',
+                            cursor: s.employeeCount === 0 ? 'not-allowed' : 'pointer',
+                            opacity: s.employeeCount === 0 ? 0.5 : 1,
+                          }}
+                        >
+                          <Users size={13} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={s.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                       <KebabMenu items={shiftKebabItems(s)} />

@@ -301,23 +301,23 @@ public class WebClockInService {
                     "This session is past its check-out window. Please submit a regularization request.");
         }
 
-        // A forgotten checkout can leave a session open for several hours before the employee
-        // actually clicks Web Clock-Out; count worked time only up to this shift's own natural
-        // end (not the late click's real clock time), so it can never inflate into something like
-        // "27h 8m" for what is supposed to be a single shift/day — mirrors
-        // AttendanceService.checkOut's cap.
+        // The shift's own natural end still bounds the WORKED-MINUTES figure — a forgotten
+        // checkout left open for hours must not inflate into something like "27h 8m" for what's
+        // supposed to be a single shift/day. But it must never be used as the recorded
+        // checkedOutAt itself: the actual click time (`now`) is always what gets stored — shift
+        // timing only feeds the capped aggregate below (recomputeCombinedWorkedMinutes's capAt),
+        // never the timestamp. Mirrors AttendanceService.checkOut/closeSession.
         LocalDateTime cutoff = shiftEndCutoff(actor.getId(), req.getWorkDate());
-        LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
 
         String before = auditSnapshot.toJson(Map.of("checkedOutAt", "null"));
-        req.setCheckedOutAt(effectiveCheckOut);
+        req.setCheckedOutAt(now);
         webClockInRepository.save(req);
 
         // Combined total across BOTH Check-In/Out and Web Clock-In/Out, overlap-safe — see
         // AttendanceService.recomputeCombinedWorkedMinutes. Normal and Web sessions are
         // independent and can genuinely overlap in real time, so this is a merge, not a running
         // "+= this session's minutes" (that would double-count any overlapping window).
-        int workedMinutes = attendanceService.recomputeCombinedWorkedMinutes(actor.getId(), record.getId(), record.getWorkDate());
+        int workedMinutes = attendanceService.recomputeCombinedWorkedMinutes(actor.getId(), record.getId(), record.getWorkDate(), cutoff);
         record.setWorkedMinutes(workedMinutes);
         // Never touch record.checkOutAt here — see this method's own Javadoc. Status
         // (PRESENT/LATE/HALF_DAY) IS recomputed from the new combined total, since that
@@ -332,7 +332,7 @@ public class WebClockInService {
         }
         attendanceRepository.save(record);
 
-        String after = auditSnapshot.toJson(Map.of("checkedOutAt", effectiveCheckOut.toString(), "workedMinutes", workedMinutes));
+        String after = auditSnapshot.toJson(Map.of("checkedOutAt", now.toString(), "workedMinutes", workedMinutes));
         auditService.log(actor.getId(), "WEB_CLOCK_OUT", req.getId(), before, after);
         return toResponse(req);
     }

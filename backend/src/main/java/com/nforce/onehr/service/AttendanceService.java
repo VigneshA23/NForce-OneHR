@@ -402,31 +402,36 @@ public class AttendanceService {
                     "This session is past its check-out window and has been marked as a missing check-out. Please submit a regularization request.");
         }
 
-        // A forgotten checkout can leave a session open for several hours before the employee
-        // actually clicks Check-out (e.g. checking out at 3 AM for a shift that ended at
-        // 12:30 AM); count worked time only up to this shift's own natural end (not the late
-        // click's real clock time), so it can never inflate into something like "27h 8m" for
-        // what is supposed to be a single shift/day. Only reachable here at all within the grace
-        // window above — a click that arrives after the grace window is now rejected outright.
+        // The shift's own natural end still bounds the WORKED-MINUTES figure — a forgotten
+        // checkout left open for hours (e.g. checking out at 3 AM for a shift that ended at
+        // 12:30 AM) must not inflate into something like "27h 8m" for what's supposed to be a
+        // single shift/day. But it must never be used as the recorded checkOutAt itself: the
+        // actual click time (`now`) is always what gets stored, everywhere (this record, the
+        // punch, the audit log, punch history) — shift timing only feeds the capped aggregate
+        // below, via recomputeCombinedWorkedMinutes's capAt, never the timestamp. See
+        // closeSession.
         LocalDateTime cutoff = shiftEndCutoff(employee, record.getWorkDate());
-        LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
 
         String before = auditSnapshot.toJson(Map.of(
                 "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
-        Attendance saved = closeSession(record, effectiveCheckOut);
+        Attendance saved = closeSession(record, now, cutoff);
         String after = auditSnapshot.toJson(Map.of(
-                "checkOutAt", effectiveCheckOut.toString(), "workedMinutes", saved.getWorkedMinutes(), "status", saved.getStatus()));
+                "checkOutAt", now.toString(), "workedMinutes", saved.getWorkedMinutes(), "status", saved.getStatus()));
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_OUT", saved.getId(), before, after);
         return toResponse(saved, employee);
     }
 
     /**
-     * Closes an open attendance record as of {@code effectiveCheckOut} — closes the matching open
-     * punch, recomputes the day's combined worked minutes (see recomputeCombinedWorkedMinutes),
-     * and sets the resulting status — exactly what an explicit {@link #checkOut} does.
+     * Closes an open attendance record as of {@code actualCheckOut} — the real click time,
+     * ALWAYS recorded verbatim on both the record and its punch, never replaced by
+     * {@code workedMinutesCapAt}. Recomputes the day's combined worked minutes (see
+     * recomputeCombinedWorkedMinutes), bounding that aggregate — but not the stored
+     * timestamp — at {@code workedMinutesCapAt} (typically the shift's own natural end; null
+     * for uncapped), and sets the resulting status — exactly what an explicit {@link #checkOut}
+     * does.
      */
-    private Attendance closeSession(Attendance record, LocalDateTime effectiveCheckOut) {
-        record.setCheckOutAt(effectiveCheckOut);
+    private Attendance closeSession(Attendance record, LocalDateTime actualCheckOut, LocalDateTime workedMinutesCapAt) {
+        record.setCheckOutAt(actualCheckOut);
 
         // Close the punch FIRST — recomputeCombinedWorkedMinutes below reads this same punch back
         // out of the DB (via collectPunches), so it must already reflect this checkout.
@@ -436,7 +441,7 @@ public class AttendanceService {
         // crashes the checkout instead of just closing the most recently opened session.
         attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(record.getId())
                 .ifPresent(punch -> {
-                    punch.setCheckOutAt(effectiveCheckOut);
+                    punch.setCheckOutAt(actualCheckOut);
                     attendancePunchRepository.save(punch);
                 });
 
@@ -444,7 +449,7 @@ public class AttendanceService {
         // recomputeCombinedWorkedMinutes) — Normal and Web Clock sessions are independent and can
         // be open at the same time, so this can no longer be a simple "add this session's minutes
         // to the running total" (that would double-count any overlapping window).
-        int workedMinutes = recomputeCombinedWorkedMinutes(record.getEmployeeUserId(), record.getId(), record.getWorkDate());
+        int workedMinutes = recomputeCombinedWorkedMinutes(record.getEmployeeUserId(), record.getId(), record.getWorkDate(), workedMinutesCapAt);
         record.setWorkedMinutes(workedMinutes);
 
         // A short day overrides LATE — the shortfall is the more significant fact for payroll.
@@ -470,9 +475,25 @@ public class AttendanceService {
      * once, never twice, regardless of which source(s) cover it.
      */
     public int recomputeCombinedWorkedMinutes(UUID employeeId, UUID attendanceRecordId, LocalDate workDate) {
+        return recomputeCombinedWorkedMinutes(employeeId, attendanceRecordId, workDate, null);
+    }
+
+    /**
+     * Same as {@link #recomputeCombinedWorkedMinutes(UUID, UUID, LocalDate)}, but bounds each
+     * closed interval's contribution to the total at {@code capAt} (e.g. the shift's own natural
+     * end) when a session ran past it — protects the WORKED-MINUTES figure from a forgotten
+     * checkout inflating hours (e.g. "27h 8m"), without ever touching the punches' own stored
+     * checkInAt/checkOutAt: those remain the real, actual click times everywhere else (API
+     * responses, punch history, audit log) — only this aggregate sum is clamped. {@code capAt}
+     * null means uncapped, same as the 3-arg overload.
+     */
+    public int recomputeCombinedWorkedMinutes(UUID employeeId, UUID attendanceRecordId, LocalDate workDate, LocalDateTime capAt) {
         List<long[]> intervals = collectPunches(employeeId, attendanceRecordId, workDate).stream()
                 .filter(p -> p.getCheckOutAt() != null)
-                .map(p -> new long[]{toComparableMinute(p.getCheckInAt()), toComparableMinute(p.getCheckOutAt())})
+                .map(p -> {
+                    LocalDateTime end = (capAt != null && p.getCheckOutAt().isAfter(capAt)) ? capAt : p.getCheckOutAt();
+                    return new long[]{toComparableMinute(p.getCheckInAt()), toComparableMinute(end)};
+                })
                 .sorted(Comparator.comparingLong(iv -> iv[0]))
                 .toList();
 
