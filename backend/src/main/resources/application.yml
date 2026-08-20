@@ -65,7 +65,7 @@ app:
       monthly-limit: 3
 resend:
   api-key: ${RESEND_API_KEY}
-  from: OneHR <onboarding@nforceone.com>
+  from: OneHR <onehr@resend.dev>
 
 server:
   port: ${PORT:8081}
