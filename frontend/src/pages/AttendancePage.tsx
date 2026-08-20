@@ -1925,7 +1925,12 @@ function AttendanceStatsPanel({ token }: { token: string }) {
     return () => { cancelled = true; };
   }, [range, token]);
 
-  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 0' };
+  // Header and both data rows share this exact [flex:1 name][84px][100px] composition so the
+  // Avg hrs/day and On-time % columns line up vertically — a data row using justify-content:
+  // space-between here would distribute space differently than the header's flex:1 spacer and
+  // throw the columns out of alignment.
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' };
+  const nameStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--txt)', fontWeight: 600 };
 
   return (
     <div style={{ ...panelStyle, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1942,14 +1947,14 @@ function AttendanceStatsPanel({ token }: { token: string }) {
         <div style={{ color: 'var(--txt-dim)', fontSize: 12.5, padding: '10px 0' }}>Stats unavailable right now.</div>
       ) : (
         <>
-          <div style={{ display: 'flex', fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-            <span style={{ flex: 1 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            <span style={{ flex: 1, minWidth: 0 }} />
             <span style={{ width: 84, textAlign: 'right' }}>Avg hrs/day</span>
             <span style={{ width: 100, textAlign: 'right' }}>On-time %</span>
           </div>
           <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--txt)', fontWeight: 600 }}>
-              <User size={13} style={{ color: 'var(--brand)' }} /> Me
+            <span style={nameStyle}>
+              <User size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} /> Me
             </span>
             <span style={{ width: 84, textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.me.avgHoursPerDay != null ? `${stats.me.avgHoursPerDay}h` : dash}
@@ -1959,8 +1964,8 @@ function AttendanceStatsPanel({ token }: { token: string }) {
             </span>
           </div>
           <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--txt)', fontWeight: 600 }}>
-              <Users size={13} style={{ color: 'var(--txt-dim)' }} /> My Team
+            <span style={nameStyle}>
+              <Users size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} /> My Team
             </span>
             <span style={{ width: 84, textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.team.avgHoursPerDay != null ? `${stats.team.avgHoursPerDay}h` : dash}
@@ -2381,24 +2386,41 @@ function TimelineBar({ checkInAt, checkOutAt, leftPct, widthPct }: {
 }
 
 /** Compact, column-filling 24-hour presence timeline. Bars are proportional to actual login/logout duration; hovering a bar shows a small tooltip (see TimelineBar). No day-details content lives here — that's behind the row's View button. */
+// Width pinned via ATTENDANCE_VISUAL_COL_WIDTH (the <th>/<td> below) so every row in the column
+// — bars or placeholder text — occupies the same footprint and lines up under the "Attendance
+// Visual" header, and the same font size as the rest of the table's cells (tdStyle) rather than
+// a smaller one-off size.
+const ATTENDANCE_VISUAL_COL_WIDTH = 200;
+const attendanceVisualPlaceholderStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', height: 18, width: '100%', fontSize: 12.5, color: 'var(--txt-dim)',
+};
+
 function AttendanceTimeline({ info, punches, punchesLoading }: {
   info: DayInfo; punches: Punch[] | undefined; punchesLoading: boolean;
 }) {
   if (info.holidayName) {
-    return <span style={{ fontSize: 11, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>Company holiday — {info.holidayName}</span>;
+    return (
+      <div style={attendanceVisualPlaceholderStyle}>
+        <TruncatedText text={`Company holiday — ${info.holidayName}`} />
+      </div>
+    );
   }
   if (info.leaveTypeName) {
-    return <span style={{ fontSize: 11, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>On leave — {info.leaveTypeName}</span>;
+    return (
+      <div style={attendanceVisualPlaceholderStyle}>
+        <TruncatedText text={`On leave — ${info.leaveTypeName}`} />
+      </div>
+    );
   }
   if (info.isWeekend && !info.record && !info.attendanceRequest) {
-    return <span style={{ fontSize: 11, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>Full day Weekly-off</span>;
+    return <div style={attendanceVisualPlaceholderStyle}>Full day Weekly-off</div>;
   }
   const record = info.record;
   if (!record?.checkInAt) {
-    return <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>—</span>;
+    return <div style={attendanceVisualPlaceholderStyle}>—</div>;
   }
   if (punchesLoading) {
-    return <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Loading…</span>;
+    return <div style={attendanceVisualPlaceholderStyle}>Loading…</div>;
   }
 
   // Real per-session punches (supports multiple blocks/day) when the fetch has resolved;
@@ -2409,7 +2431,7 @@ function AttendanceTimeline({ info, punches, punchesLoading }: {
       : [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt }];
 
   return (
-    <div style={{ position: 'relative', height: 18, width: '100%', minWidth: 140, maxWidth: 220 }}>
+    <div style={{ position: 'relative', height: 18, width: '100%' }}>
       <div style={{ position: 'absolute', left: 0, right: 0, top: 6, height: 6, background: 'var(--raised2)', borderRadius: 3 }} />
       {Array.from({ length: 25 }).map((_, i) => (
         <div key={i} style={{ position: 'absolute', left: `${(i / 24) * 100}%`, top: 3, width: 1, height: 12, background: 'var(--line2)', opacity: i % 6 === 0 ? 0.8 : 0.35 }} />
@@ -3283,7 +3305,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr>{['Date', 'Attendance Visual', 'Effective Hours', 'Break Taken', 'Gross Hours', 'Arrival', 'Log'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                    <tr>{['Date', 'Attendance Visual', 'Effective Hours', 'Break Taken', 'Gross Hours', 'Arrival', 'Log'].map((h) => (
+                      <th key={h} style={h === 'Attendance Visual' ? { ...thStyle, width: ATTENDANCE_VISUAL_COL_WIDTH, minWidth: ATTENDANCE_VISUAL_COL_WIDTH } : thStyle}>{h}</th>
+                    ))}</tr>
                   </thead>
                   <tbody>
                     {logRows.map((info) => {
