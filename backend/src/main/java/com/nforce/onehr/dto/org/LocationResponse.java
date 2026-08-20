@@ -14,6 +14,7 @@ public class LocationResponse {
     String state;
     String country;
     String holidayRegion;
+    String timezone;
     boolean active;
     long employeeCount;
     LocalDateTime createdAt;
@@ -21,6 +22,6 @@ public class LocationResponse {
 
     public static LocationResponse from(Location l, long employeeCount) {
         return new LocationResponse(l.getId(), l.getName(), l.getCity(), l.getState(), l.getCountry(),
-                l.getHolidayRegion(), l.isActive(), employeeCount, l.getCreatedAt(), l.getUpdatedAt());
+                l.getHolidayRegion(), l.getTimezone(), l.isActive(), employeeCount, l.getCreatedAt(), l.getUpdatedAt());
     }
 }

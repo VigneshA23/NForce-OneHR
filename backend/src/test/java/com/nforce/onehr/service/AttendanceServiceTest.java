@@ -4,6 +4,7 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.entity.Attendance;
+import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
@@ -78,6 +79,23 @@ class AttendanceServiceTest {
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
     }
 
+    /**
+     * Stubs {@code record} as the employee's currently-open NORMAL session — checkIn/checkOut/
+     * getToday now find this via an open AttendancePunch (see AttendanceService
+     * .findOpenNormalAttendance), not a direct query on the Attendance row itself, since Web
+     * Clock-In sessions are tracked entirely independently and must never be mistaken for one.
+     */
+    private void stubOpenNormalSession(Attendance record) {
+        LocalDateTime punchCheckIn = record.getSessionStartedAt() != null ? record.getSessionStartedAt() : record.getCheckInAt();
+        AttendancePunch openPunch = AttendancePunch.builder()
+                .id(UUID.randomUUID())
+                .attendanceRecordId(record.getId())
+                .checkInAt(punchCheckIn)
+                .build();
+        lenient().when(attendancePunchRepository.findOpenByEmployeeUserId(employeeId)).thenReturn(List.of(openPunch));
+        lenient().when(attendanceRepository.findById(record.getId())).thenReturn(Optional.of(record));
+    }
+
     @Test
     void checkOut_rejectsAndFlagsMissingCheckout_whenSessionWasLeftOpenForOverADay() {
         // Checked in two days ago at 5:35 PM, last resumed at 6:00 PM, and never checked out.
@@ -97,8 +115,7 @@ class AttendanceServiceTest {
                 .lateByMinutes(125)
                 .status("LATE")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(open));
+        stubOpenNormalSession(open);
 
         assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
 
@@ -133,8 +150,7 @@ class AttendanceServiceTest {
                 .lateByMinutes(125)
                 .status("LATE")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(open));
+        stubOpenNormalSession(open);
 
         AttendanceResponse response = service.checkOut(employeeEmail, null);
 
@@ -156,8 +172,7 @@ class AttendanceServiceTest {
                 .lateByMinutes(0)
                 .status("PRESENT")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(open));
+        stubOpenNormalSession(open);
 
         ZoneId istZone = ZoneId.of("Asia/Kolkata");
         LocalDateTime before = LocalDateTime.now(istZone);
@@ -200,8 +215,7 @@ class AttendanceServiceTest {
                 .lateByMinutes(0)
                 .status("PRESENT")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(stale));
+        stubOpenNormalSession(stale);
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
                 .thenReturn(Optional.empty());
 
@@ -235,8 +249,7 @@ class AttendanceServiceTest {
                 .lateByMinutes(0)
                 .status("PRESENT")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(open));
+        stubOpenNormalSession(open);
 
         TodayAttendanceResponse response = service.getToday(employeeEmail, null);
 
@@ -260,12 +273,9 @@ class AttendanceServiceTest {
                 .lateByMinutes(0)
                 .status("PRESENT")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(stale));
+        stubOpenNormalSession(stale);
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
                 .thenReturn(Optional.empty());
-        when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(any()))
-                .thenReturn(List.of());
 
         // Must not throw "You have already checked in today" — the stale session is flagged
         // Missing Check-Out first, then a brand-new attendance record is created for today, same
@@ -294,8 +304,7 @@ class AttendanceServiceTest {
                 .lateByMinutes(0)
                 .status("PRESENT")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(stale));
+        stubOpenNormalSession(stale);
 
         assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
 
@@ -311,8 +320,6 @@ class AttendanceServiceTest {
         // No Location on this employee (see setUp) — without a browser-reported zone this would
         // fall back to the global default (Asia/Kolkata). Australia/Adelaide (a genuine IANA
         // zone, UTC+9:30/+10:30) exercises a half-hour offset distinct from IST's own +5:30.
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.empty());
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any()))
                 .thenReturn(Optional.empty());
 
@@ -328,8 +335,6 @@ class AttendanceServiceTest {
 
     @Test
     void checkIn_ignoresInvalidBrowserTimezone_fallsBackToConfiguredZone() {
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.empty());
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any()))
                 .thenReturn(Optional.empty());
 
@@ -356,8 +361,7 @@ class AttendanceServiceTest {
                 .status("PRESENT")
                 .timezone("Australia/Lord_Howe")
                 .build();
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.of(open));
+        stubOpenNormalSession(open);
 
         // Check-out click arrives from a browser now reporting a completely different zone
         // (e.g. a VPN, or genuine travel) — must NOT be used; only the session's own locked zone
@@ -392,8 +396,6 @@ class AttendanceServiceTest {
         Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
         Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).build();
         when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
-        when(attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employeeId))
-                .thenReturn(Optional.empty());
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
 
         AttendanceResponse resp = service.checkIn(employeeEmail, offset.getId());

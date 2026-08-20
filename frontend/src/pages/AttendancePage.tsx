@@ -380,6 +380,23 @@ const fieldErrorStyle: React.CSSProperties = { fontSize: 11, color: 'var(--risk)
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────
 
+/**
+ * Closes a popover on any click outside `ref`'s element — the "View Available Balance"/"View
+ * Details" popovers below (Regularization, WFH, Partial Day) otherwise only close via their own
+ * toggle button. `onOutside` is expected to be a stable state setter (e.g. `() =>
+ * setShowBalance(false)`), so it's read once at mount rather than re-subscribing every render.
+ */
+function useCloseOnOutsideClick(ref: React.RefObject<HTMLElement | null>, onOutside: () => void) {
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onOutside();
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onOutside is a stable setter for the component's lifetime
+  }, [ref]);
+}
+
 function StatusPill({ status }: { status: AttendanceStatus | null }) {
   if (!status) return dash;
   const color = STATUS_COLORS[status] ?? 'var(--txt-mut)';
@@ -665,6 +682,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
   const [manualCheckOutText, setManualCheckOutText] = useState(isoToTimeText(editing?.requestedCheckOut));
   const [balance, setBalance] = useState<RegularizationBalance | null>(null);
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
+  const balanceDetailsRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(balanceDetailsRef, () => setShowBalanceDetails(false));
   const [submitting, setSubmitting] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -831,7 +850,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             </span>
           </div>
 
-          <div style={{ position: 'relative' }}>
+          <div ref={balanceDetailsRef} style={{ position: 'relative' }}>
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Info size={13} />
               {balance ? (
@@ -1192,7 +1211,7 @@ function RosterTable({ rows, loading, emptyMessage }: {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Employee ID', 'Name', 'Check In', 'Check Out', 'Hours', 'Status', 'Source'].map((h) => (
+                {['Employee ID', 'Name', 'Check In', 'Check Out', 'Timezone', 'Hours', 'Status', 'Source'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -1204,6 +1223,11 @@ function RosterTable({ rows, loading, emptyMessage }: {
                   <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
                   <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
                   <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
+                  {/* r.timezone is this employee's OWN effective timezone (locked in at their
+                      check-in), not the viewer's — shown explicitly so an HR/Admin/Manager
+                      viewing someone in a different timezone always knows which zone the Check
+                      In/Out times above belong to. */}
+                  <td style={{ ...tdStyle, fontSize: 11.5, color: 'var(--txt-dim)' }}>{r.timezone ?? dash}</td>
                   <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
                   <td style={tdStyle}><StatusPill status={r.status} /></td>
                   <td style={tdStyle}><SourceTag source={r.source} /></td>
@@ -1509,6 +1533,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [wfhCustomToMode, setWfhCustomToMode] = useState<WfhDayMode>('SECOND_HALF');
   const [wfhBalance, setWfhBalance] = useState<WfhBalance | null>(null);
   const [showWfhBalance, setShowWfhBalance] = useState(false);
+  const wfhBalanceRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(wfhBalanceRef, () => setShowWfhBalance(false));
   const [partialDayMode, setPartialDayMode] = useState<PartialDayMode>('LATE_ARRIVE');
   const [partialDayMinutes, setPartialDayMinutes] = useState('60');
   // Intervening Time-off only — Keka anchors this mode to an explicit clock time ("Will leave
@@ -1523,6 +1549,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
   const [balance, setBalance] = useState<{ usedHours: number; limitHours: number; remainingHours: number } | null>(null);
   const [showBalance, setShowBalance] = useState(false);
+  const partialBalanceRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(partialBalanceRef, () => setShowBalance(false));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1652,13 +1680,18 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       setError('Duration must be greater than zero');
       return;
     }
-    // The block is based on the monthly allowance already being fully used, not on the
-    // requested value itself — a request of exactly (or under) the cap is always allowed as
-    // long as some balance remains; once the 120-minute allowance is fully used, any further
-    // request is blocked regardless of how many minutes it asks for.
+    // Blocks once this request's own minutes would push the month's total past the cap — not
+    // just once the allowance is already fully used, which let a single request larger than the
+    // whole monthly cap (e.g. 200 minutes against a 120-minute allowance) through untouched.
+    // Mirrors the hard check AttendanceRequestService.submit enforces server-side.
     const partialDayLimitMinutes = PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60;
-    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && remainingMinutes <= 0) {
-      setError(`You have used your ${partialDayLimitMinutes} minutes. You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
+    if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && Number(partialDayMinutes) > remainingMinutes) {
+      // Only claim the allowance is "used up" when it actually is (remainingMinutes <= 0) —
+      // e.g. 0/120 used, requesting 200 minutes in one shot isn't "you've used your 120
+      // minutes", it's simply asking for more than the cap allows in a single request.
+      setError(remainingMinutes <= 0
+        ? `You have used your ${partialDayLimitMinutes} minutes. You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`
+        : `You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
       return;
     }
     if (partialDayMode === 'INTERVENING_TIMEOFF' && requestType === 'PARTIAL_DAY') {
@@ -1746,7 +1779,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                   You are requesting for <strong style={{ color: 'var(--txt)' }}>{totalWfhDays}</strong> day{totalWfhDays === 1 ? '' : 's'} of work from home
                 </div>
               )}
-              <div style={{ position: 'relative' }}>
+              <div ref={wfhBalanceRef} style={{ position: 'relative' }}>
                 <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Info size={13} />
                   Remaining balance: <strong style={{ color: 'var(--txt)' }}>{wfhBalance ? wfhBalance.remainingDays : '—'}</strong> days
@@ -1830,7 +1863,22 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
               ) : (
                 <Field label={partialDayModeLabel}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="number" min="1" step="1" value={partialDayMinutes} onChange={(e) => setPartialDayMinutes(e.target.value)} style={{ ...inputStyle, width: 100 }} />
+                    <input
+                      type="number" min="1" step="1" inputMode="numeric" value={partialDayMinutes}
+                      // Digits only — `type="number"` still lets the browser accept a typed "."
+                      // (e.g. "120.333"), so decimals are stripped here rather than relying on
+                      // step="1" alone, which only rounds spinner clicks, not free-typed input.
+                      onChange={(e) => setPartialDayMinutes(e.target.value.replace(/[^0-9]/g, ''))}
+                      onKeyDown={(e) => { if (e.key === '.' || e.key === ',') e.preventDefault(); }}
+                      onPaste={(e) => {
+                        const pasted = e.clipboardData.getData('text');
+                        if (/[.,]/.test(pasted)) {
+                          e.preventDefault();
+                          setPartialDayMinutes((pasted.match(/[0-9]+/g) ?? []).join(''));
+                        }
+                      }}
+                      style={{ ...inputStyle, width: 100 }}
+                    />
                     <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>minutes</span>
                   </div>
                 </Field>
@@ -1840,7 +1888,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                   {computedMessage}
                 </div>
               )}
-              <div style={{ position: 'relative' }}>
+              <div ref={partialBalanceRef} style={{ position: 'relative' }}>
                 <button
                   onClick={() => setShowBalance((v) => !v)}
                   style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}
@@ -2129,10 +2177,12 @@ function CheckInAction({ actionStyle, today, loading, submitting, onCheckIn, onC
 /**
  * Distinct from the one-click Check-in above: for an ad-hoc remote/WFH day where the employee
  * wants to record why they're checking in off-site (mirrors Keka's Web Clock-In request, which
- * requires a reason). Enabled under the exact same condition as Check-in (today.canCheckIn) and,
- * once submitted, refreshes the same shared `today` — so either button immediately reflects in
- * the other, and checkout (handled solely by CheckInAction's toggle above) works no matter which
- * one opened the day.
+ * requires a reason). Web Clock-In is independent of the normal Check-In/Check-Out session (see
+ * WebClockInService's own class Javadoc) — it stays enabled regardless of today.canCheckIn/
+ * canCheckOut, and is only disabled while a Web session is already open (mirrors the backend's
+ * own "already checked in" guard in WebClockInService.submit). Once submitted, refreshes the same
+ * shared `today` — so either button immediately reflects in the other, and checkout (handled
+ * solely by CheckInAction's toggle above) works no matter which one opened the day.
  */
 function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   token: string;
@@ -2150,15 +2200,20 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   // for every later cycle the same day/shift so the employee is only asked once. Mirrors
   // AttendanceHeroBanner's WebClockInRow.
   const [reusableReason, setReusableReason] = useState<string | null>(null);
+  // Whether a Web session is currently open (PENDING/APPROVED, not yet checked out) — the only
+  // thing that should block a fresh Web Clock-In, independent of the normal session's own state.
+  const [webOpen, setWebOpen] = useState(false);
 
   useEffect(() => {
     webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
       const todayIso = todayIsoDate();
-      setReusableReason(list.find(r => r.workDate === todayIso)?.reason ?? null);
-    }).catch(() => setReusableReason(null));
+      const todays = list.filter(r => r.workDate === todayIso);
+      setReusableReason(todays[0]?.reason ?? null);
+      setWebOpen(todays.some(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt));
+    }).catch(() => { setReusableReason(null); setWebOpen(false); });
   }, [token, today]);
 
-  const disabled = loading || !today?.canCheckIn;
+  const disabled = loading || webOpen;
 
   async function submitReason(trimmed: string) {
     setBusy(true);

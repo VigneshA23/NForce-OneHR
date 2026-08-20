@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuthStore } from '../store/authStore';
@@ -6,6 +6,12 @@ import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, t
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
 import { useToast } from '../context/ToastContext';
+import { subscribeToNewNotifications } from '../lib/notificationEvents';
+
+// Notification types that mean "this employee's own leave balance/status may have changed" —
+// mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
+// other type (asset, regularization, helpdesk, document, ...) is deliberately ignored here.
+const LEAVE_DECISION_NOTIFICATION_TYPES = new Set(['LEAVE_APPROVED', 'LEAVE_REJECTED']);
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
@@ -497,6 +503,51 @@ export default function LeavePage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  // Single source of truth for "re-fetch balances + requests without disturbing anything else
+  // on the page" — used both after the employee's own submission and after a
+  // LEAVE_APPROVED/LEAVE_REJECTED notification arrives for this employee (see the effect below).
+  // Deliberately never touches `loading` (no full-page skeleton flash) or any holiday/filter/
+  // pagination state. Overlap-safe: a call that arrives while one is already in flight is
+  // coalesced into a single trailing re-run instead of firing a second concurrent request, so a
+  // submit-triggered refresh and a notification-triggered refresh landing close together can
+  // never race each other or the UI backwards with stale data.
+  const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
+  const refreshLeaveData = useCallback(async () => {
+    if (refreshInFlightRef.current) { refreshQueuedRef.current = true; return; }
+    refreshInFlightRef.current = true;
+    try {
+      const [freshBalances, freshRequests] = await Promise.all([leaveApi.listBalances(token), leaveApi.listMine(token)]);
+      setBalances(freshBalances);
+      setRequests(freshRequests);
+    } catch (e) {
+      setLeaveError(e instanceof Error ? e.message : 'Failed to refresh leave data');
+    } finally {
+      refreshInFlightRef.current = false;
+      if (refreshQueuedRef.current) {
+        refreshQueuedRef.current = false;
+        refreshLeaveData();
+      }
+    }
+  }, [token]);
+
+  // React to this employee's own leave decisions as the app-wide notification poll (Shell)
+  // detects them — no separate polling loop here, and no browser refresh needed. Notifications
+  // for other employees never reach this listener: the backend's /api/notifications endpoints
+  // are scoped to the authenticated caller (see NotificationController#resolveUserId), so every
+  // item Shell publishes already belongs to this signed-in user. Unrelated notification types
+  // (asset/regularization/helpdesk/document/...) are filtered out and never trigger a refresh.
+  // A batch containing several LEAVE_APPROVED/REJECTED items (e.g. two requests decided within
+  // the same 30s poll window) still triggers exactly one refreshLeaveData() call, not one per
+  // item. Unsubscribes on unmount so remounting this page never accumulates listeners.
+  useEffect(() => {
+    return subscribeToNewNotifications(items => {
+      if (items.some(n => LEAVE_DECISION_NOTIFICATION_TYPES.has(n.type))) {
+        refreshLeaveData();
+      }
+    });
+  }, [refreshLeaveData]);
+
   useEffect(() => {
     if (isAdmin && token) orgApi.listLocations(token).then(setAdminLocations).catch(() => {});
   }, [isAdmin, token]);
@@ -553,14 +604,12 @@ export default function LeavePage() {
   // A newly-submitted PENDING request is immediately reserved against the balance (see
   // LeaveService#availableBalance — it subtracts PENDING days, not just APPROVED usedDays), so
   // the pie chart must be refreshed right away instead of waiting for the next full page load.
+  // The optimistic prepend shows the new request instantly; refreshLeaveData then reconciles
+  // both the requests list and the balances against the server (and safely coalesces with any
+  // notification-triggered refresh that happens to land around the same time — see its comment).
   async function handleCreated(r: LeaveRequestRecord) {
     setRequests(prev => [r, ...prev]);
-    try {
-      const freshBalances = await leaveApi.listBalances(token);
-      setBalances(freshBalances);
-    } catch (e) {
-      setLeaveError(e instanceof Error ? e.message : 'Failed to refresh leave balance');
-    }
+    await refreshLeaveData();
   }
 
   const holidayScopeLabel = isAdmin

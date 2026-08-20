@@ -101,14 +101,12 @@ function HeroPill({ dot, label, pulse = false }: { dot: string; label: string; p
 }
 
 // Web Clock section — always rendered by every state below (pre-check-in, active session, on
-// break, checked out), not just pre-check-in. Its own current action/status is driven entirely
-// by `openWeb` (this employee's own currently-open Web Clock-In, if any — independent of
-// `today`, which only tracks whichever session is currently open regardless of source), so it
-// never disappears just because a Check-In/Check-Out or Web Clock-In/Out happened. Multiple
-// Web Clock-In → Web Clock-Out cycles in one day are allowed (see WebClockInService.submit) —
-// this row simply reflects whatever the current cycle's state is, same as before.
-function WebClockInRow({ today, onSubmitted }: {
-  today: TodayAttendance | null;
+// break, checked out), not just pre-check-in, and always actionable regardless of the normal
+// Check-In/Check-Out status. Its own current action/status is driven entirely by `openWeb` (this
+// employee's own currently-open Web Clock-In, if any) — never gated on the normal session's
+// canCheckIn/canCheckOut. Multiple Web Clock-In → Web Clock-Out cycles in one day are allowed
+// (see WebClockInService.submit) — this row simply reflects whatever the current cycle's state is.
+function WebClockInRow({ onSubmitted }: {
   onSubmitted: () => void;
 }) {
   const token = useAuthStore(s => s.token) ?? '';
@@ -172,11 +170,6 @@ function WebClockInRow({ today, onSubmitted }: {
     }
   }
 
-  // A regular (non-web) session is currently open — Web Clock-In can't start a second,
-  // concurrent session (same one-session-at-a-time rule as regular Check-In), but the section
-  // itself still stays visible with an accurate status instead of vanishing.
-  const otherSessionOpen = !openWeb && !today?.canCheckIn && !!today?.canCheckOut;
-
   return (
     <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
       {openWeb && (
@@ -205,7 +198,7 @@ function WebClockInRow({ today, onSubmitted }: {
           </button>
         </>
       )}
-      {!openWeb && !legacy && today?.canCheckIn && (
+      {!openWeb && !legacy && (
         <button
           onClick={() => (reusableReason ? handleQuickWebClockIn(reusableReason) : setShowModal(true))}
           disabled={submitting}
@@ -213,11 +206,6 @@ function WebClockInRow({ today, onSubmitted }: {
         >
           {submitting ? 'Checking in…' : 'Working remotely? Web Clock In →'}
         </button>
-      )}
-      {!openWeb && !legacy && otherSessionOpen && (
-        <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
-          Web Clock In will be available once you check out.
-        </span>
       )}
       {showModal && (
         <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => { refreshMine(); onSubmitted(); }} />
@@ -343,7 +331,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
-        <WebClockInRow today={today} onSubmitted={refresh} />
+        <WebClockInRow onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -371,23 +359,25 @@ export function AttendanceHeroBanner() {
           <LogOut size={14} />
           {submitting ? 'Checking out…' : 'Check Out'}
         </button>
-        <WebClockInRow today={today} onSubmitted={refresh} />
+        <button
+          onClick={() => navigate('/attendance')}
+          style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          View full record →
+        </button>
+        <WebClockInRow onSubmitted={refresh} />
       </HeroCard>
     );
   }
 
-  // ── State 1b: On break ────────────────────────────────────────────────────────
+  // ── State 1b: Checked out for a break, can check in again ─────────────────────
   if (today?.canCheckIn && record) {
-    const workedSoFar = record.workedMinutes ?? 0;
-
+    // No "On a break." headline / "You've worked… check in again to resume." line here by
+    // design — removed per explicit request, same as State 2's "Working now." removal above.
+    // Check-In/Check-Out functionality itself, and the worked-minutes total it's based on, are
+    // unaffected — only this descriptive text is gone.
     return (
       <HeroCard>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
-          On a break.
-        </div>
-        <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>
-          You've worked {formatWorkedMinutes(workedSoFar)} today — check in again to resume.
-        </p>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           {statusPill}
         </div>
@@ -412,7 +402,7 @@ export function AttendanceHeroBanner() {
             View full record →
           </button>
         </div>
-        <WebClockInRow today={today} onSubmitted={refresh} />
+        <WebClockInRow onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -451,8 +441,14 @@ export function AttendanceHeroBanner() {
           <LogIn size={14} />
           {submitting ? 'Checking in…' : 'Check In'}
         </button>
+        <button
+          onClick={() => navigate('/attendance')}
+          style={{ fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          View full record →
+        </button>
       </div>
-      <WebClockInRow today={today} onSubmitted={refresh} />
+      <WebClockInRow onSubmitted={refresh} />
     </HeroCard>
   );
 }

@@ -93,14 +93,18 @@ public class AttendanceService {
     public TodayAttendanceResponse getToday(String actorEmail, String clientTimezone) {
         Employee employee = resolveEmployee(actorEmail);
 
-        // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session started
-        // yesterday is still the actionable "today" state even once the calendar date has
-        // rolled over, so it takes priority over a plain work_date lookup. But an open session
-        // whose own workday/grace window has already ended (a forgotten checkout from days ago,
-        // not just "yesterday crossing into today") is stale, not today's state — flag it Missing
-        // Check-Out (see flagMissingCheckoutIfStale) and fall through to the plain work_date
-        // lookup below instead of reporting it as an active session forever.
-        Optional<Attendance> open = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
+        // canCheckIn/canCheckOut reflect ONLY the normal Check-In/Check-Out session state, driven
+        // by AttendancePunch, deliberately independent of any Web Clock-In session (which has its
+        // own, separate open/closed state — see WebClockInService and AttendanceHeroBanner's
+        // WebClockInRow) — Web Clock-In/Out must never flip this status. A shift can cross
+        // midnight (e.g. 3:30 PM - 12:30 AM) — an open normal session started yesterday is still
+        // the actionable "today" state even once the calendar date has rolled over, so it takes
+        // priority over a plain work_date lookup. But an open session whose own workday/grace
+        // window has already ended (a forgotten checkout from days ago, not just "yesterday
+        // crossing into today") is stale, not today's state — flag it Missing Check-Out (see
+        // flagMissingCheckoutIfStale) and fall through to the plain work_date lookup below instead
+        // of reporting it as an active session forever.
+        Optional<Attendance> open = findOpenNormalAttendance(employee.getUserId());
 
         // An open session's own locked-in zone (from Check-In) decides "now" for it — the
         // viewer's current browser zone only applies once there's no open session to defer to,
@@ -253,15 +257,17 @@ public class AttendanceService {
     public AttendanceResponse checkIn(String actorEmail, String clientTimezone) {
         Employee employee = resolveEmployee(actorEmail);
 
-        // A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open session from
-        // yesterday's work_date must block a fresh check-in exactly like an open session
-        // filed under today would, so check for one regardless of date first. But an open
+        // Only an open NORMAL session blocks a fresh Check-In — deliberately independent of any
+        // open Web Clock-In session, which is tracked and gated entirely separately (see
+        // WebClockInService). A shift can cross midnight (e.g. 3:30 PM - 12:30 AM) — an open
+        // session from yesterday's work_date must block a fresh check-in exactly like an open
+        // session filed under today would, so check for one regardless of date first. But an open
         // session whose own workday/grace window has already ended (a forgotten checkout from
         // days ago) is stale, not a real in-progress day — flag it Missing Check-Out (see
         // flagMissingCheckoutIfStale) instead of letting it block every check-in from now on.
         // Evaluated using the open session's OWN locked-in zone, not this click's browser zone —
         // see resolveZone's doc comments.
-        Optional<Attendance> openSession = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId());
+        Optional<Attendance> openSession = findOpenNormalAttendance(employee.getUserId());
         if (openSession.isPresent()) {
             LocalDateTime openNow = LocalDateTime.now(resolveZone(openSession.get(), employee, clientTimezone));
             if (!flagMissingCheckoutIfStale(openSession.get(), openNow)) {
@@ -372,11 +378,11 @@ public class AttendanceService {
     public AttendanceResponse checkOut(String actorEmail, String clientTimezone) {
         Employee employee = resolveEmployee(actorEmail);
 
-        // Looked up by open session, not by today's work_date — a shift that started before
-        // midnight (e.g. 3:30 PM - 12:30 AM) is still open under *yesterday's* work_date once
-        // the calendar date rolls over.
-        Attendance record = attendanceRepository
-                .findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(employee.getUserId())
+        // Looked up by open NORMAL session, not by today's work_date — a shift that started
+        // before midnight (e.g. 3:30 PM - 12:30 AM) is still open under *yesterday's* work_date
+        // once the calendar date rolls over. Deliberately independent of any open Web Clock-In
+        // session — see WebClockInService.checkOut, which manages its own session separately.
+        Attendance record = findOpenNormalAttendance(employee.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("You have not checked in today"));
 
         // The session's own zone, locked in at Check-In — NOT this click's browser zone, which
@@ -415,25 +421,30 @@ public class AttendanceService {
     }
 
     /**
-     * Closes an open attendance record as of {@code effectiveCheckOut} — accumulates worked
-     * minutes, sets the resulting status, and closes the matching open punch — exactly what an
-     * explicit {@link #checkOut} does. Shared with {@link #autoCloseIfStale}, which closes a
-     * session nobody ever came back to click Check-out on: both close the same way, just
-     * triggered differently (an explicit click vs. the shift's own end having already passed).
+     * Closes an open attendance record as of {@code effectiveCheckOut} — closes the matching open
+     * punch, recomputes the day's combined worked minutes (see recomputeCombinedWorkedMinutes),
+     * and sets the resulting status — exactly what an explicit {@link #checkOut} does.
      */
     private Attendance closeSession(Attendance record, LocalDateTime effectiveCheckOut) {
-        // Sessions accumulate: only this session's minutes are added to whatever was
-        // already worked earlier today, so a lunch break isn't counted as worked time.
-        // Rounded to the nearest minute, not truncated: Duration.toMinutes() floors, so several
-        // short sessions (e.g. under a minute each) would each independently floor to 0 and the
-        // total would silently lose real worked time instead of just losing sub-minute
-        // precision on the total once.
-        LocalDateTime sessionStart = record.getSessionStartedAt() != null
-                ? record.getSessionStartedAt() : record.getCheckInAt();
-        long sessionSeconds = Math.max(0, Duration.between(sessionStart, effectiveCheckOut).getSeconds());
-        int sessionMinutes = (int) Math.round(sessionSeconds / 60.0);
-        int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
         record.setCheckOutAt(effectiveCheckOut);
+
+        // Close the punch FIRST — recomputeCombinedWorkedMinutes below reads this same punch back
+        // out of the DB (via collectPunches), so it must already reflect this checkout.
+        // findFirstBy...OrderByCheckInAtDesc, not a plain findBy: if more than one punch is ever
+        // left open under this record (a data slip, or two near-simultaneous check-ins racing
+        // past the open-session guard above), a plain findBy throws NonUniqueResultException and
+        // crashes the checkout instead of just closing the most recently opened session.
+        attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(record.getId())
+                .ifPresent(punch -> {
+                    punch.setCheckOutAt(effectiveCheckOut);
+                    attendancePunchRepository.save(punch);
+                });
+
+        // Combined total across BOTH Check-In/Out and Web Clock-In/Out, overlap-safe (see
+        // recomputeCombinedWorkedMinutes) — Normal and Web Clock sessions are independent and can
+        // be open at the same time, so this can no longer be a simple "add this session's minutes
+        // to the running total" (that would double-count any overlapping window).
+        int workedMinutes = recomputeCombinedWorkedMinutes(record.getEmployeeUserId(), record.getId(), record.getWorkDate());
         record.setWorkedMinutes(workedMinutes);
 
         // A short day overrides LATE — the shortfall is the more significant fact for payroll.
@@ -443,17 +454,66 @@ public class AttendanceService {
             record.setStatus(record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT);
         }
 
-        Attendance saved = attendanceRepository.save(record);
-        // findFirstBy...OrderByCheckInAtDesc, not a plain findBy: if more than one punch is ever
-        // left open under this record (a data slip, or two near-simultaneous check-ins racing
-        // past the open-session guard above), a plain findBy throws NonUniqueResultException and
-        // crashes the checkout instead of just closing the most recently opened session.
-        attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(saved.getId())
-                .ifPresent(punch -> {
-                    punch.setCheckOutAt(effectiveCheckOut);
-                    attendancePunchRepository.save(punch);
-                });
-        return saved;
+        return attendanceRepository.save(record);
+    }
+
+    /**
+     * The day's total worked minutes, combining BOTH Check-In/Out (AttendancePunch) and Web
+     * Clock-In/Out (WebClockInRequest) sessions — see {@link #collectPunches}. Normal and Web
+     * Clock sessions are tracked fully independently (deliberately: Web Clock-In must never block
+     * on, or be blocked by, a Check-In/Out session, and vice versa — see WebClockInService), so
+     * they CAN genuinely overlap in real time (e.g. checked in normally 9am-6pm, and also Web
+     * Clock-In for an unrelated hour in between). Only CLOSED sessions are counted — an open
+     * session contributes nothing until it closes (matches the pre-existing "live elapsed" UI
+     * having been removed; workedMinutes is a settled total, not a ticking counter). Overlapping
+     * or back-to-back intervals are merged before summing, so the overlapping window is counted
+     * once, never twice, regardless of which source(s) cover it.
+     */
+    public int recomputeCombinedWorkedMinutes(UUID employeeId, UUID attendanceRecordId, LocalDate workDate) {
+        List<long[]> intervals = collectPunches(employeeId, attendanceRecordId, workDate).stream()
+                .filter(p -> p.getCheckOutAt() != null)
+                .map(p -> new long[]{toComparableMinute(p.getCheckInAt()), toComparableMinute(p.getCheckOutAt())})
+                .sorted(Comparator.comparingLong(iv -> iv[0]))
+                .toList();
+
+        long totalMinutes = 0;
+        long curStart = -1, curEnd = -1;
+        for (long[] iv : intervals) {
+            if (curStart == -1) {
+                curStart = iv[0];
+                curEnd = iv[1];
+            } else if (iv[0] <= curEnd) {
+                curEnd = Math.max(curEnd, iv[1]);
+            } else {
+                totalMinutes += (curEnd - curStart);
+                curStart = iv[0];
+                curEnd = iv[1];
+            }
+        }
+        if (curStart != -1) {
+            totalMinutes += (curEnd - curStart);
+        }
+        return (int) totalMinutes;
+    }
+
+    // An arbitrary but internally-consistent monotonic long for interval-merge arithmetic only —
+    // every LocalDateTime fed into it already shares the same resolved (naive) clock for this
+    // employee/day, so this is never mixed with a genuine UTC-aware instant elsewhere.
+    private long toComparableMinute(LocalDateTime dt) {
+        return dt.toEpochSecond(java.time.ZoneOffset.UTC) / 60;
+    }
+
+    /**
+     * The employee's currently-open NORMAL Check-In/Check-Out session, if any — deliberately
+     * independent of any open Web Clock-In session (see WebClockInService, which tracks its own
+     * open/closed state entirely separately via WebClockInRequest). Backs checkIn/checkOut/
+     * getToday's canCheckIn/canCheckOut, which must reflect ONLY this, never flip because of a
+     * Web Clock-In/Out action.
+     */
+    private Optional<Attendance> findOpenNormalAttendance(UUID employeeId) {
+        List<AttendancePunch> open = attendancePunchRepository.findOpenByEmployeeUserId(employeeId);
+        if (open.isEmpty()) return Optional.empty();
+        return attendanceRepository.findById(open.get(0).getAttendanceRecordId());
     }
 
     /**

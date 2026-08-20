@@ -9,9 +9,9 @@ public class PasswordConstraintValidator implements ConstraintValidator<ValidPas
     public boolean isValid(String password, ConstraintValidatorContext context) {
         if (password == null || password.isBlank()) return true; // @NotBlank handles null/blank
 
-        if (!password.equals(password.trim())) {
+        if (PasswordPolicy.containsSpace(password)) {
             context.disableDefaultConstraintViolation();
-            context.buildConstraintViolationWithTemplate(PasswordPolicy.WHITESPACE_MESSAGE)
+            context.buildConstraintViolationWithTemplate(PasswordPolicy.SPACE_MESSAGE)
                     .addConstraintViolation();
             return false;
         }

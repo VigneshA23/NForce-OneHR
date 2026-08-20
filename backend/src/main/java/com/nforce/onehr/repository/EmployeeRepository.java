@@ -64,6 +64,15 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     @Query("SELECT COUNT(e) FROM Employee e JOIN e.user u WHERE e.location.id = :id AND u.deletedAt IS NULL")
     long countByLocationId(@Param("id") UUID id);
 
+    @Query("SELECT COUNT(e) FROM Employee e JOIN e.user u WHERE e.shift.id = :id AND u.deletedAt IS NULL")
+    long countByShiftId(@Param("id") UUID id);
+
+    // Backs the Shifts master-data "Employees" drill-down (Organization Masters → Shifts) —
+    // same non-deleted scoping as countByShiftId, with department fetched to avoid an N+1.
+    @Query("SELECT DISTINCT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH e.department "
+         + "WHERE e.shift.id = :shiftId AND u.deletedAt IS NULL ORDER BY e.fullName")
+    List<Employee> findByShiftIdWithDetails(@Param("shiftId") UUID shiftId);
+
     @Query("SELECT e.userId, e.fullName FROM Employee e WHERE e.userId IN :ids")
     List<Object[]> findNamesByUserIds(@Param("ids") Set<UUID> ids);
 

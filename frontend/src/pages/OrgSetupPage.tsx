@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
-import { orgApi, type DepartmentRow, type DesignationRow, type LocationRow } from '../api/org';
+import { orgApi, type DepartmentRow, type DesignationRow, type LocationRow, type ShiftRow, type ShiftEmployeeRow } from '../api/org';
 import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
 } from '../api/documents';
 import PolicyListSection from './penalization/PolicyListSection';
 
-type OrgTab = 'departments' | 'designations' | 'locations' | 'doctypes' | 'penalization';
+type OrgTab = 'departments' | 'designations' | 'locations' | 'shifts' | 'doctypes' | 'penalization';
 
 interface TabDef {
   label: string;
@@ -39,9 +39,15 @@ const TABS: Record<OrgTab, TabDef> = {
   },
   locations: {
     label: 'Locations', icon: MapPin,
-    columns: ['Name', 'City', 'State / Province', 'Country', 'Employees', 'Status'],
+    columns: ['Name', 'City', 'State / Province', 'Country', 'Timezone', 'Employees', 'Status'],
     addLabel: 'Add Location',
     emptyLine: 'No office locations configured yet. Add one to enable location-based features.',
+  },
+  shifts: {
+    label: 'Shifts', icon: Clock,
+    columns: ['Name', 'Code', 'Timing', 'Fixed/Flexible', 'Break', 'Employees', 'Status'],
+    addLabel: 'Add Shift',
+    emptyLine: 'No shifts configured yet. Add one so employees can be assigned to it.',
   },
   doctypes: {
     label: 'Document Types', icon: FileText,
@@ -92,15 +98,22 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-function CountBadge({ count }: { count: number }) {
-  return (
-    <span style={{
-      fontFamily: '"JetBrains Mono", monospace', fontSize: 12,
-      color: count > 0 ? 'var(--txt-mut)' : 'var(--txt-dim)',
-    }}>
-      {count}
-    </span>
-  );
+function CountBadge({ count, onClick }: { count: number; onClick?: () => void }) {
+  const style: React.CSSProperties = {
+    fontFamily: '"JetBrains Mono", monospace', fontSize: 12,
+    color: count > 0 ? 'var(--txt-mut)' : 'var(--txt-dim)',
+  };
+  if (onClick && count > 0) {
+    return (
+      <button
+        onClick={onClick}
+        style={{ ...style, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
+      >
+        {count}
+      </button>
+    );
+  }
+  return <span style={style}>{count}</span>;
 }
 
 
@@ -208,6 +221,9 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
   const [state, setState] = useState(() => (editRow && tab === 'locations' ? ((editRow as LocationRow).state ?? '') : ''));
   const [country, setCountry] = useState(() => (editRow && tab === 'locations' ? ((editRow as LocationRow).country ?? '') : ''));
   const [holidayRegion, setHolidayRegion] = useState(() => (editRow && tab === 'locations' ? ((editRow as LocationRow).holidayRegion ?? '') : ''));
+  // IANA zone id (e.g. "Asia/Kolkata") -- every employee assigned to this location uses it as
+  // their effective timezone for attendance check-in/out, lateness, and shift-day calculations.
+  const [timezone, setTimezone] = useState(() => (editRow && tab === 'locations' ? ((editRow as LocationRow).timezone ?? '') : ''));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const firstRef = useRef<HTMLInputElement>(null);
@@ -270,6 +286,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
             name: trimmed,
             city: city.trim() || undefined, state: state.trim() || undefined,
             country: country.trim() || undefined, holidayRegion: holidayRegion.trim() || undefined,
+            timezone: timezone.trim() || undefined,
           });
         }
       } else {
@@ -282,6 +299,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
             name: trimmed,
             city: city.trim() || undefined, state: state.trim() || undefined,
             country: country.trim() || undefined, holidayRegion: holidayRegion.trim() || undefined,
+            timezone: timezone.trim() || undefined,
           });
         }
       }
@@ -382,6 +400,29 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
                   <input value={holidayRegion} onChange={e => setHolidayRegion(e.target.value)} placeholder="e.g. TN" style={inputStyle} />
                 </label>
               </div>
+              <label style={labelStyle}>
+                <span style={labelTextStyle}>Timezone</span>
+                <input
+                  value={timezone} onChange={e => setTimezone(e.target.value)}
+                  placeholder="e.g. Asia/Kolkata" list="nf-iana-timezones" style={inputStyle}
+                />
+                <span style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 3 }}>
+                  IANA zone id — every employee assigned to this location uses it for check-in/out, lateness, and shift-day calculations. Leave blank to use the default business timezone.
+                </span>
+                <datalist id="nf-iana-timezones">
+                  <option value="Asia/Kolkata" />
+                  <option value="America/New_York" />
+                  <option value="America/Los_Angeles" />
+                  <option value="America/Chicago" />
+                  <option value="Europe/London" />
+                  <option value="Australia/Sydney" />
+                  <option value="Asia/Singapore" />
+                  <option value="Asia/Dubai" />
+                  <option value="Pacific/Auckland" />
+                  <option value="Asia/Kathmandu" />
+                  <option value="Asia/Chittagong" />
+                </datalist>
+              </label>
             </>
           )}
 
@@ -510,16 +551,221 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
   );
 }
 
+// ── ShiftFormModal ─────────────────────────────────────────────────────────────
+// Create/edit are Super Admin only — enforced by OrgService (@PreAuthorize) regardless of
+// whether this modal is reachable; canManageShifts in the parent just controls whether the
+// "Add"/"Edit" actions are offered at all.
+
+const WEEKDAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+
+export function fmtShiftTime(t: string): string {
+  const [h, m] = t.split(':').map(Number);
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+interface ShiftFormModalProps {
+  editRow?: ShiftRow;
+  token: string;
+  onClose(): void;
+  // Passed the created/updated row — callers that just want a post-save refresh can ignore the
+  // argument; callers that need the row itself (e.g. the Add User Shift dropdown, to auto-select
+  // a shift just created inline) don't have to re-fetch the whole list to find it.
+  onSaved(saved: ShiftRow): void;
+}
+
+export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormModalProps) {
+  const isEdit = !!editRow;
+  const [name, setName] = useState(editRow?.name ?? '');
+  const [code, setCode] = useState(editRow?.code ?? '');
+  const [description, setDescription] = useState(editRow?.description ?? '');
+  const [startTime, setStartTime] = useState(editRow?.startTime?.slice(0, 5) ?? '09:00');
+  const [endTime, setEndTime] = useState(editRow?.endTime?.slice(0, 5) ?? '18:00');
+  const [flexible, setFlexible] = useState(editRow?.flexible ?? false);
+  const [breakMinutes, setBreakMinutes] = useState(editRow?.breakMinutes != null ? String(editRow.breakMinutes) : '');
+  const [workingDays, setWorkingDays] = useState<string[]>(editRow?.workingDays ?? []);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  function toggleDay(day: string) {
+    setWorkingDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!name.trim()) { setError('Shift name is required'); return; }
+    if (breakMinutes.trim() && (isNaN(Number(breakMinutes)) || Number(breakMinutes) < 0)) {
+      setError('Break duration must be a non-negative number of minutes');
+      return;
+    }
+    const payload = {
+      name: name.trim(),
+      code: code.trim() || undefined,
+      description: description.trim() || undefined,
+      startTime, endTime, flexible,
+      breakMinutes: breakMinutes.trim() ? Number(breakMinutes) : undefined,
+      workingDays: workingDays.length > 0 ? workingDays : undefined,
+    };
+    setLoading(true);
+    try {
+      const saved = isEdit && editRow
+        ? await orgApi.updateShift(token, editRow.id, payload)
+        : await orgApi.createShift(token, payload);
+      onSaved(saved);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
+  const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Shift' : 'Add Shift'} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
+        <form onSubmit={submit}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            <div>
+              <label style={labelS}>Shift Name *</label>
+              <input style={inputS} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. US Night Shift" required autoFocus />
+            </div>
+            <div>
+              <label style={labelS}>Shift Code</label>
+              <input style={inputS} value={code} onChange={e => setCode(e.target.value)} placeholder="e.g. US-NIGHT" />
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelS}>Description</label>
+            <textarea style={{ ...inputS, minHeight: 60, resize: 'vertical', fontFamily: 'inherit' }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional notes about who this shift is for" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            <div>
+              <label style={labelS}>Start Time *</label>
+              <input type="time" style={inputS} value={startTime} onChange={e => setStartTime(e.target.value)} required />
+            </div>
+            <div>
+              <label style={labelS}>End Time *</label>
+              <input type="time" style={inputS} value={endTime} onChange={e => setEndTime(e.target.value)} required />
+              <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Earlier than start = overnight shift, crossing midnight</span>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14, alignItems: 'end' }}>
+            <div>
+              <label style={labelS}>Break Duration (minutes)</label>
+              <input type="number" min={0} style={inputS} value={breakMinutes} onChange={e => setBreakMinutes(e.target.value)} placeholder="e.g. 60" />
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer', paddingBottom: 9 }}>
+              <input type="checkbox" checked={flexible} onChange={e => setFlexible(e.target.checked)} style={{ width: 15, height: 15 }} />
+              Flexible shift
+            </label>
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelS}>Working Days <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(blank = follows the employee's weekly-off policy)</span></label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+              {WEEKDAYS.map(day => (
+                <label key={day} style={{
+                  display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer',
+                  padding: '4px 9px', borderRadius: 14, border: '1px solid var(--line2)',
+                  background: workingDays.includes(day) ? 'var(--brand)' : 'var(--raised)',
+                  color: workingDays.includes(day) ? '#fff' : 'var(--txt-mut)',
+                }}>
+                  <input type="checkbox" checked={workingDays.includes(day)} onChange={() => toggleDay(day)} style={{ display: 'none' }} />
+                  {day.slice(0, 3)}
+                </label>
+              ))}
+            </div>
+          </div>
+          {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading} style={{ padding: '7px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+              {loading ? 'Saving…' : isEdit ? 'Save Changes' : 'Add'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── ShiftEmployeesModal — drill-down for the Shifts tab's Employees count ──────
+interface ShiftEmployeesModalProps {
+  shift: ShiftRow;
+  token: string;
+  onClose(): void;
+}
+
+function ShiftEmployeesModal({ shift, token, onClose }: ShiftEmployeesModalProps) {
+  const [rows, setRows] = useState<ShiftEmployeeRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    orgApi.listShiftEmployees(token, shift.id)
+      .then(r => { if (!cancelled) setRows(r); })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load employees'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [token, shift.id]);
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`Employees on ${shift.name}`} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 520, maxWidth: '94vw', maxHeight: '84vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{shift.name}</h2>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 16 }}>
+          {fmtShiftTime(shift.startTime)} – {fmtShiftTime(shift.endTime)} · {rows.length} employee{rows.length === 1 ? '' : 's'}
+        </div>
+        {loading ? (
+          <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>
+        ) : error ? (
+          <div role="alert" style={{ color: 'var(--risk)', fontSize: 13 }}>{error}</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt-mut)', fontSize: 13 }}>No employees assigned to this shift.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {rows.map(r => (
+              <div key={r.userId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 4px', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
+                <div>
+                  <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{r.fullName}</div>
+                  <div style={{ color: 'var(--txt-mut)', fontSize: 11.5 }}>{r.email}{r.departmentName ? ` · ${r.departmentName}` : ''}</div>
+                </div>
+                <div style={{ color: 'var(--txt-dim)', fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function OrgSetupPage() {
   const { pathname } = useLocation();
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
   const copy = PATH_COPY[pathname] ?? PATH_COPY['/organization'];
 
+  const role = useAuthStore(s => s.user?.role);
+  // Shift master-data create/edit/delete is Super Admin only (backend-enforced via @PreAuthorize
+  // in OrgService regardless of this check) -- this only controls whether the UI offers the
+  // action at all, matching the "don't just hide the button" requirement by never being the
+  // only line of defense.
+  const canManageShifts = role === 'SUPER_ADMIN';
+
   const [activeTab, setActiveTab] = useState<OrgTab>('departments');
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [designations, setDesignations] = useState<DesignationRow[]>([]);
   const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -530,6 +776,8 @@ export default function OrgSetupPage() {
     key: number;
   }>({ open: false, key: 0 });
   const [docTypeModal, setDocTypeModal] = useState<{ open: boolean; row?: DocumentType; key: number }>({ open: false, key: 0 });
+  const [shiftModal, setShiftModal] = useState<{ open: boolean; row?: ShiftRow; key: number }>({ open: false, key: 0 });
+  const [shiftEmployeesRow, setShiftEmployeesRow] = useState<ShiftRow | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   const tab = TABS[activeTab];
@@ -538,15 +786,17 @@ export default function OrgSetupPage() {
   async function fetchAll() {
     setLoadError('');
     try {
-      const [deps, desigs, locs, dts] = await Promise.all([
+      const [deps, desigs, locs, shiftRows, dts] = await Promise.all([
         orgApi.listDepartments(token),
         orgApi.listDesignations(token),
         orgApi.listLocations(token),
+        orgApi.listShifts(token),
         listAllDocTypes(token),
       ]);
       setDepartments(deps);
       setDesignations(desigs);
       setLocations(locs);
+      setShifts(shiftRows);
       setDocTypes(dts);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load data');
@@ -563,14 +813,19 @@ export default function OrgSetupPage() {
     l.name.toLowerCase().includes(q) || (l.city ?? '').toLowerCase().includes(q)
   );
   const visibleDocTypes = docTypes.filter(d => d.name.toLowerCase().includes(q));
+  const visibleShifts = shifts.filter(s =>
+    s.name.toLowerCase().includes(q) || (s.code ?? '').toLowerCase().includes(q)
+  );
   const visibleRows =
     activeTab === 'departments' ? visibleDepts :
     activeTab === 'designations' ? visibleDesigs :
     activeTab === 'doctypes' ? visibleDocTypes :
+    activeTab === 'shifts' ? visibleShifts :
     visibleLocs;
 
   function openAdd() {
     if (activeTab === 'doctypes') { setDocTypeModal(s => ({ open: true, key: s.key + 1 })); return; }
+    if (activeTab === 'shifts') { setShiftModal(s => ({ open: true, key: s.key + 1 })); return; }
     setAddEditModal(s => ({ open: true, key: s.key + 1 }));
   }
   function openEdit(row: DepartmentRow | DesignationRow | LocationRow) {
@@ -578,6 +833,9 @@ export default function OrgSetupPage() {
   }
   function openEditDocType(dt: DocumentType) {
     setDocTypeModal(s => ({ open: true, row: dt, key: s.key + 1 }));
+  }
+  function openEditShift(row: ShiftRow) {
+    setShiftModal(s => ({ open: true, row, key: s.key + 1 }));
   }
 
   function triggerToggleActive(row: DepartmentRow | DesignationRow | LocationRow, label: string) {
@@ -610,6 +868,37 @@ export default function OrgSetupPage() {
         else if (activeTab === 'designations') await orgApi.deleteDesignation(token, row.id);
         else await orgApi.deleteLocation(token, row.id);
         showToast('success', `"${label}" deleted`);
+        await fetchAll();
+      },
+    });
+  }
+
+  function triggerShiftToggle(row: ShiftRow) {
+    const wasActive = row.active;
+    setConfirmState({
+      title: wasActive ? `Deactivate ${row.name}` : `Reactivate ${row.name}`,
+      body: wasActive
+        ? `"${row.name}" will no longer be assignable to employees.`
+        : `"${row.name}" will become assignable again.`,
+      confirmLabel: wasActive ? 'Deactivate' : 'Reactivate',
+      danger: wasActive,
+      onConfirm: async () => {
+        await orgApi.toggleShiftActive(token, row.id);
+        showToast('success', `"${row.name}" ${wasActive ? 'deactivated' : 'reactivated'}`);
+        await fetchAll();
+      },
+    });
+  }
+
+  function triggerShiftDelete(row: ShiftRow) {
+    setConfirmState({
+      title: `Delete ${row.name}`,
+      body: `"${row.name}" will be permanently deleted. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        await orgApi.deleteShift(token, row.id);
+        showToast('success', `"${row.name}" deleted`);
         await fetchAll();
       },
     });
@@ -652,6 +941,37 @@ export default function OrgSetupPage() {
         await fetchAll();
       },
     });
+  }
+
+  function shiftKebabItems(row: ShiftRow): KebabItem[] {
+    // Not just hidden -- OrgService.createShift/updateShift/deleteShift/toggleShiftActive are
+    // all @PreAuthorize("hasRole('SUPER_ADMIN')") regardless of what this menu offers.
+    if (!canManageShifts) return [];
+    return [
+      { label: 'Edit', onClick: () => openEditShift(row) },
+      {
+        label: row.active ? 'Deactivate' : 'Reactivate',
+        onClick: () => triggerShiftToggle(row),
+        dividerBefore: true,
+      },
+      {
+        label: 'Delete',
+        danger: true,
+        onClick: () => {
+          if (row.employeeCount > 0) {
+            setConfirmState({
+              title: `Cannot Delete ${row.name}`,
+              body: `${row.employeeCount} employee${row.employeeCount === 1 ? ' is' : 's are'} assigned to this shift. Deactivate it instead.`,
+              confirmLabel: 'Got it',
+              danger: false,
+              onConfirm: async () => {},
+            });
+            return;
+          }
+          triggerShiftDelete(row);
+        },
+      },
+    ];
   }
 
   function kebabItems(row: DepartmentRow | DesignationRow | LocationRow, label: string): KebabItem[] {
@@ -708,6 +1028,25 @@ export default function OrgSetupPage() {
             fetchAll();
             showToast('success', docTypeModal.row ? 'Updated successfully' : 'Document type created');
           }}
+        />
+      )}
+      {shiftModal.open && (
+        <ShiftFormModal
+          key={shiftModal.key}
+          editRow={shiftModal.row}
+          token={token}
+          onClose={() => setShiftModal(s => ({ ...s, open: false }))}
+          onSaved={() => {
+            fetchAll();
+            showToast('success', shiftModal.row ? 'Shift updated successfully' : 'Shift created successfully');
+          }}
+        />
+      )}
+      {shiftEmployeesRow && (
+        <ShiftEmployeesModal
+          shift={shiftEmployeesRow}
+          token={token}
+          onClose={() => setShiftEmployeesRow(null)}
         />
       )}
       {confirmState && (
@@ -775,14 +1114,18 @@ export default function OrgSetupPage() {
                   }}
                 />
               </div>
-              <button onClick={openAdd} aria-label={tab.addLabel} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                <Plus size={13} aria-hidden="true" />
-                {tab.addLabel}
-              </button>
+              {/* Shift master-data create is Super Admin only — see canManageShifts. Backend
+                  (OrgService) enforces this regardless; hiding the button is just UX. */}
+              {(activeTab !== 'shifts' || canManageShifts) && (
+                <button onClick={openAdd} aria-label={tab.addLabel} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                  background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>
+                  <Plus size={13} aria-hidden="true" />
+                  {tab.addLabel}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -829,14 +1172,16 @@ export default function OrgSetupPage() {
                       <>
                         <Icon size={32} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 12px' }} />
                         <div style={{ color: 'var(--txt-mut)', fontSize: 13, marginBottom: 14 }}>{tab.emptyLine}</div>
-                        <button onClick={openAdd} style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-                          background: 'var(--raised)', color: 'var(--txt)', border: '1px solid var(--line2)',
-                          borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                        }}>
-                          <Plus size={12} aria-hidden="true" />
-                          {tab.addLabel}
-                        </button>
+                        {(activeTab !== 'shifts' || canManageShifts) && (
+                          <button onClick={openAdd} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+                            background: 'var(--raised)', color: 'var(--txt)', border: '1px solid var(--line2)',
+                            borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                          }}>
+                            <Plus size={12} aria-hidden="true" />
+                            {tab.addLabel}
+                          </button>
+                        )}
                       </>
                     )}
                   </td>
@@ -872,10 +1217,26 @@ export default function OrgSetupPage() {
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{l.timezone ?? '—'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={l.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={l.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                       <KebabMenu items={kebabItems(l, l.name)} />
+                    </td>
+                  </tr>
+                ))
+              ) : activeTab === 'shifts' ? (
+                visibleShifts.map(s => (
+                  <tr key={s.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{s.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 12 }}>{s.code ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{fmtShiftTime(s.startTime)} – {fmtShiftTime(s.endTime)}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.flexible ? 'Flexible' : 'Fixed'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.breakMinutes != null ? `${s.breakMinutes}m` : '—'}</td>
+                    <td style={{ padding: '10px 16px' }}><CountBadge count={s.employeeCount} onClick={() => setShiftEmployeesRow(s)} /></td>
+                    <td style={{ padding: '10px 16px' }}><StatusBadge active={s.active} /></td>
+                    <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                      <KebabMenu items={shiftKebabItems(s)} />
                     </td>
                   </tr>
                 ))

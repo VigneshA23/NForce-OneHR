@@ -7,6 +7,8 @@ import { BrandMark } from '../components/BrandMark';
 import {
   PASSWORD_CRITERIA as CRITERIA,
   PASSWORD_MIN_LENGTH,
+  PASSWORD_SPACE_MESSAGE,
+  containsSpace,
   passwordStrengthScore as strengthScore,
   validateNewPassword,
 } from '../utils/passwordPolicy';
@@ -140,6 +142,9 @@ export default function ChangePasswordPage() {
     }
     if (!data.confirmPassword) {
       setError('confirmPassword', { message: 'Please confirm your new password' });
+      invalid = true;
+    } else if (containsSpace(data.confirmPassword)) {
+      setError('confirmPassword', { message: PASSWORD_SPACE_MESSAGE });
       invalid = true;
     } else if (data.newPassword !== data.confirmPassword) {
       setError('confirmPassword', { message: 'Passwords do not match' });

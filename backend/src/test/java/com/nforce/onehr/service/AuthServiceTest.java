@@ -308,6 +308,21 @@ class AuthServiceTest {
         verify(userRepository, never()).save(any());
     }
 
+    // confirmPassword carries no @ValidPassword annotation (it only needs to equal newPassword),
+    // so the space check has to be asserted here at the service layer rather than via Bean
+    // Validation on the DTO (see ChangePasswordRequestTest for the newPassword-side coverage).
+    @Test
+    void changePassword_confirmationContainsSpace_rejectedWithSpaceMessageNotMismatch() {
+        user.setTokenVersion(5);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "NewPassword123! "), EMAIL));
+
+        assertEquals("Password cannot contain spaces.", ex.getMessage());
+        assertEquals(5, user.getTokenVersion());
+        verify(userRepository, never()).save(any());
+    }
+
     @Test
     void forgotPassword_unregisteredEmail_throwsAccountNotFound() {
         when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());
