@@ -6,6 +6,12 @@
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 export const PASSWORD_MIN_CHARACTER_CLASSES = 3;
+export const PASSWORD_SPACE_MESSAGE = 'Password cannot contain spaces.';
+
+/** True if the password contains a space anywhere — leading, trailing, or between characters. */
+export function containsSpace(password: string): boolean {
+  return password.includes(' ');
+}
 
 export const PASSWORD_CRITERIA = [
   { label: 'Uppercase letter', test: (p: string) => /[A-Z]/.test(p) },
@@ -27,13 +33,13 @@ export function passwordStrengthScore(password: string): number {
 
 /**
  * Validates a new password against the full policy. Returns the first failing rule's
- * message, or null if the password is acceptable. Order matters: length and whitespace are
+ * message, or null if the password is acceptable. Order matters: length and spaces are
  * checked before complexity so the user always sees the most fundamental problem first.
  */
 export function validateNewPassword(password: string): string | null {
   if (!password) return 'New password is required';
-  if (password !== password.trim()) {
-    return 'Password must not start or end with a space';
+  if (containsSpace(password)) {
+    return PASSWORD_SPACE_MESSAGE;
   }
   if (password.length < PASSWORD_MIN_LENGTH) {
     return `Must be at least ${PASSWORD_MIN_LENGTH} characters`;
