@@ -23,6 +23,7 @@ interface NotifMeta {
 }
 
 const META_BY_TYPE: Record<string, NotifMeta> = {
+  LEAVE_REQUEST_SUBMITTED:           { icon: <CalendarDays size={15} />, color: 'var(--warn)',    bg: 'rgba(224,169,59,.12)' },
   LEAVE_APPROVED:                    { icon: <CalendarDays size={15} />, color: 'var(--ok)',      bg: 'rgba(47,182,124,.12)' },
   LEAVE_REJECTED:                    { icon: <XCircle size={15} />,      color: 'var(--risk)',    bg: 'rgba(228,55,61,.12)'  },
   ATTENDANCE:                        { icon: <ClipboardCheck size={15}/>, color: 'var(--warn)',   bg: 'rgba(224,169,59,.12)' },
