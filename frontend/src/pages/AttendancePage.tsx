@@ -1211,7 +1211,7 @@ function RosterTable({ rows, loading, emptyMessage }: {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Employee ID', 'Name', 'Check In', 'Check Out', 'Hours', 'Status', 'Source'].map((h) => (
+                {['Employee ID', 'Name', 'Check In', 'Check Out', 'Timezone', 'Hours', 'Status', 'Source'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -1223,6 +1223,11 @@ function RosterTable({ rows, loading, emptyMessage }: {
                   <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
                   <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
                   <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
+                  {/* r.timezone is this employee's OWN effective timezone (locked in at their
+                      check-in), not the viewer's — shown explicitly so an HR/Admin/Manager
+                      viewing someone in a different timezone always knows which zone the Check
+                      In/Out times above belong to. */}
+                  <td style={{ ...tdStyle, fontSize: 11.5, color: 'var(--txt-dim)' }}>{r.timezone ?? dash}</td>
                   <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
                   <td style={tdStyle}><StatusPill status={r.status} /></td>
                   <td style={tdStyle}><SourceTag source={r.source} /></td>
@@ -2172,10 +2177,12 @@ function CheckInAction({ actionStyle, today, loading, submitting, onCheckIn, onC
 /**
  * Distinct from the one-click Check-in above: for an ad-hoc remote/WFH day where the employee
  * wants to record why they're checking in off-site (mirrors Keka's Web Clock-In request, which
- * requires a reason). Enabled under the exact same condition as Check-in (today.canCheckIn) and,
- * once submitted, refreshes the same shared `today` — so either button immediately reflects in
- * the other, and checkout (handled solely by CheckInAction's toggle above) works no matter which
- * one opened the day.
+ * requires a reason). Web Clock-In is independent of the normal Check-In/Check-Out session (see
+ * WebClockInService's own class Javadoc) — it stays enabled regardless of today.canCheckIn/
+ * canCheckOut, and is only disabled while a Web session is already open (mirrors the backend's
+ * own "already checked in" guard in WebClockInService.submit). Once submitted, refreshes the same
+ * shared `today` — so either button immediately reflects in the other, and checkout (handled
+ * solely by CheckInAction's toggle above) works no matter which one opened the day.
  */
 function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   token: string;
@@ -2193,15 +2200,20 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   // for every later cycle the same day/shift so the employee is only asked once. Mirrors
   // AttendanceHeroBanner's WebClockInRow.
   const [reusableReason, setReusableReason] = useState<string | null>(null);
+  // Whether a Web session is currently open (PENDING/APPROVED, not yet checked out) — the only
+  // thing that should block a fresh Web Clock-In, independent of the normal session's own state.
+  const [webOpen, setWebOpen] = useState(false);
 
   useEffect(() => {
     webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
       const todayIso = todayIsoDate();
-      setReusableReason(list.find(r => r.workDate === todayIso)?.reason ?? null);
-    }).catch(() => setReusableReason(null));
+      const todays = list.filter(r => r.workDate === todayIso);
+      setReusableReason(todays[0]?.reason ?? null);
+      setWebOpen(todays.some(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt));
+    }).catch(() => { setReusableReason(null); setWebOpen(false); });
   }, [token, today]);
 
-  const disabled = loading || !today?.canCheckIn;
+  const disabled = loading || webOpen;
 
   async function submitReason(trimmed: string) {
     setBusy(true);

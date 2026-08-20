@@ -60,6 +60,19 @@ function fmtTime(iso?: string | null) {
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
+// Shift start/end are plain LocalTime strings (e.g. "20:30:00") with no date/zone component at
+// all — they represent the employee's own configured LOCAL shift time, not an instant to
+// convert. Formatted directly, deliberately without any Date()/timezone math, so a viewer in a
+// different zone (e.g. India HR looking at a US employee's shift) sees the employee's actual
+// configured hours rather than having them silently reprojected into the viewer's own zone.
+function fmtShiftRange(start: string, end: string): string {
+  const fmt = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  };
+  return `${fmt(start)} – ${fmt(end)}`;
+}
 function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
@@ -232,6 +245,10 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
             <Row label="Status" value={STATUS_LABEL[status]} />
             <Row label="Actual check-in" value={fmtTime(record?.checkInAt)} />
             <Row label="Actual check-out" value={fmtTime(record?.checkOutAt)} />
+            {/* record.timezone is the employee's OWN effective timezone (locked in at their
+                check-in — see Attendance.timezone), not the viewer's. Labeled explicitly so it's
+                never ambiguous which zone the times above are in when viewing another employee. */}
+            {record?.timezone && <Row label="Employee's timezone" value={record.timezone} />}
             {!!record?.lateByMinutes && <Row label="Late by" value={`${record.lateByMinutes} minutes`} />}
             {missingFlag && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 600, padding: '8px 10px', borderRadius: 8, marginTop: 8, background: 'rgba(228,55,61,.13)', color: 'var(--risk)' }}>
@@ -876,7 +893,15 @@ function AssignmentsTab({ token }: { token: string }) {
                 <td style={assignmentCellStyle}>{r.employeeCode}</td>
                 <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
                 <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.shiftName ?? '—'}</td>
+                <td style={assignmentCellStyle}>
+                  {r.shiftName ?? '—'}
+                  {r.shiftName && r.shiftStartTime && r.shiftEndTime && (
+                    <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 2 }}>
+                      {fmtShiftRange(r.shiftStartTime, r.shiftEndTime)}
+                      {r.employeeTimezone ? ` · ${r.employeeTimezone}` : ''}
+                    </div>
+                  )}
+                </td>
                 <td style={assignmentCellStyle}>{r.weeklyOffPolicyName ?? '—'}</td>
                 <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
               </tr>
