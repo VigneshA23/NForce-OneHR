@@ -489,11 +489,20 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
 }
 
 // ─── Status Toggle Confirm ────────────────────────────────────────────────────
-function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+// isSelf/isLastActiveSuperAdmin are defense-in-depth only — the row's Deactivate action is
+// already hidden for both cases (see the row menu below), so this modal shouldn't normally
+// open for them. But the API is the real boundary (UserManagementService.setActiveStatus
+// re-checks both server-side), so if it's somehow reached anyway the explicit warning/blocked
+// states below still apply, and a stale-list race just surfaces the backend's rejection message.
+function StatusModal({ user, isSelf, isLastActiveSuperAdmin, onClose, onUpdated, token }: {
+  user: EmployeeRecord; isSelf: boolean; isLastActiveSuperAdmin: boolean;
+  onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
+}) {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const action = user.active ? 'Deactivate' : 'Activate';
+  const blocked = user.active && (isSelf || isLastActiveSuperAdmin);
 
   async function confirm() {
     setLoading(true); setError(null);
@@ -515,7 +524,15 @@ function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord
       <div style={{ ...modalStyle, maxWidth: 400 }}>
         <ModalHeader title={`${action} User`} onClose={onClose} />
         <div style={{ padding: 24 }}>
-          {user.active ? (
+          {isSelf && user.active ? (
+            <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
+              Deactivating your account will end your session. Another Super Admin is required to restore access.
+            </div>
+          ) : isLastActiveSuperAdmin && user.active ? (
+            <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
+              <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> is the last active Super Admin. Deactivating this account would leave nobody able to manage users — assign Super Admin to another account first.
+            </div>
+          ) : user.active ? (
             <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
               Deactivating <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> will invalidate their active JWT immediately. They cannot log in until reactivated.
             </div>
@@ -527,7 +544,7 @@ function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord
           {error && <div style={{ color: 'var(--risk)', marginBottom: 12, fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={confirm} disabled={loading} style={{ background: user.active ? '#C0392B' : '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+            <button onClick={confirm} disabled={loading || blocked} style={{ background: user.active ? '#C0392B' : '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (loading || blocked) ? 'not-allowed' : 'pointer', opacity: (loading || blocked) ? 0.5 : 1 }}>
               {loading ? '…' : action}
             </button>
           </div>
@@ -601,6 +618,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function UserManagementPage() {
   const token = useAuthStore(s => s.token)!;
+  const currentUserEmail = useAuthStore(s => s.user?.email)?.toLowerCase();
   const [users, setUsers] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -631,6 +649,7 @@ export default function UserManagementPage() {
   const inactive = total - active;
   const roleCounts: Record<string, number> = {};
   users.forEach(u => { if (u.role) roleCounts[u.role] = (roleCounts[u.role] ?? 0) + 1; });
+  const activeSuperAdminCount = users.filter(u => u.role === 'SUPER_ADMIN' && u.active).length;
 
   // Filter logic
   const filtered = users.filter(u => {
@@ -749,7 +768,12 @@ export default function UserManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginated.map(u => (
+                  {paginated.map(u => {
+                    const isSelf = !!currentUserEmail && u.email.toLowerCase() === currentUserEmail;
+                    // Only meaningful while this row is itself an active Super Admin — deactivating
+                    // anyone else never touches the Super Admin headcount.
+                    const isLastActiveSuperAdmin = u.role === 'SUPER_ADMIN' && u.active && activeSuperAdminCount <= 1;
+                    return (
                     <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
@@ -764,12 +788,23 @@ export default function UserManagementPage() {
                         <KebabMenu items={[
                           { label: 'Edit', onClick: () => setEditing(u) },
                           { label: 'Reset Password', onClick: () => setResetting(u) },
-                          { label: u.active ? 'Deactivate' : 'Reactivate', onClick: () => setToggling(u) },
-                          { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
+                          // Deactivate is hidden outright for the logged-in Super Admin's own row
+                          // and for the last remaining active Super Admin — both are unrecoverable
+                          // in-app once a session ends, so there's no "disabled with tooltip"
+                          // middle ground here (see setActiveStatus on the backend for the
+                          // matching, authoritative check).
+                          ...(u.active && (isSelf || isLastActiveSuperAdmin) ? [] : [
+                            { label: u.active ? 'Deactivate' : 'Reactivate', onClick: () => setToggling(u) },
+                          ]),
+                          // Self-delete carries the exact same lockout risk as self-deactivation.
+                          ...(isSelf ? [] : [
+                            { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
+                          ]),
                         ]} />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -809,7 +844,16 @@ export default function UserManagementPage() {
       {showAdd && <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
       {editing && <EditModal user={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
-      {toggling && <StatusModal user={toggling} token={token} onClose={() => setToggling(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {toggling && (
+        <StatusModal
+          user={toggling}
+          isSelf={!!currentUserEmail && toggling.email.toLowerCase() === currentUserEmail}
+          isLastActiveSuperAdmin={toggling.role === 'SUPER_ADMIN' && toggling.active && activeSuperAdminCount <= 1}
+          token={token}
+          onClose={() => setToggling(null)}
+          onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))}
+        />
+      )}
       {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />}
     </div>
   );

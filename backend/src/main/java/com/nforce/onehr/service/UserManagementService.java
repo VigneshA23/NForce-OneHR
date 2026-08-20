@@ -319,13 +319,26 @@ public class UserManagementService {
                 .build();
     }
 
-    /** Super Admin: activate or deactivate. Deactivated user's existing JWT stops working immediately (JWT filter checks isEnabled). */
+    /**
+     * Super Admin: activate or deactivate. Deactivated user's existing JWT stops working
+     * immediately (JWT filter checks isEnabled) — two guards below exist specifically because
+     * that immediacy makes a mistaken deactivation unrecoverable in-app:
+     *  - self-deactivation would end the actor's own session mid-request, with no other Super
+     *    Admin necessarily available to undo it;
+     *  - deactivating the last active Super Admin would leave nobody able to reactivate anyone,
+     *    including themselves — recoverable only via direct DB access.
+     * Both are re-checked here (not just hidden in the UI) since the API is the actual
+     * security boundary.
+     */
     @Transactional
     public EmployeeResponse setActiveStatus(UUID userId, boolean active, String actorEmail) {
         User actor = requireActor(actorEmail);
         Employee emp = employeeRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
+
+        if (!active) assertNotSelfOrLastActiveSuperAdmin(actor, target, "deactivate");
+
         String before = auditSnapshot.toJson(Map.of("active", target.isActive()));
         target.setActive(active);
         userRepository.save(target);
@@ -334,7 +347,12 @@ public class UserManagementService {
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 
-    /** Super Admin: soft-delete — sets deleted_at. Deleted user's JWT stops working immediately. */
+    /**
+     * Super Admin: soft-delete — sets deleted_at. Deleted user's JWT stops working immediately.
+     * Carries the exact same self/last-Super-Admin lockout risk as {@link #setActiveStatus} (it
+     * also forces active=false), so it re-checks the same guard rather than leaving delete as a
+     * bypass of the deactivation restriction above.
+     */
     @Transactional
     public void softDeleteUser(UUID userId, String actorEmail) {
         User actor = requireActor(actorEmail);
@@ -342,12 +360,32 @@ public class UserManagementService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         if (target.getDeletedAt() != null)
             throw new IllegalArgumentException("User is already deleted");
+        assertNotSelfOrLastActiveSuperAdmin(actor, target, "delete");
         String before = auditSnapshot.toJson(Map.of("deletedAt", "null", "active", target.isActive()));
         target.setDeletedAt(Instant.now());
         target.setActive(false);
         userRepository.save(target);
         String after = auditSnapshot.toJson(Map.of("deletedAt", target.getDeletedAt().toString(), "active", false));
         auditService.log(actor.getId(), "USER_SOFT_DELETED", userId, before, after);
+    }
+
+    /**
+     * Shared guard for setActiveStatus(active=false) and softDeleteUser — both end up disabling
+     * `target`'s login, so both must block:
+     *  - acting on your own account (would end the actor's own session mid-request), and
+     *  - the last remaining active Super Admin (would leave nobody able to reactivate anyone).
+     * `verb` is only used to phrase the error ("deactivate"/"delete").
+     */
+    private void assertNotSelfOrLastActiveSuperAdmin(User actor, User target, String verb) {
+        if (target.getId().equals(actor.getId()))
+            throw new IllegalArgumentException("You cannot " + verb + " your own account. Ask another Super Admin to do this.");
+        boolean targetIsSuperAdmin = target.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getCode()));
+        if (targetIsSuperAdmin && target.isActive()) {
+            boolean anotherActiveSuperAdminExists = userRepository.findActiveSuperAdmins().stream()
+                    .anyMatch(u -> !u.getId().equals(target.getId()));
+            if (!anotherActiveSuperAdminExists)
+                throw new IllegalArgumentException("Cannot " + verb + " the last active Super Admin. Assign Super Admin to another user first.");
+        }
     }
 
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
