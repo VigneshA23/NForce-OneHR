@@ -305,6 +305,8 @@ public class UserManagementService {
         String tempPassword = generateTempPassword();
         target.setPasswordHash(passwordEncoder.encode(tempPassword));
         target.setMustChangePassword(true);
+        // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
+        target.setTokenVersion(target.getTokenVersion() + 1);
         userRepository.save(target);
         String after = auditSnapshot.toJson(Map.of("mustChangePassword", true));
 
