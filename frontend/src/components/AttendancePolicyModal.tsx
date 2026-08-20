@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { Info, X } from 'lucide-react';
 
 /**
  * Static policy content (Penalisation Policy / Time Tracking Policy) shown from the Attendance
@@ -8,6 +8,9 @@ import { X } from 'lucide-react';
  * placeholder link, per the story's own content. If HR needs to edit this without a code change
  * later, it should move into a real Policy document (see PoliciesPage.tsx's model) — not
  * attempted here to keep this change scoped to the Attendance page.
+ *
+ * Layout is a full-page takeover (not a small centered dialog) matching Keka's reference —
+ * see nf-attpolicy-* rules in index.css for the mobile breakpoint.
  */
 
 type PolicyBlock =
@@ -85,25 +88,47 @@ const TIME_TRACKING_POLICY_BLOCKS: PolicyBlock[] = [
 
 function PolicyBlockView({ block }: { block: PolicyBlock }) {
   if (block.type === 'heading') {
-    return <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginTop: 18 }}>{block.text}</div>;
+    return (
+      <h3
+        className="nf-attpolicy-heading"
+        style={{
+          fontFamily: '"Space Grotesk", sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)',
+          margin: '32px 0 12px', paddingBottom: 10, borderBottom: '1px solid var(--line)',
+        }}
+      >
+        {block.text}
+      </h3>
+    );
   }
   if (block.type === 'callout') {
     return (
-      <div style={{ background: 'rgba(76,141,214,.10)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 6, padding: '10px 14px', fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-        {block.text}
+      <div
+        className="nf-attpolicy-callout"
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: 'rgba(76,141,214,.10)', border: '1px solid rgba(76,141,214,.28)',
+          borderLeft: '3px solid #4C8DD6', borderRadius: 8, padding: '12px 16px',
+          fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.6, margin: '12px 0',
+        }}
+      >
+        <Info size={15} style={{ color: '#4C8DD6', flexShrink: 0, marginTop: 2 }} />
+        <span>{block.text}</span>
       </div>
     );
   }
   if (block.type === 'bullets') {
     return (
-      <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <ul style={{ listStyle: 'none', margin: '8px 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {block.items.map((item, i) => (
-          <li key={i} style={{ fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>{item}</li>
+          <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13.5, color: 'var(--txt-mut)', lineHeight: 1.65 }}>
+            <span style={{ flexShrink: 0, marginTop: 8, width: 6, height: 6, borderRadius: '50%', border: '1.5px solid var(--txt-dim)' }} />
+            <span>{item}</span>
+          </li>
         ))}
       </ul>
     );
   }
-  return <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>{block.text}</div>;
+  return <p style={{ fontSize: 13.5, color: 'var(--txt-mut)', lineHeight: 1.7, margin: '10px 0' }}>{block.text}</p>;
 }
 
 type PolicyTab = 'PENALISATION' | 'TIME_TRACKING';
@@ -113,41 +138,49 @@ export function AttendancePolicyModal({ onClose }: { onClose: () => void }) {
   const blocks = tab === 'PENALISATION' ? PENALISATION_POLICY_BLOCKS : TIME_TRACKING_POLICY_BLOCKS;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 640, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Attendance Policy</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+    <div className="nf-attpolicy-overlay" style={{ position: 'fixed', inset: 0, background: 'var(--shell)', zIndex: 500, display: 'flex', flexDirection: 'column' }}>
+      {/* Header + tabs stay pinned while the long policy text scrolls beneath them. */}
+      <div className="nf-attpolicy-sticky" style={{ position: 'sticky', top: 0, background: 'var(--shell)', borderBottom: '1px solid var(--line)', zIndex: 1 }}>
+        <div className="nf-attpolicy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 32px' }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 20, color: 'var(--txt)' }}>Attendance Policy</span>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 8, borderRadius: 7, display: 'flex' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; e.currentTarget.style.color = 'var(--txt)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--txt-dim)'; }}
+          >
+            <X size={18} />
+          </button>
         </div>
-        <div style={{ padding: '16px 20px 0' }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {([
-              { value: 'PENALISATION', label: 'Penalisation Policy' },
-              { value: 'TIME_TRACKING', label: 'Time Tracking Policy' },
-            ] as const).map((t) => {
-              const active = t.value === tab;
-              return (
-                <button
-                  key={t.value}
-                  onClick={() => setTab(t.value)}
-                  style={{
-                    background: active ? 'rgba(47,182,124,.12)' : 'var(--raised)',
-                    color: active ? '#2FB67C' : 'var(--txt-mut)',
-                    border: `1px solid ${active ? 'rgba(47,182,124,.35)' : 'var(--line2)'}`,
-                    borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
+        <div className="nf-attpolicy-tabs" style={{ display: 'flex', gap: 8, padding: '0 32px 16px' }}>
+          {([
+            { value: 'PENALISATION', label: 'Penalisation Policy' },
+            { value: 'TIME_TRACKING', label: 'Time Tracking Policy' },
+          ] as const).map((t) => {
+            const active = t.value === tab;
+            return (
+              <button
+                key={t.value}
+                onClick={() => setTab(t.value)}
+                style={{
+                  background: active ? 'rgba(47,182,124,.12)' : 'var(--raised)',
+                  color: active ? '#2FB67C' : 'var(--txt-mut)',
+                  border: `1px solid ${active ? 'rgba(47,182,124,.35)' : 'var(--line2)'}`,
+                  borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
         </div>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      </div>
+
+      {/* Scrollable body — full-width panel, but text itself stays capped for readability. */}
+      <div className="nf-attpolicy-content" style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 56px' }}>
+        <div style={{ maxWidth: 860 }}>
           {blocks.map((block, i) => <PolicyBlockView key={i} block={block} />)}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Close</button>
-          </div>
         </div>
       </div>
     </div>

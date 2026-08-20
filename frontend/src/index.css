@@ -338,6 +338,22 @@ input[type="date"] {
   }
 }
 
+/* Attendance Policy full-page view -> tighter padding and horizontally
+   scrollable tabs on mobile, so the two policy-tab buttons never force the
+   header row to overflow or wrap awkwardly on a narrow phone. */
+@media (max-width: 767px) {
+  .nf-attpolicy-header { padding: 16px 18px !important; }
+  .nf-attpolicy-tabs {
+    padding: 0 18px 14px !important;
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+  }
+  .nf-attpolicy-tabs button { flex-shrink: 0; white-space: nowrap; }
+  .nf-attpolicy-content { padding: 20px 18px 40px !important; }
+  .nf-attpolicy-heading { font-size: 15.5px !important; margin: 24px 0 10px !important; }
+  .nf-attpolicy-callout { padding: 10px 12px !important; }
+}
+
 /* Assets & Expenses HR section selector (Asset Inventory / Asset Requests /
    Expense Categories / Payroll-Ready Claims) -> horizontally scrollable on
    mobile instead of squeezing/wrapping four tabs into the narrow viewport.
