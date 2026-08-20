@@ -6,6 +6,7 @@ import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
+import { publishNewNotifications } from '../lib/notificationEvents';
 import { authApi } from '../api/auth';
 import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
@@ -162,18 +163,50 @@ export function Shell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const refreshCount = useCallback(() => {
+  // The one app-wide notification poll (drives the bell badge). Other mounted pages (e.g.
+  // LeavePage) react to what it finds via notificationEvents instead of running their own
+  // separate poll — see that module's doc comment.
+  //
+  // Fetches the unread list (not just the count) so this single request can both size the
+  // badge (data.totalElements) and detect newly-arrived notifications to publish — one API call
+  // per tick, same as before. "New" is id > the highest id seen on the previous tick; the very
+  // first tick after mount only establishes that baseline and never publishes, so pre-existing
+  // unread notifications from before this page load don't fire spurious refreshes elsewhere.
+  const lastSeenIdRef = useRef<number | null>(null);
+  const firstPollRef  = useRef(true);
+
+  const pollNotifications = useCallback(() => {
     if (!token) return;
-    notificationsApi.unreadCount(token)
-      .then(d => setUnreadCount(d.count))
+    notificationsApi.unread(token, 0, 20)
+      .then(data => {
+        setUnreadCount(data.totalElements);
+        const items = data.content;
+        if (firstPollRef.current) {
+          firstPollRef.current = false;
+        } else if (lastSeenIdRef.current !== null) {
+          const fresh = items.filter(n => n.id > lastSeenIdRef.current!);
+          publishNewNotifications(fresh);
+        }
+        if (items.length > 0) {
+          lastSeenIdRef.current = Math.max(lastSeenIdRef.current ?? 0, ...items.map(n => n.id));
+        }
+      })
       .catch(() => {});
   }, [token]);
 
+  // Reset the baseline whenever the signed-in user changes (Shell can persist across a
+  // logout/login in the same tab) — otherwise a stale id from a previous session could either
+  // suppress a genuinely new notification or spuriously publish an old one as "new".
   useEffect(() => {
-    refreshCount();
-    const id = setInterval(refreshCount, 30000);
+    firstPollRef.current = true;
+    lastSeenIdRef.current = null;
+  }, [token]);
+
+  useEffect(() => {
+    pollNotifications();
+    const id = setInterval(pollNotifications, 30000);
     return () => clearInterval(id);
-  }, [refreshCount]);
+  }, [pollNotifications]);
 
   // Server-initiated logout: a Super Admin changing this user's profile bumps their tokenVersion
   // and pushes a FORCE_LOGOUT event (see UserManagementService#updateUser /
