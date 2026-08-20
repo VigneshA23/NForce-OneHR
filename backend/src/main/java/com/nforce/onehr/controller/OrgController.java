@@ -111,4 +111,42 @@ public class OrgController {
     public void deleteLocation(@PathVariable UUID id) {
         orgService.deleteLocation(id);
     }
+
+    // ── Shifts ────────────────────────────────────────────────────────────────
+    // Create/edit/delete are Super Admin only — enforced in OrgService (@PreAuthorize), not
+    // just here; listing itself has no role restriction (every employee's own attendance flow
+    // reads shift config indirectly via AttendanceService, and My Team / HR views need to list
+    // shifts for assignment regardless of role).
+
+    @GetMapping("/shifts")
+    public List<ShiftResponse> listShifts() {
+        return orgService.listShifts();
+    }
+
+    @GetMapping("/shifts/{id}/employees")
+    public List<ShiftEmployeeResponse> listShiftEmployees(@PathVariable UUID id) {
+        return orgService.listShiftEmployees(id);
+    }
+
+    @PostMapping("/shifts")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShiftResponse createShift(@Valid @RequestBody CreateShiftRequest req) {
+        return orgService.createShift(req);
+    }
+
+    @PutMapping("/shifts/{id}")
+    public ShiftResponse updateShift(@PathVariable UUID id, @Valid @RequestBody UpdateShiftRequest req) {
+        return orgService.updateShift(id, req);
+    }
+
+    @PatchMapping("/shifts/{id}/toggle-active")
+    public ShiftResponse toggleShiftActive(@PathVariable UUID id) {
+        return orgService.toggleShiftActive(id);
+    }
+
+    @DeleteMapping("/shifts/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteShift(@PathVariable UUID id) {
+        orgService.deleteShift(id);
+    }
 }

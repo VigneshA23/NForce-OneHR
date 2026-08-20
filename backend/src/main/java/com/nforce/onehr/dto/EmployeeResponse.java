@@ -19,6 +19,8 @@ public class EmployeeResponse {
     private String designationName;
     private String locationId;
     private String locationName;
+    private String shiftId;
+    private String shiftName;
     private String employmentType;
     private String workMode;
     private LocalDate joiningDate;

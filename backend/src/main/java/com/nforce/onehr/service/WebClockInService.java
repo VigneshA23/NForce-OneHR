@@ -11,6 +11,7 @@ import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WebClockInRequest;
+import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -43,6 +44,17 @@ import java.util.UUID;
  * self-approve. Check-out and cancel need no approval either, and neither is gated by review
  * status at all (PENDING, APPROVED, or REJECTED) — whether HR has looked at the request yet is
  * independent of the employee actually finishing (or undoing) their own real session.
+ *
+ * <p>Web Clock-In/Out is deliberately independent of normal Check-In/Check-Out: each is tracked
+ * via its own open/closed state (this class's own WebClockInRequest.checkedOutAt vs.
+ * AttendanceService's AttendancePunch.checkOutAt) and neither blocks on, or is blocked by, the
+ * other — an employee can be normally checked in AND have an open Web Clock-In session at the
+ * same time. Submitting or checking out a Web Clock-In session must never flip the normal
+ * Check-In/Check-Out status (canCheckIn/canCheckOut) shown on the dashboard — see
+ * AttendanceService.getToday, which derives that purely from AttendancePunch. The two sources'
+ * worked time is still combined into one total without double-counting any overlap — see
+ * AttendanceService.recomputeCombinedWorkedMinutes, called from both this class's checkOut and
+ * AttendanceService's own.
  */
 @Service
 @RequiredArgsConstructor
@@ -60,6 +72,7 @@ public class WebClockInService {
 
     private final WebClockInRequestRepository webClockInRepository;
     private final AttendanceRepository attendanceRepository;
+    private final AttendancePunchRepository attendancePunchRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -70,24 +83,34 @@ public class WebClockInService {
     // regardless of check-in entry point — see LatePenaltyService.
     private final LatePenaltyService latePenaltyService;
     private final NotificationService notificationService;
+    // Only for recomputeCombinedWorkedMinutes — the single shared source of truth for merging
+    // Check-In/Out + Web Clock-In/Out into one overlap-safe total. No other coupling: this class
+    // never reads AttendanceService's own open/closed (canCheckIn/canCheckOut) state.
+    private final AttendanceService attendanceService;
 
     @Transactional
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
 
-        // An already-open session — from EITHER entry point, a regular Check-In or a still-open
-        // earlier Web Clock-In — must block a fresh Web Clock-In exactly like AttendanceService
-        // .checkIn blocks a fresh Check-In: only one session open at a time, however it started.
-        // This is NOT a once-per-day restriction — an employee may Web Clock-In and Web Clock-Out
-        // more than once in the same day (see collectPunches), this only blocks trying to open a
-        // *second, concurrent* session while one is already running. A session left open past
-        // its own workday/grace window (a forgotten checkout from days ago) is stale, not really
-        // "still checked in" — flag it Missing Check-Out (mirrors AttendanceService.checkIn /
-        // flagMissingCheckoutIfStale) instead of letting it block Web Clock-In forever.
-        Optional<Attendance> openSession = attendanceRepository.findFirstByEmployeeUserIdAndCheckOutAtIsNullOrderByWorkDateDesc(actor.getId());
-        if (openSession.isPresent()) {
-            LocalDateTime openNow = LocalDateTime.now(resolveZone(openSession.get(), actor.getId(), req.getTimezone()));
-            if (!flagMissingCheckoutIfStale(openSession.get(), openNow)) {
+        // Only an already-open WEB session blocks a fresh Web Clock-In — deliberately independent
+        // of whether a normal Check-In is currently open (see this class's own Javadoc). This is
+        // NOT a once-per-day restriction — an employee may Web Clock-In and Web Clock-Out more
+        // than once in the same day (see collectPunches), this only blocks trying to open a
+        // *second, concurrent* Web session while one is already running. A Web session left open
+        // past its own workday/grace window (a forgotten Web Clock-Out from days ago) is stale,
+        // not really "still checked in" — auto-close it at its own natural shift end (mirrors
+        // AttendanceService.checkIn's Missing-Check-Out staleness bypass, adapted here as an
+        // auto-close since WebClockInRequest's own `status` field is a review status, not an
+        // attendance-completion one) instead of letting it block Web Clock-In forever.
+        Optional<WebClockInRequest> openWebSession = webClockInRepository.findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId());
+        if (openWebSession.isPresent()) {
+            WebClockInRequest openReq = openWebSession.get();
+            Attendance openReqAttendance = attendanceRepository
+                    .findByEmployeeUserIdAndWorkDate(actor.getId(), openReq.getWorkDate()).orElse(null);
+            LocalDateTime openNow = LocalDateTime.now(resolveZone(openReqAttendance, actor.getId(), req.getTimezone()));
+            if (shiftDayOf(openNow).isAfter(openReq.getWorkDate())) {
+                autoCloseStaleWebSession(openReq, openReqAttendance);
+            } else {
                 throw new IllegalArgumentException("You have already checked in today");
             }
         }
@@ -142,8 +165,17 @@ public class WebClockInService {
                 .findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId())
                 .orElseThrow(() -> new IllegalArgumentException("No active check-in to cancel"));
 
+        // Only delete the day's shared Attendance row if THIS submission was the one that
+        // created it fresh (source WEB_REMOTE, checkInAt matches this exact request) AND nothing
+        // else has touched it since — no normal punches at all (open or closed), meaning nothing
+        // else depends on it. Attendance/Web Clock-In are independent now (see this class's own
+        // Javadoc), so a normal Check-In may have opened its own session on this same row after
+        // this web submission; deleting the row out from under an unrelated open/closed normal
+        // punch would corrupt that punch's own attendanceRecordId reference.
         attendanceRepository.findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
-                .filter(a -> SOURCE_WEB_REMOTE.equals(a.getSource()) && a.getCheckOutAt() == null)
+                .filter(a -> SOURCE_WEB_REMOTE.equals(a.getSource())
+                        && req.getRequestedCheckIn().equals(a.getCheckInAt())
+                        && attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(a.getId()).isEmpty())
                 .ifPresent(attendanceRepository::delete);
 
         auditService.log(actor.getId(), "WEB_CLOCK_IN_CANCELLED", req.getId());
@@ -229,8 +261,11 @@ public class WebClockInService {
 
     /**
      * No approval needed to check out — the employee closes out their own web clock-in day
-     * regardless of whether HR has reviewed it yet. Mirrors AttendanceService.checkOut's
-     * derived-field logic for a single-session day.
+     * regardless of whether HR has reviewed it yet. Deliberately independent of the normal
+     * Check-In/Check-Out session (see this class's own Javadoc): never reads or writes
+     * Attendance.checkOutAt (that field belongs exclusively to the normal session now — see
+     * AttendanceService.findOpenNormalAttendance) and never blocks on, or is blocked by, whatever
+     * the normal side's own state happens to be.
      */
     @Transactional
     public WebClockInResponse checkOut(String actorEmail, String clientTimezone) {
@@ -238,59 +273,39 @@ public class WebClockInService {
 
         // Looked up by "not yet checked out" regardless of review status, not by today's
         // work_date — a web clock-in from before midnight (shift crosses into the next day) can
-        // still be open under yesterday's work_date once the calendar date rolls over.
+        // still be open under yesterday's work_date once the calendar date rolls over. This is
+        // this Web session's OWN open/closed signal — entirely independent of whether a normal
+        // Check-In session happens to also be open right now.
         WebClockInRequest req = webClockInRepository
                 .findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(actor.getId())
                 .orElseThrow(() -> new IllegalArgumentException("No web clock-in found for today"));
 
         Attendance record = attendanceRepository
                 .findByEmployeeUserIdAndWorkDate(actor.getId(), req.getWorkDate())
-                .orElseThrow(() -> new IllegalStateException("Attendance record missing for an approved web clock-in"));
+                .orElseThrow(() -> new IllegalStateException("Attendance record missing for a web clock-in"));
 
-        // The underlying session can also be closed through the OTHER entry point — a regular
-        // Check-Out — while this request is still marked open, since both share the same
-        // Attendance row. If that already happened, the record's own checkOutAt is the source
-        // of truth: sync this request to it and stop, rather than recomputing a second,
-        // overlapping session on top of one already closed and counted — that would both
-        // double-count worked minutes and push checkOutAt later than what actually happened.
-        if (record.getCheckOutAt() != null) {
-            req.setCheckedOutAt(record.getCheckOutAt());
-            webClockInRepository.save(req);
-            return toResponse(req);
-        }
-
-        // The session's own zone, locked in at Web Clock-In — NOT this click's browser zone,
-        // which may have drifted since (travel, DST) — governs its Check-Out, so worked-minutes
-        // math and the grace-window check below stay on one consistent clock for the whole
-        // session. clientTimezone only matters as a fallback for a record from before this
-        // column existed. Mirrors AttendanceService.checkOut's resolveZone.
+        // The session's own zone, locked in at Web Clock-In (via the shared Attendance row's
+        // timezone, set by whichever source first created it that day) — NOT this click's browser
+        // zone, which may have drifted since (travel, DST). Mirrors AttendanceService.checkOut's
+        // resolveZone.
         LocalDateTime now = LocalDateTime.now(resolveZone(record, actor.getId(), clientTimezone));
 
-        // Past its own workday/grace window (shiftDayCutover, e.g. 7:00 AM the next calendar
-        // day) — mirrors AttendanceService.checkOut: there is no legitimate "now" to check out
-        // with this long after the fact, so this is flagged Missing Check-Out (no fabricated
-        // checkOutAt/workedMinutes) rather than silently accepted as a real, very-late checkout.
-        // Corrected via the existing Regularization flow, same as any other attendance
-        // correction.
-        if (!STATUS_MISSING_CHECKOUT.equals(record.getStatus()) && shiftDayOf(now).isAfter(req.getWorkDate())) {
-            String beforeMissing = auditSnapshot.toJson(Map.of("status", record.getStatus()));
-            record.setStatus(STATUS_MISSING_CHECKOUT);
-            attendanceRepository.save(record);
-            String afterMissing = auditSnapshot.toJson(Map.of("status", STATUS_MISSING_CHECKOUT));
-            auditService.log(actor.getId(), "ATTENDANCE_MISSING_CHECKOUT", record.getId(), beforeMissing, afterMissing);
-        }
-        if (STATUS_MISSING_CHECKOUT.equals(record.getStatus())) {
+        // Past its own workday/grace window (shiftDayCutover, e.g. 7:00 AM the next calendar day)
+        // — checked purely against THIS Web session's own workDate, deliberately not coupled to
+        // the shared Attendance.status field (which is now reserved for the normal session's own
+        // Missing-Check-Out flagging — see AttendanceService.flagMissingCheckoutIfStale): an
+        // unrelated stale normal session sharing the same day must never block a legitimate,
+        // timely Web Clock-Out, and vice versa.
+        if (shiftDayOf(now).isAfter(req.getWorkDate())) {
             throw new IllegalArgumentException(
-                    "This session is past its check-out window and has been marked as a missing check-out. Please submit a regularization request.");
+                    "This session is past its check-out window. Please submit a regularization request.");
         }
 
         // A forgotten checkout can leave a session open for several hours before the employee
-        // actually clicks Check-out (e.g. checking out at 3 AM for a shift that ended at
-        // 12:30 AM); count worked time only up to this shift's own natural end (not the late
-        // click's real clock time), so it can never inflate into something like "27h 8m" for what
-        // is supposed to be a single shift/day — mirrors AttendanceService.checkOut's cap. Only
-        // reachable here at all within the grace window above — a click that arrives after the
-        // grace window is now rejected outright.
+        // actually clicks Web Clock-Out; count worked time only up to this shift's own natural
+        // end (not the late click's real clock time), so it can never inflate into something like
+        // "27h 8m" for what is supposed to be a single shift/day — mirrors
+        // AttendanceService.checkOut's cap.
         LocalDateTime cutoff = shiftEndCutoff(actor.getId(), req.getWorkDate());
         LocalDateTime effectiveCheckOut = now.isAfter(cutoff) ? cutoff : now;
 
@@ -298,20 +313,23 @@ public class WebClockInService {
         req.setCheckedOutAt(effectiveCheckOut);
         webClockInRepository.save(req);
 
-        // Sessions accumulate exactly like AttendanceService.checkOut: only this session's
-        // minutes are added to whatever was already worked earlier today (e.g. an office
-        // session before this remote one), so switching to Web Check-in mid-day doesn't lose
-        // or double count time already logged.
-        LocalDateTime sessionStart = record.getSessionStartedAt() != null
-                ? record.getSessionStartedAt() : record.getCheckInAt();
-        long sessionSeconds = Math.max(0, Duration.between(sessionStart, effectiveCheckOut).getSeconds());
-        int sessionMinutes = (int) Math.round(sessionSeconds / 60.0);
-        int workedMinutes = (record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0) + sessionMinutes;
-        record.setCheckOutAt(effectiveCheckOut);
+        // Combined total across BOTH Check-In/Out and Web Clock-In/Out, overlap-safe — see
+        // AttendanceService.recomputeCombinedWorkedMinutes. Normal and Web sessions are
+        // independent and can genuinely overlap in real time, so this is a merge, not a running
+        // "+= this session's minutes" (that would double-count any overlapping window).
+        int workedMinutes = attendanceService.recomputeCombinedWorkedMinutes(actor.getId(), record.getId(), record.getWorkDate());
         record.setWorkedMinutes(workedMinutes);
-        record.setStatus(workedMinutes < attendanceProps.getHalfDayMaxHours() * 60
-                ? STATUS_HALF_DAY
-                : (record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT));
+        // Never touch record.checkOutAt here — see this method's own Javadoc. Status
+        // (PRESENT/LATE/HALF_DAY) IS recomputed from the new combined total, since that
+        // classification is about the day's overall worked-time sufficiency, not the normal
+        // session's open/closed state — but a Missing-Check-Out flag already set by the normal
+        // side's own staleness detection is left alone, not silently overwritten by this
+        // unrelated Web checkout.
+        if (!STATUS_MISSING_CHECKOUT.equals(record.getStatus())) {
+            record.setStatus(workedMinutes < attendanceProps.getHalfDayMaxHours() * 60
+                    ? STATUS_HALF_DAY
+                    : (record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT));
+        }
         attendanceRepository.save(record);
 
         String after = auditSnapshot.toJson(Map.of("checkedOutAt", effectiveCheckOut.toString(), "workedMinutes", workedMinutes));
@@ -322,67 +340,59 @@ public class WebClockInService {
     // ---------------------------------------------------------------- internals
 
     /**
-     * Mirrors AttendanceService.flagMissingCheckoutIfStale — a session left open past its own
-     * workday/grace window (shiftDayCutover, e.g. 7:00 AM the next calendar day) must not go on
-     * blocking a fresh Web Clock-In ({@link #submit}) forever. Flags it Missing Check-Out right
-     * then — deliberately WITHOUT fabricating a checkOutAt or computing workedMinutes — and
-     * returns whether the record is now, or already was, flagged, so the caller can fall through
-     * to treating this employee as having no open session.
-     */
-    private boolean flagMissingCheckoutIfStale(Attendance record, LocalDateTime now) {
-        if (record.getCheckOutAt() != null) return false;
-        if (STATUS_MISSING_CHECKOUT.equals(record.getStatus())) return true;
-        if (!shiftDayOf(now).isAfter(record.getWorkDate())) return false;
-
-        String before = auditSnapshot.toJson(Map.of("status", record.getStatus()));
-        record.setStatus(STATUS_MISSING_CHECKOUT);
-        Attendance saved = attendanceRepository.save(record);
-        String after = auditSnapshot.toJson(Map.of("status", STATUS_MISSING_CHECKOUT));
-        auditService.log(record.getEmployeeUserId(), "ATTENDANCE_MISSING_CHECKOUT", saved.getId(), before, after);
-        return true;
-    }
-
-    /**
-     * Upserts the day's Attendance row from a (now-always-approved) request's requestedCheckIn.
-     * If a record already exists for the day, this is a same-day resume (e.g. the employee
-     * already worked an office session earlier and checked out, then later needs to check in
-     * again remotely) — mirrors AttendanceService.checkIn's resume path: the day's original
-     * checkInAt, late status, and worked-minutes-so-far all stay put, only a new session opens
-     * for checkOut to pick back up. Overwriting checkInAt here would silently erase whatever was
-     * already recorded for the day. {@code resolvedZoneId} is stored only on a fresh row — a
-     * resume reuses whatever zone the day's original check-in already locked in, exactly like
-     * AttendanceService.checkIn's resume path.
+     * Ensures the day's Attendance row exists, so this session has somewhere to record its
+     * eventual checkout/worked-minutes contribution. Deliberately does NOT touch checkInAt/
+     * checkOutAt/sessionStartedAt on an already-existing row — those fields belong exclusively to
+     * the NORMAL Check-In/Check-Out session now (see AttendanceService.findOpenNormalAttendance);
+     * a Web Clock-In session is fully independent and tracks its own open/closed state entirely
+     * on WebClockInRequest.requestedCheckIn/checkedOutAt, never by mutating the shared row. If no
+     * row exists yet for the day, THIS is the day's first-ever punch (from either source) —
+     * create it and compute lateness/status/penalty exactly as AttendanceService.checkIn would,
+     * so a remote-only day is still evaluated for lateness like any other.
      */
     private void applyCheckInToAttendance(WebClockInRequest req, String resolvedZoneId) {
-        Attendance record = attendanceRepository
-                .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getWorkDate())
-                .orElse(null);
-        boolean isFreshCheckIn = record == null;
-        if (isFreshCheckIn) {
-            record = Attendance.builder()
-                    .employeeUserId(req.getEmployeeUserId())
-                    .workDate(req.getWorkDate())
-                    .checkInAt(req.getRequestedCheckIn())
-                    .sessionStartedAt(req.getRequestedCheckIn())
-                    .timezone(resolvedZoneId)
-                    .build();
-            record.setSource(SOURCE_WEB_REMOTE);
-            recomputeDerivedFields(record, req.getEmployeeUserId());
-        } else {
-            record.setSource(SOURCE_WEB_REMOTE);
-            record.setSessionStartedAt(req.getRequestedCheckIn());
-            record.setCheckOutAt(null);
+        boolean alreadyExists = attendanceRepository
+                .findByEmployeeUserIdAndWorkDate(req.getEmployeeUserId(), req.getWorkDate()).isPresent();
+        if (alreadyExists) {
+            return;
         }
+        Attendance record = Attendance.builder()
+                .employeeUserId(req.getEmployeeUserId())
+                .workDate(req.getWorkDate())
+                .checkInAt(req.getRequestedCheckIn())
+                .sessionStartedAt(req.getRequestedCheckIn())
+                .timezone(resolvedZoneId)
+                .build();
+        record.setSource(SOURCE_WEB_REMOTE);
+        recomputeDerivedFields(record, req.getEmployeeUserId());
         Attendance saved = attendanceRepository.save(record);
 
-        // Same penalty as AttendanceService.checkIn — a fresh late arrival costs a half-day
-        // every 3rd time in the month, regardless of whether the check-in was in-office or
-        // remote. Never fires on a same-day resume (isFreshCheckIn false): lateness is a
-        // once-per-day fact tied to the day's first check-in.
-        if (isFreshCheckIn && STATUS_LATE.equals(saved.getStatus())) {
+        // Same penalty as AttendanceService.checkIn — a fresh late arrival costs a half-day every
+        // 3rd time in the month, regardless of whether the check-in was in-office or remote.
+        if (STATUS_LATE.equals(saved.getStatus())) {
             employeeRepository.findById(req.getEmployeeUserId())
                     .ifPresent(employee -> latePenaltyService.applyIfDue(employee, req.getWorkDate()));
         }
+    }
+
+    /**
+     * A Web Clock-In session left open past its own workday/grace window (a forgotten Web
+     * Clock-Out from days ago) — auto-closed at its own natural shift end (same cap a real Web
+     * Clock-Out would apply, see shiftEndCutoff) rather than left open forever blocking a fresh
+     * Web Clock-In. Recomputes the day's combined worked minutes afterward so the auto-close is
+     * correctly reflected in the total.
+     */
+    private void autoCloseStaleWebSession(WebClockInRequest staleReq, Attendance staleReqAttendance) {
+        LocalDateTime cutoff = shiftEndCutoff(staleReq.getEmployeeUserId(), staleReq.getWorkDate());
+        staleReq.setCheckedOutAt(cutoff);
+        webClockInRepository.save(staleReq);
+        if (staleReqAttendance != null) {
+            int workedMinutes = attendanceService.recomputeCombinedWorkedMinutes(
+                    staleReq.getEmployeeUserId(), staleReqAttendance.getId(), staleReqAttendance.getWorkDate());
+            staleReqAttendance.setWorkedMinutes(workedMinutes);
+            attendanceRepository.save(staleReqAttendance);
+        }
+        auditService.log(staleReq.getEmployeeUserId(), "WEB_CLOCK_IN_AUTO_CLOSED_STALE", staleReq.getId());
     }
 
     /**
@@ -451,7 +461,7 @@ public class WebClockInService {
      * AttendanceService.resolveZone(Attendance, Employee, String).
      */
     private ZoneId resolveZone(Attendance record, UUID employeeUserId, String clientTimezoneFallback) {
-        ZoneId stored = parseZone(record.getTimezone());
+        ZoneId stored = record != null ? parseZone(record.getTimezone()) : null;
         return stored != null ? stored : resolveZone(clientTimezoneFallback, employeeUserId);
     }
 

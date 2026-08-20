@@ -30,6 +30,7 @@ public class UserManagementService {
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
+    private final ShiftRepository shiftRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -79,6 +80,8 @@ public class UserManagementService {
             emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
         if (req.getLocationId() != null)
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        if (req.getShiftId() != null)
+            emp.setShift(shiftRepository.findById(req.getShiftId()).orElse(null));
 
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
@@ -147,6 +150,8 @@ public class UserManagementService {
             emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
         if (req.getLocationId() != null)
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        if (req.getShiftId() != null)
+            emp.setShift(shiftRepository.findById(req.getShiftId()).orElse(null));
 
         // Role change
         if (req.getRole() != null && !req.getRole().isBlank()) {
@@ -227,6 +232,7 @@ public class UserManagementService {
         snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
         snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
         snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
+        snapshot.put("shiftId", emp.getShift() != null ? emp.getShift().getId() : null);
         snapshot.put("role", RoleUtils.primaryRoleCode(user.getRoles(), null));
         snapshot.put("managerId", historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
                 .map(EmployeeManagerHistory::getManagerUserId).orElse(null));
@@ -320,6 +326,8 @@ public class UserManagementService {
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                 .locationId(emp.getLocation() != null ? emp.getLocation().getId().toString() : null)
                 .locationName(emp.getLocation() != null ? emp.getLocation().getName() : null)
+                .shiftId(emp.getShift() != null ? emp.getShift().getId().toString() : null)
+                .shiftName(emp.getShift() != null ? emp.getShift().getName() : null)
                 .employmentType(emp.getEmploymentType())
                 .workMode(emp.getWorkMode())
                 .joiningDate(emp.getJoiningDate())
