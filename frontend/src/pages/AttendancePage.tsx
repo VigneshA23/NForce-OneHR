@@ -1858,7 +1858,22 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
               ) : (
                 <Field label={partialDayModeLabel}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="number" min="1" step="1" value={partialDayMinutes} onChange={(e) => setPartialDayMinutes(e.target.value)} style={{ ...inputStyle, width: 100 }} />
+                    <input
+                      type="number" min="1" step="1" inputMode="numeric" value={partialDayMinutes}
+                      // Digits only — `type="number"` still lets the browser accept a typed "."
+                      // (e.g. "120.333"), so decimals are stripped here rather than relying on
+                      // step="1" alone, which only rounds spinner clicks, not free-typed input.
+                      onChange={(e) => setPartialDayMinutes(e.target.value.replace(/[^0-9]/g, ''))}
+                      onKeyDown={(e) => { if (e.key === '.' || e.key === ',') e.preventDefault(); }}
+                      onPaste={(e) => {
+                        const pasted = e.clipboardData.getData('text');
+                        if (/[.,]/.test(pasted)) {
+                          e.preventDefault();
+                          setPartialDayMinutes((pasted.match(/[0-9]+/g) ?? []).join(''));
+                        }
+                      }}
+                      style={{ ...inputStyle, width: 100 }}
+                    />
                     <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>minutes</span>
                   </div>
                 </Field>
