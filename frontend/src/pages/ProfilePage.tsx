@@ -356,7 +356,7 @@ export default function ProfilePage() {
 
         {/* Employment Information */}
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-          <SectionHeader title="Employment" badge="HR Managed" />
+          <SectionHeader title="Employment" badge={profile.role === 'SUPER_ADMIN' ? undefined : 'HR Managed'} />
           <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <ReadField label="Employee Code" value={profile.employeeCode} />
             <ReadField label="Department" value={profile.departmentName} />
