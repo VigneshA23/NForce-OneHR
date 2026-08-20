@@ -73,16 +73,16 @@ class AuditQueryServiceTest {
 
     @Test
     void resolveAllowedActions_hrAdmin_requestingAccessControlActionDirectly_returnsEmpty() {
-        Set<String> allowed = auditQueryService.resolveAllowedActions("USER_UPDATED", null, false);
+        Set<String> allowed = auditQueryService.resolveAllowedActions("USER_DEACTIVATED", null, false);
 
         assertTrue(allowed.isEmpty());
     }
 
     @Test
     void resolveAllowedActions_hrAdmin_requestingHrOperationalAction_returnsThatSingleton() {
-        Set<String> allowed = auditQueryService.resolveAllowedActions("EMPLOYEE_UPDATED", null, false);
+        Set<String> allowed = auditQueryService.resolveAllowedActions("USER_UPDATED", null, false);
 
-        assertEquals(Set.of("EMPLOYEE_UPDATED"), allowed);
+        assertEquals(Set.of("USER_UPDATED"), allowed);
     }
 
     @Test

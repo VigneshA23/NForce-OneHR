@@ -29,6 +29,32 @@ function getInitials(nameOrEmail?: string): string {
   return nameOrEmail.slice(0, 2).toUpperCase();
 }
 
+// Shared circular avatar used by the sidebar profile card, the topbar trigger button, and the
+// profile dropdown header. Renders the uploaded photo as a `background` image (sized/positioned
+// via `cover`/`center`) when present, so it always fills whatever size this component is given —
+// no separate <img> geometry to keep in sync — and falls back to the initials disc otherwise.
+function AvatarCircle({ photoDataUrl, initials, size, fontSize, border }: {
+  photoDataUrl?: string | null;
+  initials: string;
+  size: number;
+  fontSize: number;
+  border?: string;
+}) {
+  return (
+    <div
+      style={{
+        width: size, height: size, borderRadius: '50%',
+        background: photoDataUrl ? `url(${photoDataUrl}) center/cover no-repeat` : '#B11116',
+        display: 'grid', placeItems: 'center', color: '#fff', fontSize, fontWeight: 700,
+        flexShrink: 0, boxSizing: 'border-box',
+        ...(border ? { border } : {}),
+      }}
+    >
+      {!photoDataUrl && initials}
+    </div>
+  );
+}
+
 function ComingInPhase({ label, phase }: { label: string; phase: number }) {
   return (
     <div
@@ -51,11 +77,12 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
   );
 }
 
-function ProfileDropdown({ name, email, role, initials, onClose }: {
+function ProfileDropdown({ name, email, role, initials, photoDataUrl, onClose }: {
   name: string;
   email: string;
   role: Role;
   initials: string;
+  photoDataUrl?: string | null;
   onClose: () => void;
 }) {
   const navigate   = useNavigate();
@@ -78,9 +105,7 @@ function ProfileDropdown({ name, email, role, initials, onClose }: {
     >
       <div style={{ padding: '12px 14px', borderBottom: '1px solid #2A2E37' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-            {initials}
-          </div>
+          <AvatarCircle photoDataUrl={photoDataUrl} initials={initials} size={32} fontSize={12} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12.5, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
             <div style={{ fontSize: 11, color: '#9BA1AC', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email}</div>
@@ -147,16 +172,20 @@ export function Shell() {
   const navItems = NAV[role];
   const current  = navItems.find((n) => location.pathname.startsWith(n.path)) ?? navItems[0];
 
-  // Heal stale sessions: if token exists but fullName was never populated (session predates
-  // the fullName-in-login-response change), fetch it once from /api/profile and patch the store.
+  // Heal stale sessions (fullName predating the fullName-in-login-response change) and pick
+  // up the user's profile photo — the login response never carries it, so without this the
+  // topbar/sidebar avatars would only ever know about a photo after visiting /profile in this
+  // same session. Runs once per token; ProfilePage's own upload/load flows keep the store in
+  // sync after that (see ProfilePage.tsx's setAuth calls).
   const setAuth = useAuthStore((s) => s.setAuth);
   useEffect(() => {
-    if (!token || storeUser?.fullName) return;
+    if (!token || !storeUser) return;
     profileApi.get(token)
       .then(p => {
-        if (p.fullName && storeUser) {
-          setAuth(token, { ...storeUser, fullName: p.fullName });
-        }
+        const patch: { fullName?: string; photoDataUrl?: string | null } = {};
+        if (p.fullName && !storeUser.fullName) patch.fullName = p.fullName;
+        if (p.photoDataUrl !== storeUser.photoDataUrl) patch.photoDataUrl = p.photoDataUrl;
+        if (Object.keys(patch).length > 0) setAuth(token, { ...storeUser, ...patch });
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,9 +295,7 @@ export function Shell() {
 
         {/* Profile card (sidebar) */}
         <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-            {initials}
-          </div>
+          <AvatarCircle photoDataUrl={storeUser?.photoDataUrl} initials={initials} size={30} fontSize={11} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
             <div style={{ fontSize: 10, color: '#6B7280' }}>{role}</div>
@@ -300,11 +327,21 @@ export function Shell() {
           </button>
 
           <div style={{ color: '#9BA1AC', fontSize: 13 }}>
-            NForce OneHR / <b style={{ color: '#E8EAED', fontWeight: 600 }}>{current.label}</b>
+            <b style={{ color: '#E8EAED', fontWeight: 600 }}>{current.label}</b>
           </div>
           <div style={{ flex: 1 }} />
           <div className="nf-topbar-search" style={{ maxWidth: 260, width: 260, background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8, color: '#6B7280', fontSize: 12 }}>
             <Search size={13} aria-hidden="true" /> Search this workspace…
+          </div>
+          {/* Collapsed stand-in for the search bar above — shown only ≤767px, where the
+              full bar no longer fits, instead of the search affordance vanishing entirely */}
+          <div
+            className="nf-topbar-search-icon"
+            aria-label="Search this workspace"
+            title="Search this workspace"
+            style={{ alignItems: 'center', justifyContent: 'center', padding: 7, borderRadius: 6, color: '#9BA1AC' }}
+          >
+            <Search size={15} aria-hidden="true" />
           </div>
 
           <button
@@ -345,9 +382,13 @@ export function Shell() {
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.09)'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
             >
-              <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 12, fontWeight: 700, border: '2px solid rgba(255,255,255,0.55)', boxSizing: 'border-box' }}>
-                {initials}
-              </div>
+              <AvatarCircle
+                photoDataUrl={storeUser?.photoDataUrl}
+                initials={initials}
+                size={32}
+                fontSize={12}
+                border="2px solid rgba(255,255,255,0.55)"
+              />
               {role === 'Super Admin' && (
                 <span
                   aria-label="Super Admin session"
@@ -370,6 +411,7 @@ export function Shell() {
                 email={email}
                 role={role}
                 initials={initials}
+                photoDataUrl={storeUser?.photoDataUrl}
                 onClose={() => setDropdownOpen(false)}
               />
             )}

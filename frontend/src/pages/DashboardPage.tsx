@@ -900,13 +900,13 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
   ];
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+    <div className="nf-atn-cal-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
       <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 18 }}>
         Attendance Calendar
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {/* Nav */}
-        <div style={{ display: 'flex', alignItems: 'center', width: gridWidth, marginBottom: 14 }}>
+        <div className="nf-atn-cal-row" style={{ display: 'flex', alignItems: 'center', width: gridWidth, marginBottom: 14 }}>
           <button
             onClick={() => setMonthOffset(o => Math.min(o + 1, MAX_OFFSET))}
             disabled={monthOffset >= MAX_OFFSET}
@@ -927,7 +927,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
         </div>
 
         {/* Day headers */}
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CAL_CELL_PX}px)`, gap: CAL_GAP, marginBottom: CAL_GAP, width: gridWidth }}>
+        <div className="nf-atn-cal-row nf-atn-cal-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CAL_CELL_PX}px)`, gap: CAL_GAP, marginBottom: CAL_GAP, width: gridWidth }}>
           {CAL_DAY_HEADERS.map(d => (
             <div key={d} style={{ textAlign: 'center', fontSize: 9, color: 'var(--txt-dim)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em' }}>
               {d}
@@ -937,11 +937,11 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
 
         {/* Month grid */}
         {loading ? (
-          <div style={{ width: gridWidth, height: CAL_CELL_PX * 6, background: 'var(--raised2)', borderRadius: 8, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
+          <div className="nf-atn-cal-row nf-atn-cal-skeleton" style={{ width: gridWidth, height: CAL_CELL_PX * 6, background: 'var(--raised2)', borderRadius: 8, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CAL_CELL_PX}px)`, gap: CAL_GAP, width: gridWidth }}>
+          <div className="nf-atn-cal-row nf-atn-cal-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CAL_CELL_PX}px)`, gap: CAL_GAP, width: gridWidth }}>
             {Array.from({ length: leadingEmpties }).map((_, i) => (
-              <div key={`pad-${i}`} style={{ width: CAL_CELL_PX, height: CAL_CELL_PX }} />
+              <div key={`pad-${i}`} className="nf-atn-cal-cell" style={{ width: CAL_CELL_PX, height: CAL_CELL_PX }} />
             ))}
             {days.map(day => {
               const isToday = day.date === todayStr;
@@ -949,6 +949,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
               return (
                 <div
                   key={day.date}
+                  className="nf-atn-cal-cell"
                   title={calCellTooltip(day)}
                   style={{
                     width: CAL_CELL_PX, height: CAL_CELL_PX, borderRadius: 7,
@@ -976,7 +977,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
         )}
 
         {/* Legend */}
-        <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 9, color: 'var(--txt-dim)', width: gridWidth }}>
+        <div className="nf-atn-cal-row" style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 9, color: 'var(--txt-dim)', width: gridWidth }}>
           {legend.map(({ bg, label, border }) => (
             <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: bg, border: border ?? 'none', boxSizing: 'border-box', flexShrink: 0 }} />
@@ -1007,7 +1008,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
   const totalRemaining = data.reduce((s, d) => s + d.remaining, 0);
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="nf-leave-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
         Leave Balance
       </div>
@@ -1017,28 +1018,30 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
       ) : (
         <>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <div style={{ position: 'relative', width: 160, height: 160 }}>
-              <PieChart width={160} height={160}>
-                <Pie
-                  data={data.length === 0 ? [{ name: 'None', remaining: 1 }] : data}
-                  cx={75}
-                  cy={75}
-                  innerRadius={50}
-                  outerRadius={70}
-                  dataKey="remaining"
-                  startAngle={90}
-                  endAngle={-270}
-                  strokeWidth={0}
-                >
-                  {data.map((_, i) => (
-                    <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
-                  formatter={(val, name) => [`${val}d remaining`, name ?? '']}
-                />
-              </PieChart>
+            <div className="nf-leave-donut-wrap" style={{ position: 'relative', width: 160, height: 160 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={data.length === 0 ? [{ name: 'None', remaining: 1 }] : data}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="62%"
+                    outerRadius="87%"
+                    dataKey="remaining"
+                    startAngle={90}
+                    endAngle={-270}
+                    strokeWidth={0}
+                  >
+                    {data.map((_, i) => (
+                      <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
+                    formatter={(val, name) => [`${val}d remaining`, name ?? '']}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
               <div style={{
                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
@@ -1256,14 +1259,14 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
   };
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+    <div className="nf-holiday-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
       <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
         Upcoming Holidays
       </div>
       {upcoming.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '8px 0' }}>No upcoming holidays in your location.</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <div className="nf-holiday-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           {upcoming.map(h => {
             const d = new Date(h.holidayDate + 'T12:00:00');
             const diff = daysUntil(h.holidayDate);
@@ -1272,28 +1275,29 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
             return (
               <div
                 key={h.id}
+                className="nf-holiday-card"
                 style={{
                   background: soon ? 'color-mix(in srgb, var(--brand) 6%, var(--raised2))' : 'var(--raised2)',
                   border: `1px solid ${soon ? 'color-mix(in srgb, var(--brand) 20%, var(--line))' : 'var(--line)'}`,
                   borderRadius: 10, padding: '16px 16px', display: 'flex', flexDirection: 'column', gap: 10,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{
+                <div className="nf-holiday-top-row" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                  <div className="nf-holiday-icon" style={{
                     width: 44, height: 44, borderRadius: 8, flexShrink: 0,
                     background: soon ? 'color-mix(in srgb, var(--brand) 14%, var(--raised2))' : 'var(--panel)',
                     border: `1px solid ${soon ? 'color-mix(in srgb, var(--brand) 22%, var(--line))' : 'var(--line)'}`,
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <span style={{ fontSize: 8, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', lineHeight: 1 }}>
+                    <span className="nf-holiday-month" style={{ fontSize: 8, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', lineHeight: 1 }}>
                       {d.toLocaleDateString('en-US', { month: 'short' })}
                     </span>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt)', lineHeight: 1.1, fontFamily: '"Space Grotesk", sans-serif' }}>
+                    <span className="nf-holiday-day" style={{ fontSize: 18, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt)', lineHeight: 1.1, fontFamily: '"Space Grotesk", sans-serif' }}>
                       {d.getDate()}
                     </span>
                   </div>
                   {soon && (
-                    <span style={{
+                    <span className="nf-holiday-badge" style={{
                       fontSize: 9.5, fontWeight: 700, padding: '3px 7px', borderRadius: 10,
                       background: 'color-mix(in srgb, var(--brand) 12%, transparent)',
                       color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap',
@@ -1303,10 +1307,10 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
                   )}
                 </div>
                 <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="nf-holiday-name" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {h.holidayName}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+                  <div className="nf-holiday-date" style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
                     {d.toLocaleDateString('en-US', { weekday: 'long' })}
                     {!soon && diff < 30 && <span style={{ marginLeft: 4 }}>· {diffLabel}</span>}
                   </div>
