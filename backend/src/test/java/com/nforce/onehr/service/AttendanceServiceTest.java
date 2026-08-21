@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
@@ -335,21 +336,24 @@ class AttendanceServiceTest {
     // ---------------------------------------------------------------- browser timezone
 
     @Test
-    void checkIn_usesBrowserReportedTimezone_notTheEmployeesConfiguredLocation() {
-        // No Location on this employee (see setUp) — without a browser-reported zone this would
-        // fall back to the global default (Asia/Kolkata). Australia/Adelaide (a genuine IANA
-        // zone, UTC+9:30/+10:30) exercises a half-hour offset distinct from IST's own +5:30.
+    void checkIn_ignoresBrowserReportedTimezone_alwaysUsesTheEmployeesConfiguredZone() {
+        // No Location on this employee (see setUp), so the employee's own zone is the global
+        // default (Asia/Kolkata). A browser reporting a completely different zone
+        // ("Australia/Adelaide", a genuine IANA zone, UTC+9:30/+10:30 — a half-hour offset
+        // distinct from IST's own +5:30) must be ignored entirely: per explicit requirement, the
+        // employee's own assigned Location timezone (or the global default, absent one) is the
+        // ONLY source for their attendance clock — never the viewer's/browser's own zone.
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any()))
                 .thenReturn(Optional.empty());
 
         AttendanceResponse response = service.checkIn(employeeEmail, "Australia/Adelaide");
 
-        assertEquals("Australia/Adelaide", response.getTimezone(),
-                "the resolved zone must be locked onto the record, not silently dropped");
-        LocalDateTime expectedNow = LocalDateTime.now(ZoneId.of("Australia/Adelaide"));
+        assertEquals("Asia/Kolkata", response.getTimezone(),
+                "the browser-reported zone must never override the employee's own configured zone");
+        LocalDateTime expectedNow = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
         assertEquals(expectedNow.toLocalDate(), response.getCheckInAt().toLocalDate());
         assertTrue(Duration.between(response.getCheckInAt(), expectedNow).abs().toSeconds() < 5,
-                "checkInAt must reflect the browser's reported zone's wall clock, not IST");
+                "checkInAt must reflect the employee's own configured zone's wall clock, never the browser's");
     }
 
     @Test
@@ -412,12 +416,18 @@ class AttendanceServiceTest {
         if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
         ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
 
+        // The deterministic "now reads as 1:00 AM" trick now has to come from the employee's own
+        // configured Location.timezone, not the browser-reported clientTimezone — resolveZone no
+        // longer consults the latter at all (Location is the ONLY source, per explicit
+        // requirement). ZoneId.of accepts a bare numeric offset ("+05:30" etc.) just as well as a
+        // real IANA region name, so this is otherwise the exact same technique as before.
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
         Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
-        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).build();
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
         when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
 
-        AttendanceResponse resp = service.checkIn(employeeEmail, offset.getId());
+        AttendanceResponse resp = service.checkIn(employeeEmail, null);
 
         assertEquals("LATE", resp.getStatus());
         assertTrue(resp.getLateByMinutes() > 200,

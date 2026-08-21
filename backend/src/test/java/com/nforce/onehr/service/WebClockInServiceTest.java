@@ -447,12 +447,6 @@ class WebClockInServiceTest {
         String employeeEmail = "employee@test.com";
         lenient().when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser(employeeEmail)));
 
-        com.nforce.onehr.entity.Shift overnightShift = com.nforce.onehr.entity.Shift.builder()
-                .name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
-        com.nforce.onehr.entity.Employee employee = com.nforce.onehr.entity.Employee.builder()
-                .userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).build();
-        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
-
         LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
         int targetSecondOfDay = LocalTime.of(1, 0).toSecondOfDay();
         int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
@@ -460,7 +454,20 @@ class WebClockInServiceTest {
         if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
         ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
 
-        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Late remote start").timezone(offset.getId()).build();
+        // The deterministic "now reads as 1:00 AM" trick now has to come from the employee's own
+        // configured Location.timezone, not the request's clientTimezone — resolveZone no longer
+        // consults the latter at all (Location is the ONLY source, per explicit requirement).
+        // ZoneId.of accepts a bare numeric offset ("+05:30" etc.) just as well as a real IANA
+        // region name, so this is otherwise the exact same technique as before.
+        com.nforce.onehr.entity.Location location = com.nforce.onehr.entity.Location.builder()
+                .name("Test Location").timezone(offset.getId()).build();
+        com.nforce.onehr.entity.Shift overnightShift = com.nforce.onehr.entity.Shift.builder()
+                .name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
+        com.nforce.onehr.entity.Employee employee = com.nforce.onehr.entity.Employee.builder()
+                .userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Late remote start").timezone(null).build();
 
         WebClockInResponse resp = service.submit(req, employeeEmail);
 
