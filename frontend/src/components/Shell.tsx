@@ -13,6 +13,7 @@ import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
 import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
+import { StatusBadge, inactiveDimStyle } from './EmployeeStatus';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -485,13 +486,16 @@ export function Shell() {
                       const globalIdx = navMatches.length + i;
                       return (
                         <button key={record.userId} onMouseDown={() => handleResultSelect({ kind: 'person', record })}
-                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: searchIdx === globalIdx ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left' }}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: searchIdx === globalIdx ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left', ...inactiveDimStyle(record.active) }}
                           onMouseEnter={() => setSearchIdx(globalIdx)} onMouseLeave={() => setSearchIdx(-1)}>
                           <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                             {getInitials(record.fullName)}
                           </div>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.fullName}</div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.fullName}</div>
+                              {!record.active && <StatusBadge active={record.active} />}
+                            </div>
                             <div style={{ fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.email}</div>
                           </div>
                         </button>

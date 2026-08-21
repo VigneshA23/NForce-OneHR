@@ -148,6 +148,16 @@ public class UserManagementService {
         boolean roleChanged = false;
         boolean managerChanged = false;
 
+        // Role/manager/department/designation/employment type imply active employment — for a
+        // deactivated user these are blocked behind an explicit confirmation (name, location,
+        // shift and other offboarding-correction fields stay editable unconditionally). The
+        // server is the real boundary here, not just the edit form's disabled inputs.
+        if (!target.isActive() && !req.isConfirmInactiveEdit()
+                && changesGatedUserFields(emp, currentRole, currentManagerId, req)) {
+            throw new IllegalArgumentException(
+                    "This user is inactive. Confirm the change to update Role, Manager, Department, Designation, or Employment Type for an inactive user.");
+        }
+
         if (req.getFullName() != null && !req.getFullName().isBlank()) {
             String fullName = req.getFullName().trim();
             if (!Objects.equals(emp.getFullName(), fullName)) {
@@ -289,6 +299,19 @@ public class UserManagementService {
 
         auditService.log(actor.getId(), "JOINING_DATE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /** True if the request would actually change one of the fields gated behind confirmInactiveEdit. */
+    private boolean changesGatedUserFields(Employee emp, String currentRole, UUID currentManagerId, UpdateUserRequest req) {
+        UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+        UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+        return (req.getDepartmentId() != null && !Objects.equals(req.getDepartmentId(), currentDepartmentId))
+                || (req.getDesignationId() != null && !Objects.equals(req.getDesignationId(), currentDesignationId))
+                || (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                        && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType()))
+                || (req.getRole() != null && !req.getRole().isBlank()
+                        && !Objects.equals(currentRole, req.getRole().toUpperCase()))
+                || (req.getManagerId() != null && !Objects.equals(currentManagerId, req.getManagerId()));
     }
 
     /**

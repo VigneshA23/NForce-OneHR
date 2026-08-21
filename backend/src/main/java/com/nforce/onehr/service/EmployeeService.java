@@ -125,6 +125,16 @@ public class EmployeeService {
                 .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+
+        // Department/designation/employment type imply active employment — for a deactivated
+        // employee these are blocked behind an explicit confirmation (name, location and other
+        // offboarding-correction fields stay editable unconditionally). The server is the real
+        // boundary here, not just the edit form's disabled inputs.
+        if (!emp.getUser().isActive() && !req.isConfirmInactiveEdit() && changesGatedEmployeeFields(emp, req)) {
+            throw new IllegalArgumentException(
+                    "This employee is inactive. Confirm the change to update Department, Designation, or Employment Type for an inactive employee.");
+        }
+
         String before = auditSnapshot.toJson(employeeSnapshot(emp));
 
         if (req.getFullName() != null && !req.getFullName().isBlank())
@@ -144,6 +154,16 @@ public class EmployeeService {
         String after = auditSnapshot.toJson(employeeSnapshot(emp));
         auditService.log(actor.getId(), "EMPLOYEE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), emp.getUser(), null);
+    }
+
+    /** True if the request would actually change one of the fields gated behind confirmInactiveEdit. */
+    private boolean changesGatedEmployeeFields(Employee emp, UpdateEmployeeRequest req) {
+        UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+        UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+        return (req.getDepartmentId() != null && !Objects.equals(req.getDepartmentId(), currentDepartmentId))
+                || (req.getDesignationId() != null && !Objects.equals(req.getDesignationId(), currentDesignationId))
+                || (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                        && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType()));
     }
 
     /**

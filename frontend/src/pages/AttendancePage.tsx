@@ -354,6 +354,10 @@ function isActionableRequest(r: RegularizationRecord, isManager: boolean) {
 }
 
 const dash = <span style={{ color: 'var(--txt-dim)' }}>—</span>;
+// A recorded day with no check-in/check-out punch (forgot to swipe, etc.) reads more clearly as
+// "Missing" than a bare dash — used specifically for the Check In/Check Out fields on a day that
+// does have an attendance record, as opposed to `dash`'s generic "nothing to show here" meaning.
+const missingPunch = <span style={{ color: 'var(--txt-dim)' }}>Missing</span>;
 
 const thStyle: React.CSSProperties = {
   padding: '9px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700,
@@ -1438,6 +1442,7 @@ function NotifyEmployeeField({ token, value, onChange }: {
 
   const matches = query.trim()
     ? directory
+        .filter((d) => d.active !== false)
         .filter((d) => d.fullName.toLowerCase().includes(query.trim().toLowerCase()) || d.email.toLowerCase().includes(query.trim().toLowerCase()))
         .slice(0, 8)
     : [];
@@ -2736,13 +2741,13 @@ function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                 <LogIn size={11} /> Check In
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkInAt) ?? dash}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkInAt) ?? missingPunch}</div>
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                 <LogOut size={11} /> Check Out
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkOutAt) ?? dash}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkOutAt) ?? missingPunch}</div>
             </div>
           </div>
           <div>

@@ -286,6 +286,7 @@ public class OrgService {
                         .fullName(e.getFullName())
                         .email(e.getUser().getEmail())
                         .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
+                        .active(e.getUser().isActive())
                         .build())
                 .toList();
     }

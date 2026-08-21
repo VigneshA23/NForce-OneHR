@@ -7,6 +7,7 @@ import { hierarchyApi, type OrgContext, type PersonCard, type BreadcrumbEntry } 
 import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import logoUrl from '../assets/nforce-logo.png';
+import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 
 const PEER_MAX = 8;
 // Card width used for direct-reports HLine sizing
@@ -198,6 +199,7 @@ function OrgCard({
         transition: 'border-color 140ms, background 140ms, box-shadow 140ms',
         cursor: disabled ? 'default' : 'pointer',
         userSelect: 'none',
+        ...inactiveDimStyle(card.active),
       }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -245,11 +247,14 @@ function OrgCard({
             )}
           </div>
         </div>
-        {card.department && (
-          <div>
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 20, background: c.bg, color: c.fg }}>
-              {card.department}
-            </span>
+        {(card.department || !card.active) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            {card.department && (
+              <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 20, background: c.bg, color: c.fg }}>
+                {card.department}
+              </span>
+            )}
+            {!card.active && <StatusBadge active={card.active} />}
           </div>
         )}
         {card.primaryRole && (() => {
@@ -318,14 +323,22 @@ function RootsPicker({ roots, onPick, onClose }: {
         </div>
         <div style={{ overflowY: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {roots.map(r => (
-            <button key={r.id} onClick={() => { onPick(r.id); onClose(); }} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8,
-              padding: '10px 12px', cursor: 'pointer', textAlign: 'left',
-            }}>
+            <button
+              key={r.id}
+              onClick={() => { onPick(r.id); onClose(); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8,
+                padding: '10px 12px', cursor: 'pointer', textAlign: 'left',
+                ...inactiveDimStyle(r.active),
+              }}
+            >
               <Avatar card={r} size={32} />
-              <div>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
+                  {!r.active && <StatusBadge active={r.active} />}
+                </div>
                 <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{r.designation ?? r.department ?? 'Root'}</div>
               </div>
               {r.directReportsCount > 0 && (
@@ -736,13 +749,17 @@ export default function HierarchyPage() {
                   width: '100%', background: 'none', border: 'none',
                   padding: '9px 12px', cursor: 'pointer', textAlign: 'left',
                   borderBottom: '1px solid var(--line)',
+                  ...inactiveDimStyle(r.active),
                 }}
                 onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised)'}
                 onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'none'}
               >
                 <Avatar card={r} size={26} />
-                <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                    {!r.active && <StatusBadge active={r.active} />}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{r.designation ?? r.department ?? ''}</div>
                 </div>
               </button>
