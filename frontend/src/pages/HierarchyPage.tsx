@@ -55,7 +55,7 @@ function initials(name: string) {
 
 /* ── Dev safeguard: warn if same person appears in multiple tiers ──────── */
 function assertNoDuplicateTiers(ctx: OrgContext) {
-  if (process.env.NODE_ENV === 'production') return;
+  if (import.meta.env.PROD) return;
   const ids: string[] = [
     ...(ctx.manager ? [ctx.manager.id] : []),
     ...ctx.peers.map(p => p.id),
