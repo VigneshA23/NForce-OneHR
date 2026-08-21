@@ -83,6 +83,8 @@ export interface UpdateJoiningDatePayload {
 
 export interface ResetPasswordResult { tempPassword: string; message: string; }
 
+export interface EmployeeCodePreview { employeeCode: string; }
+
 export const employeesApi = {
   list: (token: string) =>
     fetch(`${BASE}/employees`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),
@@ -95,6 +97,11 @@ export const employeesApi = {
 
   potentialManagers: (token: string) =>
     fetch(`${BASE}/employees/potential-managers`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),
+
+  // Read-only preview of the Employee ID the Add Employee/User form should display — does NOT
+  // reserve or consume the ID. See EmployeeCodeGenerator#preview on the backend.
+  previewNextCode: (token: string) =>
+    fetch(`${BASE}/employees/next-code`, { headers: authHeaders(token) }).then(handle<EmployeeCodePreview>),
 };
 
 export const usersApi = {

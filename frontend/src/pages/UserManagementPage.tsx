@@ -200,9 +200,46 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set instead of `error` specifically when the backend rejects the submitted Employee ID as
+  // already taken (EmployeeCodeGenerator#claim's exact conflict message) — rendered as its own
+  // banner with a "Click here" action that fetches a fresh suggestion via the same non-consuming
+  // preview endpoint, without touching any other field or closing this modal.
+  const [employeeCodeConflict, setEmployeeCodeConflict] = useState(false);
+  const [fetchingNewId, setFetchingNewId] = useState(false);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
   const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
-  const [empCodeSuffix, setEmpCodeSuffix] = useState('');
+  // Auto-populated suggestion only (see employeesApi.previewNextCode) — fetched once on open
+  // and dropped straight into the (editable) Employee ID field below as a starting value. The
+  // admin can freely overwrite it; this fetch never reserves/consumes the ID. Whatever ends up
+  // in the field — untouched or edited — is submitted to the backend verbatim and validated as
+  // the exact requested Employee ID (see handleSubmit below and EmployeeCodeGenerator#claim on
+  // the backend): a stale submission must fail with a clear conflict, never silently resolve to
+  // a different ID.
+  const [previewLoading, setPreviewLoading] = useState(true);
+
+  useEffect(() => {
+    employeesApi.previewNextCode(token)
+      .then(r => setForm(f => ({ ...f, employeeCode: f.employeeCode ?? r.employeeCode })))
+      .catch(() => { /* leave the field blank — the backend auto-assigns one if none is submitted */ })
+      .finally(() => setPreviewLoading(false));
+  }, [token]);
+
+  // Fetches a fresh suggestion via the same non-consuming preview endpoint used on open, and
+  // drops it straight into the Employee ID field — nothing else in the form is touched, and the
+  // modal stays open. Backs the "Click here" action in the conflict banner below.
+  async function handleGetNewId() {
+    setFetchingNewId(true);
+    try {
+      const r = await employeesApi.previewNextCode(token);
+      setForm(f => ({ ...f, employeeCode: r.employeeCode }));
+      setEmployeeCodeConflict(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not fetch a new Employee ID';
+      showToast('error', msg);
+    } finally {
+      setFetchingNewId(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -216,12 +253,14 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
-    const suffix = empCodeSuffix.trim();
-    if (suffix && suffix.length !== 4) { setError('Employee ID suffix must be exactly 4 digits.'); return; }
-    const empCode = suffix ? `NF-${new Date().getFullYear()}-${suffix}` : undefined;
-    setSubmitting(true); setError(null);
+    setSubmitting(true); setError(null); setEmployeeCodeConflict(false);
+    // Submit the Employee ID exactly as displayed — untouched or edited — and let the backend
+    // validate that exact value. If it's already taken (e.g. another admin's form showed the
+    // same suggestion and got there first), the backend rejects it outright rather than
+    // silently assigning a different one; see the catch block below.
+    const trimmedCode = (form.employeeCode ?? '').trim();
     try {
-      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: empCode }, token);
+      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: trimmedCode || undefined }, token);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
       if (startOnboarding) {
@@ -239,8 +278,16 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
       }
       setCreated(emp);
     } catch (err) {
+      // The backend rejects a submitted Employee ID that's already in use (or was just taken by
+      // a concurrent request) with this exact message — surfaced as its own banner with a
+      // "Click here" recovery action instead of the generic error text, so the admin doesn't
+      // have to reopen the form (and lose everything else they typed) to get a fresh ID.
       const msg = err instanceof Error ? err.message : 'Create failed';
-      setError(msg);
+      if (msg === 'Employee ID is unavailable. Please go back and retry.') {
+        setEmployeeCodeConflict(true);
+      } else {
+        setError(msg);
+      }
       showToast('error', msg);
     } finally { setSubmitting(false); }
   }
@@ -290,7 +337,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
       <div style={{ ...modalStyle, maxWidth: 580 }}>
         <ModalHeader title="Add User" onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+          {error && !employeeCodeConflict && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name *"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field></div>
           <div style={{ gridColumn: '1/-1' }}><Field label="Company Email *"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field></div>
           <Field label="Role *">
@@ -306,18 +353,26 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             </select>
           </Field>
           <Field label="Employee ID">
-            <div style={{ display: 'flex', border: '1px solid var(--line2)', borderRadius: 6, overflow: 'hidden' }}>
-              <span style={{ padding: '9px 11px', background: 'var(--raised)', color: 'var(--txt)', fontSize: 13, whiteSpace: 'nowrap', borderRight: '1px solid var(--line2)', flexShrink: 0, fontWeight: 500 }}>
-                NF-{new Date().getFullYear()}
-              </span>
-              <input
-                style={{ ...inputStyle, border: 'none', borderRadius: 0, flex: 1, minWidth: 0 }}
-                value={empCodeSuffix}
-                onChange={e => setEmpCodeSuffix(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="auto-assigned"
-                maxLength={4}
-              />
-            </div>
+            <input
+              style={inputStyle}
+              value={form.employeeCode ?? ''}
+              onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value }))}
+              placeholder={previewLoading ? 'Loading…' : 'e.g. NF-20260007'}
+            />
+            {employeeCodeConflict && (
+              <div style={{ marginTop: 6, color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>
+                Employee ID already exists.{' '}
+                <button
+                  type="button"
+                  onClick={handleGetNewId}
+                  disabled={fetchingNewId}
+                  style={{ background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textDecoration: 'underline', cursor: fetchingNewId ? 'wait' : 'pointer' }}
+                >
+                  {fetchingNewId ? 'Fetching…' : 'Click here'}
+                </button>
+                {' '}to get a new ID.
+              </div>
+            )}
           </Field>
           <Field label="Joining Date *"><input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} /></Field>
           <Field label="Employment Type">

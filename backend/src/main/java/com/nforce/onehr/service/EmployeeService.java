@@ -35,6 +35,7 @@ public class EmployeeService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
     private final LeaveService leaveService;
+    private final EmployeeCodeGenerator employeeCodeGenerator;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -63,7 +64,7 @@ public class EmployeeService {
                 .build();
         newUser = userRepository.save(newUser);
 
-        String code = resolveEmployeeCode(req.getEmployeeCode());
+        String code = employeeCodeGenerator.claim(req.getEmployeeCode());
 
         Employee emp = Employee.builder()
                 .user(newUser)
@@ -97,6 +98,15 @@ public class EmployeeService {
         auditService.log(actor.getId(), "EMPLOYEE_CREATED", newUser.getId());
         emailService.sendInviteEmail(newUser.getEmail(), req.getFullName().trim(), tempPassword);
         return toResponse(emp, findCurrentManager(newUser.getId()), newUser, tempPassword);
+    }
+
+    /**
+     * Read-only preview of the Employee ID the Add Employee/User form should display. Does not
+     * consume the underlying sequence — see {@link EmployeeCodeGenerator#preview()}.
+     */
+    @Transactional(readOnly = true)
+    public String previewNextEmployeeCode() {
+        return employeeCodeGenerator.preview();
     }
 
     /**
@@ -389,12 +399,14 @@ public class EmployeeService {
 
     /**
      * Batch equivalent of {@link #findCurrentManager} for whole-org listings (listDirectory,
-     * listEmployees) — those used to call findCurrentManager once per employee, each doing 3
-     * separate round trips (history lookup, manager User lookup, manager Employee lookup). For
-     * ~90 employees that's ~270 sequential queries against a remote DB, easily a minute or more.
-     * This does the same lookup in exactly 3 queries total regardless of employee count.
+     * listEmployees, and {@link UserManagementService#listUsers} — package-private specifically
+     * so that class can reuse this instead of keeping a second copy of the same lookup) — those
+     * used to call findCurrentManager once per employee, each doing 3 separate round trips
+     * (history lookup, manager User lookup, manager Employee lookup). For ~90 employees that's
+     * ~270 sequential queries against a remote DB, easily a minute or more. This does the same
+     * lookup in exactly 3 queries total regardless of employee count.
      */
-    private Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
+    Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
         Map<UUID, UUID> managerIdByEmployeeId = historyRepository.findByEffectiveToIsNull().stream()
                 .filter(h -> employeeIds.contains(h.getEmployeeUserId()))
                 .collect(Collectors.toMap(EmployeeManagerHistory::getEmployeeUserId, EmployeeManagerHistory::getManagerUserId));
@@ -439,19 +451,6 @@ public class EmployeeService {
                 .currentManager(manager)
                 .tempPassword(tempPassword)
                 .build();
-    }
-
-    private String resolveEmployeeCode(String requested) {
-        if (requested != null && !requested.isBlank()) {
-            String code = requested.trim().toUpperCase();
-            if (employeeRepository.existsByEmployeeCode(code))
-                throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
-            return code;
-        }
-        int next = employeeRepository.findMaxNumericEmployeeCode()
-                .map(c -> Integer.parseInt(c.substring(3)) + 1)
-                .orElse(1);
-        return String.format("NF-%05d", next);
     }
 
     private String generateTempPassword() {
