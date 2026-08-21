@@ -9,7 +9,7 @@
 -- migration ran. Legacy codes that don't match that shape (e.g. 'NF-0001', 'NF-00001') are not
 -- part of this numbering scheme and are excluded from the seed calculation — same regex
 -- EmployeeRepository previously used for its own (now removed) MAX+1 lookup.
-CREATE SEQUENCE employee_code_seq AS BIGINT START WITH 1 INCREMENT BY 1 NO CYCLE;
+CREATE SEQUENCE IF NOT EXISTS employee_code_seq AS BIGINT START WITH 1 INCREMENT BY 1 NO CYCLE;
 
 SELECT setval(
     'employee_code_seq',
