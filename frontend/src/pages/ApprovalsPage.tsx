@@ -124,6 +124,17 @@ function fmtTime(s?: string | null) {
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
+ * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
+function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
+  if (!startIso || !endIso) return EMPTY_VALUE;
+  const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
+  if (minutes <= 0) return EMPTY_VALUE;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 function getRequestedDates(item: ApprovalItem) {
   if (item.requestType === 'LEAVE') {
     if (!item.leaveStartDate) return EMPTY_VALUE;
@@ -429,7 +440,8 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
 
           {item.requestType === 'OVERTIME' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Work Date" value={item.attendanceDate} />
+              <Row label="Date" value={item.attendanceDate} />
+              <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
               <Row label="Reason" value={item.regularizationReason} />
             </div>
           )}
