@@ -1663,7 +1663,7 @@ function SuperAdminDashboardView() {
                         dataKey="value"
                         startAngle={90} endAngle={-270}
                         strokeWidth={0}
-                        onClick={(d) => navigate(`/approvals?type=${d.type}`)}
+                        onClick={(d) => navigate(`/approvals?type=${(d as unknown as { type: string }).type}`)}
                         style={{ cursor: 'pointer' }}
                       >
                         {pendingByType.map((entry, i) => (
