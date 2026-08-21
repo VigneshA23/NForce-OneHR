@@ -38,12 +38,16 @@ import java.util.UUID;
  * Web Clock-In / Check-in: any employee working remotely can self-declare a check-in — it
  * upserts the day's {@link Attendance} row (source WEB_REMOTE) and starts counting worked time
  * immediately, the same instant it's submitted, with NO wait for HR review. That immediate
- * attendance effect is deliberately decoupled from the request's own approval lifecycle: every
- * new request starts {@code PENDING} and is routed to the employee's manager (or HR/Super Admin)
- * for a real approve/reject decision via {@link #approve}/{@link #reject} — it does not
- * self-approve. Check-out and cancel need no approval either, and neither is gated by review
- * status at all (PENDING, APPROVED, or REJECTED) — whether HR has looked at the request yet is
- * independent of the employee actually finishing (or undoing) their own real session.
+ * attendance effect is deliberately decoupled from the request's own approval lifecycle: the
+ * FIRST request of a given employee's shift/workday starts {@code PENDING} and is routed to the
+ * employee's manager (or HR/Super Admin) for a real approve/reject decision via
+ * {@link #approve}/{@link #reject} — it does not self-approve. Once that first request for the
+ * shift/workday has been APPROVED, every later Web Clock-In cycle within the SAME shift/workday
+ * is auto-approved on submit (see {@code submit}'s own comment) — it neither re-asks HR nor
+ * creates another pending request, since the shift has already had its one real review. Check-out
+ * and cancel need no approval either, and neither is gated by review status at all (PENDING,
+ * APPROVED, or REJECTED) — whether HR has looked at the request yet is independent of the
+ * employee actually finishing (or undoing) their own real session.
  *
  * <p>Web Clock-In/Out is deliberately independent of normal Check-In/Check-Out: each is tracked
  * via its own open/closed state (this class's own WebClockInRequest.checkedOutAt vs.
@@ -68,6 +72,7 @@ public class WebClockInService {
     // Mirrors AttendanceService.STATUS_MISSING_CHECKOUT — see checkOut's own doc comment.
     private static final String STATUS_MISSING_CHECKOUT = "MISSING_CHECKOUT";
     private static final String STATUS_PENDING = "PENDING";
+    private static final String STATUS_APPROVED = "APPROVED";
     private static final String SOURCE_WEB_REMOTE = "WEB_REMOTE";
 
     private final WebClockInRequestRepository webClockInRepository;
@@ -115,14 +120,24 @@ public class WebClockInService {
             }
         }
 
-        // Resolved from the browser-reported zone (req.getTimezone(), e.g. from Intl
-        // .DateTimeFormat().resolvedOptions().timeZone), falling back to the employee's
-        // configured Location.timezone — mirrors AttendanceService.checkIn's resolveZone. Locked
-        // into the Attendance row this creates/resumes (see applyCheckInToAttendance) for the
-        // rest of that session's lifetime.
+        // Resolved from the employee's own configured Location.timezone — mirrors
+        // AttendanceService.checkIn's resolveZone (see its own doc comment: req.getTimezone(),
+        // the browser-reported zone, is never consulted). Locked into the Attendance row this
+        // creates/resumes (see applyCheckInToAttendance) for the rest of that session's lifetime.
         ZoneId zone = resolveZone(req.getTimezone(), actor.getId());
         LocalDateTime now = LocalDateTime.now(zone);
         LocalDate today = shiftDayOf(now);
+
+        // Once THIS employee's FIRST Web Clock-In of the shift/workday has been reviewed and
+        // APPROVED, every later Web Clock-In cycle the same shift/workday is auto-approved and
+        // never re-notifies HR — only the very first request of a shift needs a real HR decision.
+        // Keyed on employee + workDate (the shift's own resolved workday, same key
+        // findOpenByEmployeeUserId/collectPunches already use for "same shift"), not on the
+        // button click itself, so this survives any number of Web Clock-In/Out cycles within the
+        // one shift/workday.
+        boolean alreadyApprovedThisShift = webClockInRepository
+                .findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(actor.getId(), today).stream()
+                .anyMatch(r -> STATUS_APPROVED.equals(r.getStatus()));
 
         UUID approverId = resolveAssignedApprover(actor.getId());
         WebClockInRequest entity = WebClockInRequest.builder()
@@ -131,8 +146,12 @@ public class WebClockInService {
                 .workDate(today)
                 .requestedCheckIn(now)
                 .reason(req.getReason().trim())
-                .status(STATUS_PENDING)
+                .status(alreadyApprovedThisShift ? STATUS_APPROVED : STATUS_PENDING)
                 .build();
+        if (alreadyApprovedThisShift) {
+            entity.setReviewedAt(now);
+            entity.setReviewComment("Auto-approved — a prior Web Clock-In this shift was already approved.");
+        }
         entity = webClockInRepository.save(entity);
 
         // The attendance effect is immediate and real-time — the employee is checked in and
@@ -143,7 +162,7 @@ public class WebClockInService {
 
         auditService.log(actor.getId(), "WEB_CLOCK_IN_CHECKED_IN", entity.getId());
 
-        if (approverId != null) {
+        if (approverId != null && !alreadyApprovedThisShift) {
             notificationService.send(approverId, "WEB_CLOCK_IN_SUBMITTED",
                     "Web Clock-In Request Submitted",
                     employeeName(actor.getId()) + " has submitted a web clock-in request for " + today + ".",
@@ -443,26 +462,29 @@ public class WebClockInService {
     }
 
     /**
-     * Zone for a fresh Web Clock-In click: the browser-reported zone if present and valid, else
-     * the employee's configured Location.timezone (then the global business zone). Mirrors
-     * AttendanceService.resolveZone(String, Employee).
+     * Zone for a fresh Web Clock-In click: ALWAYS the employee's own configured
+     * Location.timezone (falling back only to the global business zone if unconfigured).
+     * {@code clientTimezone} (the browser-reported zone, still sent by the frontend on every Web
+     * Clock action) is deliberately never consulted — per explicit requirement, the employee's
+     * assigned Location timezone is the ONLY source of truth for their attendance clock, and Web
+     * Clock must use the exact same source as normal Check-In/Check-Out, never a different one.
+     * Mirrors AttendanceService.resolveZone(String, Employee).
      */
     private ZoneId resolveZone(String clientTimezone, UUID employeeUserId) {
-        ZoneId fromClient = parseZone(clientTimezone);
-        return fromClient != null ? fromClient : zoneIdFor(employeeUserId);
+        return zoneIdFor(employeeUserId);
     }
 
     /**
      * Zone for an EXISTING session — its own Attendance.timezone, locked in at Check-In/Web
-     * Clock-In, governs Check-Out/grace-window/worked-minutes math for as long as it's open, so
-     * a browser reporting a different zone later (travel, DST) can't shift that session's
-     * shift-day or inflate/shrink its worked hours. clientTimezoneFallback (and then
-     * Location.timezone) only apply for a record from before this column existed. Mirrors
+     * Clock-In (itself already Location-derived — see the other resolveZone overload), governs
+     * Check-Out/grace-window/worked-minutes math for as long as it's open. Falls back to the
+     * employee's current Location.timezone only for a record predating this column;
+     * clientTimezoneFallback is likewise never consulted, for the same reason as above. Mirrors
      * AttendanceService.resolveZone(Attendance, Employee, String).
      */
     private ZoneId resolveZone(Attendance record, UUID employeeUserId, String clientTimezoneFallback) {
         ZoneId stored = record != null ? parseZone(record.getTimezone()) : null;
-        return stored != null ? stored : resolveZone(clientTimezoneFallback, employeeUserId);
+        return stored != null ? stored : zoneIdFor(employeeUserId);
     }
 
     /**

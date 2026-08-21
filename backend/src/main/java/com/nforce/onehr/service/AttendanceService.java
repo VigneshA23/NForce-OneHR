@@ -277,8 +277,8 @@ public class AttendanceService {
 
         // A fresh click (or resuming today's own record after the stale-session flag above) —
         // single clock read so the punch time and the work date it's attributed to can never
-        // disagree — resolved from THIS click's browser-reported zone, falling back to the
-        // employee's configured Location.timezone.
+        // disagree — resolved from the employee's own configured Location.timezone (see
+        // resolveZone's own doc comment: the browser-reported clientTimezone is never consulted).
         ZoneId freshZone = resolveZone(clientTimezone, employee);
         LocalDateTime now = LocalDateTime.now(freshZone);
         LocalDate today = shiftDayOf(now);
@@ -289,9 +289,9 @@ public class AttendanceService {
             // No open session (checked above), so this is always a closed record — resuming
             // after a break (e.g. lunch). The day's original check-in time, late status, and
             // worked-minutes-so-far all stay put; only a new session opens. Reuses the day's
-            // ORIGINALLY locked-in zone (from its first check-in), not this click's browser zone,
-            // so the whole day's worked-minutes math stays on one consistent clock even if the
-            // browser's reported zone has since drifted (e.g. a DST change over a long lunch).
+            // ORIGINALLY locked-in zone (from its first check-in), not re-resolved from this
+            // click, so the whole day's worked-minutes math stays on one consistent clock (e.g.
+            // across a DST change over a long lunch).
             Attendance record = existing.get();
             LocalDateTime resumeNow = LocalDateTime.now(resolveZone(record, employee, clientTimezone));
             record.setSessionStartedAt(resumeNow);
@@ -491,7 +491,15 @@ public class AttendanceService {
         List<long[]> intervals = collectPunches(employeeId, attendanceRecordId, workDate).stream()
                 .filter(p -> p.getCheckOutAt() != null)
                 .map(p -> {
-                    LocalDateTime end = (capAt != null && p.getCheckOutAt().isAfter(capAt)) ? capAt : p.getCheckOutAt();
+                    // Only clamp when capAt actually falls WITHIN this session (after its own
+                    // checkInAt) — a session that started after capAt (e.g. a Web Clock-In opened
+                    // late into the night, past the normal shift's own end) must never have its
+                    // end clamped to a point before its start: that produced a negative-width
+                    // interval here, which summed straight into a negative workedMinutes total
+                    // (the reported "-48m" bug). Such a session simply isn't subject to this cap.
+                    LocalDateTime end = (capAt != null && p.getCheckOutAt().isAfter(capAt) && capAt.isAfter(p.getCheckInAt()))
+                            ? capAt
+                            : p.getCheckOutAt();
                     return new long[]{toComparableMinute(p.getCheckInAt()), toComparableMinute(end)};
                 })
                 .sorted(Comparator.comparingLong(iv -> iv[0]))
@@ -1141,26 +1149,29 @@ public class AttendanceService {
     }
 
     /**
-     * Zone for a fresh Check-In/Web Clock-In click: the browser-reported zone if it's present
-     * and valid, else the employee's configured Location.timezone (then the global business
-     * zone) — see {@link #zoneIdFor}. This is the value that gets locked into {@link
-     * Attendance#getTimezone()} for the rest of that session's lifetime.
+     * Zone for a fresh Check-In/Web Clock-In click: ALWAYS the employee's own configured
+     * Location.timezone (falling back only to the global business zone if that employee has no
+     * Location/timezone configured) — see {@link #zoneIdFor}. {@code clientTimezone} (the
+     * browser-reported zone, still sent by the frontend on every punch) is deliberately never
+     * consulted here: per explicit requirement, the employee's assigned Location timezone is the
+     * ONLY source of truth for their attendance clock — a viewer's own browser/location, or the
+     * server/host's own timezone, must never be able to shift it. This is the value that gets
+     * locked into {@link Attendance#getTimezone()} for the rest of that session's lifetime.
      */
     private ZoneId resolveZone(String clientTimezone, Employee employee) {
-        ZoneId fromClient = parseZone(clientTimezone);
-        return fromClient != null ? fromClient : zoneIdFor(employee);
+        return zoneIdFor(employee);
     }
 
     /**
      * Zone for an EXISTING session — its own {@link Attendance#getTimezone()}, locked in at
-     * Check-In, governs Check-Out/grace-window/worked-minutes math for as long as it's open, so
-     * a browser reporting a different zone later (travel, DST) can't shift that session's
-     * shift-day or inflate/shrink its worked hours. {@code clientTimezoneFallback} (and then
-     * Location.timezone) only apply for a record from before this column existed.
+     * Check-In (itself already Location-derived — see the other {@code resolveZone} overload)
+     * governs Check-Out/grace-window/worked-minutes math for as long as it's open. Falls back to
+     * the employee's current Location.timezone only for a record predating this column;
+     * {@code clientTimezoneFallback} is likewise never consulted, for the same reason as above.
      */
     private ZoneId resolveZone(Attendance record, Employee employee, String clientTimezoneFallback) {
         ZoneId stored = parseZone(record.getTimezone());
-        return stored != null ? stored : resolveZone(clientTimezoneFallback, employee);
+        return stored != null ? stored : zoneIdFor(employee);
     }
 
     private ZoneId resolveZone(Attendance record, Employee employee) {

@@ -347,7 +347,7 @@ export function AttendanceHeroBanner() {
           {statusPill}
         </div>
         <button
-          onClick={() => navigate('/attendance')}
+          onClick={() => navigate('/attendance?tab=calendar')}
           style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
         >
           View full record →
@@ -387,7 +387,7 @@ export function AttendanceHeroBanner() {
           {submitting ? 'Checking out…' : 'Check Out'}
         </button>
         <button
-          onClick={() => navigate('/attendance')}
+          onClick={() => navigate('/attendance?tab=calendar')}
           style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
         >
           View full record →
@@ -424,7 +424,7 @@ export function AttendanceHeroBanner() {
             {submitting ? 'Checking in…' : 'Check In Again'}
           </button>
           <button
-            onClick={() => navigate('/attendance')}
+            onClick={() => navigate('/attendance?tab=calendar')}
             style={{ fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
           >
             View full record →
@@ -475,7 +475,7 @@ export function AttendanceHeroBanner() {
           {submitting ? 'Checking in…' : 'Check In'}
         </button>
         <button
-          onClick={() => navigate('/attendance')}
+          onClick={() => navigate('/attendance?tab=calendar')}
           style={{ fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
         >
           View full record →

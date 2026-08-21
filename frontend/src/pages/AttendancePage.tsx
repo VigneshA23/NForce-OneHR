@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle } from 'lucide-react';
 import {
@@ -4521,7 +4521,12 @@ function AttendancePageInner() {
 
   const myAttendanceRef = useRef<MyAttendanceHandle>(null);
   const regularizationRef = useRef<RegularizationSectionHandle>(null);
-  const [logsTab, setLogsTab] = useState<LogsTab>('ATTENDANCE_LOG');
+  // "View full record" (AttendanceHeroBanner, Home dashboard) links here with ?tab=calendar so
+  // it lands on the Calendar tab instead of the default Attendance Log — read once on mount,
+  // same as any other deep-link query param.
+  const [searchParams] = useSearchParams();
+  const [logsTab, setLogsTab] = useState<LogsTab>(() =>
+    searchParams.get('tab') === 'calendar' ? 'CALENDAR' : 'ATTENDANCE_LOG');
   const [requestsSubTab, setRequestsSubTab] = useState<AttendanceRequestsSubTab>('REGULARIZATION');
   const pendingOpenRequest = useRef(false);
 
