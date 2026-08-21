@@ -82,4 +82,4 @@ management:
 logging:
   level:
     com.nforce.onehr: DEBUG
-    org.flywaydb: DEBUG
+    org.flywaydb: WARN
