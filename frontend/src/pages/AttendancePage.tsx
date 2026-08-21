@@ -4039,7 +4039,90 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
     return modeLabel ? `Partial Day (${modeLabel})` : 'Partial Day';
   }
 
-  function renderTable(rows: AttendanceRequestRecord[], showActions: boolean) {
+  /** Always states the half-day explicitly (unlike typeLabel, which omits it for Full Day) —
+   * this is the dedicated WFH table's own column, not the generic confirm-modal label above. */
+  function wfhHalfDayLabel(r: AttendanceRequestRecord) {
+    const modeLabel = WFH_SINGLE_DAY_MODE_OPTIONS.find((o) => o.value === r.partialDayMode)?.label ?? 'Full Day';
+    return `WFH — ${modeLabel}`;
+  }
+
+  function partialDayModeLabel(r: AttendanceRequestRecord) {
+    return PARTIAL_DAY_MODE_OPTIONS.find((o) => o.value === r.partialDayMode)?.label ?? dash;
+  }
+
+  /**
+   * A multi-day WFH request has no shared id on the backend — it's submitted as one independent
+   * AttendanceRequestRecord per date (see AttendanceRequestModal.doSubmit), each fully its own
+   * approvable unit. This reconstructs the original submission for display only (so "2 days" can
+   * be shown, and a reviewer can see a date belongs to a range) — it never merges actionability;
+   * every date keeps its own Approve/Reject. A "batch" is same employee + same reason + calendar-
+   * consecutive dates + createdAt within 10 minutes of each other, which is safe here because WFH
+   * requests are hard-capped at 2 days (WFH_MONTHLY_LIMIT_DAYS), so no batch can ever exceed 2.
+   */
+  function groupWfhRequests(rows: AttendanceRequestRecord[]): AttendanceRequestRecord[][] {
+    const sorted = [...rows].sort((a, b) => {
+      if (a.employeeUserId !== b.employeeUserId) return a.employeeUserId < b.employeeUserId ? -1 : 1;
+      return a.requestDate < b.requestDate ? -1 : a.requestDate > b.requestDate ? 1 : 0;
+    });
+    const groups: AttendanceRequestRecord[][] = [];
+    for (const r of sorted) {
+      const prevGroup = groups[groups.length - 1];
+      const prev = prevGroup?.[prevGroup.length - 1];
+      const sameBatch = !!prev
+        && prev.employeeUserId === r.employeeUserId
+        && prev.reason === r.reason
+        && isoDaysAfter(prev.requestDate, 1) === r.requestDate
+        && Math.abs(new Date(prev.createdAt).getTime() - new Date(r.createdAt).getTime()) <= 10 * 60 * 1000;
+      if (sameBatch && prevGroup) prevGroup.push(r);
+      else groups.push([r]);
+    }
+    return groups;
+  }
+
+  function renderWfhTable(rows: AttendanceRequestRecord[], showActions: boolean) {
+    const flatRows = groupWfhRequests(rows).flatMap((group) => group.map((r) => ({ r, totalDays: group.length })));
+    return (
+      <div style={panelStyle}>
+        {flatRows.length === 0 ? (
+          <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>Nothing to show.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable. */}
+                <tr>{[...(showActions ? ['Employee'] : []), 'Total Days', 'Date', 'WFH Type', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {flatRows.map(({ r, totalDays }) => (
+                  <tr key={r.id}>
+                    {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    <td style={tdStyle}>{totalDays} day{totalDays > 1 ? 's' : ''}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
+                    <td style={tdStyle}>{wfhHalfDayLabel(r)}</td>
+                    <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
+                    <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
+                    <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    {showActions && (
+                      <td style={tdStyle}>
+                        {r.status === 'PENDING' ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => setActing({ request: r, action: 'APPROVE' })} style={{ background: 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>Approve</button>
+                            <button onClick={() => setActing({ request: r, action: 'REJECT' })} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#E4373D', cursor: 'pointer', fontWeight: 600 }}>Reject</button>
+                          </div>
+                        ) : dash}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderPartialDayTable(rows: AttendanceRequestRecord[], showActions: boolean) {
     return (
       <div style={panelStyle}>
         {rows.length === 0 ? (
@@ -4048,13 +4131,18 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>{['Date', 'Type', 'Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                {/* Employee only shown for Pending Approvals (showActions) — in "My Requests"
+                    every row is the viewer's own, so the name would be redundant. Mirrors
+                    RegularizationSection's own Employee column, shown only in its reviewer-facing
+                    Pending Approvals table for the same reason. */}
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Mode', 'Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
+                    {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
-                    <td style={tdStyle}>{typeLabel(r)}</td>
+                    <td style={tdStyle}>{partialDayModeLabel(r)}</td>
                     <td style={tdStyle}>{r.partialDayHours ?? dash}</td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
                     <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
@@ -4079,29 +4167,51 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
     );
   }
 
+  const wfhPending = useMemo(() => pending.filter((r) => r.requestType === 'WFH'), [pending]);
+  const partialDayPending = useMemo(() => pending.filter((r) => r.requestType === 'PARTIAL_DAY'), [pending]);
+  const wfhMyRequests = useMemo(() => filteredMyRequests.filter((r) => r.requestType === 'WFH'), [filteredMyRequests]);
+  const partialDayMyRequests = useMemo(() => filteredMyRequests.filter((r) => r.requestType === 'PARTIAL_DAY'), [filteredMyRequests]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {canApprove && (
-        <div>
-          <SectionHeading title="Pending Approvals — WFH & Partial Day" />
-          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12.5 }}>Loading…</div> : renderTable(pending, true)}
-        </div>
-      )}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-          <SectionHeading title="My Requests" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <MonthFilter month={month} onChange={setMonth} />
-            <button
-              onClick={() => setShowRequest(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-            >
-              <CalendarPlus size={12} /> New Request
-            </button>
-          </div>
-        </div>
-        {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12.5 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
+        <MonthFilter month={month} onChange={setMonth} />
+        <button
+          onClick={() => setShowRequest(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+        >
+          <CalendarPlus size={12} /> New Request
+        </button>
       </div>
+
+      {/* Work From Home — its own dedicated table, separate from Partial Day. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {canApprove && (
+          <div>
+            <SectionHeading title="Pending Approvals — Work From Home" />
+            {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12.5 }}>Loading…</div> : renderWfhTable(wfhPending, true)}
+          </div>
+        )}
+        <div>
+          <SectionHeading title="My Work From Home Requests" />
+          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12.5 }}>Loading…</div> : renderWfhTable(wfhMyRequests, false)}
+        </div>
+      </div>
+
+      {/* Partial Day — its own dedicated table, separate from WFH. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {canApprove && (
+          <div>
+            <SectionHeading title="Pending Approvals — Partial Day" />
+            {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12.5 }}>Loading…</div> : renderPartialDayTable(partialDayPending, true)}
+          </div>
+        )}
+        <div>
+          <SectionHeading title="My Partial Day Requests" />
+          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12.5 }}>Loading…</div> : renderPartialDayTable(partialDayMyRequests, false)}
+        </div>
+      </div>
+
       {showRequest && (
         <AttendanceRequestModal
           token={token}
@@ -4194,11 +4304,14 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>{['Date', 'Overtime Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                {/* Employee only shown for Pending Approvals (showActions) — see the same
+                    reasoning in AttendanceRequestsSection.renderTable. */}
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
+                    {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
                     <td style={tdStyle}>{formatDuration(r.requestedMinutes) ?? dash}</td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>

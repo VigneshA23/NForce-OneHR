@@ -64,7 +64,7 @@ const TIME_TRACKING_POLICY_BLOCKS: PolicyBlock[] = [
 
   { type: 'heading', text: 'Work from Home (WFH)' },
   { type: 'text', text: 'You are allowed to take 2 day(s) of WFH in a Month.' },
-  { type: 'text', text: 'You can request for full day, half-day as well as hourly WFH' },
+  { type: 'text', text: 'You can request for full day, half-day' },
   { type: 'text', text: 'You are required to clock-in/out when doing WFH. In case of late clock-in, no clock-in, or less effective/gross hours clocked, the system will penalise based on the penalisation policy assigned to you.' },
   { type: 'text', text: 'WFH request requires 2 day(s) of prior notice, containing at least 0 working day(s)' },
   { type: 'callout', text: 'Approval is required for all WFH requests.' },
