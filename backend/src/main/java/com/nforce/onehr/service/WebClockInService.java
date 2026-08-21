@@ -231,7 +231,7 @@ public class WebClockInService {
         notificationService.send(req.getEmployeeUserId(), "WEB_CLOCK_IN_APPROVED",
                 "Web Clock-In Approved",
                 "Your web clock-in for " + req.getWorkDate() + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=WEB_CLOCK_IN");
+                "/my-requests?type=WEB_CLOCK_IN");
         return toResponse(req);
     }
 
@@ -255,7 +255,7 @@ public class WebClockInService {
                 "Web Clock-In Rejected",
                 "Your web clock-in for " + req.getWorkDate() + " has been rejected by " + employeeName(actor.getId())
                         + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
-                "/requests?type=WEB_CLOCK_IN");
+                "/my-requests?type=WEB_CLOCK_IN");
         return toResponse(req);
     }
 

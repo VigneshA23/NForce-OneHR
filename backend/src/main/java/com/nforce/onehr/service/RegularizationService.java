@@ -552,7 +552,7 @@ public class RegularizationService {
                     "Your regularization request for " + req.getAttendanceDate().format(NOTIFICATION_DATE_FMT)
                             + " has been approved by " + employeeName(actor.getId()) + "."
                             + (comment != null && !comment.isBlank() ? " Comment: " + comment.trim() : ""),
-                    "/requests?type=REGULARIZATION");
+                    "/my-requests?type=REGULARIZATION");
         }
         return toResponse(req);
     }
@@ -608,7 +608,7 @@ public class RegularizationService {
                 "Your regularization request for " + req.getAttendanceDate().format(NOTIFICATION_DATE_FMT)
                         + " has been rejected by " + employeeName(actor.getId()) + "."
                         + (comment != null && !comment.isBlank() ? " Reason: " + comment.trim() : ""),
-                "/requests?type=REGULARIZATION");
+                "/my-requests?type=REGULARIZATION");
         return toResponse(req);
     }
 

@@ -132,7 +132,7 @@ public class OvertimeRequestService {
         notificationService.send(req.getEmployeeUserId(), "OVERTIME_APPROVED",
                 "Overtime Request Approved",
                 "Your overtime request for " + req.getWorkDate() + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=OVERTIME");
+                "/my-requests?type=OVERTIME");
         return toResponse(req);
     }
 
@@ -153,7 +153,7 @@ public class OvertimeRequestService {
                 "Overtime Request Rejected",
                 "Your overtime request for " + req.getWorkDate() + " has been rejected by " + employeeName(actor.getId())
                         + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
-                "/requests?type=OVERTIME");
+                "/my-requests?type=OVERTIME");
         return toResponse(req);
     }
 

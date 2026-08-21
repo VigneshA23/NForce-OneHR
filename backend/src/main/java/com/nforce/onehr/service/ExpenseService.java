@@ -161,7 +161,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
                 "Expense Claim Approved",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was approved by your manager.",
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -182,7 +182,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected. Reason: " + reason.trim(),
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -212,7 +212,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_APPROVED",
                 "Expense Cleared for Payroll",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been cleared for payroll.",
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -233,7 +233,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected by HR. Reason: " + reason.trim(),
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -262,7 +262,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_PAID",
                 "Expense Paid",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been paid.",
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
