@@ -20,6 +20,7 @@ export interface PersonCard {
   directReportsCount: number;
   isFocus: boolean;
   active: boolean;
+  primaryRole?: string;
 }
 
 export interface BreadcrumbEntry {

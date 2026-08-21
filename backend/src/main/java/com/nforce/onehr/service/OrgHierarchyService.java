@@ -56,6 +56,16 @@ public class OrgHierarchyService {
         return sb.toString();
     }
 
+    private static String primaryRole(Employee emp) {
+        Set<String> codes = emp.getUser().getRoles().stream()
+                .map(r -> r.getCode())
+                .collect(java.util.stream.Collectors.toSet());
+        if (codes.contains("SUPER_ADMIN")) return "SUPER_ADMIN";
+        if (codes.contains("HR_ADMIN"))    return "HR_ADMIN";
+        if (codes.contains("MANAGER"))     return "MANAGER";
+        return "EMPLOYEE";
+    }
+
     private PersonCard toCard(Employee emp, Map<UUID, Long> counts, boolean isFocus) {
         return PersonCard.builder()
                 .id(emp.getUserId().toString())
@@ -66,6 +76,7 @@ public class OrgHierarchyService {
                 .directReportsCount(counts.getOrDefault(emp.getUserId(), 0L).intValue())
                 .isFocus(isFocus)
                 .active(emp.getUser().isActive())
+                .primaryRole(primaryRole(emp))
                 .build();
     }
 
