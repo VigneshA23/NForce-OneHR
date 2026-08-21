@@ -1,5 +1,6 @@
 package com.nforce.onehr.dto;
 
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 import java.util.UUID;
@@ -13,5 +14,7 @@ public class UpdateEmployeeRequest {
     private UUID locationId;
     private String employmentType;
     private String workMode;
+    @Pattern(regexp = "^(?=.*\\p{L})[\\p{L}\\s'-]+$",
+             message = "Full name can only contain letters, spaces, hyphens, and apostrophes")
     private String fullName;
 }

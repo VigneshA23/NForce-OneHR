@@ -471,10 +471,11 @@ public class UserManagementService {
                 throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
             return code;
         }
+        int year = java.time.LocalDate.now().getYear();
         int next = employeeRepository.findMaxNumericEmployeeCode()
-                .map(c -> Integer.parseInt(c.substring(3)) + 1)
+                .map(c -> Integer.parseInt(c.substring(c.lastIndexOf('-') + 1)) + 1)
                 .orElse(1);
-        return String.format("NF-%05d", next);
+        return String.format("NF-%d-%04d", year, next);
     }
 
     private String generateTempPassword() {

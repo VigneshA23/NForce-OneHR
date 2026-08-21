@@ -181,26 +181,28 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token }: {
   );
 }
 
+function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
+  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER');
+  return managers.filter(m => m.role === 'SUPER_ADMIN');
+}
+
 // ─── Add User Modal ───────────────────────────────────────────────────────────
-function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string }) {
+function AddModal({ onClose, onCreated, token, opts, setOpts }: {
+  onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string;
+  // Org-wide reference data (departments/designations/locations/managers/shifts) — fetched ONCE
+  // by the parent UserManagementPage and shared with EditModal, instead of each modal re-fetching
+  // it (including the expensive potential-managers lookup) on every single open. See
+  // UserManagementPage's own orgOptions state/effect for where this actually loads.
+  opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
+}) {
   const { showToast } = useToast();
   const [form, setForm] = useState<CreateUserPayload>({ fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
   const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
-
-  useEffect(() => {
-    Promise.all([
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-      orgApi.listShifts(token),
-    ]).then(([d, des, l, m, sh]) => setOpts({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
-  }, [token]);
+  const [empCodeSuffix, setEmpCodeSuffix] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -213,9 +215,13 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
+    if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
+    const suffix = empCodeSuffix.trim();
+    if (suffix && suffix.length !== 4) { setError('Employee ID suffix must be exactly 4 digits.'); return; }
+    const empCode = suffix ? `NF-${new Date().getFullYear()}-${suffix}` : undefined;
     setSubmitting(true); setError(null);
     try {
-      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail }, token);
+      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: empCode }, token);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
       if (startOnboarding) {
@@ -288,11 +294,31 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name *"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field></div>
           <div style={{ gridColumn: '1/-1' }}><Field label="Company Email *"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field></div>
           <Field label="Role *">
-            <select style={inputStyle} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+            <select style={inputStyle} value={form.role} onChange={e => {
+              const newRole = e.target.value;
+              const newMgrs = getManagersForRole(newRole, opts.managers);
+              setForm(f => ({
+                ...f, role: newRole,
+                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+              }));
+            }}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
-          <Field label="Employee ID (auto if blank)"><input style={inputStyle} value={form.employeeCode ?? ''} onChange={e => set('employeeCode', e.target.value)} placeholder="NF-00001" /></Field>
+          <Field label="Employee ID">
+            <div style={{ display: 'flex', border: '1px solid var(--line2)', borderRadius: 6, overflow: 'hidden' }}>
+              <span style={{ padding: '9px 11px', background: 'var(--raised)', color: 'var(--txt)', fontSize: 13, whiteSpace: 'nowrap', borderRight: '1px solid var(--line2)', flexShrink: 0, fontWeight: 500 }}>
+                NF-{new Date().getFullYear()}
+              </span>
+              <input
+                style={{ ...inputStyle, border: 'none', borderRadius: 0, flex: 1, minWidth: 0 }}
+                value={empCodeSuffix}
+                onChange={e => setEmpCodeSuffix(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="auto-assigned"
+                maxLength={4}
+              />
+            </div>
+          </Field>
           <Field label="Joining Date *"><input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} /></Field>
           <Field label="Employment Type">
             <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
@@ -320,11 +346,24 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Manager">
-              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                <option value="">— None —</option>{opts.managers.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
-              </select>
-            </Field>
+            {(() => {
+              const isSA = form.role === 'SUPER_ADMIN';
+              const mgrList = getManagersForRole(form.role, opts.managers);
+              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              return (
+                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
+                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                  </select>
+                  {!isSA && mgrList.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
+                      No {mgrRoleLabel}-role users found — add one first.
+                    </div>
+                  )}
+                </Field>
+              );
+            })()}
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
@@ -364,7 +403,12 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
 }
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
-function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
+  user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
+  // Shared with AddModal — see AddModal's own comment on these two props for why this isn't
+  // fetched fresh here.
+  opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
+}) {
   const { showToast } = useToast();
   const [form, setForm] = useState<UpdateUserPayload>({
     fullName: user.fullName,
@@ -377,7 +421,6 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     workMode: user.workMode ?? 'ONSITE',
     managerId: user.currentManager?.userId ?? undefined,
   });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -389,18 +432,9 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
   const [joiningDate, setJoiningDate] = useState(user.joiningDate);
   const [joiningDateNote, setJoiningDateNote] = useState('');
 
-  useEffect(() => {
-    Promise.all([
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-      orgApi.listShifts(token),
-    ]).then(([d, des, l, m, sh]) => setOpts({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
-  }, [token]);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
     setSubmitting(true); setError(null);
     try {
       let updated = await usersApi.update(user.userId, form, token);
@@ -428,7 +462,14 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name"><input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} /></Field></div>
           <Field label="Role">
-            <select style={inputStyle} value={form.role ?? 'EMPLOYEE'} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+            <select style={inputStyle} value={form.role ?? 'EMPLOYEE'} onChange={e => {
+              const newRole = e.target.value;
+              const newMgrs = getManagersForRole(newRole, opts.managers).filter(m => m.userId !== user.userId);
+              setForm(f => ({
+                ...f, role: newRole,
+                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+              }));
+            }}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
@@ -473,14 +514,24 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Manager">
-              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                <option value="">— None —</option>
-                {opts.managers.filter(m => m.userId !== user.userId).map((m: any) => (
-                  <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>
-                ))}
-              </select>
-            </Field>
+            {(() => {
+              const isSA = form.role === 'SUPER_ADMIN';
+              const mgrList = getManagersForRole(form.role ?? 'EMPLOYEE', opts.managers).filter(m => m.userId !== user.userId);
+              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              return (
+                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
+                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                  </select>
+                  {!isSA && mgrList.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
+                      No {mgrRoleLabel}-role users found — add one first.
+                    </div>
+                  )}
+                </Field>
+              );
+            })()}
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
@@ -705,6 +756,13 @@ export default function UserManagementPage() {
   const [resetting, setResetting] = useState<EmployeeRecord | null>(null);
   const [toggling, setToggling] = useState<EmployeeRecord | null>(null);
   const [deleting, setDeleting] = useState<EmployeeRecord | null>(null);
+  // Reference data for the Add/Edit User forms — departments/designations/locations/managers/
+  // shifts. Fetched ONCE here (not per-modal-open) and shared by both AddModal and EditModal, so
+  // opening either repeatedly doesn't re-run 5 API calls (including the expensive
+  // potential-managers lookup) every single time. A newly-created location/shift from inside
+  // either modal is appended straight into this shared state, so it's immediately available to
+  // the other modal too without a re-fetch.
+  const [orgOptions, setOrgOptions] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
 
   // Filters
   const [search, setSearch] = useState('');
@@ -716,6 +774,16 @@ export default function UserManagementPage() {
 
   useEffect(() => {
     usersApi.list(token).then(setUsers).finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    Promise.all([
+      orgApi.listDepartments(token),
+      orgApi.listDesignations(token),
+      orgApi.listLocations(token),
+      employeesApi.potentialManagers(token),
+      orgApi.listShifts(token),
+    ]).then(([d, des, l, m, sh]) => setOrgOptions({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
   }, [token]);
 
   // Derived filter options from real data
@@ -841,7 +909,7 @@ export default function UserManagementPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Manager', 'Status', ''].map(h => (
+                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Reporting Manager', 'Status', ''].map(h => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>
@@ -920,8 +988,8 @@ export default function UserManagementPage() {
         )}
       </div>
 
-      {showAdd && <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
-      {editing && <EditModal user={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
+      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
       {toggling && (
         <StatusModal

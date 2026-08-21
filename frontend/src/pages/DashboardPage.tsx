@@ -4,6 +4,7 @@ import {
   Users, Clock, Calendar, TrendingUp, UserCheck, X,
   ChevronLeft, ChevronRight, FileText, HelpCircle, Zap, AlertTriangle,
   CheckCircle2, CalendarCheck, BarChart2,
+  Layers, ShieldCheck, CheckSquare, Megaphone, FileCheck, Shield, Package,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -11,6 +12,11 @@ import {
 } from 'recharts';
 import { useAuthStore } from '../store/authStore';
 import { dashboardApi, type TeamJoiner, type ManagerDashboard } from '../api/dashboard';
+import { usersApi, type EmployeeRecord } from '../api/employees';
+import { auditApi, type AuditLogEntry, type AuditLogStats } from '../api/audit';
+import { approvalCenterApi, type ApprovalItem } from '../api/approvalCenter';
+import { getAdminKpis, type DocumentAdminKpi } from '../api/documents';
+import { assetsApi } from '../api/assets';
 import {
   attendanceApi,
   type AttendanceRecord, type AttendanceStats, type AttendanceConfig,
@@ -518,6 +524,8 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
 
       <AttendanceHeroBanner />
 
+      <QuickActions actions={isHr ? HR_ADMIN_QUICK_ACTIONS : MANAGER_QUICK_ACTIONS} />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -723,14 +731,16 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
 
 // ── Quick Actions ────────────────────────────────────────────────────────────────
 
-function QuickActions() {
+interface QuickActionItem {
+  icon: React.FC<{ size: number }>;
+  label: string;
+  sub: string;
+  path: string;
+  color: string;
+}
+
+function QuickActions({ actions }: { actions: QuickActionItem[] }) {
   const navigate = useNavigate();
-  const actions = [
-    { icon: Calendar,  label: 'Apply Leave',          sub: 'Request time off',       path: '/leave',     color: '#4E9EE8' },
-    { icon: HelpCircle,label: 'Raise a Ticket',       sub: 'Report an issue or query',path: '/help',    color: '#8B5CF6' },
-    { icon: Zap,       label: 'Submit Expense',        sub: 'Log reimbursement claim', path: '/assets',  color: '#E0A93B' },
-    { icon: FileText,  label: 'My Requests',           sub: 'Track your submissions',  path: '/requests',color: '#2FB67C' },
-  ];
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
@@ -763,6 +773,34 @@ function QuickActions() {
     </div>
   );
 }
+
+const EMPLOYEE_QUICK_ACTIONS: QuickActionItem[] = [
+  { icon: Calendar,   label: 'Apply Leave',     sub: 'Request time off',        path: '/leave',     color: '#4E9EE8' },
+  { icon: HelpCircle, label: 'Raise a Ticket',  sub: 'Report an issue or query', path: '/help',     color: '#8B5CF6' },
+  { icon: Zap,        label: 'Submit Expense',   sub: 'Log reimbursement claim', path: '/assets',   color: '#E0A93B' },
+  { icon: FileText,   label: 'My Requests',      sub: 'Track your submissions',  path: '/requests', color: '#2FB67C' },
+];
+
+const MANAGER_QUICK_ACTIONS: QuickActionItem[] = [
+  { icon: CheckSquare, label: 'Approval Center',      sub: 'Process pending requests',  path: '/approvals',  color: '#2FB67C' },
+  { icon: Users,       label: 'My Team',              sub: 'View your direct reports',  path: '/my-team',    color: '#4E9EE8' },
+  { icon: Clock,       label: 'Team Attendance',      sub: 'Monitor team check-ins',    path: '/attendance', color: '#E0A93B' },
+  { icon: Calendar,    label: 'Team Leave',           sub: 'Leave & holidays overview', path: '/leave',      color: '#8B5CF6' },
+];
+
+const HR_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
+  { icon: Users,      label: 'Employee Master',         sub: 'View & edit employee records', path: '/employees',  color: '#4E9EE8' },
+  { icon: CheckSquare,label: 'Approval Center',         sub: 'Process pending requests',     path: '/approvals',  color: '#2FB67C' },
+  { icon: FileCheck,  label: 'Documents & Compliance',  sub: 'Manage org documents',         path: '/documents',  color: '#E0A93B' },
+  { icon: Megaphone,  label: 'Policies',                sub: 'Announcements & policies',     path: '/policies',   color: '#8B5CF6' },
+];
+
+const SUPER_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
+  { icon: Shield,      label: 'User Management',      sub: 'All users, roles & lifecycle', path: '/access',    color: '#E4373D' },
+  { icon: Layers,      label: 'Org Masters',          sub: 'Departments, locations, shifts', path: '/masters', color: '#8B5CF6' },
+  { icon: ShieldCheck, label: 'Audit & Security',     sub: 'System-wide security events',  path: '/audit',     color: '#E0A93B' },
+  { icon: CheckSquare, label: 'Approval Center',      sub: 'Company-wide pending queue',   path: '/approvals', color: '#2FB67C' },
+];
 
 // ── Stat tiles ───────────────────────────────────────────────────────────────────
 
@@ -1369,7 +1407,7 @@ function EmployeeDashboardView() {
       <AttendanceHeroBanner />
 
       {/* Quick Actions */}
-      <QuickActions />
+      <QuickActions actions={EMPLOYEE_QUICK_ACTIONS} />
 
       {/* Stat Tiles */}
       <EmployeeStatTiles
@@ -1396,38 +1434,458 @@ function EmployeeDashboardView() {
   );
 }
 
-// ── Super Admin simple view ──────────────────────────────────────────────────────
+// ── Super Admin Dashboard ────────────────────────────────────────────────────────
 
-function GenericDashboardView({ role }: { role: string }) {
-  const user = useAuthStore(s => s.user);
+const ROLE_COLORS: Record<string, string> = {
+  EMPLOYEE: '#2FB67C', MANAGER: '#4E9EE8', HR_ADMIN: '#E0A93B', SUPER_ADMIN: '#E4373D',
+};
+const ROLE_LABELS: Record<string, string> = {
+  EMPLOYEE: 'Employee', MANAGER: 'Manager', HR_ADMIN: 'HR Admin', SUPER_ADMIN: 'Super Admin',
+};
+
+const APPROVAL_TYPE_COLORS: Record<string, string> = {
+  LEAVE: '#4E9EE8', REGULARIZATION: '#2FB67C', WEB_CLOCK_IN: '#E0A93B',
+  EXPENSE: '#8B5CF6', ASSET_REQUEST: '#F97316', WFH: '#EC4899',
+  PARTIAL_DAY: '#14B8A6', OVERTIME: '#6366F1', HELP_CONTENT: '#6B7280',
+};
+const APPROVAL_TYPE_LABELS: Record<string, string> = {
+  LEAVE: 'Leave', REGULARIZATION: 'Regularization', WEB_CLOCK_IN: 'Web Clock-In',
+  EXPENSE: 'Expense', ASSET_REQUEST: 'Asset Request', WFH: 'WFH',
+  PARTIAL_DAY: 'Partial Day', OVERTIME: 'Overtime', HELP_CONTENT: 'Document Review',
+};
+const AUDIT_GROUP_COLOR: Record<string, string> = {
+  EMPLOYEE: '#4E9EE8', ATTENDANCE: '#2FB67C', LEAVE: '#E0A93B',
+  EXPENSE: '#8B5CF6', ASSET: '#F97316', ACCESS: '#B11116', OTHER: '#6B7280',
+};
+
+function SuperAdminDashboardView() {
+  const token = useAuthStore(s => s.token) ?? '';
+  const user  = useAuthStore(s => s.user);
+  const navigate = useNavigate();
   const firstName = user?.fullName ?? user?.email?.split('@')[0] ?? 'there';
 
-  const label: Record<string, string> = {
-    SUPER_ADMIN: 'Super Admin Dashboard',
+  const [allUsers,           setAllUsers]           = useState<EmployeeRecord[]>([]);
+  const [todayRecords,       setTodayRecords]       = useState<{ checkInAt: string | null }[]>([]);
+  const [pendingItems,       setPendingItems]       = useState<ApprovalItem[]>([]);
+  const [auditStats,         setAuditStats]         = useState<AuditLogStats | null>(null);
+  const [recentAudit,        setRecentAudit]        = useState<AuditLogEntry[]>([]);
+  const [docKpis,            setDocKpis]            = useState<DocumentAdminKpi | null>(null);
+  const [totalAssets,        setTotalAssets]        = useState<number | null>(null);
+  const [roleChangesMonth,   setRoleChangesMonth]   = useState<number | null>(null);
+  const [passwordResetsMonth,setPasswordResetsMonth]= useState<number | null>(null);
+  const [loading,            setLoading]            = useState(true);
+
+  useEffect(() => {
+    const today = todayIsoDate();
+    const now = new Date();
+    const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
+    Promise.all([
+      usersApi.list(token).catch(() => [] as EmployeeRecord[]),
+      attendanceApi.day(today, token).catch(() => []),
+      approvalCenterApi.listPending(token).catch(() => [] as ApprovalItem[]),
+      auditApi.stats({}, token).catch(() => null),
+      auditApi.list({}, 0, 8, token).catch(() => ({ content: [] as AuditLogEntry[] })),
+      getAdminKpis(token).catch(() => null),
+      assetsApi.listAll(token).catch(() => [] as import('../api/assets').AssetResponse[]),
+      auditApi.list({ action: 'PASSWORD_RESET', from: monthStartStr }, 0, 1, token).catch(() => ({ totalElements: 0 })),
+      auditApi.exportAll({ action: 'USER_UPDATED', from: monthStartStr }, token).catch(() => [] as AuditLogEntry[]),
+    ]).then(([users, attn, pending, stats, auditPage, kpis, assets, pwResetPage, userUpdated]) => {
+      setAllUsers(users as EmployeeRecord[]);
+      setTodayRecords(attn as { checkInAt: string | null }[]);
+      setPendingItems(pending as ApprovalItem[]);
+      setAuditStats(stats as AuditLogStats | null);
+      setRecentAudit((auditPage as { content: AuditLogEntry[] }).content);
+      setDocKpis(kpis as DocumentAdminKpi | null);
+      setTotalAssets((assets as import('../api/assets').AssetResponse[]).length);
+      setPasswordResetsMonth((pwResetPage as { totalElements: number }).totalElements);
+      const roleChanges = (userUpdated as AuditLogEntry[]).filter(e => {
+        try {
+          const b = JSON.parse(e.beforeState ?? 'null');
+          const a = JSON.parse(e.afterState ?? 'null');
+          return b && a && b.role !== a.role;
+        } catch { return false; }
+      }).length;
+      setRoleChangesMonth(roleChanges);
+    }).finally(() => setLoading(false));
+  }, [token]);
+
+  const activeUsers   = allUsers.filter(u => u.active).length;
+  const inactiveUsers = allUsers.filter(u => !u.active).length;
+  const presentCount  = todayRecords.filter(r => r.checkInAt).length;
+  const pendingCount  = pendingItems.length;
+
+  const monthStart = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  }, []);
+
+  const pendingByType = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of pendingItems) {
+      counts[item.requestType] = (counts[item.requestType] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([type, value]) => ({
+        type,
+        name: APPROVAL_TYPE_LABELS[type] ?? type,
+        value,
+        color: APPROVAL_TYPE_COLORS[type] ?? '#6B7280',
+      }));
+  }, [pendingItems]);
+
+  const joinedThisMonth = useMemo(
+    () => allUsers.filter(u => u.joiningDate >= monthStart).length,
+    [allUsers, monthStart]
+  );
+
+  const noManagerCount = useMemo(
+    () => allUsers.filter(u => u.active && !u.currentManager && u.role === 'EMPLOYEE').length,
+    [allUsers]
+  );
+
+  const roleData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const u of allUsers) {
+      counts[u.role] = (counts[u.role] ?? 0) + 1;
+    }
+    return Object.entries(counts).map(([role, value]) => ({
+      name: ROLE_LABELS[role] ?? role,
+      value,
+      color: ROLE_COLORS[role] ?? '#6B7280',
+    }));
+  }, [allUsers]);
+
+  const statTiles = [
+    {
+      icon: <Users size={16} />,
+      label: 'Total Users',
+      value: loading ? '—' : String(allUsers.length),
+      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive`,
+      accent: '#4E9EE8',
+    },
+    {
+      icon: <UserCheck size={16} />,
+      label: 'Present Today',
+      value: loading ? '—' : `${presentCount}/${todayRecords.length}`,
+      sub: 'org-wide check-ins',
+      accent: '#2FB67C',
+    },
+    {
+      icon: <Package size={16} />,
+      label: 'Total Assets',
+      value: loading ? '—' : totalAssets === null ? '—' : String(totalAssets),
+      sub: 'company-wide inventory',
+      accent: '#F97316',
+    },
+    {
+      icon: <ShieldCheck size={16} />,
+      label: 'Audit Events Today',
+      value: loading ? '—' : auditStats ? String(auditStats.todayCount) : '—',
+      sub: 'security events logged',
+      accent: '#B11116',
+    },
+  ];
+
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--panel)', border: '1px solid var(--line)',
+    borderRadius: 10, padding: '20px 22px',
+    display: 'flex', flexDirection: 'column',
   };
+  const cardTitle = (text: string) => (
+    <div style={{ marginBottom: 14 }}>
+      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        {text}
+      </span>
+    </div>
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
-          Welcome back, {firstName}
+        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          {greetingPrefix()}, {firstName}.
         </h1>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{label[role] ?? 'Dashboard'}</p>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-dim)' }}>Super Admin Dashboard</p>
       </div>
 
       <AttendanceHeroBanner />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        <PendingCard
-          icon={Calendar}
-          title="Leave & Holidays"
-          note="Request leave, view holiday calendar. Available once the Leave module is built."
-        />
-        <PendingCard
-          icon={TrendingUp}
-          title="Performance"
-          note="Goals, reviews, and growth. Available once the Performance module is built."
-        />
+      <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
+
+      {/* Row 2 — Stat tiles */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        {statTiles.map(({ icon, label, value, sub, accent }) => (
+          <div key={label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: 8, marginBottom: 12,
+              background: `color-mix(in srgb, ${accent} 12%, var(--raised2))`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent,
+            }}>
+              {icon}
+            </div>
+            <div style={{
+              fontSize: 28, fontWeight: 700, color: accent, lineHeight: 1, marginBottom: 6,
+              fontFamily: '"Space Grotesk", sans-serif', fontVariantNumeric: 'tabular-nums',
+            }}>
+              {value}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 500, marginBottom: 2 }}>{label}</div>
+            <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Row 3 — Pending Approvals by Type | Account Health | Users by Role */}
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, alignItems: 'stretch' }}>
+
+        {/* Pending Approvals by Type — donut, clickable segments */}
+        <div style={cardStyle}>
+          {cardTitle('Pending Approvals by Type')}
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
+          ) : pendingByType.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '16px 0' }}>
+              <CheckCircle2 size={20} style={{ color: 'var(--ok)' }} />
+              <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>No pending approvals</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <div style={{ position: 'relative', width: 140, height: 140 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pendingByType}
+                        cx="50%" cy="50%"
+                        innerRadius="60%" outerRadius="85%"
+                        dataKey="value"
+                        startAngle={90} endAngle={-270}
+                        strokeWidth={0}
+                        onClick={(d) => navigate(`/approvals?type=${(d as unknown as { type: string }).type}`)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {pendingByType.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
+                        formatter={(val, name) => [`${val} pending`, name ?? '']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                    <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{pendingCount}</span>
+                    <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>pending</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12, flex: 1 }}>
+                {pendingByType.map((item) => (
+                  <button
+                    key={item.type}
+                    onClick={() => navigate(`/approvals?type=${item.type}`)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', padding: '3px 0', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: item.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)', textAlign: 'left' }}>{item.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: item.color, fontVariantNumeric: 'tabular-nums' }}>{item.value}</span>
+                  </button>
+                ))}
+              </div>
+              <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--txt-dim)' }}>Click segment or row to filter Approval Center</p>
+            </div>
+          )}
+        </div>
+
+        {/* Account Health — 5 metrics */}
+        <div style={cardStyle}>
+          {cardTitle('Account Health')}
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between' }}>
+              {[
+                {
+                  label: 'Joined This Month',
+                  value: joinedThisMonth,
+                  sub: 'new accounts by joining date',
+                  color: '#2FB67C',
+                },
+                {
+                  label: 'Inactive Accounts',
+                  value: inactiveUsers,
+                  sub: 'deactivated in system',
+                  color: '#6B7280',
+                },
+                {
+                  label: 'Docs Pending Verification',
+                  value: docKpis?.pendingVerification ?? '—',
+                  sub: docKpis ? `${docKpis.employeesWithPending} employees affected` : 'unavailable',
+                  color: '#E0A93B',
+                },
+                {
+                  label: 'Role Changes This Month',
+                  value: roleChangesMonth ?? '—',
+                  sub: 'users with role updated',
+                  color: '#8B5CF6',
+                },
+                {
+                  label: 'Password Resets This Month',
+                  value: passwordResetsMonth ?? '—',
+                  sub: 'admin-initiated resets',
+                  color: '#B11116',
+                },
+                {
+                  label: 'Employees Without Manager',
+                  value: noManagerCount,
+                  sub: 'active employees with no reporting line',
+                  color: '#F97316',
+                },
+              ].map((row, i) => (
+                <div key={row.label} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '7px 0',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                }}>
+                  <div style={{
+                    fontSize: 22, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif',
+                    fontVariantNumeric: 'tabular-nums', color: row.color,
+                    minWidth: 32, lineHeight: 1,
+                  }}>
+                    {row.value}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: 1 }}>{row.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{row.sub}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Users by Role — UNCHANGED */}
+        <div className="nf-leave-panel" style={{ ...cardStyle, gap: 16 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+            Users by Role
+          </div>
+          {loading || roleData.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0', textAlign: 'center' }}>
+              {loading ? 'Loading…' : 'No users found.'}
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <div className="nf-leave-donut-wrap" style={{ position: 'relative', width: 160, height: 160 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={roleData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="62%"
+                        outerRadius="87%"
+                        dataKey="value"
+                        startAngle={90}
+                        endAngle={-270}
+                        strokeWidth={0}
+                      >
+                        {roleData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
+                        formatter={(val, name) => [`${val} users`, name ?? '']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{
+                    position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+                  }}>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+                      {allUsers.length}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>total</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {roleData.map((item) => (
+                  <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: item.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.name}
+                    </span>
+                    <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 24, textAlign: 'right' }}>
+                      {item.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Recent Audit Events — UNCHANGED */}
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+          Recent Audit Events
+        </div>
+        {loading ? (
+          <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
+        ) : recentAudit.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>No audit events recorded yet.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {recentAudit.map((entry, i) => {
+              const groupColor = AUDIT_GROUP_COLOR[entry.actionGroup] ?? '#6B7280';
+              return (
+                <div
+                  key={entry.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '10px 0',
+                    borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                  }}
+                >
+                  <span style={{
+                    fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 8,
+                    background: `color-mix(in srgb, ${groupColor} 12%, transparent)`,
+                    color: groupColor, textTransform: 'uppercase' as const, letterSpacing: '.04em',
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}>
+                    {entry.actionGroup}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {entry.action.replace(/_/g, ' ')}
+                      {entry.targetLabel ? <span style={{ fontWeight: 400, color: 'var(--txt-mut)' }}> · {entry.targetLabel}</span> : null}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+                      {entry.actorName ?? entry.actorEmail ?? 'System'}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {new Date(entry.occurredAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{' '}
+                    {new Date(entry.occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <button
+          onClick={() => navigate('/audit')}
+          style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          View all in Audit & Security →
+        </button>
       </div>
     </div>
   );
@@ -1437,8 +1895,9 @@ function GenericDashboardView({ role }: { role: string }) {
 
 export default function DashboardPage() {
   const role = useAuthStore(s => s.user?.role) ?? '';
-  if (role === 'MANAGER')  return <TeamDashboardView scope="manager" />;
-  if (role === 'HR_ADMIN') return <TeamDashboardView scope="hr" />;
-  if (role === 'EMPLOYEE') return <EmployeeDashboardView />;
-  return <GenericDashboardView role={role} />;
+  if (role === 'MANAGER')     return <TeamDashboardView scope="manager" />;
+  if (role === 'HR_ADMIN')    return <TeamDashboardView scope="hr" />;
+  if (role === 'EMPLOYEE')    return <EmployeeDashboardView />;
+  if (role === 'SUPER_ADMIN') return <SuperAdminDashboardView />;
+  return <SuperAdminDashboardView />;
 }

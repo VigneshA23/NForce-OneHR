@@ -40,7 +40,7 @@ public class EmployeeController {
     @PatchMapping("/{userId}")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
     public EmployeeResponse updateEmployee(@PathVariable UUID userId,
-                                           @RequestBody UpdateEmployeeRequest req,
+                                           @Valid @RequestBody UpdateEmployeeRequest req,
                                            Principal principal) {
         return employeeService.updateEmployee(userId, req, principal.getName());
     }

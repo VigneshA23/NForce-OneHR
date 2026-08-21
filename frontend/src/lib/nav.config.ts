@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Bell, Shield, AlertTriangle, Package,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -81,7 +81,6 @@ export const NAV: Record<Role, NavItem[]> = {
     item('workflows', 'Workflow Studio', GitBranch, 2),
     item('masters', 'Organization Masters', FileText, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
-    item('templates', 'Templates & Notifications', Bell, 2),
     item('integrations', 'Integrations', FileText, 2),
     item('audit', 'Audit & Security', Clock, 1),
     item('featurelab', 'Future Feature Lab', HelpCircle, 2),

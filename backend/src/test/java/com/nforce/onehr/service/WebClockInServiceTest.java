@@ -321,7 +321,12 @@ class WebClockInServiceTest {
                 .workedMinutes(120)
                 .status("PRESENT")
                 .build();
-        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), eq(today)))
+        // Matched by employeeId + any() date, not eq(today): submit() resolves its own workDate
+        // via shiftDayOf(now), which can legitimately land on the previous calendar date when the
+        // test happens to run before the shiftDayCutover (7 AM) — a plain LocalDate.now() here
+        // would then mismatch and flakily fail, exactly the scenario this comment is guarding
+        // against.
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
                 .thenReturn(Optional.of(closedRecord));
 
         CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Back after lunch").timezone("Asia/Kolkata").build();
@@ -417,7 +422,7 @@ class WebClockInServiceTest {
                 .build();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, workDate))
                 .thenReturn(Optional.of(record));
-        when(attendanceService.recomputeCombinedWorkedMinutes(employeeId, record.getId(), workDate))
+        when(attendanceService.recomputeCombinedWorkedMinutes(eq(employeeId), eq(record.getId()), eq(workDate), any()))
                 .thenReturn(150);
 
         WebClockInResponse resp = service.checkOut(employeeEmail, null);

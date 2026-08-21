@@ -125,19 +125,22 @@ class AttendanceServiceTest {
     }
 
     @Test
-    void checkOut_stillCapsAtShiftEnd_forALateClickStillWithinTheGraceWindow() {
+    void checkOut_recordsTheActualClickTime_butStillCapsWorkedMinutesAtShiftEnd_forALateClickWithinTheGraceWindow() {
         // Only meaningful between the shift's natural end (12:30 AM) and the grace-window cutover
         // (7:00 AM, see AttendanceProperties.shiftDayCutover) — the narrow real-time window where
-        // a late-but-still-correctable click needs its worked-minutes capped, rather than either
-        // using the late click's own time (would inflate hours) or being rejected outright (not
-        // yet past grace). Outside that window this scenario doesn't apply, so the test is
-        // skipped rather than asserting something time-dependent as if it always holds — see
-        // checkOut_rejectsAndFlagsMissingCheckout_... and checkOut_usesActualClickTime_... for the
-        // two deterministic (always-applicable) cases on either side of this window.
-        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
+        // a late-but-still-correctable click's WORKED-MINUTES figure needs capping (so it doesn't
+        // inflate into something like "27h 8m"), without that cap ever touching the stored
+        // checkOutAt itself — the actual click time is always what gets recorded, everywhere
+        // (this was a real reported bug: checkout showing as exactly the shift's end time for
+        // every late-but-legitimate click). Outside this window the scenario doesn't apply, so
+        // the test is skipped rather than asserting something time-dependent as if it always
+        // holds — see checkOut_rejectsAndFlagsMissingCheckout_... and
+        // checkOut_usesActualClickTime_... for the two deterministic (always-applicable) cases on
+        // either side of this window.
+        LocalDateTime beforeNow = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
         LocalDate workDate = currentShiftDay();
         LocalDateTime shiftEnd = LocalDateTime.of(workDate.plusDays(1), LocalTime.of(0, 30));
-        Assumptions.assumeTrue(now.isAfter(shiftEnd), "only applicable between shift end (12:30 AM) and grace cutover (7:00 AM)");
+        Assumptions.assumeTrue(beforeNow.isAfter(shiftEnd), "only applicable between shift end (12:30 AM) and grace cutover (7:00 AM)");
 
         LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(17, 35));
         LocalDateTime sessionStart = LocalDateTime.of(workDate, LocalTime.of(18, 0));
@@ -151,11 +154,27 @@ class AttendanceServiceTest {
                 .status("LATE")
                 .build();
         stubOpenNormalSession(open);
+        // The SAME punch instance backs both lookups closeSession/recomputeCombinedWorkedMinutes
+        // make: findFirst...OrderByCheckInAtDesc (closeSession closes it) and
+        // findByAttendanceRecordIdOrderByCheckInAtAsc (collectPunches sums it) — closeSession's
+        // own punch.setCheckOutAt(...) mutation must be visible to the second lookup, or the
+        // worked-minutes sum sees no closed punches at all and silently returns 0.
+        AttendancePunch openPunch = AttendancePunch.builder()
+                .id(UUID.randomUUID())
+                .attendanceRecordId(open.getId())
+                .checkInAt(sessionStart)
+                .build();
+        lenient().when(attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(open.getId()))
+                .thenReturn(Optional.of(openPunch));
+        lenient().when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(open.getId()))
+                .thenReturn(List.of(openPunch));
 
         AttendanceResponse response = service.checkOut(employeeEmail, null);
+        LocalDateTime afterNow = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
 
         int expectedMinutes = (int) Math.round(Duration.between(sessionStart, shiftEnd).getSeconds() / 60.0);
-        assertEquals(shiftEnd, response.getCheckOutAt());
+        assertFalse(response.getCheckOutAt().isBefore(beforeNow), "checkOutAt must be the real click time, not before the click");
+        assertFalse(response.getCheckOutAt().isAfter(afterNow), "checkOutAt must be the real click time, not after the click");
         assertEquals(expectedMinutes, response.getWorkedMinutes());
     }
 
