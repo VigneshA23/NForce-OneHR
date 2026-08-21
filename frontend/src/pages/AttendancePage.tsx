@@ -2505,6 +2505,66 @@ function TimelineBar({ checkInAt, checkOutAt, leftPct, widthPct }: {
   );
 }
 
+/**
+ * One break marker — the gap between two closed punch sessions, rendered as its own hoverable
+ * segment (rather than empty space) so a break reads as calculated/intentional, not just an
+ * absence of data. Mirrors TimelineBar's tooltip mechanics but with a distinct pale/hatched fill
+ * and "Break HH:MM – HH:MM" wording, matching Keka's own attendance-visual break callout.
+ */
+function BreakTimelineMarker({ breakStart, breakEnd, leftPct, widthPct }: {
+  breakStart: string; breakEnd: string; leftPct: number; widthPct: number;
+}) {
+  const { formatTime } = useTimeFormat();
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+
+  function show() {
+    const rect = barRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setCoords({ top: rect.top - 6, left: rect.left + rect.width / 2 });
+  }
+  function hide() {
+    setCoords(null);
+  }
+
+  const label = `Break ${formatTime(breakStart) ?? '—'} - ${formatTime(breakEnd) ?? '—'}`;
+
+  return (
+    <>
+      <div
+        ref={barRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        style={{
+          position: 'absolute', left: `${leftPct}%`, width: `${widthPct}%`, minWidth: 3,
+          top: 0, height: '100%',
+          background: 'repeating-linear-gradient(45deg, var(--txt-dim) 0, var(--txt-dim) 1.5px, transparent 1.5px, transparent 4px)',
+          opacity: 0.55, borderRadius: 3,
+        }}
+      />
+      {coords && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed', top: coords.top, left: coords.left, transform: 'translate(-50%, -100%)',
+            background: 'var(--raised2)', color: 'var(--txt)', border: '1px solid var(--line2)', borderRadius: 6,
+            padding: '5px 9px', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap',
+            boxShadow: '0 6px 18px rgba(0,0,0,.35)', zIndex: 1000, pointerEvents: 'none',
+          }}
+        >
+          {label}
+          <div style={{
+            position: 'absolute', bottom: -4, left: '50%', transform: 'translateX(-50%)',
+            width: 0, height: 0, borderLeft: '4px solid transparent', borderRight: '4px solid transparent',
+            borderTop: '4px solid var(--raised2)',
+          }} />
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 /** Compact, column-filling 24-hour presence timeline. Bars are proportional to actual login/logout duration; hovering a bar shows a small tooltip (see TimelineBar). No day-details content lives here — that's behind the row's View button. */
 // Width pinned via ATTENDANCE_VISUAL_COL_WIDTH (the <th>/<td> below) so every row in the column
 // — bars or placeholder text — occupies the same footprint and lines up under the "Attendance
@@ -2566,6 +2626,26 @@ function AttendanceTimeline({ info, punches, punchesLoading }: {
         const widthPct = Math.max(0.6, (((outMin ?? inMin + 10) - inMin) / 1440) * 100);
         return (
           <TimelineBar key={seg.key ?? i} leftPct={leftPct} widthPct={widthPct} checkInAt={seg.checkInAt} checkOutAt={seg.checkOutAt} />
+        );
+      })}
+      {/* Breaks — the gap between one session's checkOutAt and the next session's checkInAt,
+          same pairing computeBreakMinutesFromPunches sums for the "Break Taken" column. Rendered
+          as its own hoverable marker (not just empty space) so the break reads as calculated,
+          matching Keka's "Break HH:MM – HH:MM" callout on its attendance visual. */}
+      {segments.slice(0, -1).map((seg, i) => {
+        const next = segments[i + 1];
+        if (!seg.checkOutAt || !next?.checkInAt) return null;
+        const breakStartMin = minutesSinceMidnight(seg.checkOutAt);
+        const breakEndMin = minutesSinceMidnight(next.checkInAt);
+        if (breakStartMin == null || breakEndMin == null || breakEndMin <= breakStartMin) return null;
+        return (
+          <BreakTimelineMarker
+            key={`break-${seg.key}`}
+            breakStart={seg.checkOutAt}
+            breakEnd={next.checkInAt}
+            leftPct={(breakStartMin / 1440) * 100}
+            widthPct={((breakEndMin - breakStartMin) / 1440) * 100}
+          />
         );
       })}
     </div>
