@@ -1442,6 +1442,7 @@ function NotifyEmployeeField({ token, value, onChange }: {
 
   const matches = query.trim()
     ? directory
+        .filter((d) => d.active !== false)
         .filter((d) => d.fullName.toLowerCase().includes(query.trim().toLowerCase()) || d.email.toLowerCase().includes(query.trim().toLowerCase()))
         .slice(0, 8)
     : [];

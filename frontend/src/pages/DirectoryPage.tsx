@@ -4,6 +4,7 @@ import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, Chevro
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
+import { inactiveDimStyle } from '../components/EmployeeStatus';
 
 const PAGE_SIZE = 25;
 
@@ -338,7 +339,7 @@ export default function DirectoryPage() {
                       <tr
                         key={e.userId}
                         onClick={() => setSelected(e)}
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'pointer', ...inactiveDimStyle(e.active) }}
                         onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--raised)'; }}
                         onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}
                       >

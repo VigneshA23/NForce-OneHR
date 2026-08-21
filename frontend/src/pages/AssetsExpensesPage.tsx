@@ -1129,8 +1129,12 @@ function AssignAssetModal({ asset, token, mode, onClose, onDone }: { asset: Asse
   useEffect(() => {
     fetch('/api/employees', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then((data: { userId: string; fullName?: string; firstName?: string; lastName?: string }[]) =>
-        setEmployees(data.map(e => ({ id: e.userId, name: e.fullName ?? `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim() })))
+      .then((data: { userId: string; fullName?: string; firstName?: string; lastName?: string; active?: boolean }[]) =>
+        setEmployees(
+          data
+            .filter(e => e.active !== false)
+            .map(e => ({ id: e.userId, name: e.fullName ?? `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim() }))
+        )
       ).catch(() => {});
   }, [token]);
 

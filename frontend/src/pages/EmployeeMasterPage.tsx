@@ -4,6 +4,7 @@ import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord, type UpdateEmployeePayload } from '../api/employees';
 import { orgApi } from '../api/org';
+import { StatusBadge, inactiveDimStyle, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'];
@@ -23,14 +24,6 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
       <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
-  );
-}
-
-function StatusBadge({ active }: { active: boolean }) {
-  return (
-    <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#2FB67C' : '#E4373D', background: active ? 'rgba(47,182,124,.1)' : 'rgba(228,55,61,.1)', borderRadius: 4, padding: '2px 7px' }}>
-      {active ? 'Active' : 'Inactive'}
-    </span>
   );
 }
 
@@ -142,6 +135,9 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
   const [opts, setOpts] = useState<{ departments: any[]; designations: any[]; locations: any[] }>({ departments: [], designations: [], locations: [] });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isInactive = !emp.active;
+  const [confirmInactiveEdit, setConfirmInactiveEdit] = useState(false);
+  const employmentFieldsLocked = isInactive && !confirmInactiveEdit;
 
   useEffect(() => {
     Promise.all([orgApi.listDepartments(token), orgApi.listDesignations(token), orgApi.listLocations(token)])
@@ -152,7 +148,7 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
     e.preventDefault();
     setSubmitting(true); setError(null);
     try {
-      const updated = await employeesApi.update(emp.userId, form, token);
+      const updated = await employeesApi.update(emp.userId, { ...form, confirmInactiveEdit }, token);
       onUpdated(updated);
       onClose();
     } catch (err) {
@@ -166,25 +162,26 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
         <ModalHeader title={`Edit — ${emp.fullName}`} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', fontSize: 13, padding: '10px 14px', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6 }}>{error}</div>}
+          {isInactive && <InactiveEditBanner />}
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Full Name">
               <input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
             </Field>
           </div>
           <Field label="Department">
-            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
+            <select style={inputStyle} disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
               <option value="">— None —</option>
               {opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
-            <select style={inputStyle} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
+            <select style={inputStyle} disabled={employmentFieldsLocked} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
               <option value="">— None —</option>
               {opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <Field label="Employment Type">
-            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}>
+            <select style={inputStyle} disabled={employmentFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}>
               {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
             </select>
           </Field>
@@ -206,9 +203,12 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
           <div style={{ gridColumn: '1/-1', fontSize: 11, color: 'var(--txt-dim)' }}>
             Manager &amp; Role are managed by Super Admin only.
           </div>
+          {isInactive && (
+            <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Department, Designation, or Employment Type" />
+          )}
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
+            <button type="submit" disabled={submitting || employmentFieldsLocked} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || employmentFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || employmentFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
         </form>
       </div>
@@ -321,6 +321,7 @@ export default function EmployeeMasterPage() {
                 <tbody>
                   {paginated.map(emp => (
                     <tr key={emp.userId}
+                      style={inactiveDimStyle(emp.active)}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
                       <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{emp.employeeCode}</td>
