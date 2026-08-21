@@ -602,12 +602,16 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
               {isHr ? 'No employees found.' : 'No direct reports assigned. HR assigns them in Employee Master.'}
             </div>
           ) : (
+            // Scroll treatment (vertical scroll capped to ~4 rows, sticky header, fixed table
+            // layout) matches "All Employees" (HR) exactly, for every role and every screen size —
+            // previously only HR got this and Manager's "Your Team" table just grew the whole panel
+            // to fit every direct report instead of scrolling.
             <div style={{
-              overflowY: isHr ? 'auto' : 'visible',
-              overflowX: isHr ? 'hidden' : 'auto',
-              maxHeight: isHr ? 4 * 52 : undefined,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              maxHeight: 4 * 52,
             }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: isHr ? 'fixed' : 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
                     {(isHr ? ['Name', 'Designation', 'Role', 'Status'] : ['Name', 'Designation', 'Status']).map(h => (
@@ -617,7 +621,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
                           padding: '8px 14px', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)',
                           textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'left',
                           borderBottom: '1px solid var(--line)', background: 'var(--raised)',
-                          ...(isHr ? { position: 'sticky' as const, top: 0, zIndex: 1 } : {}),
+                          position: 'sticky', top: 0, zIndex: 1,
                         }}
                       >
                         {h}
