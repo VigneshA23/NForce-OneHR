@@ -40,6 +40,11 @@ public class UserManagementService {
     private final NotificationService notificationService;
     private final LeaveService leaveService;
     private final ForceLogoutBroadcaster forceLogoutBroadcaster;
+    private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for the package-private findCurrentManagersBulk bulk manager lookup used by
+    // listUsers() below — reuses EmployeeService's existing bulk implementation instead of a
+    // second copy of the same N+1-prone-if-done-per-row logic.
+    private final EmployeeService employeeService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -65,7 +70,7 @@ public class UserManagementService {
                 .build();
         newUser = userRepository.save(newUser);
 
-        String code = resolveCode(req.getEmployeeCode());
+        String code = employeeCodeGenerator.claim(req.getEmployeeCode());
         Employee emp = Employee.builder()
                 .user(newUser)
                 .employeeCode(code)
@@ -121,11 +126,21 @@ public class UserManagementService {
         return roles;
     }
 
-    /** Super Admin: list all users across all roles. */
+    /**
+     * Super Admin: list all users across all roles.
+     *
+     * Resolves every employee's current manager in one bulk lookup (see
+     * {@link EmployeeService#findCurrentManagersBulk}) instead of calling
+     * {@link #findCurrentManager} once per employee — that per-row version does up to 3 extra
+     * queries each, which for the full org list turns into hundreds of sequential round trips.
+     */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listUsers() {
-        return employeeRepository.findAllWithDetails().stream()
-                .map(e -> toResponse(e, findCurrentManager(e.getUserId()), e.getUser(), null))
+        List<Employee> emps = employeeRepository.findAllWithDetails();
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                employeeService.findCurrentManagersBulk(emps.stream().map(Employee::getUserId).toList());
+        return emps.stream()
+                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
                 .collect(Collectors.toList());
     }
 
@@ -516,20 +531,6 @@ public class UserManagementService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
-    }
-
-    private String resolveCode(String requested) {
-        if (requested != null && !requested.isBlank()) {
-            String code = requested.trim().toUpperCase();
-            if (employeeRepository.existsByEmployeeCode(code))
-                throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
-            return code;
-        }
-        int year = java.time.LocalDate.now().getYear();
-        int next = employeeRepository.findMaxNumericEmployeeCode()
-                .map(c -> Integer.parseInt(c.substring(c.lastIndexOf('-') + 1)) + 1)
-                .orElse(1);
-        return String.format("NF-%d-%04d", year, next);
     }
 
     private String generateTempPassword() {

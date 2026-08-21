@@ -44,6 +44,15 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(e.getMessage(), "ACCOUNT_NOT_FOUND", null));
     }
 
+    // The submitted (auto-suggested or manually-edited) Employee ID is already in use — a real
+    // conflict (not a bug), so it gets its own status/code rather than falling through to the
+    // generic DataIntegrityViolationException handler below.
+    @ExceptionHandler(EmployeeCodeConflictException.class)
+    public ResponseEntity<ApiError> handleEmployeeCodeConflict(EmployeeCodeConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(e.getMessage(), "EMPLOYEE_CODE_CONFLICT", null));
+    }
+
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<ApiError> handleDisabled(DisabledException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)

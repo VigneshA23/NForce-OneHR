@@ -55,8 +55,8 @@ public class LeaveService {
     private static final Set<String> ANNUAL_BALANCE_GROUP_CODES = Set.of("ANNUAL", "SICK", "CASUAL");
     private static final String ANNUAL_LEAVE_TYPE_CODE = "ANNUAL";
 
-    // A REJECTED request never blocks a new same-day submission — only these two statuses do.
-    private static final Set<String> SAME_DAY_BLOCKING_STATUSES = Set.of("PENDING", "APPROVED");
+    // A REJECTED request never blocks a new overlapping submission — only these two statuses do.
+    private static final Set<String> OVERLAP_BLOCKING_STATUSES = Set.of("PENDING", "APPROVED");
 
     // Matches RegularizationService's NOTIFICATION_DATE_FMT — same "d MMM yyyy" convention used
     // app-wide for dates embedded in notification text.
@@ -147,12 +147,13 @@ public class LeaveService {
         if (req.getStartDate().isBefore(today)) {
             throw new IllegalArgumentException("Leave cannot be requested for a date before today");
         }
-        // Past dates are already rejected above, so a request can only ever "cover" today when it
-        // starts today. PENDING/APPROVED block a second same-day request; REJECTED does not.
-        if (req.getStartDate().isEqual(today) && leaveRequestRepository
-                .existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        actor.getId(), SAME_DAY_BLOCKING_STATUSES, today, today)) {
-            throw new IllegalArgumentException("You already have a pending or approved leave request for today");
+        // Any existing PENDING/APPROVED request whose date range overlaps this new one blocks the
+        // submission, regardless of whether the new request starts today, in the future, or spans
+        // multiple days; REJECTED never blocks. Overlap test: existing.start <= new.end AND
+        // existing.end >= new.start.
+        if (leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate())) {
+            throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
         }
 
         BigDecimal totalDays = req.isHalfDay()
