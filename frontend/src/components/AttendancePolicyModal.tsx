@@ -20,9 +20,6 @@ type PolicyBlock =
   | { type: 'bullets'; items: string[] };
 
 const PENALISATION_POLICY_BLOCKS: PolicyBlock[] = [
-  { type: 'text', text: 'Below are the details of your Penalisation Policy' },
-  { type: 'text', text: 'Penalisation policy is effective 08 Jul 2024' },
-
   { type: 'heading', text: 'No Attendance' },
   { type: 'text', text: 'You will be penalized 1 day(s) of Paid Leave for every single missing attendance day' },
   { type: 'callout', text: 'You have a buffer period of 2 day(s) to regularize your attendance before the penalization happens.' },

@@ -174,9 +174,25 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token }: {
   );
 }
 
+// `opts.managers` (the potential-managers list) is fetched once per page load and shared by
+// Add/Edit modals — see UserManagementPage's own comment on that state. Any action here that
+// changes a user's active status, role, or name (status toggle, edit, soft delete) needs to
+// patch this cached list in place too, or a since-deactivated (or renamed/re-roled) user keeps
+// showing up as a selectable manager until the whole page is reloaded.
+function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord): EmployeeRecord[] {
+  return managers.some(m => m.userId === updated.userId)
+    ? managers.map(m => (m.userId === updated.userId ? updated : m))
+    : [...managers, updated];
+}
+
 function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
-  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER');
-  return managers.filter(m => m.role === 'SUPER_ADMIN');
+  // `managers` (opts.managers) is fetched once per page load — defensively re-check `active`
+  // here too (not just at fetch time) so a manager deactivated later in the same session, before
+  // this cached list gets refreshed, can't still be picked. `!== false` so a record that simply
+  // omits the field isn't wrongly excluded.
+  const eligible = managers.filter(m => m.active !== false);
+  if (role === 'EMPLOYEE') return eligible.filter(m => m.role === 'MANAGER');
+  return eligible.filter(m => m.role === 'SUPER_ADMIN');
 }
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
@@ -989,7 +1005,10 @@ export default function UserManagementPage() {
       </div>
 
       {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
-      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
+        setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
+        setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
+      }} />}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
       {toggling && (
         <StatusModal
@@ -998,10 +1017,16 @@ export default function UserManagementPage() {
           isLastActiveSuperAdmin={toggling.role === 'SUPER_ADMIN' && toggling.active && activeSuperAdminCount <= 1}
           token={token}
           onClose={() => setToggling(null)}
-          onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))}
+          onUpdated={updated => {
+            setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
+            setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
+          }}
         />
       )}
-      {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />}
+      {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => {
+        setUsers(prev => prev.filter(u => u.userId !== userId));
+        setOrgOptions(o => ({ ...o, managers: o.managers.filter(m => m.userId !== userId) }));
+      }} />}
     </div>
   );
 }

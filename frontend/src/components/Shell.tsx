@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Outlet, useNavigate, Link } from 'react-router-dom';
 import { Search, Bell, Sun, Moon, Shield, User, LogOut, Menu, X as CloseIcon } from 'lucide-react';
 import { NAV, toShellRole, type Role, type NavItem } from '../lib/nav.config';
-import { employeesApi, type EmployeeRecord } from '../api/employees';
+import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
@@ -170,7 +170,7 @@ export function Shell() {
   // ── Global search ────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchPeople, setSearchPeople] = useState<EmployeeRecord[]>([]);
+  const [searchPeople, setSearchPeople] = useState<DirectoryEntry[]>([]);
   const [searchPeopleLoaded, setSearchPeopleLoaded] = useState(false);
   const [searchIdx, setSearchIdx] = useState(-1);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -186,7 +186,7 @@ export function Shell() {
 
   type SearchResultItem =
     | { kind: 'nav'; item: NavItem }
-    | { kind: 'person'; record: EmployeeRecord };
+    | { kind: 'person'; record: DirectoryEntry };
 
   const navMatches = useMemo<NavItem[]>(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -194,7 +194,7 @@ export function Shell() {
     return navItems.filter(n => n.label.toLowerCase().includes(q)).slice(0, 4);
   }, [searchQuery, navItems]);
 
-  const peopleMatches = useMemo<EmployeeRecord[]>(() => {
+  const peopleMatches = useMemo<DirectoryEntry[]>(() => {
     const q = searchQuery.toLowerCase().trim();
     if (q.length < 2) return [];
     return searchPeople.filter(p =>
@@ -212,7 +212,7 @@ export function Shell() {
   useEffect(() => {
     const q = searchQuery.trim();
     if (q.length >= 2 && !searchPeopleLoaded && token) {
-      employeesApi.list(token)
+      directoryApi.list(token)
         .then(list => { setSearchPeople(list); setSearchPeopleLoaded(true); })
         .catch(() => {});
     }
@@ -234,7 +234,7 @@ export function Shell() {
     if (result.kind === 'nav') {
       navigate(result.item.path);
     } else {
-      navigate(`/directory?q=${encodeURIComponent(result.record.fullName)}`);
+      navigate(`/directory?userId=${result.record.userId}`);
     }
     setSearchOpen(false); setSearchQuery(''); setSearchIdx(-1);
   }

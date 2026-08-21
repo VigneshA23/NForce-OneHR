@@ -89,6 +89,7 @@ public class UserManagementService {
         leaveService.initializeDefaultBalances(newUser.getId());
 
         if (req.getManagerId() != null) {
+            validateNoCycle(newUser.getId(), req.getManagerId());
             historyRepository.save(EmployeeManagerHistory.builder()
                     .employeeUserId(newUser.getId())
                     .managerUserId(req.getManagerId())
@@ -229,6 +230,7 @@ public class UserManagementService {
         // Manager change — effective-dating: close current, insert new
         if (req.getManagerId() != null) {
             if (!Objects.equals(currentManagerId, req.getManagerId())) {
+                validateNoCycle(userId, req.getManagerId());
                 historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
                 historyRepository.save(EmployeeManagerHistory.builder()
                         .employeeUserId(userId)
@@ -439,6 +441,35 @@ public class UserManagementService {
                     .anyMatch(u -> !u.getId().equals(target.getId()));
             if (!anotherActiveSuperAdminExists)
                 throw new IllegalArgumentException("Cannot " + verb + " the last active Super Admin. Assign Super Admin to another user first.");
+        }
+    }
+
+    /**
+     * Rejects any manager assignment that would create a circular reporting chain.
+     * Walks the proposed manager's ancestor chain; if it reaches employeeId at any point
+     * the assignment would form a cycle and is rejected with a clear error.
+     */
+    private void validateNoCycle(UUID employeeId, UUID proposedManagerId) {
+        if (proposedManagerId == null) return;
+        if (proposedManagerId.equals(employeeId))
+            throw new IllegalArgumentException("Cannot assign a user as their own manager.");
+
+        Map<UUID, UUID> empToMgr = historyRepository.findByEffectiveToIsNull()
+                .stream()
+                .collect(Collectors.toMap(
+                        h -> h.getEmployeeUserId(),
+                        h -> h.getManagerUserId(),
+                        (a, b) -> a));
+
+        UUID cur = proposedManagerId;
+        Set<UUID> visited = new HashSet<>();
+        while (cur != null) {
+            if (!visited.add(cur)) break; // cycle already in data — stop traversal
+            if (cur.equals(employeeId))
+                throw new IllegalArgumentException(
+                        "Cannot assign this manager: it would create a circular reporting chain. " +
+                        "The proposed manager is already a direct or indirect report of this user.");
+            cur = empToMgr.get(cur);
         }
     }
 

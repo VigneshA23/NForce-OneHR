@@ -354,6 +354,10 @@ function isActionableRequest(r: RegularizationRecord, isManager: boolean) {
 }
 
 const dash = <span style={{ color: 'var(--txt-dim)' }}>—</span>;
+// A recorded day with no check-in/check-out punch (forgot to swipe, etc.) reads more clearly as
+// "Missing" than a bare dash — used specifically for the Check In/Check Out fields on a day that
+// does have an attendance record, as opposed to `dash`'s generic "nothing to show here" meaning.
+const missingPunch = <span style={{ color: 'var(--txt-dim)' }}>Missing</span>;
 
 const thStyle: React.CSSProperties = {
   padding: '9px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700,
@@ -756,18 +760,10 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
       setError('Fill in every required field shown above.');
       return;
     }
-    if (dateAlreadyApproved) {
-      setError('Already raised regularization for this date.');
-      return;
-    }
-    if (beforeJoiningDate) {
-      setError(`You joined on ${formatCutoffDay(joiningDate!)}. You cannot request regularization for a date before that.`);
-      return;
-    }
-    if (dateOutsideWindow) {
-      setError(`You are not allowed to apply regularization for this date after ${formatCutoffDay(minDate!)}.`);
-      return;
-    }
+    // These three are shown inline instead (see the submitAttempted-gated fields above) — just
+    // block the network call here rather than duplicating the same text into the dismissible
+    // banner too. Mirrors WFH's prior-notice check in AttendanceRequestModal.
+    if (dateAlreadyApproved || beforeJoiningDate || dateOutsideWindow) return;
     if (checkInInvalid || checkOutInvalid) {
       setError('Enter a valid 12-hour time, e.g. 09:30 AM or 5:45 PM.');
       return;
@@ -809,11 +805,11 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
                 onChange={e => { setAttendanceDate(e.target.value); setSubmitAttempted(false); }} />
             </Field>
             {submitAttempted && !attendanceDate && <div style={fieldErrorStyle}>Attendance Date is required.</div>}
-            {dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
-            {beforeJoiningDate && joiningDate && (
+            {submitAttempted && dateAlreadyApproved && <div style={fieldErrorStyle}>Already raised regularization for this date.</div>}
+            {submitAttempted && beforeJoiningDate && joiningDate && (
               <div style={fieldErrorStyle}>You joined on {formatCutoffDay(joiningDate)}. You cannot request regularization for a date before that.</div>
             )}
-            {!beforeJoiningDate && dateOutsideWindow && minDate && (
+            {submitAttempted && !beforeJoiningDate && dateOutsideWindow && minDate && (
               <div style={fieldErrorStyle}>You are not allowed to apply regularization for this date after {formatCutoffDay(minDate)}.</div>
             )}
           </div>
@@ -907,11 +903,15 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || dateAlreadyApproved || beforeJoiningDate || dateOutsideWindow || loadingPunch}
+            {/* Never disabled for dateAlreadyApproved/beforeJoiningDate/dateOutsideWindow — those
+                are policy violations surfaced only after a Request click (see submitAttempted),
+                same as WFH's prior-notice check; disabling here would block the very click that's
+                supposed to reveal them. */}
+            <button type="submit" disabled={submitting || loadingPunch}
               style={{
                 background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600,
-                cursor: (submitting || dateAlreadyApproved || beforeJoiningDate || dateOutsideWindow || loadingPunch) ? 'not-allowed' : 'pointer',
-                opacity: (submitting || dateAlreadyApproved || beforeJoiningDate || dateOutsideWindow || loadingPunch) ? 0.7 : 1,
+                cursor: (submitting || loadingPunch) ? 'not-allowed' : 'pointer',
+                opacity: (submitting || loadingPunch) ? 0.7 : 1,
               }}>
               {submitting ? 'Saving…' : editing ? 'Save Changes' : 'Request'}
             </button>
@@ -1566,6 +1566,9 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   useCloseOnOutsideClick(partialBalanceRef, () => setShowBalance(false));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Gates the prior-notice banner below: stays hidden until the employee actually attempts to
+  // submit, rather than firing the moment an invalid date is picked.
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   // Dates that already carry a non-rejected (PENDING/APPROVED) WFH request — one WFH request
   // per date is enforced, unlike Partial Day, which allows several same-day requests as long as
   // their combined minutes stay within the monthly cap (see the backend's mirrored check in
@@ -1615,12 +1618,16 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     ? dateList.reduce((sum, _d, i) => sum + wfhDayFraction(wfhModeForIndex(i)), 0)
     : 0;
 
-  // Reactive — recomputed on every date-field change, not just at submit, so the notice
-  // appears/disappears live as the employee picks a date (Keka's own behavior: the date field
-  // itself is never disabled, but an invalid pick shows an immediate inline notice). Mirrors the
-  // backend's own hard check in AttendanceRequestService.submit.
+  // wfhPriorNoticeViolation mirrors the backend's own hard check in
+  // AttendanceRequestService.submit — it's independent of submitAttempted so handleSubmit can
+  // block on it synchronously even on the very first click (setSubmitAttempted's update isn't
+  // visible in this same closure until the next render). wfhPriorNoticeMessage is the UI-facing
+  // gated version: the date field itself is never disabled, but an invalid pick isn't flagged
+  // until Submit is actually clicked. After that first attempt, it does stay live: fixing the
+  // date clears it, picking another invalid one re-shows it immediately.
   const wfhPriorNoticeFloor = isoDaysAfter(todayIsoDate(), WFH_PRIOR_NOTICE_DAYS);
-  const wfhPriorNoticeMessage = requestType === 'WFH' && dateList.some(d => d < wfhPriorNoticeFloor)
+  const wfhPriorNoticeViolation = requestType === 'WFH' && dateList.some(d => d < wfhPriorNoticeFloor);
+  const wfhPriorNoticeMessage = submitAttempted && wfhPriorNoticeViolation
     ? `WFH request requires ${WFH_PRIOR_NOTICE_DAYS} day(s) of prior notice.`
     : null;
 
@@ -1692,6 +1699,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   }
 
   async function handleSubmit() {
+    setSubmitAttempted(true);
     if (!reason.trim()) { setError('Reason is required'); return; }
     // Any date is selectable while typing (no min/max on the field) — validated only now, at
     // submit time.
@@ -1703,10 +1711,12 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
       setError('Cannot request for past dates');
       return;
     }
-    // Already shown live as a persistent banner next to the date fields (see
-    // wfhPriorNoticeMessage below) — just block the network call here rather than duplicating
-    // the message into the dismissible submit-error banner too.
-    if (wfhPriorNoticeMessage) return;
+    // Uses the submitAttempted-independent flag, not wfhPriorNoticeMessage — this runs in the
+    // same click that just called setSubmitAttempted(true) above, whose update isn't visible in
+    // this closure until the next render. The banner itself (see wfhPriorNoticeMessage) is what
+    // surfaces this to the employee; block the network call here without duplicating the text
+    // into the dismissible submit-error banner too.
+    if (wfhPriorNoticeViolation) return;
     if (requestType === 'WFH' && dateList.length > WFH_MONTHLY_LIMIT_DAYS) {
       setError(`Work From Home requests can span at most ${WFH_MONTHLY_LIMIT_DAYS} days.`);
       return;
@@ -1787,15 +1797,19 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                 </div>
                 <div style={{ flex: 1 }}>
                   <Field label="To">
-                    <input type="date" value={toDate} min={fromDate} max={isoDaysAfter(fromDate, WFH_MONTHLY_LIMIT_DAYS - 1)}
+                    {/* No min/max — same reasoning as From above: any date stays pickable, and
+                        toDate < fromDate / range-length / prior-notice are all validated
+                        reactively (see wfhPriorNoticeMessage and handleSubmit) instead of
+                        disabling calendar dates. */}
+                    <input type="date" value={toDate}
                       onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
                   </Field>
                 </div>
               </div>
 
-              {/* Reactive, non-dismissible — matches Keka's own calendar behavior: the date
-                  fields above are never disabled/greyed for a too-soon date, but picking one
-                  shows this notice immediately and it persists until a valid date is picked. */}
+              {/* Non-dismissible, but only shown after a Submit attempt (see submitAttempted) —
+                  the date fields above are never disabled/greyed for a too-soon date; picking
+                  one only surfaces this notice once the employee tries to submit. */}
               {wfhPriorNoticeMessage && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 7, padding: '9px 12px', fontSize: 12.5, color: 'var(--risk)', lineHeight: 1.5 }}>
                   <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -2718,13 +2732,13 @@ function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                 <LogIn size={11} /> Check In
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkInAt) ?? dash}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkInAt) ?? missingPunch}</div>
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                 <LogOut size={11} /> Check Out
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkOutAt) ?? dash}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkOutAt) ?? missingPunch}</div>
             </div>
           </div>
           <div>
@@ -4220,6 +4234,14 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Past dates are allowed (an employee claiming overtime worked yesterday shouldn't need same-day
+  // submission), but only back to when they actually joined — mirrors RegularizationRequestModal's
+  // joiningDate fetch and OvertimeRequestService.assertNotBeforeJoiningDate, the actual boundary.
+  const [joiningDate, setJoiningDate] = useState<string | null>(null);
+  useEffect(() => {
+    profileApi.get(token).then((p) => setJoiningDate(p.joiningDate)).catch(() => setJoiningDate(null));
+  }, [token]);
+
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
   useEffect(() => {
     attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
@@ -4295,7 +4317,11 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
 
   async function handleSubmit() {
     if (toDate < fromDate) { setError('To date must be on or after From date'); return; }
-    if (fromDate < todayIsoDate()) { setError('Cannot request for past dates'); return; }
+    // Past dates are allowed — only the joining-date boundary blocks a request, not "today".
+    if (joiningDate && fromDate < joiningDate) {
+      setError('Overtime requests cannot be made prior to your joining date.');
+      return;
+    }
     if (hasPendingConflict) {
       setError('Previous Overtime request is in pending / approved for the selected dates.');
       return;
