@@ -4,7 +4,7 @@
 -- (which self-declares an actual check-in). Shared table for both types, discriminated by
 -- request_type — see AttendanceRequest entity / AttendanceRequestService.
 
-CREATE TABLE attendance_requests (
+CREATE TABLE IF NOT EXISTS attendance_requests (
     id                    UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_user_id      UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     assigned_approver_id  UUID         REFERENCES users(id),
