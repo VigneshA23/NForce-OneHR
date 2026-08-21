@@ -2270,9 +2270,13 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   const [webOpen, setWebOpen] = useState(false);
 
   useEffect(() => {
+    // Filtered by the business/Location-zone work date (today.workDate) — never the browser's
+    // own UTC calendar date, which can disagree with it near midnight or whenever the employee's
+    // device zone differs from their assigned Location's zone.
+    const businessTodayIso = today?.workDate;
+    if (!businessTodayIso) { setReusableReason(null); setWebOpen(false); return; }
     webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
-      const todayIso = todayIsoDate();
-      const todays = list.filter(r => r.workDate === todayIso);
+      const todays = list.filter(r => r.workDate === businessTodayIso);
       setReusableReason(todays[0]?.reason ?? null);
       setWebOpen(todays.some(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt));
     }).catch(() => { setReusableReason(null); setWebOpen(false); });
@@ -2433,12 +2437,17 @@ interface RowMetrics {
   grossMinutes: number | null;
 }
 
-/** Effective/Break/Gross for one Attendance Log row. Gross = Effective + Break (elapsed incl. breaks). */
-function computeRowMetrics(info: DayInfo, punches: Punch[] | undefined, workedMinutesToday: number | null): RowMetrics {
+/**
+ * Effective/Break/Gross for one Attendance Log row. Gross = Effective + Break (elapsed incl.
+ * breaks). businessTodayIso is TodayAttendanceResponse.workDate — the business/Location-zone
+ * work date — never the browser's own UTC calendar date, which can disagree with it near
+ * midnight or whenever the employee's device zone differs from their assigned Location's zone.
+ */
+function computeRowMetrics(info: DayInfo, punches: Punch[] | undefined, workedMinutesToday: number | null, businessTodayIso: string | undefined): RowMetrics {
   if (!info.record?.checkInAt) {
     return { openSession: false, effectiveMinutes: null, breakMinutes: null, grossMinutes: null };
   }
-  const openSession = info.iso === todayIsoDate() && !info.record.checkOutAt;
+  const openSession = info.iso === businessTodayIso && !info.record.checkOutAt;
   const effectiveMinutes = openSession ? workedMinutesToday : (info.record.workedMinutes ?? null);
   const breakMinutes = punches ? computeBreakMinutesFromPunches(punches) : 0;
   const grossMinutes = effectiveMinutes != null ? effectiveMinutes + breakMinutes : null;
@@ -3104,12 +3113,17 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     const isWeekend = config
       ? config.weeklyOffDays.includes(DOW_NAMES[dow])
       : dow === 0 || dow === 6;
+    // Compared against the business/Location-zone work date (today?.workDate) — never the
+    // browser's own UTC calendar date, which can disagree with it near midnight or whenever the
+    // employee's device zone differs from their assigned Location's zone. Falls back to the
+    // browser date only before the first /today fetch resolves.
+    const businessTodayIso = today?.workDate ?? todayIsoDate();
     return {
       iso,
       day,
-      isFuture: iso > todayIsoDate(),
+      isFuture: iso > businessTodayIso,
       isBeforeJoining: !!joiningDate && iso < joiningDate,
-      isToday: iso === todayIsoDate(),
+      isToday: iso === businessTodayIso,
       isWeekend,
       holidayName: holidayByDate.get(iso),
       leaveTypeName: leaveByDate.get(iso),
@@ -3117,7 +3131,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       attendanceRequest: attendanceRequestByDate.get(iso),
       record: recordByDate.get(iso),
     };
-  }, [viewYear, viewMonth, config, joiningDate, holidayByDate, leaveByDate, regularizationByDate, attendanceRequestByDate, recordByDate]);
+  }, [viewYear, viewMonth, config, joiningDate, holidayByDate, leaveByDate, regularizationByDate, attendanceRequestByDate, recordByDate, today?.workDate]);
 
   function goToPrevMonth() {
     setSelectedDate(null);
@@ -3143,11 +3157,10 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   // MonthCalendar does, so weekends/leaves/holidays appear as rows even with no punch.
   const logRows = useMemo(() => {
     const total = daysInMonth(viewYear, viewMonth);
-    const todayIso = todayIsoDate();
     const rows: DayInfo[] = [];
     for (let d = 1; d <= total; d++) {
       const info = getDayInfo(d);
-      if (info.iso <= todayIso && !info.isBeforeJoining) rows.push(info);
+      if (!info.isFuture && !info.isBeforeJoining) rows.push(info);
     }
     return rows.reverse();
   }, [viewYear, viewMonth, getDayInfo]);
@@ -3433,7 +3446,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                     {logRows.map((info) => {
                       const punches = punchesByDate.get(info.iso);
                       const punchesLoading = !!info.record?.checkInAt && !punches;
-                      const metrics = computeRowMetrics(info, punches, workedMinutesToday);
+                      const metrics = computeRowMetrics(info, punches, workedMinutesToday, today?.workDate);
                       return (
                         <tr key={info.iso}>
                           <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>

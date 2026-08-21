@@ -640,11 +640,18 @@ public class RegularizationService {
                 .orElse(attendanceProps.getShiftStart());
     }
 
-    /** Mirrors AttendanceService's check-in/check-out status derivation for a corrected row. */
+    /**
+     * Mirrors AttendanceService's check-in/check-out status derivation for a corrected row.
+     * shiftStart is anchored to the record's own workDate (not compared as a bare LocalTime-of-
+     * day) so an overnight shift's post-midnight check-in (e.g. 20:30-05:30 shift, 1:11 AM
+     * check-in) is correctly measured as hours late instead of reading as "before" shiftStart.
+     */
     private void recomputeDerivedFields(Attendance record, UUID employeeUserId) {
-        LocalTime deadline = resolveShiftStart(employeeUserId).plusMinutes(attendanceProps.getLateGraceMinutes());
-        int lateByMinutes = record.getCheckInAt().toLocalTime().isAfter(deadline)
-                ? (int) Duration.between(deadline, record.getCheckInAt().toLocalTime()).toMinutes()
+        LocalDateTime shiftStartAt = LocalDateTime.of(record.getWorkDate(), resolveShiftStart(employeeUserId));
+        LocalDateTime deadlineAt = shiftStartAt.plusMinutes(attendanceProps.getLateGraceMinutes());
+        LocalDateTime checkInAt = record.getCheckInAt();
+        int lateByMinutes = checkInAt.isAfter(deadlineAt)
+                ? (int) Duration.between(deadlineAt, checkInAt).toMinutes()
                 : 0;
         record.setLateByMinutes(lateByMinutes);
 

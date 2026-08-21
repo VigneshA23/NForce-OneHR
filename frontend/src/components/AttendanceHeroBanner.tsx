@@ -38,13 +38,23 @@ function shiftStartMinutes(shiftStart: string): number {
   return h * 60 + m;
 }
 
-function nowLocalMinutes(): number {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
+/**
+ * Parses a zone-less server timestamp (business/Location zone digits, verbatim) into epoch ms
+ * using a fixed UTC-labeled reference frame — mirrors AttendancePage.tsx's wallClockMs. Never
+ * use the browser's own clock/zone for anything shift- or attendance-timing-related: an
+ * employee's device zone can differ from their assigned Location's zone.
+ */
+function wallClockMs(iso: string): number {
+  const [datePart, timePart = '00:00:00'] = iso.split('T');
+  const [y, mo, d] = datePart.split('-').map(Number);
+  const [h, mi, s] = timePart.split(':').map((v) => Math.floor(Number(v)));
+  return Date.UTC(y, mo - 1, d, h, mi, s || 0);
 }
 
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Minutes-since-midnight of a business/Location-zone wall clock produced by wallClockMs. */
+function minutesOfDay(ms: number): number {
+  const d = new Date(ms);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
 
 // ── Gradient background — matches the auth layout's left-panel dark treatment. ──
@@ -106,7 +116,11 @@ function HeroPill({ dot, label, pulse = false }: { dot: string; label: string; p
 // employee's own currently-open Web Clock-In, if any) — never gated on the normal session's
 // canCheckIn/canCheckOut. Multiple Web Clock-In → Web Clock-Out cycles in one day are allowed
 // (see WebClockInService.submit) — this row simply reflects whatever the current cycle's state is.
-function WebClockInRow({ onSubmitted }: {
+function WebClockInRow({ workDate, onSubmitted }: {
+  // The business/Location-zone work date for "today", from TodayAttendanceResponse.workDate —
+  // never the browser's own UTC calendar date, which can disagree with it near midnight or
+  // whenever the employee's device zone differs from their assigned Location's zone.
+  workDate: string | undefined;
   onSubmitted: () => void;
 }) {
   const token = useAuthStore(s => s.token) ?? '';
@@ -117,15 +131,15 @@ function WebClockInRow({ onSubmitted }: {
   // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
   // for every later cycle the same day/shift so the employee is only asked once (per requirement:
   // "If Web Clock-In is performed again during the same day/shift, do not ask for the reason
-  // again"). Null once a NEW calendar/shift day starts, since todayIsoDate() no longer matches.
+  // again"). Null once a NEW calendar/shift day starts, since workDate no longer matches.
   const [reusableReason, setReusableReason] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const refreshMine = useCallback(() => {
+    if (!workDate) { setOpenWeb(null); setLegacy(null); setReusableReason(null); return; }
     webClockInApi.mine(token).then(list => {
-      const todayIso = todayIsoDate();
-      const todays = list.filter(r => r.workDate === todayIso);
+      const todays = list.filter(r => r.workDate === workDate);
       // PENDING counts as "currently open" alongside APPROVED — the attendance effect is
       // immediate regardless of HR review status (see WebClockInService.submit's doc comment).
       setOpenWeb(todays.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null);
@@ -134,7 +148,7 @@ function WebClockInRow({ onSubmitted }: {
       // the most recent cycle's reason.
       setReusableReason(todays[0]?.reason ?? null);
     }).catch(() => { setOpenWeb(null); setLegacy(null); setReusableReason(null); });
-  }, [token]);
+  }, [token, workDate]);
 
   useEffect(() => { refreshMine(); }, [refreshMine]);
 
@@ -228,6 +242,16 @@ export function AttendanceHeroBanner() {
   const [config, setConfig]   = useState<AttendanceConfig | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  // Anchors the shift countdown to the business/Location-zone clock the backend reported
+  // (today.serverNow), not the viewer's own browser clock/zone — captured alongside the browser
+  // epoch ms it arrived at, so the countdown can keep ticking between refreshes by adding real
+  // elapsed time (epoch ms is zone-agnostic) rather than re-reading the browser's wall clock.
+  const [serverNowBase, setServerNowBase] = useState<{ ms: number; fetchedAtMs: number } | null>(null);
+  useEffect(() => {
+    if (today?.serverNow) {
+      setServerNowBase({ ms: wallClockMs(today.serverNow), fetchedAtMs: Date.now() });
+    }
+  }, [today?.serverNow]);
   // Today's Web Clock-In records — fetched alongside the normal `today` so the "Checked out at"
   // summary below can reflect whichever of Check-Out / Web Clock-Out actually happened most
   // recently. Web Clock-Out never writes to the normal record's own checkOutAt (the two sessions
@@ -235,14 +259,17 @@ export function AttendanceHeroBanner() {
   // the summary would silently ignore a Web Clock-Out entirely.
   const [webToday, setWebToday] = useState<WebClockInRecord[]>([]);
 
-  const refresh = useCallback(() => Promise.all([
-    attendanceApi.today(token).then(setToday).catch(() => {}),
-    webClockInApi.mine(token).then(list => {
-      const todayIso = todayIsoDate();
-      setWebToday(list.filter(r => r.workDate === todayIso));
-    }).catch(() => {}),
-  ]),
-  [token]);
+  // webToday is filtered by the business/Location-zone workDate the `today` fetch just resolved
+  // (never the browser's own UTC calendar date), so it's fetched only once that's known.
+  const refresh = useCallback(async () => {
+    const refreshed = await attendanceApi.today(token).catch(() => null);
+    if (refreshed) setToday(refreshed);
+    const workDate = refreshed?.workDate;
+    if (!workDate) { setWebToday([]); return; }
+    await webClockInApi.mine(token)
+      .then(list => setWebToday(list.filter(r => r.workDate === workDate)))
+      .catch(() => setWebToday([]));
+  }, [token]);
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));
@@ -282,8 +309,9 @@ export function AttendanceHeroBanner() {
   }, [checkOutAt, webToday]);
 
   const shiftInfo = useMemo(() => {
-    if (!config) return null;
-    const diffMin = shiftStartMinutes(config.shiftStart) - nowLocalMinutes();
+    if (!config || !serverNowBase) return null;
+    const currentMs = serverNowBase.ms + (now.getTime() - serverNowBase.fetchedAtMs);
+    const diffMin = shiftStartMinutes(config.shiftStart) - minutesOfDay(currentMs);
     const pad2 = (n: number) => String(n).padStart(2, '0');
     const fmt12 = (hhmm: string) => {
       const [h, m] = hhmm.split(':').map(Number);
@@ -295,7 +323,7 @@ export function AttendanceHeroBanner() {
       shiftName: config.shiftName,
       diffMin,
     };
-  }, [config, now]);
+  }, [config, now, serverNowBase]);
 
   // ── Loading skeleton ──────────────────────────────────────────────────────────
   if (loading) {
@@ -352,7 +380,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
-        <WebClockInRow onSubmitted={refresh} />
+        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -392,7 +420,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
-        <WebClockInRow onSubmitted={refresh} />
+        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -435,7 +463,7 @@ export function AttendanceHeroBanner() {
             Checked in at {formatClockTime(checkInAt)}{latestCheckOutAt ? ` · Checked out at ${formatClockTime(latestCheckOutAt)}` : ''}
           </p>
         )}
-        <WebClockInRow onSubmitted={refresh} />
+        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
       </HeroCard>
     );
   }
