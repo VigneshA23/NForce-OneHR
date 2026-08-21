@@ -58,6 +58,8 @@ export interface UpdateEmployeePayload {
   shiftId?: string;
   employmentType?: string;
   workMode?: string;
+  /** Required (true) to change department/designation/employmentType on a deactivated employee. */
+  confirmInactiveEdit?: boolean;
 }
 
 export interface CreateUserPayload extends CreateEmployeePayload {
@@ -74,6 +76,8 @@ export interface UpdateUserPayload {
   employmentType?: string;
   workMode?: string;
   managerId?: string;
+  /** Required (true) to change role/manager/department/designation/employmentType on a deactivated user. */
+  confirmInactiveEdit?: boolean;
 }
 
 export interface UpdateJoiningDatePayload {

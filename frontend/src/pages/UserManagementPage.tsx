@@ -7,6 +7,7 @@ import { onboardingApi } from '../api/onboarding';
 import { useToast } from '../context/ToastContext';
 import { KebabMenu } from '../components/KebabMenu';
 import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
+import { StatusBadge, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 
 const ROLES = [
   { value: 'EMPLOYEE',    label: 'Employee' },
@@ -35,14 +36,6 @@ function RoleBadge({ role }: { role: string }) {
   return (
     <span style={{ fontSize: 11, fontWeight: 600, color: ROLE_COLOR[role] ?? '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
       {role.replace(/_/g, ' ')}
-    </span>
-  );
-}
-
-function StatusBadge({ active }: { active: boolean }) {
-  return (
-    <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#2FB67C' : '#E4373D', background: active ? 'rgba(47,182,124,.1)' : 'rgba(228,55,61,.1)', borderRadius: 4, padding: '2px 7px' }}>
-      {active ? 'Active' : 'Inactive'}
     </span>
   );
 }
@@ -181,9 +174,25 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token }: {
   );
 }
 
+// `opts.managers` (the potential-managers list) is fetched once per page load and shared by
+// Add/Edit modals — see UserManagementPage's own comment on that state. Any action here that
+// changes a user's active status, role, or name (status toggle, edit, soft delete) needs to
+// patch this cached list in place too, or a since-deactivated (or renamed/re-roled) user keeps
+// showing up as a selectable manager until the whole page is reloaded.
+function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord): EmployeeRecord[] {
+  return managers.some(m => m.userId === updated.userId)
+    ? managers.map(m => (m.userId === updated.userId ? updated : m))
+    : [...managers, updated];
+}
+
 function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
-  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER');
-  return managers.filter(m => m.role === 'SUPER_ADMIN');
+  // `managers` (opts.managers) is fetched once per page load — defensively re-check `active`
+  // here too (not just at fetch time) so a manager deactivated later in the same session, before
+  // this cached list gets refreshed, can't still be picked. `!== false` so a record that simply
+  // omits the field isn't wrongly excluded.
+  const eligible = managers.filter(m => m.active !== false);
+  if (role === 'EMPLOYEE') return eligible.filter(m => m.role === 'MANAGER');
+  return eligible.filter(m => m.role === 'SUPER_ADMIN');
 }
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
@@ -478,6 +487,9 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isInactive = !user.active;
+  const [confirmInactiveEdit, setConfirmInactiveEdit] = useState(false);
+  const gatedFieldsLocked = isInactive && !confirmInactiveEdit;
 
   // Joining date moved in from the old standalone "Update Date of Joining" modal — same
   // usersApi.updateJoiningDate call and audit-trail note, just triggered from this form instead
@@ -492,7 +504,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
     setSubmitting(true); setError(null);
     try {
-      let updated = await usersApi.update(user.userId, form, token);
+      let updated = await usersApi.update(user.userId, { ...form, confirmInactiveEdit }, token);
       if (joiningDate !== user.joiningDate) {
         const payload: UpdateJoiningDatePayload = { newJoiningDate: joiningDate, note: joiningDateNote.trim() || undefined };
         updated = await usersApi.updateJoiningDate(user.userId, payload, token);
@@ -515,9 +527,10 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
         <ModalHeader title={`Edit — ${user.fullName}`} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+          {isInactive && <InactiveEditBanner />}
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name"><input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} /></Field></div>
           <Field label="Role">
-            <select style={inputStyle} value={form.role ?? 'EMPLOYEE'} onChange={e => {
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.role ?? 'EMPLOYEE'} onChange={e => {
               const newRole = e.target.value;
               const newMgrs = getManagersForRole(newRole, opts.managers).filter(m => m.userId !== user.userId);
               setForm(f => ({
@@ -529,7 +542,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
             </select>
           </Field>
           <Field label="Employment Type">
-            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
               {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
             </select>
           </Field>
@@ -539,12 +552,12 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
             </select>
           </Field>
           <Field label="Department">
-            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
               <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
-            <select style={inputStyle} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
               <option value="">— None —</option>{opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
@@ -575,7 +588,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
               const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
-                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+                  <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
                     {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
                   </select>
@@ -599,9 +612,12 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
               />
             </Field>
           </div>
+          {isInactive && (
+            <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
+          )}
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
+            <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
         </form>
       </div>
@@ -1044,7 +1060,10 @@ export default function UserManagementPage() {
       </div>
 
       {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
-      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
+        setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
+        setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
+      }} />}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
       {toggling && (
         <StatusModal
@@ -1053,10 +1072,16 @@ export default function UserManagementPage() {
           isLastActiveSuperAdmin={toggling.role === 'SUPER_ADMIN' && toggling.active && activeSuperAdminCount <= 1}
           token={token}
           onClose={() => setToggling(null)}
-          onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))}
+          onUpdated={updated => {
+            setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
+            setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
+          }}
         />
       )}
-      {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />}
+      {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => {
+        setUsers(prev => prev.filter(u => u.userId !== userId));
+        setOrgOptions(o => ({ ...o, managers: o.managers.filter(m => m.userId !== userId) }));
+      }} />}
     </div>
   );
 }

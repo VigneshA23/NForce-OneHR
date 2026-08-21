@@ -26,6 +26,7 @@ import { leaveApi, type LeaveBalance, type LeaveRequestRecord } from '../api/lea
 import { myRequestsApi, type MyRequestItem } from '../api/myRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
+import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -306,8 +307,11 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
             {sorted.length === 0 ? (
               <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>{emptyMessage}</div>
             ) : sorted.map((j, i) => (
-              <div key={`${j.userId}-${j.joinedTeamOn}-${i}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{j.fullName}</div>
+              <div key={`${j.userId}-${j.joinedTeamOn}-${i}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', ...inactiveDimStyle(j.active) }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{j.fullName}</div>
+                  {!j.active && <StatusBadge active={j.active} />}
+                </div>
                 <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>
                   {j.designationName ?? '—'}{j.departmentName ? ` · ${j.departmentName}` : ''}
                 </div>
@@ -631,7 +635,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
                 </thead>
                 <tbody>
                   {data.directReports.map(r => (
-                    <tr key={r.userId} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <tr key={r.userId} style={{ borderBottom: '1px solid var(--line)', ...inactiveDimStyle(r.active) }}>
                       <td style={{ padding: '10px 14px', fontSize: 12.5, overflow: 'hidden' }}>
                         <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 1, overflowWrap: 'break-word' }}>{r.fullName}</div>
                         <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>

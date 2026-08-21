@@ -19,4 +19,10 @@ public class UpdateUserRequest {
     private String employmentType;
     private String workMode;
     private UUID managerId;
+
+    // Role/manager/department/designation/employment type imply active employment — changing
+    // any of them for a deactivated user is blocked unless the caller explicitly confirms (see
+    // UserManagementService#updateUser). Defaults to false so a stale/older client that never
+    // sends this field is always treated as unconfirmed.
+    private boolean confirmInactiveEdit;
 }

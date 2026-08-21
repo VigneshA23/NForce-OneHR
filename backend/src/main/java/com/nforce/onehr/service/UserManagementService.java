@@ -94,6 +94,7 @@ public class UserManagementService {
         leaveService.initializeDefaultBalances(newUser.getId());
 
         if (req.getManagerId() != null) {
+            validateNoCycle(newUser.getId(), req.getManagerId());
             historyRepository.save(EmployeeManagerHistory.builder()
                     .employeeUserId(newUser.getId())
                     .managerUserId(req.getManagerId())
@@ -161,6 +162,16 @@ public class UserManagementService {
         boolean forceLogoutRequired = false;
         boolean roleChanged = false;
         boolean managerChanged = false;
+
+        // Role/manager/department/designation/employment type imply active employment — for a
+        // deactivated user these are blocked behind an explicit confirmation (name, location,
+        // shift and other offboarding-correction fields stay editable unconditionally). The
+        // server is the real boundary here, not just the edit form's disabled inputs.
+        if (!target.isActive() && !req.isConfirmInactiveEdit()
+                && changesGatedUserFields(emp, currentRole, currentManagerId, req)) {
+            throw new IllegalArgumentException(
+                    "This user is inactive. Confirm the change to update Role, Manager, Department, Designation, or Employment Type for an inactive user.");
+        }
 
         if (req.getFullName() != null && !req.getFullName().isBlank()) {
             String fullName = req.getFullName().trim();
@@ -234,6 +245,7 @@ public class UserManagementService {
         // Manager change — effective-dating: close current, insert new
         if (req.getManagerId() != null) {
             if (!Objects.equals(currentManagerId, req.getManagerId())) {
+                validateNoCycle(userId, req.getManagerId());
                 historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
                 historyRepository.save(EmployeeManagerHistory.builder()
                         .employeeUserId(userId)
@@ -302,6 +314,19 @@ public class UserManagementService {
 
         auditService.log(actor.getId(), "JOINING_DATE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /** True if the request would actually change one of the fields gated behind confirmInactiveEdit. */
+    private boolean changesGatedUserFields(Employee emp, String currentRole, UUID currentManagerId, UpdateUserRequest req) {
+        UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+        UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+        return (req.getDepartmentId() != null && !Objects.equals(req.getDepartmentId(), currentDepartmentId))
+                || (req.getDesignationId() != null && !Objects.equals(req.getDesignationId(), currentDesignationId))
+                || (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                        && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType()))
+                || (req.getRole() != null && !req.getRole().isBlank()
+                        && !Objects.equals(currentRole, req.getRole().toUpperCase()))
+                || (req.getManagerId() != null && !Objects.equals(currentManagerId, req.getManagerId()));
     }
 
     /**
@@ -431,6 +456,35 @@ public class UserManagementService {
                     .anyMatch(u -> !u.getId().equals(target.getId()));
             if (!anotherActiveSuperAdminExists)
                 throw new IllegalArgumentException("Cannot " + verb + " the last active Super Admin. Assign Super Admin to another user first.");
+        }
+    }
+
+    /**
+     * Rejects any manager assignment that would create a circular reporting chain.
+     * Walks the proposed manager's ancestor chain; if it reaches employeeId at any point
+     * the assignment would form a cycle and is rejected with a clear error.
+     */
+    private void validateNoCycle(UUID employeeId, UUID proposedManagerId) {
+        if (proposedManagerId == null) return;
+        if (proposedManagerId.equals(employeeId))
+            throw new IllegalArgumentException("Cannot assign a user as their own manager.");
+
+        Map<UUID, UUID> empToMgr = historyRepository.findByEffectiveToIsNull()
+                .stream()
+                .collect(Collectors.toMap(
+                        h -> h.getEmployeeUserId(),
+                        h -> h.getManagerUserId(),
+                        (a, b) -> a));
+
+        UUID cur = proposedManagerId;
+        Set<UUID> visited = new HashSet<>();
+        while (cur != null) {
+            if (!visited.add(cur)) break; // cycle already in data — stop traversal
+            if (cur.equals(employeeId))
+                throw new IllegalArgumentException(
+                        "Cannot assign this manager: it would create a circular reporting chain. " +
+                        "The proposed manager is already a direct or indirect report of this user.");
+            cur = empToMgr.get(cur);
         }
     }
 

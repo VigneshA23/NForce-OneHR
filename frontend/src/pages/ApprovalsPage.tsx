@@ -33,6 +33,14 @@ const TYPE_LABELS: Record<RequestType, string> = {
   HELP_CONTENT: 'FAQs & Guides',
 };
 
+// Full-length labels for the "No pending ... requests" empty state, which has room to spell
+// things out — everywhere else (tab pills, badges, aria-labels) keeps using TYPE_LABELS'
+// abbreviated forms since those are space-constrained.
+const EMPTY_STATE_TYPE_LABELS: Record<RequestType, string> = {
+  ...TYPE_LABELS,
+  REGULARIZATION: 'Attendance Regularization',
+};
+
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
@@ -122,6 +130,17 @@ function fmtDate(s?: string | null) {
 function fmtTime(s?: string | null) {
   if (!s) return EMPTY_VALUE;
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
+ * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
+function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
+  if (!startIso || !endIso) return EMPTY_VALUE;
+  const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
+  if (minutes <= 0) return EMPTY_VALUE;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 function getRequestedDates(item: ApprovalItem) {
@@ -429,9 +448,8 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
 
           {item.requestType === 'OVERTIME' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Work Date" value={item.attendanceDate} />
-              <Row label="Requested Start" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-              <Row label="Requested End" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
+              <Row label="Date" value={item.attendanceDate} />
+              <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
               <Row label="Reason" value={item.regularizationReason} />
             </div>
           )}
@@ -743,10 +761,12 @@ export default function ApprovalsPage() {
           <div style={{ padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>Nothing pending</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
+              {/* TYPE_LABELS stays abbreviated ("Attendance Reg.") for the tab pills/badges, where
+                  space is tight — this empty-state message has room to spell it out in full. */}
               {typeFilter === 'ALL' && !searchTerm && 'No pending requests right now.'}
-              {typeFilter !== 'ALL' && !searchTerm && `No pending ${TYPE_LABELS[typeFilter]} requests.`}
+              {typeFilter !== 'ALL' && !searchTerm && `No pending ${EMPTY_STATE_TYPE_LABELS[typeFilter]} requests.`}
               {typeFilter === 'ALL' && searchTerm && `No pending requests match "${employeeSearch.trim()}".`}
-              {typeFilter !== 'ALL' && searchTerm && `No pending ${TYPE_LABELS[typeFilter]} requests match "${employeeSearch.trim()}".`}
+              {typeFilter !== 'ALL' && searchTerm && `No pending ${EMPTY_STATE_TYPE_LABELS[typeFilter]} requests match "${employeeSearch.trim()}".`}
             </div>
           </div>
         ) : (

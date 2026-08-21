@@ -14,4 +14,5 @@ public class ShiftEmployeeResponse {
     String fullName;
     String email;
     String departmentName;
+    boolean active;
 }

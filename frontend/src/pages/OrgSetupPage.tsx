@@ -12,6 +12,7 @@ import {
   type DocumentType,
 } from '../api/documents';
 import PolicyListSection from './penalization/PolicyListSection';
+import { inactiveDimStyle } from '../components/EmployeeStatus';
 
 type OrgTab = 'departments' | 'designations' | 'locations' | 'shifts' | 'doctypes' | 'penalization';
 
@@ -761,9 +762,12 @@ function ShiftEmployeesModal({ shift, shifts, token, onClose, onShiftChanged }: 
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {rows.map(r => (
-              <div key={r.userId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '9px 4px', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
+              <div key={r.userId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '9px 4px', borderBottom: '1px solid var(--line)', fontSize: 13, ...inactiveDimStyle(r.active) }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{r.fullName}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{r.fullName}</div>
+                    {!r.active && <StatusBadge active={r.active} />}
+                  </div>
                   <div style={{ color: 'var(--txt-mut)', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.email}{r.departmentName ? ` · ${r.departmentName}` : ''} · {r.employeeCode}
                   </div>

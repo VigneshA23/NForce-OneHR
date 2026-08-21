@@ -42,6 +42,7 @@ export interface ShiftPayload {
 }
 export interface ShiftEmployeeRow {
   userId: string; employeeCode: string; fullName: string; email: string; departmentName: string | null;
+  active: boolean;
 }
 
 export const orgApi = {

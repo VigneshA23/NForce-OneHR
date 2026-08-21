@@ -16,8 +16,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -41,12 +44,14 @@ public class OvertimeRequestService {
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_APPROVED = "APPROVED";
     private static final String STATUS_REJECTED = "REJECTED";
+    private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
 
     private final OvertimeRequestRepository requestRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
 
     @Transactional
@@ -60,6 +65,7 @@ public class OvertimeRequestService {
                 && !req.getRequestedEnd().toLocalDate().equals(req.getWorkDate())) {
             throw new IllegalArgumentException("Requested start/end must fall on the work date");
         }
+        assertNotBeforeJoiningDate(actor.getId(), req.getWorkDate());
         UUID notifyUserId = resolveNotifyUser(req.getNotifyUserId());
 
         OvertimeRequest entity = OvertimeRequest.builder()
@@ -84,6 +90,21 @@ public class OvertimeRequestService {
                     "/attendance");
         }
         return toResponse(entity);
+    }
+
+    /**
+     * There's no work to claim overtime for on a date before the employee even joined. Mirrors
+     * RegularizationService.assertNotBeforeJoiningDate — a data-integrity rule, not a business
+     * policy, so it applies to every role with no override. Silently allows when the employee
+     * record can't be resolved (never happens for a real actor, but fails open rather than
+     * blocking on an unrelated lookup issue).
+     */
+    private void assertNotBeforeJoiningDate(UUID employeeUserId, LocalDate workDate) {
+        LocalDate joiningDate = employeeRepository.findById(employeeUserId).map(Employee::getJoiningDate).orElse(null);
+        if (joiningDate != null && workDate.isBefore(joiningDate)) {
+            throw new IllegalArgumentException(
+                    "Overtime requests cannot be made prior to your joining date (" + joiningDate.format(NOTIFICATION_DATE_FMT) + ").");
+        }
     }
 
     private UUID resolveNotifyUser(UUID notifyUserId) {
@@ -132,7 +153,7 @@ public class OvertimeRequestService {
         notificationService.send(req.getEmployeeUserId(), "OVERTIME_APPROVED",
                 "Overtime Request Approved",
                 "Your overtime request for " + req.getWorkDate() + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=OVERTIME");
+                "/my-requests?type=OVERTIME");
         return toResponse(req);
     }
 
@@ -148,12 +169,13 @@ public class OvertimeRequestService {
         req.setReviewComment(comment);
         requestRepository.save(req);
 
-        auditService.log(actor.getId(), "OVERTIME_REJECTED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", STATUS_REJECTED, "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "OVERTIME_REJECTED", req.getEmployeeUserId(), null, after);
         notificationService.send(req.getEmployeeUserId(), "OVERTIME_REJECTED",
                 "Overtime Request Rejected",
                 "Your overtime request for " + req.getWorkDate() + " has been rejected by " + employeeName(actor.getId())
                         + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
-                "/requests?type=OVERTIME");
+                "/my-requests?type=OVERTIME");
         return toResponse(req);
     }
 

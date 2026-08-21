@@ -10,4 +10,5 @@ import java.util.UUID;
 public class AssignableAgentDto {
     private UUID userId;
     private String name;
+    private boolean active;
 }

@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.List;
@@ -23,41 +24,41 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Forces the seeded "Regular Shift" back to its intended 3:30 PM – 12:30 AM window on every
- * startup, regardless of Flyway state, and backfills it onto any employee left without a
- * shift assignment.
+ * Backfills the "Regular Shift" onto any employee left without a shift assignment, and keeps
+ * historical lateness figures in sync with whatever each employee's actual shift currently is.
  *
- * Why this bypasses the normal migration convention: this app runs against a shared dev
- * database where Flyway version numbers have collided before (see the note in
- * application-local.yml about V11's checksum), and {@code validate-on-migrate: false} makes
- * such collisions silent — a migration whose version number is already recorded (by someone
- * else's differently-numbered, differently-contented migration on this same shared DB) is
- * skipped with no error. Two dedicated migrations for this exact shift-timing change
- * (V100, V101) were silently skipped this way. Since this one row is small, well-known, and
- * idempotent to reassert, a startup-time correction sidesteps the version-collision problem
- * entirely instead of playing whack-a-mole with migration numbers.
+ * <p><b>No longer force-corrects "Regular Shift"'s own timings.</b> This corrector used to reset
+ * "Regular Shift" back to a hardcoded 15:30-00:30 on every startup, from a time before Shift
+ * Management existed as a real, admin-editable feature (see {@code OrgService}
+ * create/update/toggle/delete-shift) — back then, "Regular Shift" only had a Flyway migration to
+ * define it, and migrations on this shared dev DB have a known version-collision problem (see the
+ * note in application-local.yml about V11's checksum) that silently dropped two dedicated
+ * migrations (V100, V101) meant to fix its timing. That startup safety-net made sense when the
+ * ONLY way to change a shift's hours was a migration. Now that Super Admins can edit any shift's
+ * hours directly through the UI, forcibly reverting "Regular Shift" back to a stale hardcoded
+ * value on every restart would silently undo a legitimate admin edit — exactly the kind of
+ * "my assigned shift doesn't reflect after login" bug this corrector was meant to prevent, not
+ * cause. If "Regular Shift"'s timing is ever wrong now, fix it through the Shift Management UI
+ * (Organization Structure → Shifts) — not here.
  *
- * V101 itself moved the intended start to 15:00, but this constant was changed back to 15:30
- * without a matching migration — leaving this corrector and V101 disagreeing on every restart.
- * 15:30 is confirmed correct; V117 brings the DB back in line with it.
+ * <p>The employee backfill exists because V95's "assign everyone the Regular Shift" UPDATE only
+ * ran once, against whoever existed at that moment — any employee onboarded since (via a flow
+ * that doesn't explicitly pick a shift) has a null {@code shift_id}, which silently falls back to
+ * {@code AttendanceProperties.shiftStart} for lateness math instead of a real shift, producing
+ * wildly wrong "Xh late" figures. This assigns them "Regular Shift" — whatever its current,
+ * admin-configured timing actually is — as a sane default, same as it always did.
  *
- * The employee backfill exists because V95's "assign everyone the Regular Shift" UPDATE only
- * ran once, against whoever existed at that moment — any employee onboarded since has a null
- * {@code shift_id}, which silently falls back to {@code AttendanceProperties.shiftStart}
- * (9:30 AM) for lateness math instead of the real 3:30 PM shift, producing wildly wrong
- * "Xh late" figures.
- *
- * The lateness recompute exists because {@code Attendance.lateByMinutes} is computed once, at
+ * <p>The lateness recompute exists because {@code Attendance.lateByMinutes} is computed once, at
  * check-in time, and stored — it is never re-derived afterwards. Every row checked in while an
- * employee had no shift assignment (or while the shift row itself was mid-correction above) has
- * a stale, wrong value baked in. This reruns the exact same "minutes past shift-start + grace"
- * math AttendanceService.checkIn uses, now that the real shift is guaranteed to be in place, so
- * historical "Xh late" figures match the 3:30 PM shift instead of whatever was live when the
- * employee first punched in. AttendanceException.minutesLate self-corrects afterwards — it is
- * re-upserted from Attendance.lateByMinutes on every exceptions-dashboard load.
+ * employee had no shift assignment has a stale, wrong value baked in. This reruns the exact same
+ * "minutes past shift-start + grace" math AttendanceService.checkIn uses, now that the employee
+ * is guaranteed to have SOME shift, so historical "Xh late" figures match reality instead of
+ * whatever fallback was live when the employee first punched in. AttendanceException.minutesLate
+ * self-corrects afterwards — it is re-upserted from Attendance.lateByMinutes on every
+ * exceptions-dashboard load.
  */
 // Must run before StaleAttendanceSweeper's startup pass: the sweep's shift-end cutoff reads
-// each employee's Shift.endTime, which this corrector may still be about to fix.
+// each employee's Shift.endTime, which this corrector's backfill may still be about to set.
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @Component
 @RequiredArgsConstructor
@@ -65,8 +66,6 @@ import java.util.UUID;
 public class ShiftSeedCorrector implements ApplicationRunner {
 
     private static final String SHIFT_NAME = "Regular Shift";
-    private static final LocalTime INTENDED_START = LocalTime.of(15, 30);
-    private static final LocalTime INTENDED_END = LocalTime.of(0, 30);
     private static final String STATUS_PRESENT = "PRESENT";
     private static final String STATUS_LATE = "LATE";
 
@@ -79,14 +78,6 @@ public class ShiftSeedCorrector implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments args) {
         shiftRepository.findByName(SHIFT_NAME).ifPresent(shift -> {
-            if (!INTENDED_START.equals(shift.getStartTime()) || !INTENDED_END.equals(shift.getEndTime())) {
-                log.warn("Correcting '{}' shift timings from {}-{} to {}-{} (out-of-band DB edit or a "
-                                + "Flyway version collision on the shared dev DB — see ShiftSeedCorrector's Javadoc)",
-                        SHIFT_NAME, shift.getStartTime(), shift.getEndTime(), INTENDED_START, INTENDED_END);
-                shift.setStartTime(INTENDED_START);
-                shift.setEndTime(INTENDED_END);
-                shiftRepository.save(shift);
-            }
             backfillUnassignedEmployees(shift);
             recomputeLateArrivals(shift);
         });
@@ -124,10 +115,15 @@ public class ShiftSeedCorrector implements ApplicationRunner {
             }
             Shift employeeShift = shiftByEmployeeId.get(record.getEmployeeUserId());
             LocalTime shiftStart = employeeShift != null ? employeeShift.getStartTime() : attendanceProperties.getShiftStart();
-            LocalTime deadline = shiftStart.plusMinutes(attendanceProperties.getLateGraceMinutes());
-            LocalTime checkInTime = record.getCheckInAt().toLocalTime();
-            int lateByMinutes = checkInTime.isAfter(deadline)
-                    ? (int) Duration.between(deadline, checkInTime).toMinutes()
+            // Anchored to the record's own workDate (not compared as a bare LocalTime-of-day) so
+            // an overnight shift's post-midnight check-in (e.g. 20:30-05:30 shift, 1:11 AM
+            // check-in) is correctly measured as hours late instead of reading as "before"
+            // shiftStart — see AttendanceService.checkIn / WebClockInService.recomputeDerivedFields.
+            LocalDateTime shiftStartAt = LocalDateTime.of(record.getWorkDate(), shiftStart);
+            LocalDateTime deadlineAt = shiftStartAt.plusMinutes(attendanceProperties.getLateGraceMinutes());
+            LocalDateTime checkInAt = record.getCheckInAt();
+            int lateByMinutes = checkInAt.isAfter(deadlineAt)
+                    ? (int) Duration.between(deadlineAt, checkInAt).toMinutes()
                     : 0;
 
             if (record.getLateByMinutes() == null || lateByMinutes != record.getLateByMinutes()) {

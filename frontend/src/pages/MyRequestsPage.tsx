@@ -72,6 +72,17 @@ function fmtTime(s?: string | null) {
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
+ * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
+function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
+  if (!startIso || !endIso) return '—';
+  const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
+  if (minutes <= 0) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 // ── Type-aware row detail summary ─────────────────────────
 
 function ItemDetail({ item }: { item: MyRequestItem }) {
@@ -182,9 +193,8 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
 
             {item.requestType === 'OVERTIME' && (
               <>
-                <Row label="Work Date" value={item.attendanceDate} />
-                <Row label="Requested Start" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-                <Row label="Requested End" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
+                <Row label="Date" value={item.attendanceDate} />
+                <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
                 <Row label="Reason" value={item.regularizationReason} />
               </>
             )}

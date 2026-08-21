@@ -62,7 +62,7 @@ public class LeaveService {
     // app-wide for dates embedded in notification text.
     private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
     private static final String APPROVALS_LINK = "/approvals?type=LEAVE";
-    private static final String EMPLOYEE_LEAVE_LINK = "/requests?type=LEAVE";
+    private static final String EMPLOYEE_LEAVE_LINK = "/my-requests?type=LEAVE";
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;

@@ -149,7 +149,7 @@ public class AssetService {
         notificationService.send(req.getEmployeeUserId(), "ASSET_REQUEST_APPROVED",
                 "Asset Request Approved",
                 "Your " + categoryName(req.getCategoryId()) + " request was approved. HR will fulfill it shortly.",
-                "/assets-expenses");
+                "/assets");
         return toRequestResponse(req, categoryName(req.getCategoryId()));
     }
 
@@ -171,7 +171,7 @@ public class AssetService {
         notificationService.send(req.getEmployeeUserId(), "ASSET_REQUEST_REJECTED",
                 "Asset Request Rejected",
                 "Your " + categoryName(req.getCategoryId()) + " request was rejected." + (reason != null && !reason.isBlank() ? " Reason: " + reason.trim() : ""),
-                "/assets-expenses");
+                "/assets");
         return toRequestResponse(req, categoryName(req.getCategoryId()));
     }
 
@@ -240,7 +240,7 @@ public class AssetService {
         notificationService.send(req.getEmployeeUserId(), "ASSET_ASSIGNED",
                 "Asset Assigned",
                 asset.getAssetTag() + " (" + asset.getCategory().getName() + ") has been assigned to you.",
-                "/assets-expenses");
+                "/assets");
         return toAssetResponse(asset);
     }
 
@@ -353,7 +353,7 @@ public class AssetService {
         notificationService.send(assetReq.getEmployeeUserId(), "ASSET_REQUEST_FULFILLED",
                 "Asset Request Fulfilled",
                 "Your " + categoryName(assetReq.getCategoryId()) + " request has been fulfilled. " + asset.getAssetTag() + " is now assigned to you.",
-                "/assets-expenses");
+                "/assets");
         return toRequestResponse(assetReq, categoryName(assetReq.getCategoryId()));
     }
 
