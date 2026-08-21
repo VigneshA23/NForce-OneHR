@@ -430,8 +430,6 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
           {item.requestType === 'OVERTIME' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               <Row label="Work Date" value={item.attendanceDate} />
-              <Row label="Requested Start" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-              <Row label="Requested End" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
               <Row label="Reason" value={item.regularizationReason} />
             </div>
           )}

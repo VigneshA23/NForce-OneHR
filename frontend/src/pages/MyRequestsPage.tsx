@@ -183,8 +183,6 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
             {item.requestType === 'OVERTIME' && (
               <>
                 <Row label="Work Date" value={item.attendanceDate} />
-                <Row label="Requested Start" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-                <Row label="Requested End" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
                 <Row label="Reason" value={item.regularizationReason} />
               </>
             )}
