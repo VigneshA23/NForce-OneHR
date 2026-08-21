@@ -326,7 +326,7 @@ public class AttendanceRequestService {
                 "Attendance Request Approved",
                 "Your " + (TYPE_WFH.equals(req.getRequestType()) ? "Work From Home" : "Partial Day")
                         + " request for " + req.getRequestDate() + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=" + req.getRequestType());
+                "/my-requests?type=" + req.getRequestType());
         return toResponse(req);
     }
 
@@ -348,7 +348,7 @@ public class AttendanceRequestService {
                 "Your " + (TYPE_WFH.equals(req.getRequestType()) ? "Work From Home" : "Partial Day")
                         + " request for " + req.getRequestDate() + " has been rejected by " + employeeName(actor.getId())
                         + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
-                "/requests?type=" + req.getRequestType());
+                "/my-requests?type=" + req.getRequestType());
         return toResponse(req);
     }
 

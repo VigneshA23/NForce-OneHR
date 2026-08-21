@@ -463,7 +463,7 @@ public class HelpContentService {
         notificationService.send(approverId, "HELP_CONTENT_SUBMITTED",
                 "New content pending your approval",
                 employeeOrEmailName(actor.getId()) + " submitted \"" + content.getTitle() + "\" for approval",
-                "/approvals");
+                "/approvals?type=HELP_CONTENT");
         return toDetail(content);
     }
 

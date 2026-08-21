@@ -110,6 +110,7 @@ export default function App() {
           <Route path="/help"         element={<HelpDeskPage />} />
           <Route path="/approvals"    element={<ApprovalsPage />} />
           <Route path="/requests"     element={<RequestsRouter />} />
+          <Route path="/my-requests"  element={<MyRequestsPage />} />
           <Route path="/assets"       element={<AssetsExpensesPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
