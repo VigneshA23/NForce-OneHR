@@ -36,11 +36,12 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     // visibility in Approval Center (see LeaveService#listPendingApprovals's override branch).
     List<LeaveRequest> findByStatusOrderByCreatedAtAsc(String status);
 
-    // Backs LeaveService#submitRequest's same-day duplicate guard: true if the employee already
-    // has a request in one of the given statuses (PENDING/APPROVED) whose date range covers
-    // `date` (pass the same date for both bounds to test coverage of a single day). REJECTED is
+    // Backs LeaveService#submitRequest's overlapping-request guard: true if the employee already
+    // has a request in one of the given statuses (PENDING/APPROVED) whose date range overlaps the
+    // new request's [startDate, endDate] (pass the new request's endDate as startDateAtOrBefore
+    // and its startDate as endDateAtOrAfter — the standard range-overlap test). REJECTED is
     // deliberately excluded by the caller's status set, not by this query, so a rejected request
-    // never blocks a new same-day submission.
+    // never blocks a new overlapping submission.
     boolean existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
             UUID employeeUserId, Collection<String> statuses, LocalDate startDateAtOrBefore, LocalDate endDateAtOrAfter);
 
