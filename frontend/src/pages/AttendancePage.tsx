@@ -4229,6 +4229,14 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Past dates are allowed (an employee claiming overtime worked yesterday shouldn't need same-day
+  // submission), but only back to when they actually joined — mirrors RegularizationRequestModal's
+  // joiningDate fetch and OvertimeRequestService.assertNotBeforeJoiningDate, the actual boundary.
+  const [joiningDate, setJoiningDate] = useState<string | null>(null);
+  useEffect(() => {
+    profileApi.get(token).then((p) => setJoiningDate(p.joiningDate)).catch(() => setJoiningDate(null));
+  }, [token]);
+
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
   useEffect(() => {
     attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
@@ -4304,7 +4312,11 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
 
   async function handleSubmit() {
     if (toDate < fromDate) { setError('To date must be on or after From date'); return; }
-    if (fromDate < todayIsoDate()) { setError('Cannot request for past dates'); return; }
+    // Past dates are allowed — only the joining-date boundary blocks a request, not "today".
+    if (joiningDate && fromDate < joiningDate) {
+      setError('Overtime requests cannot be made prior to your joining date.');
+      return;
+    }
     if (hasPendingConflict) {
       setError('Previous Overtime request is in pending / approved for the selected dates.');
       return;
