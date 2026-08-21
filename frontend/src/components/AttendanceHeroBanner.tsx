@@ -509,7 +509,7 @@ export function AttendanceHeroBanner() {
           View full record →
         </button>
       </div>
-      <WebClockInRow onSubmitted={refresh} />
+      <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
     </HeroCard>
   );
 }
