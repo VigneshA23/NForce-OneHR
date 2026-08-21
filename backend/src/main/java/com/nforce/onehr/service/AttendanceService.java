@@ -277,8 +277,8 @@ public class AttendanceService {
 
         // A fresh click (or resuming today's own record after the stale-session flag above) —
         // single clock read so the punch time and the work date it's attributed to can never
-        // disagree — resolved from THIS click's browser-reported zone, falling back to the
-        // employee's configured Location.timezone.
+        // disagree — resolved from the employee's own configured Location.timezone (see
+        // resolveZone's own doc comment: the browser-reported clientTimezone is never consulted).
         ZoneId freshZone = resolveZone(clientTimezone, employee);
         LocalDateTime now = LocalDateTime.now(freshZone);
         LocalDate today = shiftDayOf(now);
@@ -289,9 +289,9 @@ public class AttendanceService {
             // No open session (checked above), so this is always a closed record — resuming
             // after a break (e.g. lunch). The day's original check-in time, late status, and
             // worked-minutes-so-far all stay put; only a new session opens. Reuses the day's
-            // ORIGINALLY locked-in zone (from its first check-in), not this click's browser zone,
-            // so the whole day's worked-minutes math stays on one consistent clock even if the
-            // browser's reported zone has since drifted (e.g. a DST change over a long lunch).
+            // ORIGINALLY locked-in zone (from its first check-in), not re-resolved from this
+            // click, so the whole day's worked-minutes math stays on one consistent clock (e.g.
+            // across a DST change over a long lunch).
             Attendance record = existing.get();
             LocalDateTime resumeNow = LocalDateTime.now(resolveZone(record, employee, clientTimezone));
             record.setSessionStartedAt(resumeNow);

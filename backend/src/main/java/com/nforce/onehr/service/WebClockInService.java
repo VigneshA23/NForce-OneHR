@@ -120,11 +120,10 @@ public class WebClockInService {
             }
         }
 
-        // Resolved from the browser-reported zone (req.getTimezone(), e.g. from Intl
-        // .DateTimeFormat().resolvedOptions().timeZone), falling back to the employee's
-        // configured Location.timezone — mirrors AttendanceService.checkIn's resolveZone. Locked
-        // into the Attendance row this creates/resumes (see applyCheckInToAttendance) for the
-        // rest of that session's lifetime.
+        // Resolved from the employee's own configured Location.timezone — mirrors
+        // AttendanceService.checkIn's resolveZone (see its own doc comment: req.getTimezone(),
+        // the browser-reported zone, is never consulted). Locked into the Attendance row this
+        // creates/resumes (see applyCheckInToAttendance) for the rest of that session's lifetime.
         ZoneId zone = resolveZone(req.getTimezone(), actor.getId());
         LocalDateTime now = LocalDateTime.now(zone);
         LocalDate today = shiftDayOf(now);
