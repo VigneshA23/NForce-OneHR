@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -78,6 +79,7 @@ public class AttendanceRequestService {
     private final EmployeeRepository employeeRepository;
     private final AttendanceProperties attendanceProps;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
 
     @Transactional
@@ -342,7 +344,8 @@ public class AttendanceRequestService {
         req.setReviewComment(comment);
         requestRepository.save(req);
 
-        auditService.log(actor.getId(), "ATTENDANCE_REQUEST_REJECTED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", STATUS_REJECTED, "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "ATTENDANCE_REQUEST_REJECTED", req.getEmployeeUserId(), null, after);
         notificationService.send(req.getEmployeeUserId(), "ATTENDANCE_REQUEST_REJECTED",
                 "Attendance Request Rejected",
                 "Your " + (TYPE_WFH.equals(req.getRequestType()) ? "Work From Home" : "Partial Day")
