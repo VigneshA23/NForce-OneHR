@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -78,6 +79,7 @@ public class AttendanceRequestService {
     private final EmployeeRepository employeeRepository;
     private final AttendanceProperties attendanceProps;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
 
     @Transactional
@@ -326,7 +328,7 @@ public class AttendanceRequestService {
                 "Attendance Request Approved",
                 "Your " + (TYPE_WFH.equals(req.getRequestType()) ? "Work From Home" : "Partial Day")
                         + " request for " + req.getRequestDate() + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=" + req.getRequestType());
+                "/my-requests?type=" + req.getRequestType());
         return toResponse(req);
     }
 
@@ -342,13 +344,14 @@ public class AttendanceRequestService {
         req.setReviewComment(comment);
         requestRepository.save(req);
 
-        auditService.log(actor.getId(), "ATTENDANCE_REQUEST_REJECTED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", STATUS_REJECTED, "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "ATTENDANCE_REQUEST_REJECTED", req.getEmployeeUserId(), null, after);
         notificationService.send(req.getEmployeeUserId(), "ATTENDANCE_REQUEST_REJECTED",
                 "Attendance Request Rejected",
                 "Your " + (TYPE_WFH.equals(req.getRequestType()) ? "Work From Home" : "Partial Day")
                         + " request for " + req.getRequestDate() + " has been rejected by " + employeeName(actor.getId())
                         + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
-                "/requests?type=" + req.getRequestType());
+                "/my-requests?type=" + req.getRequestType());
         return toResponse(req);
     }
 

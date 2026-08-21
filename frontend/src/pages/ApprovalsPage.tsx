@@ -33,6 +33,14 @@ const TYPE_LABELS: Record<RequestType, string> = {
   HELP_CONTENT: 'FAQs & Guides',
 };
 
+// Full-length labels for the "No pending ... requests" empty state, which has room to spell
+// things out — everywhere else (tab pills, badges, aria-labels) keeps using TYPE_LABELS'
+// abbreviated forms since those are space-constrained.
+const EMPTY_STATE_TYPE_LABELS: Record<RequestType, string> = {
+  ...TYPE_LABELS,
+  REGULARIZATION: 'Attendance Regularization',
+};
+
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
@@ -753,10 +761,12 @@ export default function ApprovalsPage() {
           <div style={{ padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>Nothing pending</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
+              {/* TYPE_LABELS stays abbreviated ("Attendance Reg.") for the tab pills/badges, where
+                  space is tight — this empty-state message has room to spell it out in full. */}
               {typeFilter === 'ALL' && !searchTerm && 'No pending requests right now.'}
-              {typeFilter !== 'ALL' && !searchTerm && `No pending ${TYPE_LABELS[typeFilter]} requests.`}
+              {typeFilter !== 'ALL' && !searchTerm && `No pending ${EMPTY_STATE_TYPE_LABELS[typeFilter]} requests.`}
               {typeFilter === 'ALL' && searchTerm && `No pending requests match "${employeeSearch.trim()}".`}
-              {typeFilter !== 'ALL' && searchTerm && `No pending ${TYPE_LABELS[typeFilter]} requests match "${employeeSearch.trim()}".`}
+              {typeFilter !== 'ALL' && searchTerm && `No pending ${EMPTY_STATE_TYPE_LABELS[typeFilter]} requests match "${employeeSearch.trim()}".`}
             </div>
           </div>
         ) : (

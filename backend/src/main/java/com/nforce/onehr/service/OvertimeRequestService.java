@@ -20,6 +20,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -50,6 +51,7 @@ public class OvertimeRequestService {
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
 
     @Transactional
@@ -151,7 +153,7 @@ public class OvertimeRequestService {
         notificationService.send(req.getEmployeeUserId(), "OVERTIME_APPROVED",
                 "Overtime Request Approved",
                 "Your overtime request for " + req.getWorkDate() + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=OVERTIME");
+                "/my-requests?type=OVERTIME");
         return toResponse(req);
     }
 
@@ -167,12 +169,13 @@ public class OvertimeRequestService {
         req.setReviewComment(comment);
         requestRepository.save(req);
 
-        auditService.log(actor.getId(), "OVERTIME_REJECTED", req.getEmployeeUserId());
+        String after = auditSnapshot.toJson(Map.of("status", STATUS_REJECTED, "reviewComment", comment != null ? comment : ""));
+        auditService.log(actor.getId(), "OVERTIME_REJECTED", req.getEmployeeUserId(), null, after);
         notificationService.send(req.getEmployeeUserId(), "OVERTIME_REJECTED",
                 "Overtime Request Rejected",
                 "Your overtime request for " + req.getWorkDate() + " has been rejected by " + employeeName(actor.getId())
                         + (comment != null && !comment.isBlank() ? ". Reason: " + comment.trim() : "."),
-                "/requests?type=OVERTIME");
+                "/my-requests?type=OVERTIME");
         return toResponse(req);
     }
 
