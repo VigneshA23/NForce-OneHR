@@ -1,10 +1,14 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.dto.CreateUserRequest;
+import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.UpdateUserRequest;
 import com.nforce.onehr.entity.*;
+import com.nforce.onehr.exception.EmployeeCodeConflictException;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.security.ForceLogoutBroadcaster;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -15,12 +19,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 /**
@@ -44,6 +51,8 @@ class UserManagementServiceTest {
     @Mock private NotificationService notificationService;
     @Mock private LeaveService leaveService;
     @Mock private ForceLogoutBroadcaster forceLogoutBroadcaster;
+    @Mock private EmployeeCodeGenerator employeeCodeGenerator;
+    @Mock private EmployeeService employeeService;
 
     @InjectMocks private UserManagementService userManagementService;
 
@@ -277,5 +286,151 @@ class UserManagementServiceTest {
         assertEquals(4, targetUser.getTokenVersion());
         assertTrue(targetUser.isMustChangePassword());
         verify(userRepository).save(targetUser);
+    }
+
+    // Employee ID rework (ONEHR): createUser must go through the centralized
+    // EmployeeCodeGenerator instead of any local MAX+1 lookup — see also EmployeeServiceCreateTest
+    // for the equivalent coverage on EmployeeService#createEmployee.
+    @Nested
+    class CreateUser {
+
+        private CreateUserRequest req;
+
+        @BeforeEach
+        void setUp() {
+            User actor = User.builder().id(actorId).email(actorEmail).build();
+            Role employeeRole = Role.builder().id(1).code("EMPLOYEE").build();
+
+            lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
+            lenient().when(userRepository.existsByEmailAndDeletedAtIsNull(any())).thenReturn(false);
+            lenient().when(roleRepository.findByCode("EMPLOYEE")).thenReturn(Optional.of(employeeRole));
+            lenient().when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+                User u = inv.getArgument(0);
+                if (u.getId() == null) u.setId(targetUserId);
+                return u;
+            });
+            lenient().when(employeeRepository.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            req = new CreateUserRequest();
+            req.setFullName("Jane Smith");
+            req.setEmail("jane@nforceone.com");
+            req.setRole("EMPLOYEE");
+            req.setJoiningDate(LocalDate.now());
+        }
+
+        @Test
+        void usesCodeClaimedByCentralizedGenerator() {
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            var response = userManagementService.createUser(req, actorEmail);
+
+            assertEquals("NF-2026-0057", response.getEmployeeCode());
+            verify(employeeCodeGenerator).claim(req.getEmployeeCode());
+        }
+
+        @Test
+        void passesSubmittedPreviewCodeThroughToGenerator() {
+            req.setEmployeeCode("NF-2026-0056");
+            when(employeeCodeGenerator.claim("NF-2026-0056")).thenReturn("NF-2026-0056");
+
+            var response = userManagementService.createUser(req, actorEmail);
+
+            assertEquals("NF-2026-0056", response.getEmployeeCode());
+            verify(employeeCodeGenerator).claim("NF-2026-0056");
+        }
+
+        @Test
+        void generatorConflict_failsWithoutPersistingEmployee() {
+            req.setEmployeeCode("NF-2026-0056");
+            when(employeeCodeGenerator.claim("NF-2026-0056"))
+                    .thenThrow(new EmployeeCodeConflictException("NF-2026-0056"));
+
+            assertThrows(EmployeeCodeConflictException.class,
+                    () -> userManagementService.createUser(req, actorEmail));
+
+            verify(employeeRepository, never()).save(any());
+        }
+    }
+
+    // N+1 fix: listUsers() must resolve every employee's current manager via
+    // EmployeeService#findCurrentManagersBulk (one bulk call) instead of calling
+    // findCurrentManager once per employee (up to 3 extra queries each).
+    @Nested
+    class ListUsers {
+
+        private final UUID emp1Id = UUID.randomUUID();
+        private final UUID emp2Id = UUID.randomUUID();
+        private final UUID emp3Id = UUID.randomUUID();
+        private final UUID managerId = UUID.randomUUID();
+
+        private Employee employeeWithManager(UUID id, String name) {
+            User user = User.builder().id(id).email(name.toLowerCase().replace(' ', '.') + "@test.com")
+                    .roles(new LinkedHashSet<>(Set.of(Role.builder().id(1).code("EMPLOYEE").build())))
+                    .build();
+            return Employee.builder().userId(id).user(user).employeeCode("NF-" + id)
+                    .fullName(name).employmentType("FULL_TIME").workMode("ONSITE")
+                    .joiningDate(LocalDate.now()).build();
+        }
+
+        @Test
+        void resolvesManagersInOneBulkCall_insteadOfPerEmployee() {
+            Employee emp1 = employeeWithManager(emp1Id, "Employee One");
+            Employee emp2 = employeeWithManager(emp2Id, "Employee Two");
+            when(employeeRepository.findAllWithDetails()).thenReturn(List.of(emp1, emp2));
+            when(employeeService.findCurrentManagersBulk(any())).thenReturn(Map.of());
+
+            userManagementService.listUsers();
+
+            verify(employeeService, times(1)).findCurrentManagersBulk(argThat(ids ->
+                    new HashSet<>(ids).equals(Set.of(emp1Id, emp2Id))));
+            // The per-row lookups findCurrentManager() would have used — none of them should be
+            // hit for a list operation now that the bulk path is used instead.
+            verifyNoInteractions(historyRepository);
+            verify(userRepository, never()).findById(any());
+        }
+
+        @Test
+        void attachesBulkResolvedManager_toMatchingEmployee() {
+            Employee emp1 = employeeWithManager(emp1Id, "Employee One");
+            Employee emp2 = employeeWithManager(emp2Id, "Employee Two");
+            when(employeeRepository.findAllWithDetails()).thenReturn(List.of(emp1, emp2));
+
+            EmployeeResponse.ManagerRef manager = EmployeeResponse.ManagerRef.builder()
+                    .userId(managerId.toString()).fullName("Manager Person").email("manager@test.com").build();
+            when(employeeService.findCurrentManagersBulk(any()))
+                    .thenReturn(Map.of(emp1Id, manager));
+
+            var results = userManagementService.listUsers();
+
+            assertEquals(manager, results.get(0).getCurrentManager());
+            // emp2 has no entry in the bulk map — must resolve to no manager, not an error.
+            assertNull(results.get(1).getCurrentManager());
+        }
+
+        @Test
+        void preservesEmployeeOrderingFromFindAllWithDetails() {
+            Employee emp1 = employeeWithManager(emp1Id, "Employee One");
+            Employee emp2 = employeeWithManager(emp2Id, "Employee Two");
+            Employee emp3 = employeeWithManager(emp3Id, "Employee Three");
+            when(employeeRepository.findAllWithDetails()).thenReturn(List.of(emp2, emp3, emp1));
+            when(employeeService.findCurrentManagersBulk(any())).thenReturn(Map.of());
+
+            var results = userManagementService.listUsers();
+
+            assertEquals(List.of("Employee Two", "Employee Three", "Employee One"),
+                    results.stream().map(EmployeeResponse::getFullName).toList());
+        }
+
+        @Test
+        void employeeWithNoManagerHistory_hasNullCurrentManager() {
+            Employee emp1 = employeeWithManager(emp1Id, "Employee One");
+            when(employeeRepository.findAllWithDetails()).thenReturn(List.of(emp1));
+            // Bulk lookup deliberately omits emp1 — no manager-history row for them.
+            when(employeeService.findCurrentManagersBulk(any())).thenReturn(Map.of());
+
+            var results = userManagementService.listUsers();
+
+            assertNull(results.get(0).getCurrentManager());
+        }
     }
 }
