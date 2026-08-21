@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { UserPlus, X, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
-import { orgApi } from '../api/org';
+import { orgApi, type ShiftRow } from '../api/org';
 import { onboardingApi } from '../api/onboarding';
 import { useToast } from '../context/ToastContext';
 import { KebabMenu } from '../components/KebabMenu';
+import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
 
 const ROLES = [
   { value: 'EMPLOYEE',    label: 'Employee' },
@@ -46,7 +47,7 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-interface OrgOptions { departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; }
+interface OrgOptions { departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
@@ -127,11 +128,64 @@ function CreatableLocationSelect({ locations, value, onChange, token }: { locati
   );
 }
 
+// ─── Shift Select (with inline "+ Add New Shift") ─────────────────────────────
+function ShiftSelect({ shifts, value, onChange, onCreated, token }: {
+  shifts: ShiftRow[]; value: string | undefined; onChange: (id: string | undefined) => void;
+  onCreated: (shift: ShiftRow) => void; token: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = shifts.find(s => s.id === value);
+  useEffect(() => {
+    function out(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener('mousedown', out);
+    return () => document.removeEventListener('mousedown', out);
+  }, []);
+  const label = (s: ShiftRow) => `${s.name} — ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }} onClick={() => setOpen(o => !o)}>
+        <input readOnly style={{ ...inputStyle, paddingRight: 32, cursor: 'pointer' }} placeholder="Select a shift…"
+          value={current ? label(current) : ''} />
+        <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
+          <div onMouseDown={() => { onChange(undefined); setOpen(false); }}
+            style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', cursor: 'pointer' }}>
+            — None —
+          </div>
+          {shifts.map(s => (
+            <div key={s.id} onMouseDown={() => { onChange(s.id); setOpen(false); }}
+              style={{ padding: '9px 14px', fontSize: 13, color: value === s.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === s.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--raised)')}
+              onMouseLeave={e => (e.currentTarget.style.background = value === s.id ? 'rgba(176,17,22,.12)' : 'transparent')}>
+              {label(s)}
+            </div>
+          ))}
+          <div onMouseDown={() => { setShowCreate(true); setOpen(false); }}
+            style={{ padding: '9px 14px', fontSize: 13, color: '#4C8DD6', borderTop: '1px solid var(--line)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 700 }}>+</span> Add New Shift
+          </div>
+        </div>
+      )}
+      {showCreate && (
+        <ShiftFormModal
+          token={token}
+          onClose={() => setShowCreate(false)}
+          onSaved={(saved) => { onCreated(saved); onChange(saved.id); setShowCreate(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Add User Modal ───────────────────────────────────────────────────────────
 function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string }) {
   const { showToast } = useToast();
   const [form, setForm] = useState<CreateUserPayload>({ fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [] });
+  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +198,8 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
       orgApi.listDesignations(token),
       orgApi.listLocations(token),
       employeesApi.potentialManagers(token),
-    ]).then(([d, des, l, m]) => setOpts({ departments: d, designations: des, locations: l, managers: m }));
+      orgApi.listShifts(token),
+    ]).then(([d, des, l, m, sh]) => setOpts({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
   }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -272,6 +327,17 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Shift">
+              <ShiftSelect
+                shifts={opts.shifts}
+                value={form.shiftId}
+                onChange={id => setForm(f => ({ ...f, shiftId: id }))}
+                onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
+                token={token}
+              />
+            </Field>
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -306,11 +372,12 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     departmentId: user.departmentId ?? undefined,
     designationId: user.designationId ?? undefined,
     locationId: user.locationId ?? undefined,
+    shiftId: user.shiftId ?? undefined,
     employmentType: user.employmentType,
     workMode: user.workMode ?? 'ONSITE',
     managerId: user.currentManager?.userId ?? undefined,
   });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [] });
+  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -328,7 +395,8 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
       orgApi.listDesignations(token),
       orgApi.listLocations(token),
       employeesApi.potentialManagers(token),
-    ]).then(([d, des, l, m]) => setOpts({ departments: d, designations: des, locations: l, managers: m }));
+      orgApi.listShifts(token),
+    ]).then(([d, des, l, m, sh]) => setOpts({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
   }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -412,6 +480,17 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
                   <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>
                 ))}
               </select>
+            </Field>
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Shift">
+              <ShiftSelect
+                shifts={opts.shifts}
+                value={form.shiftId}
+                onChange={id => setForm(f => ({ ...f, shiftId: id }))}
+                onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
+                token={token}
+              />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

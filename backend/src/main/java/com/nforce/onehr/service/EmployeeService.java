@@ -146,14 +146,21 @@ public class EmployeeService {
         return toResponse(emp, findCurrentManager(userId), emp.getUser(), null);
     }
 
+    /**
+     * Department/designation/location are captured by name/title, not id — the audit detail
+     * popup shows these snapshots verbatim, and a raw UUID means nothing to a reader. Naming it
+     * at the time of the edit (rather than resolving the id at read time) also means the audit
+     * trail keeps showing what it actually was even if that department/designation/location is
+     * later renamed or deleted.
+     */
     private Map<String, Object> employeeSnapshot(Employee emp) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("fullName", emp.getFullName());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
-        snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
-        snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
-        snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
+        snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
+        snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
+        snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
         return snapshot;
     }
 

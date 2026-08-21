@@ -23,7 +23,11 @@ public enum AuditActionGroup {
 
     public static AuditActionGroup of(String action) {
         if (action == null) return OTHER;
-        if (action.startsWith("EMPLOYEE_")) return EMPLOYEE;
+        // USER_UPDATED is an Employee Management action (see AuditActionCategory), not
+        // access-control, so it's carved out of the generic USER_ prefix check below.
+        // USER_CREATED is NOT carved out — creating a user account is Super-Admin-only and
+        // correctly falls through to the ACCESS group via that same prefix check.
+        if (action.startsWith("EMPLOYEE_") || action.equals("USER_UPDATED")) return EMPLOYEE;
         if (action.startsWith("ATTENDANCE_") || action.startsWith("WEB_CLOCK_IN")
                 || action.startsWith("WEB_CLOCK_OUT") || action.startsWith("REGULARIZATION_")) return ATTENDANCE;
         if (action.startsWith("LEAVE_")) return LEAVE;

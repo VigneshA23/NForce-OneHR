@@ -32,6 +32,7 @@ public class UserManagementService {
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
+    private final ShiftRepository shiftRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -81,6 +82,8 @@ public class UserManagementService {
             emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
         if (req.getLocationId() != null)
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        if (req.getShiftId() != null)
+            emp.setShift(shiftRepository.findById(req.getShiftId()).orElse(null));
 
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
@@ -188,6 +191,15 @@ public class UserManagementService {
                 forceLogoutRequired = true;
             }
         }
+        if (req.getShiftId() != null) {
+            Shift newShift = shiftRepository.findById(req.getShiftId()).orElse(null);
+            UUID currentShiftId = emp.getShift() != null ? emp.getShift().getId() : null;
+            UUID newShiftId = newShift != null ? newShift.getId() : null;
+            if (!Objects.equals(currentShiftId, newShiftId)) {
+                emp.setShift(newShift);
+                forceLogoutRequired = true;
+            }
+        }
 
         // Role change
         if (req.getRole() != null && !req.getRole().isBlank()) {
@@ -277,19 +289,36 @@ public class UserManagementService {
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 
-    /** Role and manager are the two fields most worth diffing here — everything else mirrors EmployeeService. */
+    /**
+     * Role and manager are the two fields most worth diffing here — everything else mirrors
+     * EmployeeService. Department/designation/location/manager are captured by name, not id —
+     * the audit detail popup shows these snapshots verbatim, and a raw UUID means nothing to a
+     * reader. Naming it at the time of the edit (rather than resolving the id at read time) also
+     * means the audit trail keeps showing what it actually was even if that department/
+     * designation/location/manager is later renamed, reassigned, or deleted.
+     */
     private Map<String, Object> userSnapshot(Employee emp, User user) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("fullName", emp.getFullName());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
-        snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
-        snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
-        snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
+        snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
+        snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
+        snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
+        snapshot.put("shift", emp.getShift() != null ? emp.getShift().getName() : null);
         snapshot.put("role", RoleUtils.primaryRoleCode(user.getRoles(), null));
-        snapshot.put("managerId", historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
-                .map(EmployeeManagerHistory::getManagerUserId).orElse(null));
+        UUID managerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
+                .map(EmployeeManagerHistory::getManagerUserId).orElse(null);
+        snapshot.put("manager", resolveEmployeeName(managerId));
         return snapshot;
+    }
+
+    /** Best-effort display name for a user id — employee's full name, falling back to email, null if no id. */
+    private String resolveEmployeeName(UUID userId) {
+        if (userId == null) return null;
+        return employeeRepository.findById(userId)
+                .map(Employee::getFullName)
+                .orElseGet(() -> userRepository.findById(userId).map(User::getEmail).orElse(null));
     }
 
     /** Super Admin: generate new temp password, set must_change_password = true. */
@@ -419,6 +448,8 @@ public class UserManagementService {
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                 .locationId(emp.getLocation() != null ? emp.getLocation().getId().toString() : null)
                 .locationName(emp.getLocation() != null ? emp.getLocation().getName() : null)
+                .shiftId(emp.getShift() != null ? emp.getShift().getId().toString() : null)
+                .shiftName(emp.getShift() != null ? emp.getShift().getName() : null)
                 .employmentType(emp.getEmploymentType())
                 .workMode(emp.getWorkMode())
                 .joiningDate(emp.getJoiningDate())

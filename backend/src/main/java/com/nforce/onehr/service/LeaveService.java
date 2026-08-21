@@ -200,12 +200,24 @@ public class LeaveService {
                 .collect(Collectors.toList());
     }
 
-    /** Reporting manager sees only own reports' pending requests; HR Admin/Super Admin see all. */
+    /**
+     * Reporting manager sees only own reports' pending requests; HR Admin/Super Admin see all —
+     * EXCEPT a Super Admin's own leave request, which is deliberately excluded from this blanket
+     * override view unless the caller is that request's specific routed approver (see
+     * {@link #resolveSuperAdminApprover}). Without that exclusion, every HR Admin and every other
+     * Super Admin in the org would see (and, per {@link #requireAuthorizedApprover}, still not be
+     * able to decide on) a Super Admin's leave purely by holding an override role — this is the
+     * "HR_ADMIN must never receive a SUPER_ADMIN's Leave Request merely because the requester has
+     * the SUPER_ADMIN role" rule. A manager who is NOT also HR Admin/Super Admin still sees a
+     * Super Admin direct report's request via the branch below exactly as before — that branch is
+     * already scoped to actual direct reports, which is precisely who this routing routes to.
+     */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
         if (hasOverrideRole(actor)) {
             return leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+                    .filter(r -> isVisibleToOverrideActor(r, actor))
                     .map(this::toRequestResponse)
                     .collect(Collectors.toList());
         }
@@ -218,6 +230,11 @@ public class LeaveService {
         return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING").stream()
                 .map(this::toRequestResponse)
                 .collect(Collectors.toList());
+    }
+
+    private boolean isVisibleToOverrideActor(LeaveRequest request, User actor) {
+        UUID superAdminApprover = resolveSuperAdminApprover(request.getEmployeeUserId());
+        return superAdminApprover == null || superAdminApprover.equals(actor.getId());
     }
 
     /**
@@ -284,7 +301,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor, request.getEmployeeUserId());
+        requireAuthorizedApprover(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -323,7 +340,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor, request.getEmployeeUserId());
+        requireAuthorizedApprover(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -343,22 +360,35 @@ public class LeaveService {
     }
 
     /**
-     * Notifies the employee's current reporting manager only — mirrors RegularizationService's
-     * and AssetService's submission notifications, which deliberately notify just the resolved
+     * Notifies whoever this request actually routes to — mirrors RegularizationService's and
+     * AssetService's submission notifications, which deliberately notify just the resolved
      * approver rather than broadcasting to every HR Admin/Super Admin: those roles already have
      * blanket queue visibility (see {@link #listPendingApprovals}), so a per-request notification
      * to every admin in the org would be exactly the "blindly notify every user" pattern the
-     * project avoids elsewhere. No-op if the employee has no manager on file. Reuses
-     * {@link NotificationService#send} as-is — no new notification model/queue/delivery mechanism.
+     * project avoids elsewhere.
+     * <p>
+     * For a Super Admin's own request, routing is fully overridden by
+     * {@link #resolveSuperAdminApprover} — their current reporting manager if they have one, else
+     * the Super Admin themselves (the one intentional exception to "never notify the employee
+     * about their own submission": in the no-manager fallback they ARE the approver, so they need
+     * to know a decision is theirs to make). Everyone else keeps the pre-existing behavior: notify
+     * the current reporting manager, no-op if there is none. Reuses {@link NotificationService#send}
+     * as-is — no new notification model/queue/delivery mechanism.
      */
     private void notifySubmission(LeaveRequest request, LeaveType type, User actor) {
-        historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId())
-                .map(EmployeeManagerHistory::getManagerUserId)
-                .ifPresent(managerId -> notificationService.send(managerId, "LEAVE_REQUEST_SUBMITTED", "New Leave Request",
-                        employeeName(actor.getId()) + " has submitted a " + type.getName() + " request from "
-                                + request.getStartDate().format(NOTIFICATION_DATE_FMT) + " to "
-                                + request.getEndDate().format(NOTIFICATION_DATE_FMT) + " (" + dayLabel(request.getTotalDays()) + ").",
-                        APPROVALS_LINK));
+        UUID superAdminApprover = resolveSuperAdminApprover(actor.getId());
+        UUID recipient = superAdminApprover != null
+                ? superAdminApprover
+                : historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId())
+                        .map(EmployeeManagerHistory::getManagerUserId)
+                        .orElse(null);
+        if (recipient == null) return;
+
+        notificationService.send(recipient, "LEAVE_REQUEST_SUBMITTED", "New Leave Request",
+                employeeName(actor.getId()) + " has submitted a " + type.getName() + " request from "
+                        + request.getStartDate().format(NOTIFICATION_DATE_FMT) + " to "
+                        + request.getEndDate().format(NOTIFICATION_DATE_FMT) + " (" + dayLabel(request.getTotalDays()) + ").",
+                APPROVALS_LINK);
     }
 
     /**
@@ -386,6 +416,26 @@ public class LeaveService {
     }
 
     /**
+     * Approve/reject authorization gate. For a Super Admin's own request, routing is fully
+     * overridden by {@link #resolveSuperAdminApprover} — the acting user must be exactly that
+     * routed approver; holding HR_ADMIN/SUPER_ADMIN does NOT grant the usual bypass (see
+     * {@link #requireCurrentManagerOf}) the way it does for every other employee's request. This
+     * is what stops an unrelated HR Admin (or another Super Admin) from deciding on a Super
+     * Admin's leave merely by holding an override role. Everyone else's authorization is
+     * completely unchanged.
+     */
+    private void requireAuthorizedApprover(User actor, UUID employeeId) {
+        UUID superAdminApprover = resolveSuperAdminApprover(employeeId);
+        if (superAdminApprover != null) {
+            if (!superAdminApprover.equals(actor.getId())) {
+                throw new AccessDeniedException("You are not authorized to decide on this leave request");
+            }
+            return;
+        }
+        requireCurrentManagerOf(actor, employeeId);
+    }
+
+    /**
      * Backend enforcement gate for approve/reject: HR Admin/Super Admin may decide on any
      * employee's leave regardless of reporting line; everyone else must be the employee's
      * current reporting manager. Employee-level (and any other non-manager, non-override) users
@@ -402,6 +452,36 @@ public class LeaveService {
 
     private boolean hasOverrideRole(User actor) {
         return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
+    }
+
+    /**
+     * The ONE routing decision reused by the approval queue ({@link #isVisibleToOverrideActor}),
+     * approval authorization ({@link #requireAuthorizedApprover}), and the submission
+     * notification ({@link #notifySubmission}) — so those three can never disagree about who a
+     * Super Admin's own leave request routes to.
+     * <p>
+     * A Super Admin's leave is deliberately NOT covered by the blanket HR_ADMIN/SUPER_ADMIN
+     * override that every other employee's request is subject to (see {@link #hasOverrideRole}):
+     * it routes to the Super Admin's own current reporting manager, or back to the Super Admin
+     * themselves if they have none. "None" already covers an inactive/removed manager the same
+     * way the rest of this codebase does — {@code findByEmployeeUserIdAndEffectiveToIsNull} only
+     * ever returns a row for the CURRENT manager relationship, so a lapsed one is indistinguishable
+     * from never having had one; no separate fallback is invented for that case.
+     *
+     * @return the routed approver's user id, or {@code null} if {@code employeeId} does not hold
+     *         SUPER_ADMIN — meaning this override does not apply and the normal manager/override
+     *         rules (unchanged) govern the request instead.
+     */
+    private UUID resolveSuperAdminApprover(UUID employeeId) {
+        User employee = userRepository.findById(employeeId).orElse(null);
+        if (employee == null || !hasRole(employee, "SUPER_ADMIN")) return null;
+        return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
+                .map(EmployeeManagerHistory::getManagerUserId)
+                .orElse(employeeId);
+    }
+
+    private boolean hasRole(User user, String roleCode) {
+        return user.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
     }
 
     private User requireActor(String email) {

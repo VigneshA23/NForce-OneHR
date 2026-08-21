@@ -12,6 +12,7 @@ public class UpdateUserRequest {
     private UUID departmentId;
     private UUID designationId;
     private UUID locationId;
+    private UUID shiftId;
     private String employmentType;
     private String workMode;
     private UUID managerId;

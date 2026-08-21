@@ -31,6 +31,7 @@ public class CreateUserRequest {
     private String employeeCode;
     private UUID departmentId;
     private UUID designationId;
+    private UUID shiftId;
 
     @NotNull
     private UUID locationId;

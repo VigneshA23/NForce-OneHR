@@ -26,6 +26,8 @@ export interface EmployeeRecord {
   designationName: string | null;
   locationId: string | null;
   locationName: string | null;
+  shiftId: string | null;
+  shiftName: string | null;
   employmentType: string;
   workMode: string;
   joiningDate: string;
@@ -41,6 +43,7 @@ export interface CreateEmployeePayload {
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
   joiningDate: string;
@@ -52,6 +55,7 @@ export interface UpdateEmployeePayload {
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
 }
@@ -66,6 +70,7 @@ export interface UpdateUserPayload {
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
   managerId?: string;

@@ -99,7 +99,7 @@ class AttendanceRequestServiceTest {
         // rejected outright, not left for the approver to judge.
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 3), employeeEmail));
-        assertTrue(ex.getMessage().contains("120 minutes"));
+        assertTrue(ex.getMessage().contains("not allowed to raise a request for more than 120 minutes"));
     }
 
     @Test

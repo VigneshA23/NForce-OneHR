@@ -1226,7 +1226,7 @@ function RosterTable({ rows, loading, emptyMessage }: {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Employee ID', 'Name', 'Check In', 'Check Out', 'Hours', 'Status', 'Source'].map((h) => (
+                {['Employee ID', 'Name', 'Check In', 'Check Out', 'Timezone', 'Hours', 'Status', 'Source'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -1238,6 +1238,11 @@ function RosterTable({ rows, loading, emptyMessage }: {
                   <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
                   <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
                   <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
+                  {/* r.timezone is this employee's OWN effective timezone (locked in at their
+                      check-in), not the viewer's — shown explicitly so an HR/Admin/Manager
+                      viewing someone in a different timezone always knows which zone the Check
+                      In/Out times above belong to. */}
+                  <td style={{ ...tdStyle, fontSize: 11.5, color: 'var(--txt-dim)' }}>{r.timezone ?? dash}</td>
                   <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
                   <td style={tdStyle}><StatusPill status={r.status} /></td>
                   <td style={tdStyle}><SourceTag source={r.source} /></td>
@@ -2236,10 +2241,12 @@ function CheckInAction({ actionStyle, today, loading, submitting, onCheckIn, onC
 /**
  * Distinct from the one-click Check-in above: for an ad-hoc remote/WFH day where the employee
  * wants to record why they're checking in off-site (mirrors Keka's Web Clock-In request, which
- * requires a reason). Enabled under the exact same condition as Check-in (today.canCheckIn) and,
- * once submitted, refreshes the same shared `today` — so either button immediately reflects in
- * the other, and checkout (handled solely by CheckInAction's toggle above) works no matter which
- * one opened the day.
+ * requires a reason). Web Clock-In is independent of the normal Check-In/Check-Out session (see
+ * WebClockInService's own class Javadoc) — it stays enabled regardless of today.canCheckIn/
+ * canCheckOut, and is only disabled while a Web session is already open (mirrors the backend's
+ * own "already checked in" guard in WebClockInService.submit). Once submitted, refreshes the same
+ * shared `today` — so either button immediately reflects in the other, and checkout (handled
+ * solely by CheckInAction's toggle above) works no matter which one opened the day.
  */
 function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   token: string;
@@ -2257,15 +2264,20 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   // for every later cycle the same day/shift so the employee is only asked once. Mirrors
   // AttendanceHeroBanner's WebClockInRow.
   const [reusableReason, setReusableReason] = useState<string | null>(null);
+  // Whether a Web session is currently open (PENDING/APPROVED, not yet checked out) — the only
+  // thing that should block a fresh Web Clock-In, independent of the normal session's own state.
+  const [webOpen, setWebOpen] = useState(false);
 
   useEffect(() => {
     webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
       const todayIso = todayIsoDate();
-      setReusableReason(list.find(r => r.workDate === todayIso)?.reason ?? null);
-    }).catch(() => setReusableReason(null));
+      const todays = list.filter(r => r.workDate === todayIso);
+      setReusableReason(todays[0]?.reason ?? null);
+      setWebOpen(todays.some(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt));
+    }).catch(() => { setReusableReason(null); setWebOpen(false); });
   }, [token, today]);
 
-  const disabled = loading || !today?.canCheckIn;
+  const disabled = loading || webOpen;
 
   async function submitReason(trimmed: string) {
     setBusy(true);
@@ -4524,7 +4536,7 @@ function AttendancePageInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+      <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
         <div>
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
@@ -4532,14 +4544,17 @@ function AttendancePageInner() {
           }}>My Attendance</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="nf-attendance-actions" style={{ display: 'flex', gap: 10 }}>
           <button
+            className="nf-attendance-action-btn"
             onClick={() => myAttendanceRef.current?.exportMonth()}
             style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
-            <Download size={14} /> Export selected month
+            <Download className="nf-attendance-action-icon" size={14} />
+            <span className="nf-attendance-action-label">Export selected month</span>
           </button>
           <button
+            className="nf-attendance-action-btn"
             onClick={() => {
               if (logsTab === 'ATTENDANCE_REQUESTS' && requestsSubTab === 'REGULARIZATION') {
                 regularizationRef.current?.openNewRequest();
@@ -4551,7 +4566,8 @@ function AttendancePageInner() {
             }}
             style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
-            <CalendarPlus size={14} /> Request Regularization
+            <CalendarPlus className="nf-attendance-action-icon" size={14} />
+            <span className="nf-attendance-action-label">Request Regularization</span>
           </button>
         </div>
       </div>
