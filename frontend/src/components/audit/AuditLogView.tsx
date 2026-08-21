@@ -22,6 +22,30 @@ function formatTimestampForExport(iso: string): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
+// Every *_REJECTED action's `afterState` snapshot carries the reviewer's rejection reason, but
+// under a different key per module (see each service's `auditSnapshot.toJson(...)` call) — no
+// single field name is shared across all of them. Try every known key rather than pick one.
+// Gated on the action itself ending in "REJECTED" (not just "does this key happen to exist") —
+// WEB_CLOCK_IN_APPROVED's own snapshot also carries a "reviewComment" (an optional approval
+// note), which would otherwise leak into this column for an approved row.
+const REJECTION_REASON_KEYS = [
+  'reviewComment', 'decisionReason', 'rejectionReason', 'managerRejectionReason', 'finalRejectionReason',
+] as const;
+
+function extractRejectionReason(action: string, afterState: string | null): string {
+  if (!action.endsWith('REJECTED') || !afterState) return '';
+  try {
+    const parsed = JSON.parse(afterState) as Record<string, unknown>;
+    for (const key of REJECTION_REASON_KEYS) {
+      const value = parsed[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+  } catch {
+    // afterState wasn't parseable JSON — leave the reason blank rather than fail the export.
+  }
+  return '';
+}
+
 export interface AuditLogViewConfig {
   title: string;
   subtitle: string;
@@ -92,6 +116,8 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
         'Category': r.actionCategory,
         'Affected User': r.targetLabel,
         'Affected User ID': r.targetEmployeeCode ?? '',
+        // Populated only for *_REJECTED actions; blank for approvals and everything else.
+        'Reason': extractRejectionReason(r.action, r.afterState),
       }));
       const ws = XLSX.utils.json_to_sheet(sheetRows);
       const wb = XLSX.utils.book_new();

@@ -477,4 +477,188 @@ class WebClockInServiceTest {
         verify(attendanceRepository).save(argThat(a ->
                 "LATE".equals(a.getStatus()) && a.getLateByMinutes() != null && a.getLateByMinutes() > 200));
     }
+
+    /**
+     * The actual reported bug: an employee Web Clock-Out then Web Clock-In again the same shift
+     * BEFORE HR has reviewed the first (still-PENDING) request. The second cycle must mirror that
+     * first request's PENDING status — not spawn an independent second PENDING request — and must
+     * NOT re-notify the approver, since one real decision is already awaiting review.
+     */
+    @Test
+    void submit_secondCycle_whileFirstRequestStillPending_mirrorsPendingStatus_withoutRenotifyingApprover() {
+        String employeeEmail = "employee@test.com";
+        lenient().when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser(employeeEmail)));
+        com.nforce.onehr.entity.EmployeeManagerHistory history = com.nforce.onehr.entity.EmployeeManagerHistory.builder()
+                .managerUserId(hrAdminId).build();
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.of(history));
+
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        WebClockInRequest firstCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .assignedApproverId(hrAdminId)
+                .workDate(today)
+                .requestedCheckIn(LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusHours(3))
+                .reason("First remote cycle")
+                .status("PENDING")
+                .checkedOutAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusHours(1))
+                .build();
+        when(webClockInRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(eq(employeeId), any()))
+                .thenReturn(List.of(firstCycle));
+        // Already checked out (see firstCycle.checkedOutAt above), so no open-session guard fires.
+        lenient().when(webClockInRepository.findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
+                .thenReturn(Optional.of(Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                        .workDate(today).checkInAt(firstCycle.getRequestedCheckIn()).status("PRESENT").build()));
+
+        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Back again").timezone("Asia/Kolkata").build();
+
+        WebClockInResponse resp = service.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertNull(resp.getReviewedAt(), "mirrored PENDING cycle must not look reviewed");
+        verify(notificationService, never()).send(eq(hrAdminId), eq("WEB_CLOCK_IN_SUBMITTED"), any(), any(), any());
+    }
+
+    /** Once the first request is APPROVED, a later cycle mirrors APPROVED and needs no reason-review round trip. */
+    @Test
+    void submit_secondCycle_afterFirstRequestApproved_autoApproves_withoutRenotifyingApprover() {
+        String employeeEmail = "employee@test.com";
+        lenient().when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser(employeeEmail)));
+        com.nforce.onehr.entity.EmployeeManagerHistory history = com.nforce.onehr.entity.EmployeeManagerHistory.builder()
+                .managerUserId(hrAdminId).build();
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.of(history));
+
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        WebClockInRequest firstCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .assignedApproverId(hrAdminId)
+                .workDate(today)
+                .requestedCheckIn(LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusHours(3))
+                .reason("First remote cycle")
+                .status("APPROVED")
+                .reviewedBy(hrAdminId)
+                .checkedOutAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusHours(1))
+                .build();
+        when(webClockInRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(eq(employeeId), any()))
+                .thenReturn(List.of(firstCycle));
+        lenient().when(webClockInRepository.findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
+                .thenReturn(Optional.of(Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                        .workDate(today).checkInAt(firstCycle.getRequestedCheckIn()).status("PRESENT").build()));
+
+        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Back again").timezone("Asia/Kolkata").build();
+
+        WebClockInResponse resp = service.submit(req, employeeEmail);
+
+        assertEquals("APPROVED", resp.getStatus());
+        verify(notificationService, never()).send(eq(hrAdminId), eq("WEB_CLOCK_IN_SUBMITTED"), any(), any(), any());
+    }
+
+    /**
+     * A REJECTED first request does NOT count as "already requested this shift" — a genuinely
+     * fresh reason + review is required, matching the existing frontend "Resubmit" flow.
+     */
+    @Test
+    void submit_afterFirstRequestRejected_startsAFreshPendingRequest_andNotifiesApprover() {
+        String employeeEmail = "employee@test.com";
+        lenient().when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser(employeeEmail)));
+        com.nforce.onehr.entity.EmployeeManagerHistory history = com.nforce.onehr.entity.EmployeeManagerHistory.builder()
+                .managerUserId(hrAdminId).build();
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.of(history));
+
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        WebClockInRequest rejectedCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .assignedApproverId(hrAdminId)
+                .workDate(today)
+                .requestedCheckIn(LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusHours(3))
+                .reason("Rejected cycle")
+                .status("REJECTED")
+                .checkedOutAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusHours(1))
+                .build();
+        when(webClockInRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(eq(employeeId), any()))
+                .thenReturn(List.of(rejectedCycle));
+        lenient().when(webClockInRepository.findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId))
+                .thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
+                .thenReturn(Optional.of(Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                        .workDate(today).checkInAt(rejectedCycle.getRequestedCheckIn()).status("PRESENT").build()));
+
+        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Resubmitting").timezone("Asia/Kolkata").build();
+
+        WebClockInResponse resp = service.submit(req, employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(notificationService, times(1)).send(eq(hrAdminId), eq("WEB_CLOCK_IN_SUBMITTED"), any(), any(), any());
+    }
+
+    /** approve() must resolve every sibling PENDING cycle for the same employee+workDate, not just the one id reviewed. */
+    @Test
+    void approve_cascadesToSiblingPendingCyclesForTheSameEmployeeAndWorkDate() {
+        LocalDate workDate = LocalDate.of(2026, 8, 10);
+        WebClockInRequest firstCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).assignedApproverId(hrAdminId)
+                .workDate(workDate).requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(9, 0)))
+                .reason("First").status("PENDING").build();
+        WebClockInRequest secondCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).assignedApproverId(hrAdminId)
+                .workDate(workDate).requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(14, 0)))
+                .reason("Second").status("PENDING").build();
+        when(webClockInRepository.findById(firstCycle.getId())).thenReturn(Optional.of(firstCycle));
+        when(webClockInRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(employeeId, workDate))
+                .thenReturn(List.of(firstCycle, secondCycle));
+
+        service.approve(firstCycle.getId(), "ok", hrAdminEmail);
+
+        assertEquals("APPROVED", firstCycle.getStatus());
+        assertEquals("APPROVED", secondCycle.getStatus());
+        assertEquals(hrAdminId, secondCycle.getReviewedBy());
+    }
+
+    /** reject() must likewise resolve every sibling PENDING cycle, not leave them stuck PENDING forever. */
+    @Test
+    void reject_cascadesToSiblingPendingCyclesForTheSameEmployeeAndWorkDate() {
+        LocalDate workDate = LocalDate.of(2026, 8, 10);
+        WebClockInRequest firstCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).assignedApproverId(hrAdminId)
+                .workDate(workDate).requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(9, 0)))
+                .reason("First").status("PENDING").build();
+        WebClockInRequest secondCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).assignedApproverId(hrAdminId)
+                .workDate(workDate).requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(14, 0)))
+                .reason("Second").status("PENDING").build();
+        when(webClockInRepository.findById(firstCycle.getId())).thenReturn(Optional.of(firstCycle));
+        when(webClockInRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(employeeId, workDate))
+                .thenReturn(List.of(firstCycle, secondCycle));
+
+        service.reject(firstCycle.getId(), "no", hrAdminEmail);
+
+        assertEquals("REJECTED", firstCycle.getStatus());
+        assertEquals("REJECTED", secondCycle.getStatus());
+    }
+
+    /** The approver's queue must show one item per employee+workDate, not one per mirrored cycle. */
+    @Test
+    void listPendingForApprover_dedupesMultipleCyclesForTheSameEmployeeAndWorkDate() {
+        LocalDate workDate = LocalDate.of(2026, 8, 10);
+        WebClockInRequest firstCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).assignedApproverId(hrAdminId)
+                .workDate(workDate).requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(9, 0)))
+                .reason("First").status("PENDING").build();
+        WebClockInRequest secondCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).assignedApproverId(hrAdminId)
+                .workDate(workDate).requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(14, 0)))
+                .reason("Second").status("PENDING").build();
+        when(webClockInRepository.findByStatus("PENDING")).thenReturn(List.of(firstCycle, secondCycle));
+
+        List<WebClockInResponse> pending = service.listPendingForApprover(hrAdminEmail);
+
+        assertEquals(1, pending.size());
+        assertEquals(firstCycle.getId(), pending.get(0).getId());
+    }
 }

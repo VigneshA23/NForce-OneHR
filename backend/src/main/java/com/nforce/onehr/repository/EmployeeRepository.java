@@ -31,13 +31,13 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
          + "LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
     List<Employee> findAllByIdWithScheduleDetails(@Param("ids") Collection<UUID> ids);
 
-    boolean existsByEmployeeCode(String employeeCode);
-
     // Backs the shift/weekly-off import (ONEHR-108) — rows are addressed by employee code, not id.
     Optional<Employee> findByEmployeeCode(String employeeCode);
 
-    @Query(value = "SELECT employee_code FROM employees WHERE employee_code ~ '^NF-[0-9]{4}-[0-9]+$' ORDER BY CAST(SPLIT_PART(employee_code, '-', 3) AS INTEGER) DESC LIMIT 1", nativeQuery = true)
-    Optional<String> findMaxNumericEmployeeCode();
+    // Backs EmployeeCodeGenerator#claim's availability check for a manually-entered Employee
+    // ID — the employees.employee_code UNIQUE constraint is still the final backstop against a
+    // race between two such checks.
+    boolean existsByEmployeeCode(String employeeCode);
 
     // Scoped to a non-deleted user: several test emails in this dataset have been
     // re-registered after a soft delete (same email, new user row), and an unscoped

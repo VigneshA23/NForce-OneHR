@@ -49,9 +49,9 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class LeaveServiceTest {
 
-    // Mirrors LeaveService.SAME_DAY_BLOCKING_STATUSES — kept as a separate constant here since
+    // Mirrors LeaveService.OVERLAP_BLOCKING_STATUSES — kept as a separate constant here since
     // that one is private to the service.
-    private static final Set<String> SAME_DAY_BLOCKING_STATUSES_FOR_TEST = Set.of("PENDING", "APPROVED");
+    private static final Set<String> OVERLAP_BLOCKING_STATUSES_FOR_TEST = Set.of("PENDING", "APPROVED");
 
     @Mock private UserRepository userRepository;
     @Mock private EmployeeRepository employeeRepository;
@@ -354,7 +354,7 @@ class LeaveServiceTest {
         assertEquals("Leave request exceeds your available Annual Leave balance of 0 days.", ex.getMessage());
     }
 
-    // ── Previous-date and same-day duplicate restrictions ───────────────────────────────────
+    // ── Previous-date and overlapping-request restrictions ─────────────────────────────────
 
     @Test
     void submitRequest_startDateInThePast_isRejected() {
@@ -376,7 +376,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
         // existsBy...(PENDING, APPROVED) is unstubbed here -> defaults to false, i.e. no
-        // existing request for today.
+        // existing overlapping request.
 
         LocalDate today = LocalDate.now();
         LeaveRequestResponse resp = leaveService.submitRequest(request(today, today, false, "Same day"), employeeEmail);
@@ -390,12 +390,12 @@ class LeaveServiceTest {
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         LocalDate today = LocalDate.now();
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        eq(employeeId), eq(SAME_DAY_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
                 .thenReturn(true);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(today, today, false, "Second request today"), employeeEmail));
-        assertEquals("You already have a pending or approved leave request for today", ex.getMessage());
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
 
@@ -408,12 +408,12 @@ class LeaveServiceTest {
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         LocalDate today = LocalDate.now();
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        eq(employeeId), eq(SAME_DAY_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
                 .thenReturn(true);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(today, today, false, "Second request today"), employeeEmail));
-        assertEquals("You already have a pending or approved leave request for today", ex.getMessage());
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
 
@@ -436,8 +436,9 @@ class LeaveServiceTest {
 
     @Test
     void submitRequest_futureDate_existingBalanceAndDayCountBehaviorIsUnaffected() {
-        // Future dates never pass through either new guard (isBefore(today) is false, and
-        // isEqual(today) is false) — this only re-confirms the pre-existing behavior still holds.
+        // The overlap check now runs unconditionally (no more "only if start == today" gate) —
+        // this confirms a future, non-overlapping request is still allowed and that the overlap
+        // query IS invoked (with the new request's own range), not skipped.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
@@ -445,12 +446,372 @@ class LeaveServiceTest {
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         LocalDate start = LocalDate.now().plusDays(10);
-        LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(1), false, "Future trip"), employeeEmail);
+        LocalDate end = start.plusDays(1);
+        LeaveRequestResponse resp = leaveService.submitRequest(request(start, end, false, "Future trip"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
         assertEquals(new BigDecimal("2"), resp.getTotalDays());
-        verify(leaveRequestRepository, never())
-                .existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(any(), any(), any(), any());
+        verify(leaveRequestRepository).existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(end), eq(start));
+    }
+
+    // ── Overlap guard: regression coverage for arbitrary (not just same-day) date ranges ────
+
+    @Test
+    void submitRequest_singleDay_overlapsExistingPendingSingleDay_isRejected() {
+        // Existing: day0 -> day0 | PENDING. New: day0 -> day0. Neither date is "today" — the
+        // guard must fire purely on overlap, not on any relation to today.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day0 = LocalDate.now().plusDays(30);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day0), eq(day0)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day0, day0, false, "Same day, future"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_singleDay_overlapsExistingApprovedSingleDay_isRejected() {
+        // Existing: day0 -> day0 | APPROVED. New: day0 -> day0.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day0 = LocalDate.now().plusDays(30);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day0), eq(day0)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day0, day0, false, "Same day, future"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_singleDay_overlapsOnlyExistingRejectedSingleDay_isAllowed() {
+        // Existing: day0 -> day0 | REJECTED. New: day0 -> day0. REJECTED never blocks — the
+        // repository call only ever matches PENDING/APPROVED, so it correctly returns false
+        // (default, left unstubbed) here.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate day0 = LocalDate.now().plusDays(30);
+        LeaveRequestResponse resp = leaveService.submitRequest(request(day0, day0, false, "Retry after rejection"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submitRequest_futureOverlappingPendingRequest_isRejected() {
+        // Existing: day0 -> day2 | PENDING. New: day1 -> day3 (partial overlap, both future).
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day1 = LocalDate.now().plusDays(31);
+        LocalDate day3 = day1.plusDays(2);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day3), eq(day1)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day1, day3, false, "Overlaps an existing pending range"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_futureOverlappingRejectedRequest_isAllowed() {
+        // Existing: day0 -> day2 | REJECTED. New: day1 -> day3 (same range as the PENDING case
+        // above, but the existing request is REJECTED) — must be allowed.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate day1 = LocalDate.now().plusDays(31);
+        LocalDate day3 = day1.plusDays(2);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request(day1, day3, false, "Prior overlapping request was rejected"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submitRequest_nonOverlappingFutureRequest_isAllowed() {
+        // Existing: day0 -> day2 | PENDING. New: day3 -> day5 — back-to-back but not overlapping
+        // (existing ends day2, new starts day3), so it must be allowed. existsBy... is unstubbed
+        // for this exact (day5, day3) argument pair -> defaults to false.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate day3 = LocalDate.now().plusDays(33);
+        LocalDate day5 = day3.plusDays(2);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request(day3, day5, false, "Starts right after the existing request ends"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submitRequest_overlappingRequestBelongsToAnotherEmployee_isAllowed() {
+        // The overlap check is always scoped by actor.getId() (see LeaveService#submitRequest) —
+        // a different employee ("Employee A", represented here by managerId) having an
+        // overlapping PENDING/APPROVED request for the exact same dates can never affect this
+        // employee's own submission, because the query is only ever run against actor.getId()
+        // (employeeId here), never against any other employee's id.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate day0 = LocalDate.now().plusDays(30);
+        // Explicitly false for THIS employee's id — "Employee A" having a same-dates overlap is
+        // irrelevant since production code never queries by any id other than actor.getId().
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day0), eq(day0)))
+                .thenReturn(false);
+
+        LeaveRequestResponse resp = leaveService.submitRequest(request(day0, day0, false, "My own request"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(leaveRequestRepository).existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day0), eq(day0));
+        verify(leaveRequestRepository, never()).existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                eq(managerId), any(), any(), any());
+    }
+
+    @Test
+    void submitRequest_multiDayRequest_overlapsExistingOnlyOnALaterDay_isRejected() {
+        // Existing: day3 -> day3 | PENDING (a single day that falls in the MIDDLE of the new
+        // request's range, not on its start date). New: day0 -> day5. The new request's start
+        // date (day0) doesn't itself collide with anything, so this only passes if the guard
+        // checks the new request's FULL range rather than just its start date.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day0 = LocalDate.now().plusDays(30);
+        LocalDate day5 = day0.plusDays(5);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day5), eq(day0)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day0, day5, false, "Long trip"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_overlapQuery_isCalledWithTheNewRequestsOwnDateRange() {
+        // Explicitly pins down the exact arguments passed to the repository: startDateAtOrBefore
+        // must be the NEW request's end date and endDateAtOrAfter must be the NEW request's start
+        // date — never "today" and never the existing request's own range.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate newStart = LocalDate.now().plusDays(40);
+        LocalDate newEnd = newStart.plusDays(4);
+        leaveService.submitRequest(request(newStart, newEnd, false, "Check exact overlap params"), employeeEmail);
+
+        ArgumentCaptor<LocalDate> startDateAtOrBefore = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> endDateAtOrAfter = ArgumentCaptor.forClass(LocalDate.class);
+        verify(leaveRequestRepository).existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), startDateAtOrBefore.capture(), endDateAtOrAfter.capture());
+        assertEquals(newEnd, startDateAtOrBefore.getValue());
+        assertEquals(newStart, endDateAtOrAfter.getValue());
+    }
+
+    @Test
+    void submitRequest_multiDayApprovedOverlap_isRejected() {
+        // Existing: day0 -> day2 | APPROVED. New: day1 -> day3 (partial overlap) — same shape as
+        // the multi-day PENDING case above, explicitly proving APPROVED blocks too (not just
+        // PENDING), for a multi-day (not single-day) range.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day1 = LocalDate.now().plusDays(50);
+        LocalDate day3 = day1.plusDays(2);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day3), eq(day1)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day1, day3, false, "Overlaps an existing approved range"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_newRequestStartsBeforeExistingRange_isRejected() {
+        // Existing: day2 -> day4 | PENDING. New: day0 -> day3 — starts BEFORE the existing range
+        // and overlaps into it (new.end falls inside [existing.start, existing.end]).
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day0 = LocalDate.now().plusDays(51);
+        LocalDate day3 = day0.plusDays(3);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day3), eq(day0)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day0, day3, false, "Starts before an existing pending range"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_newRequestCompletelyContainsExistingRange_isRejected() {
+        // Existing: day2 -> day4 | PENDING (smaller). New: day0 -> day6 — larger, fully
+        // containing the existing range on both ends.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day0 = LocalDate.now().plusDays(52);
+        LocalDate day6 = day0.plusDays(6);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day6), eq(day0)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day0, day6, false, "Fully contains an existing pending range"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_newRequestCompletelyInsideExistingRange_isRejected() {
+        // Existing: day0 -> day6 | PENDING (larger). New: day2 -> day4 — smaller, fully inside
+        // the existing range on both ends (the reverse of the "contains" case above).
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day2 = LocalDate.now().plusDays(54);
+        LocalDate day4 = day2.plusDays(2);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day4), eq(day2)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day2, day4, false, "Fully inside an existing pending range"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    // ── Overlap guard × half-day/full-day combinations ──────────────────────────────────────
+    //
+    // LeaveRequest has only a single is_half_day boolean column — no first-half/second-half (AM/
+    // PM) distinction exists anywhere in the entity, migrations, or DTOs (confirmed by inspection).
+    // The overlap query itself never references is_half_day at all: it only filters by
+    // employee_user_id/status/start_date/end_date. So the guard blocks ANY existing PENDING/
+    // APPROVED request on an overlapping date regardless of whether either side is half-day or
+    // full-day — there is no data model support for allowing, say, a morning-half and an
+    // afternoon-half request to coexist on the same date. The tests below prove the guard's
+    // behavior is unaffected by req.isHalfDay() in either direction.
+
+    @Test
+    void submitRequest_existingHalfDayPending_newFullDaySameDate_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day = LocalDate.now().plusDays(60);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day, day, false, "Full day, existing half-day pending"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_existingHalfDayApproved_newFullDaySameDate_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day = LocalDate.now().plusDays(61);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day, day, false, "Full day, existing half-day approved"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_existingFullDayPending_newHalfDaySameDate_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day = LocalDate.now().plusDays(62);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day, day, true, "Half day, existing full-day pending"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_existingFullDayApproved_newHalfDaySameDate_isRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day = LocalDate.now().plusDays(63);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day, day, true, "Half day, existing full-day approved"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_existingHalfDayPending_newHalfDaySameDate_isRejected() {
+        // No first-half/second-half distinction exists, so two half-day requests on the same
+        // date are indistinguishable from two full-day requests as far as this guard is
+        // concerned — both must be blocked.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate day = LocalDate.now().plusDays(64);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(day, day, true, "Half day, existing half-day pending"), employeeEmail));
+        assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_existingHalfDayRejected_newHalfDaySameDate_isAllowed() {
+        // REJECTED never blocks, regardless of half/full-day on either side.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        // existsBy...(PENDING, APPROVED) is unstubbed here -> defaults to false, i.e. the
+        // REJECTED existing request never matches the blocking status filter.
+
+        LocalDate day = LocalDate.now().plusDays(65);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request(day, day, true, "Half day, existing half-day rejected"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(new BigDecimal("0.5"), resp.getTotalDays());
     }
 
     @Test

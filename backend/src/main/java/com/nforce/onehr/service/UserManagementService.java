@@ -40,6 +40,11 @@ public class UserManagementService {
     private final NotificationService notificationService;
     private final LeaveService leaveService;
     private final ForceLogoutBroadcaster forceLogoutBroadcaster;
+    private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for the package-private findCurrentManagersBulk bulk manager lookup used by
+    // listUsers() below — reuses EmployeeService's existing bulk implementation instead of a
+    // second copy of the same N+1-prone-if-done-per-row logic.
+    private final EmployeeService employeeService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -65,7 +70,7 @@ public class UserManagementService {
                 .build();
         newUser = userRepository.save(newUser);
 
-        String code = resolveCode(req.getEmployeeCode());
+        String code = employeeCodeGenerator.claim(req.getEmployeeCode());
         Employee emp = Employee.builder()
                 .user(newUser)
                 .employeeCode(code)
@@ -121,11 +126,21 @@ public class UserManagementService {
         return roles;
     }
 
-    /** Super Admin: list all users across all roles. */
+    /**
+     * Super Admin: list all users across all roles.
+     *
+     * Resolves every employee's current manager in one bulk lookup (see
+     * {@link EmployeeService#findCurrentManagersBulk}) instead of calling
+     * {@link #findCurrentManager} once per employee — that per-row version does up to 3 extra
+     * queries each, which for the full org list turns into hundreds of sequential round trips.
+     */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listUsers() {
-        return employeeRepository.findAllWithDetails().stream()
-                .map(e -> toResponse(e, findCurrentManager(e.getUserId()), e.getUser(), null))
+        List<Employee> emps = employeeRepository.findAllWithDetails();
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                employeeService.findCurrentManagersBulk(emps.stream().map(Employee::getUserId).toList());
+        return emps.stream()
+                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
                 .collect(Collectors.toList());
     }
 
@@ -147,6 +162,16 @@ public class UserManagementService {
         boolean forceLogoutRequired = false;
         boolean roleChanged = false;
         boolean managerChanged = false;
+
+        // Role/manager/department/designation/employment type imply active employment — for a
+        // deactivated user these are blocked behind an explicit confirmation (name, location,
+        // shift and other offboarding-correction fields stay editable unconditionally). The
+        // server is the real boundary here, not just the edit form's disabled inputs.
+        if (!target.isActive() && !req.isConfirmInactiveEdit()
+                && changesGatedUserFields(emp, currentRole, currentManagerId, req)) {
+            throw new IllegalArgumentException(
+                    "This user is inactive. Confirm the change to update Role, Manager, Department, Designation, or Employment Type for an inactive user.");
+        }
 
         if (req.getFullName() != null && !req.getFullName().isBlank()) {
             String fullName = req.getFullName().trim();
@@ -289,6 +314,19 @@ public class UserManagementService {
 
         auditService.log(actor.getId(), "JOINING_DATE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /** True if the request would actually change one of the fields gated behind confirmInactiveEdit. */
+    private boolean changesGatedUserFields(Employee emp, String currentRole, UUID currentManagerId, UpdateUserRequest req) {
+        UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+        UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+        return (req.getDepartmentId() != null && !Objects.equals(req.getDepartmentId(), currentDepartmentId))
+                || (req.getDesignationId() != null && !Objects.equals(req.getDesignationId(), currentDesignationId))
+                || (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                        && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType()))
+                || (req.getRole() != null && !req.getRole().isBlank()
+                        && !Objects.equals(currentRole, req.getRole().toUpperCase()))
+                || (req.getManagerId() != null && !Objects.equals(currentManagerId, req.getManagerId()));
     }
 
     /**
@@ -493,20 +531,6 @@ public class UserManagementService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
-    }
-
-    private String resolveCode(String requested) {
-        if (requested != null && !requested.isBlank()) {
-            String code = requested.trim().toUpperCase();
-            if (employeeRepository.existsByEmployeeCode(code))
-                throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
-            return code;
-        }
-        int year = java.time.LocalDate.now().getYear();
-        int next = employeeRepository.findMaxNumericEmployeeCode()
-                .map(c -> Integer.parseInt(c.substring(c.lastIndexOf('-') + 1)) + 1)
-                .orElse(1);
-        return String.format("NF-%d-%04d", year, next);
     }
 
     private String generateTempPassword() {

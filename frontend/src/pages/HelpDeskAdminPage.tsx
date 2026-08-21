@@ -182,7 +182,7 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Assigned To</div>
             <select style={filterSelect} value={assigneeId} disabled={savingAssign} onChange={e => handleAssign(e.target.value)}>
               <option value="">Unassigned</option>
-              {agents.map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
+              {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
             </select>
           </div>
           <div style={{ minWidth: 180 }}>
@@ -348,7 +348,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Assign To</div>
           <select style={filterSelect} value={assigneeChoice} onChange={e => setAssigneeChoice(e.target.value)}>
             <option value="">Select an HR Admin…</option>
-            {agents.map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
+            {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
           </select>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
             <button onClick={() => setShowAssignPanel(false)} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>

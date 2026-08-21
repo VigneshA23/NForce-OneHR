@@ -58,6 +58,8 @@ export interface UpdateEmployeePayload {
   shiftId?: string;
   employmentType?: string;
   workMode?: string;
+  /** Required (true) to change department/designation/employmentType on a deactivated employee. */
+  confirmInactiveEdit?: boolean;
 }
 
 export interface CreateUserPayload extends CreateEmployeePayload {
@@ -74,6 +76,8 @@ export interface UpdateUserPayload {
   employmentType?: string;
   workMode?: string;
   managerId?: string;
+  /** Required (true) to change role/manager/department/designation/employmentType on a deactivated user. */
+  confirmInactiveEdit?: boolean;
 }
 
 export interface UpdateJoiningDatePayload {
@@ -82,6 +86,8 @@ export interface UpdateJoiningDatePayload {
 }
 
 export interface ResetPasswordResult { tempPassword: string; message: string; }
+
+export interface EmployeeCodePreview { employeeCode: string; }
 
 export const employeesApi = {
   list: (token: string) =>
@@ -95,6 +101,11 @@ export const employeesApi = {
 
   potentialManagers: (token: string) =>
     fetch(`${BASE}/employees/potential-managers`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),
+
+  // Read-only preview of the Employee ID the Add Employee/User form should display — does NOT
+  // reserve or consume the ID. See EmployeeCodeGenerator#preview on the backend.
+  previewNextCode: (token: string) =>
+    fetch(`${BASE}/employees/next-code`, { headers: authHeaders(token) }).then(handle<EmployeeCodePreview>),
 };
 
 export const usersApi = {

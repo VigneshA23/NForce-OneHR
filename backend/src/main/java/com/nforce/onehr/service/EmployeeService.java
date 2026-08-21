@@ -35,6 +35,7 @@ public class EmployeeService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
     private final LeaveService leaveService;
+    private final EmployeeCodeGenerator employeeCodeGenerator;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -63,7 +64,7 @@ public class EmployeeService {
                 .build();
         newUser = userRepository.save(newUser);
 
-        String code = resolveEmployeeCode(req.getEmployeeCode());
+        String code = employeeCodeGenerator.claim(req.getEmployeeCode());
 
         Employee emp = Employee.builder()
                 .user(newUser)
@@ -100,6 +101,15 @@ public class EmployeeService {
     }
 
     /**
+     * Read-only preview of the Employee ID the Add Employee/User form should display. Does not
+     * consume the underlying sequence — see {@link EmployeeCodeGenerator#preview()}.
+     */
+    @Transactional(readOnly = true)
+    public String previewNextEmployeeCode() {
+        return employeeCodeGenerator.preview();
+    }
+
+    /**
      * HR Admin + Super Admin. Returns all employees (role=EMPLOYEE users).
      */
     @Transactional(readOnly = true)
@@ -125,6 +135,16 @@ public class EmployeeService {
                 .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+
+        // Department/designation/employment type imply active employment — for a deactivated
+        // employee these are blocked behind an explicit confirmation (name, location and other
+        // offboarding-correction fields stay editable unconditionally). The server is the real
+        // boundary here, not just the edit form's disabled inputs.
+        if (!emp.getUser().isActive() && !req.isConfirmInactiveEdit() && changesGatedEmployeeFields(emp, req)) {
+            throw new IllegalArgumentException(
+                    "This employee is inactive. Confirm the change to update Department, Designation, or Employment Type for an inactive employee.");
+        }
+
         String before = auditSnapshot.toJson(employeeSnapshot(emp));
 
         if (req.getFullName() != null && !req.getFullName().isBlank())
@@ -144,6 +164,16 @@ public class EmployeeService {
         String after = auditSnapshot.toJson(employeeSnapshot(emp));
         auditService.log(actor.getId(), "EMPLOYEE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), emp.getUser(), null);
+    }
+
+    /** True if the request would actually change one of the fields gated behind confirmInactiveEdit. */
+    private boolean changesGatedEmployeeFields(Employee emp, UpdateEmployeeRequest req) {
+        UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+        UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+        return (req.getDepartmentId() != null && !Objects.equals(req.getDepartmentId(), currentDepartmentId))
+                || (req.getDesignationId() != null && !Objects.equals(req.getDesignationId(), currentDesignationId))
+                || (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                        && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType()));
     }
 
     /**
@@ -389,12 +419,14 @@ public class EmployeeService {
 
     /**
      * Batch equivalent of {@link #findCurrentManager} for whole-org listings (listDirectory,
-     * listEmployees) — those used to call findCurrentManager once per employee, each doing 3
-     * separate round trips (history lookup, manager User lookup, manager Employee lookup). For
-     * ~90 employees that's ~270 sequential queries against a remote DB, easily a minute or more.
-     * This does the same lookup in exactly 3 queries total regardless of employee count.
+     * listEmployees, and {@link UserManagementService#listUsers} — package-private specifically
+     * so that class can reuse this instead of keeping a second copy of the same lookup) — those
+     * used to call findCurrentManager once per employee, each doing 3 separate round trips
+     * (history lookup, manager User lookup, manager Employee lookup). For ~90 employees that's
+     * ~270 sequential queries against a remote DB, easily a minute or more. This does the same
+     * lookup in exactly 3 queries total regardless of employee count.
      */
-    private Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
+    Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
         Map<UUID, UUID> managerIdByEmployeeId = historyRepository.findByEffectiveToIsNull().stream()
                 .filter(h -> employeeIds.contains(h.getEmployeeUserId()))
                 .collect(Collectors.toMap(EmployeeManagerHistory::getEmployeeUserId, EmployeeManagerHistory::getManagerUserId));
@@ -439,19 +471,6 @@ public class EmployeeService {
                 .currentManager(manager)
                 .tempPassword(tempPassword)
                 .build();
-    }
-
-    private String resolveEmployeeCode(String requested) {
-        if (requested != null && !requested.isBlank()) {
-            String code = requested.trim().toUpperCase();
-            if (employeeRepository.existsByEmployeeCode(code))
-                throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
-            return code;
-        }
-        int next = employeeRepository.findMaxNumericEmployeeCode()
-                .map(c -> Integer.parseInt(c.substring(3)) + 1)
-                .orElse(1);
-        return String.format("NF-%05d", next);
     }
 
     private String generateTempPassword() {

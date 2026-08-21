@@ -2,6 +2,7 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.DirectoryEntryDto;
+import com.nforce.onehr.dto.EmployeeCodePreviewResponse;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.ManagerDashboardDto;
 import com.nforce.onehr.dto.UpdateEmployeeRequest;
@@ -49,6 +50,17 @@ public class EmployeeController {
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
     public List<EmployeeResponse> potentialManagers() {
         return employeeService.listPotentialManagers();
+    }
+
+    /**
+     * Read-only preview of the Employee ID the Add Employee/User form should display — does
+     * NOT reserve or consume the sequence. Two admins opening the form at the same time will
+     * legitimately see the same preview; the actual ID is only claimed at creation time.
+     */
+    @GetMapping("/next-code")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public EmployeeCodePreviewResponse nextCode() {
+        return new EmployeeCodePreviewResponse(employeeService.previewNextEmployeeCode());
     }
 
     /** Company directory — all authenticated users, work-info only. */

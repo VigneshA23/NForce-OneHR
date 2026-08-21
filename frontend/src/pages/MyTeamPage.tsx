@@ -21,6 +21,7 @@ import {
 import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestReportRow } from '../api/reports';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
+import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -1336,9 +1337,10 @@ function PeersView({ token }: { token: string }) {
             <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your project team is on leave today.</div>
           ) : (
             onLeaveList.map(r => (
-              <div key={r.peer.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div key={r.peer.userId} style={{ ...inactiveDimStyle(r.peer.active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
                 <Avatar name={r.peer.fullName} size={30} />
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.peer.fullName}</span>
+                {!r.peer.active && <StatusBadge active={false} />}
                 <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{r.leaveTypeName}</span>
               </div>
             ))
@@ -1427,11 +1429,12 @@ function PeersView({ token }: { token: string }) {
             </thead>
             <tbody>
               {peers.map(p => (
-                <tr key={p.userId}>
+                <tr key={p.userId} style={inactiveDimStyle(p.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Avatar name={p.fullName} size={24} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{p.fullName}</span>
+                      {!p.active && <StatusBadge active={false} />}
                     </div>
                   </td>
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
@@ -1485,7 +1488,7 @@ function PeersView({ token }: { token: string }) {
           ) : filteredPeers.length === 0 ? (
             <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
           ) : filteredPeers.map(row => (
-            <div key={row.peer.userId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div key={row.peer.userId} style={{ ...inactiveDimStyle(row.peer.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <Avatar name={row.peer.fullName} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1494,7 +1497,7 @@ function PeersView({ token }: { token: string }) {
                 </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                <StatusPill status={row.status} />
+                {row.peer.active ? <StatusPill status={row.status} /> : <StatusBadge active={false} />}
                 {row.peer.departmentName && (
                   <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: 'rgba(76,141,214,.14)', color: 'var(--info)' }}>{row.peer.departmentName}</span>
                 )}
@@ -1508,9 +1511,11 @@ function PeersView({ token }: { token: string }) {
                 <Mail size={11} style={{ flexShrink: 0 }} />
                 <a href={`mailto:${row.peer.email}`} style={{ color: 'var(--txt-mut)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.peer.email}</a>
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
-              </div>
+              {row.peer.active && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                  <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1881,7 +1886,10 @@ export default function MyTeamPage() {
   useEffect(() => {
     dashboardApi.managerDashboard(token)
       .then(d => {
-        setDirectReports(d.directReports.filter(r => r.active));
+        // Keep inactive direct reports visible (dimmed + badge, see RosterRow render) instead of
+        // silently filtering them out — a deactivated report should still read as "no longer
+        // active" rather than simply vanishing from the manager's team.
+        setDirectReports(d.directReports);
         setDirectReportCount(d.directReportCount);
         if (d.directReportCount === 0 && !autoSwitched.current) {
           autoSwitched.current = true;
@@ -1946,6 +1954,10 @@ export default function MyTeamPage() {
   }), [directReports, attendanceByEmployee, onLeaveToday, requestsByEmployee]);
 
   const notInYet = rosterRows.filter(r => r.status === 'NOT_IN_YET');
+  // Leave-based widgets ("Who's on leave today", "Out this week") key off LeaveRequestRecord,
+  // not DirectReport — this maps a leave record's employeeUserId back to whether that direct
+  // report is still active, for the same dim + Inactive badge treatment as the roster above.
+  const directReportsById = useMemo(() => new Map(directReports.map(dr => [dr.userId, dr])), [directReports]);
   const onTimeCount = todayRecords.filter(r => r.status === 'PRESENT').length;
   const lateCount = todayRecords.filter(r => r.status === 'LATE').length;
   const remoteClockInCount = todayRecords.filter(r => r.source === 'WEB_REMOTE').length;
@@ -2049,13 +2061,17 @@ export default function MyTeamPage() {
           {todayLeave.length === 0 ? (
             <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is on leave today.</div>
           ) : (
-            todayLeave.map(l => (
-              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar name={l.employeeName} size={30} />
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{l.employeeName}</span>
-                <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{l.leaveTypeName}</span>
-              </div>
-            ))
+            todayLeave.map(l => {
+              const active = directReportsById.get(l.employeeUserId)?.active ?? true;
+              return (
+                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+                  <Avatar name={l.employeeName} size={30} />
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{l.employeeName}</span>
+                  {!active && <StatusBadge active={false} />}
+                  <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{l.leaveTypeName}</span>
+                </div>
+              );
+            })
           )}
         </div>
         <div style={panelStyle}>
@@ -2131,11 +2147,12 @@ export default function MyTeamPage() {
             </thead>
             <tbody>
               {directReports.map(dr => (
-                <tr key={dr.userId}>
+                <tr key={dr.userId} style={inactiveDimStyle(dr.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Avatar name={dr.fullName} size={24} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{dr.fullName}</span>
+                      {!dr.active && <StatusBadge active={false} />}
                     </div>
                   </td>
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
@@ -2192,7 +2209,7 @@ export default function MyTeamPage() {
             ) : filteredRoster.length === 0 ? (
               <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
             ) : filteredRoster.map(row => (
-              <div key={row.dr.userId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div key={row.dr.userId} style={{ ...inactiveDimStyle(row.dr.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <Avatar name={row.dr.fullName} />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -2202,7 +2219,7 @@ export default function MyTeamPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 22 }}>
-                  <StatusPill status={row.status} />
+                  {row.dr.active ? <StatusPill status={row.status} /> : <StatusBadge active={false} />}
                   {row.isLate && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '4px 9px 4px 7px', borderRadius: 20, background: 'rgba(224,169,59,.16)', color: 'var(--warn)' }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warn)' }} />Late
@@ -2248,10 +2265,15 @@ export default function MyTeamPage() {
             <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {weekLeave.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is out this week.</div>
-              ) : weekLeave.map(l => (
-                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              ) : weekLeave.map(l => {
+                const active = directReportsById.get(l.employeeUserId)?.active ?? true;
+                return (
+                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.employeeName}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.employeeName}</div>
+                      {!active && <StatusBadge active={false} />}
+                    </div>
                     <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{l.leaveTypeName}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
@@ -2265,7 +2287,8 @@ export default function MyTeamPage() {
                     })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
