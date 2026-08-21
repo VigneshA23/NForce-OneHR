@@ -36,7 +36,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     // Backs the shift/weekly-off import (ONEHR-108) — rows are addressed by employee code, not id.
     Optional<Employee> findByEmployeeCode(String employeeCode);
 
-    @Query(value = "SELECT employee_code FROM employees WHERE employee_code ~ '^NF-[0-9]+$' ORDER BY CAST(SUBSTRING(employee_code FROM 4) AS INTEGER) DESC LIMIT 1", nativeQuery = true)
+    @Query(value = "SELECT employee_code FROM employees WHERE employee_code ~ '^NF-[0-9]{4}-[0-9]+$' ORDER BY CAST(SPLIT_PART(employee_code, '-', 3) AS INTEGER) DESC LIMIT 1", nativeQuery = true)
     Optional<String> findMaxNumericEmployeeCode();
 
     // Scoped to a non-deleted user: several test emails in this dataset have been

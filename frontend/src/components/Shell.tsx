@@ -1,7 +1,8 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Outlet, useNavigate, Link } from 'react-router-dom';
 import { Search, Bell, Sun, Moon, Shield, User, LogOut, Menu, X as CloseIcon } from 'lucide-react';
-import { NAV, toShellRole, type Role } from '../lib/nav.config';
+import { NAV, toShellRole, type Role, type NavItem } from '../lib/nav.config';
+import { employeesApi, type EmployeeRecord } from '../api/employees';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
@@ -165,6 +166,15 @@ export function Shell() {
   const [navOpen, setNavOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // ── Global search ────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchPeople, setSearchPeople] = useState<EmployeeRecord[]>([]);
+  const [searchPeopleLoaded, setSearchPeopleLoaded] = useState(false);
+  const [searchIdx, setSearchIdx] = useState(-1);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const role     = toShellRole(storeUser?.role);
   const email    = storeUser?.email || '';
   const name     = storeUser?.fullName || email || 'User';
@@ -172,6 +182,72 @@ export function Shell() {
 
   const navItems = NAV[role];
   const current  = navItems.find((n) => location.pathname.startsWith(n.path)) ?? navItems[0];
+
+  type SearchResultItem =
+    | { kind: 'nav'; item: NavItem }
+    | { kind: 'person'; record: EmployeeRecord };
+
+  const navMatches = useMemo<NavItem[]>(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return [];
+    return navItems.filter(n => n.label.toLowerCase().includes(q)).slice(0, 4);
+  }, [searchQuery, navItems]);
+
+  const peopleMatches = useMemo<EmployeeRecord[]>(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (q.length < 2) return [];
+    return searchPeople.filter(p =>
+      p.fullName.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)
+    ).slice(0, 5);
+  }, [searchQuery, searchPeople]);
+
+  const allResults = useMemo<SearchResultItem[]>(() => [
+    ...navMatches.map(item => ({ kind: 'nav' as const, item })),
+    ...peopleMatches.map(record => ({ kind: 'person' as const, record })),
+  ], [navMatches, peopleMatches]);
+
+  useEffect(() => { setSearchIdx(-1); }, [searchQuery]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length >= 2 && !searchPeopleLoaded && token) {
+      employeesApi.list(token)
+        .then(list => { setSearchPeople(list); setSearchPeopleLoaded(true); })
+        .catch(() => {});
+    }
+  }, [searchQuery, searchPeopleLoaded, token]);
+
+  useEffect(() => {
+    function out(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false); setSearchIdx(-1);
+      }
+    }
+    if (searchOpen) {
+      document.addEventListener('mousedown', out);
+      return () => document.removeEventListener('mousedown', out);
+    }
+  }, [searchOpen]);
+
+  function handleResultSelect(result: SearchResultItem) {
+    if (result.kind === 'nav') {
+      navigate(result.item.path);
+    } else {
+      navigate(`/directory?q=${encodeURIComponent(result.record.fullName)}`);
+    }
+    setSearchOpen(false); setSearchQuery(''); setSearchIdx(-1);
+  }
+
+  function handleSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') { setSearchOpen(false); setSearchIdx(-1); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSearchIdx(i => Math.min(i + 1, allResults.length - 1)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSearchIdx(i => Math.max(i - 1, -1)); return; }
+    if (e.key === 'Enter' && searchIdx >= 0) {
+      e.preventDefault();
+      const r = allResults[searchIdx];
+      if (r) handleResultSelect(r);
+    }
+  }
 
   // Heal stale sessions (fullName predating the fullName-in-login-response change) and pick
   // up the user's profile photo — the login response never carries it, so without this the
@@ -363,19 +439,83 @@ export function Shell() {
             <b style={{ color: '#E8EAED', fontWeight: 600 }}>{current.label}</b>
           </div>
           <div style={{ flex: 1 }} />
-          <div className="nf-topbar-search" style={{ maxWidth: 260, width: 260, background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8, color: '#6B7280', fontSize: 12 }}>
-            <Search size={13} aria-hidden="true" /> Search this workspace…
+          {/* Global search — People + Navigation */}
+          <div ref={searchRef} className="nf-topbar-search" style={{ position: 'relative', maxWidth: 260, width: 260 }}>
+            <div style={{ background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Search size={13} aria-hidden="true" style={{ color: '#6B7280', flexShrink: 0 }} />
+              <input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+                onFocus={() => setSearchOpen(true)}
+                onKeyDown={handleSearchKey}
+                placeholder="Search this workspace…"
+                aria-label="Search people and navigation"
+                style={{ background: 'none', border: 'none', outline: 'none', color: '#E8EAED', fontSize: 12, flex: 1, minWidth: 0 }}
+              />
+              {searchQuery && (
+                <button onClick={() => { setSearchQuery(''); setSearchOpen(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 0, display: 'flex', alignItems: 'center' }}>
+                  <CloseIcon size={12} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+            {/* Dropdown */}
+            {searchOpen && searchQuery.trim() && allResults.length > 0 && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
+                {navMatches.length > 0 && (
+                  <>
+                    <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.08em' }}>Navigate</div>
+                    {navMatches.map((item, i) => {
+                      const Icon = item.icon;
+                      return (
+                        <button key={item.key} onMouseDown={() => handleResultSelect({ kind: 'nav', item })}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: searchIdx === i ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left' }}
+                          onMouseEnter={() => setSearchIdx(i)} onMouseLeave={() => setSearchIdx(-1)}>
+                          <Icon size={14} style={{ color: '#9BA1AC', flexShrink: 0 }} aria-hidden="true" />
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+                {peopleMatches.length > 0 && (
+                  <>
+                    <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.08em', borderTop: navMatches.length > 0 ? '1px solid #23262D' : 'none' }}>People</div>
+                    {peopleMatches.map((record, i) => {
+                      const globalIdx = navMatches.length + i;
+                      return (
+                        <button key={record.userId} onMouseDown={() => handleResultSelect({ kind: 'person', record })}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: searchIdx === globalIdx ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left' }}
+                          onMouseEnter={() => setSearchIdx(globalIdx)} onMouseLeave={() => setSearchIdx(-1)}>
+                          <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                            {getInitials(record.fullName)}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.fullName}</div>
+                            <div style={{ fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.email}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+            {searchOpen && searchQuery.trim().length >= 2 && allResults.length === 0 && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, padding: '14px 12px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
+                No results for "{searchQuery.trim()}"
+              </div>
+            )}
           </div>
-          {/* Collapsed stand-in for the search bar above — shown only ≤767px, where the
-              full bar no longer fits, instead of the search affordance vanishing entirely */}
-          <div
+          {/* Collapsed search icon — shown only ≤767px where the bar doesn't fit */}
+          <button
             className="nf-topbar-search-icon"
             aria-label="Search this workspace"
-            title="Search this workspace"
-            style={{ alignItems: 'center', justifyContent: 'center', padding: 7, borderRadius: 6, color: '#9BA1AC' }}
+            onClick={() => { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 50); }}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', alignItems: 'center', justifyContent: 'center', padding: 7, borderRadius: 6, color: '#9BA1AC' }}
           >
             <Search size={15} aria-hidden="true" />
-          </div>
+          </button>
 
           <button
             onClick={toggleTheme}

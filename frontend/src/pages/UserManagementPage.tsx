@@ -181,6 +181,11 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token }: {
   );
 }
 
+function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
+  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER');
+  return managers.filter(m => m.role === 'SUPER_ADMIN');
+}
+
 // ─── Add User Modal ───────────────────────────────────────────────────────────
 function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string;
@@ -197,6 +202,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
   const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
+  const [empCodeSuffix, setEmpCodeSuffix] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -209,9 +215,13 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
+    if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
+    const suffix = empCodeSuffix.trim();
+    if (suffix && suffix.length !== 4) { setError('Employee ID suffix must be exactly 4 digits.'); return; }
+    const empCode = suffix ? `NF-${new Date().getFullYear()}-${suffix}` : undefined;
     setSubmitting(true); setError(null);
     try {
-      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail }, token);
+      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: empCode }, token);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
       if (startOnboarding) {
@@ -284,11 +294,31 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name *"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field></div>
           <div style={{ gridColumn: '1/-1' }}><Field label="Company Email *"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field></div>
           <Field label="Role *">
-            <select style={inputStyle} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+            <select style={inputStyle} value={form.role} onChange={e => {
+              const newRole = e.target.value;
+              const newMgrs = getManagersForRole(newRole, opts.managers);
+              setForm(f => ({
+                ...f, role: newRole,
+                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+              }));
+            }}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
-          <Field label="Employee ID (auto if blank)"><input style={inputStyle} value={form.employeeCode ?? ''} onChange={e => set('employeeCode', e.target.value)} placeholder="NF-00001" /></Field>
+          <Field label="Employee ID">
+            <div style={{ display: 'flex', border: '1px solid var(--line2)', borderRadius: 6, overflow: 'hidden' }}>
+              <span style={{ padding: '9px 11px', background: 'var(--raised)', color: 'var(--txt)', fontSize: 13, whiteSpace: 'nowrap', borderRight: '1px solid var(--line2)', flexShrink: 0, fontWeight: 500 }}>
+                NF-{new Date().getFullYear()}
+              </span>
+              <input
+                style={{ ...inputStyle, border: 'none', borderRadius: 0, flex: 1, minWidth: 0 }}
+                value={empCodeSuffix}
+                onChange={e => setEmpCodeSuffix(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="auto-assigned"
+                maxLength={4}
+              />
+            </div>
+          </Field>
           <Field label="Joining Date *"><input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} /></Field>
           <Field label="Employment Type">
             <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
@@ -316,11 +346,24 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Manager">
-              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                <option value="">— None —</option>{opts.managers.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
-              </select>
-            </Field>
+            {(() => {
+              const isSA = form.role === 'SUPER_ADMIN';
+              const mgrList = getManagersForRole(form.role, opts.managers);
+              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              return (
+                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
+                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                  </select>
+                  {!isSA && mgrList.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
+                      No {mgrRoleLabel}-role users found — add one first.
+                    </div>
+                  )}
+                </Field>
+              );
+            })()}
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
@@ -391,6 +434,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
     setSubmitting(true); setError(null);
     try {
       let updated = await usersApi.update(user.userId, form, token);
@@ -418,7 +462,14 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name"><input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} /></Field></div>
           <Field label="Role">
-            <select style={inputStyle} value={form.role ?? 'EMPLOYEE'} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+            <select style={inputStyle} value={form.role ?? 'EMPLOYEE'} onChange={e => {
+              const newRole = e.target.value;
+              const newMgrs = getManagersForRole(newRole, opts.managers).filter(m => m.userId !== user.userId);
+              setForm(f => ({
+                ...f, role: newRole,
+                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+              }));
+            }}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
@@ -463,14 +514,24 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Manager">
-              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                <option value="">— None —</option>
-                {opts.managers.filter(m => m.userId !== user.userId).map((m: any) => (
-                  <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>
-                ))}
-              </select>
-            </Field>
+            {(() => {
+              const isSA = form.role === 'SUPER_ADMIN';
+              const mgrList = getManagersForRole(form.role ?? 'EMPLOYEE', opts.managers).filter(m => m.userId !== user.userId);
+              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              return (
+                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
+                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                  </select>
+                  {!isSA && mgrList.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
+                      No {mgrRoleLabel}-role users found — add one first.
+                    </div>
+                  )}
+                </Field>
+              );
+            })()}
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
@@ -848,7 +909,7 @@ export default function UserManagementPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Manager', 'Status', ''].map(h => (
+                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Reporting Manager', 'Status', ''].map(h => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>

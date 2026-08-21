@@ -1,5 +1,6 @@
 package com.nforce.onehr.dto;
 
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 import java.util.UUID;
@@ -7,6 +8,8 @@ import java.util.UUID;
 // Super Admin scope — all fields editable including manager (triggers history) and role.
 @Data
 public class UpdateUserRequest {
+    @Pattern(regexp = "^(?=.*\\p{L})[\\p{L}\\s'-]+$",
+             message = "Full name can only contain letters, spaces, hyphens, and apostrophes")
     private String fullName;
     private String role;
     private UUID departmentId;
