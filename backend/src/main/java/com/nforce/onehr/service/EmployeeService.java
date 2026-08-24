@@ -402,6 +402,21 @@ public class EmployeeService {
         return findCurrentManager(self.getUserId());
     }
 
+    /**
+     * Raw photo bytes for any employee — deliberately open to every authenticated user (no
+     * {@code @PreAuthorize} on the controller endpoint), same visibility as the directory/org
+     * chart/team views that already show everyone's name, department and designation. Returns
+     * null (→ 404) when the employee has no record or hasn't uploaded a photo, so callers fall
+     * back to an initials avatar.
+     */
+    @Transactional(readOnly = true)
+    public byte[] getPhoto(UUID userId) {
+        return employeeRepository.findById(userId)
+                .map(Employee::getProfilePhoto)
+                .filter(photo -> photo != null && photo.length > 0)
+                .orElse(null);
+    }
+
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
         return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .flatMap(h -> userRepository.findById(h.getManagerUserId()))

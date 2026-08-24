@@ -22,6 +22,7 @@ import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestRep
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -78,10 +79,6 @@ function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEK_CHIPS = ['M', 'T', 'W', 'T', 'F'];
 
@@ -107,11 +104,17 @@ function TypeBadge({ type }: { type: 'LEAVE' | 'REGULARIZATION' }) {
   );
 }
 
-function Avatar({ name, size = 34 }: { name: string; size?: number }) {
+function Avatar({ userId, name, size = 34 }: { userId?: string | null; name: string; size?: number }) {
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: 'rgba(177,17,22,.18)', color: '#e4373d', display: 'grid', placeItems: 'center', fontSize: size * 0.33, fontWeight: 700, flexShrink: 0, fontFamily: '"Space Grotesk", sans-serif' }}>
-      {initials(name)}
-    </div>
+    <EmployeeAvatar
+      userId={userId}
+      name={name}
+      size={size}
+      fontSize={size * 0.33}
+      background="rgba(177,17,22,.18)"
+      color="#e4373d"
+      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+    />
   );
 }
 
@@ -232,7 +235,7 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
     <div style={overlayStyle} onClick={onClose}>
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <Avatar name={dr.fullName} size={40} />
+          <Avatar userId={dr.userId} name={dr.fullName} size={40} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{dr.designationName ?? '—'}</div>
@@ -346,7 +349,7 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
   const fillPct = Math.min(100, entry.avgHoursPerDay * 10);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -368,7 +371,7 @@ function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
   const fillPct = Math.min(100, entry.percentage);
   return (
     <div className="nf-team-leaderboard-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -478,7 +481,7 @@ function EffortTab({ token }: { token: string }) {
 function LateArrivalRow({ entry }: { entry: TeamLateArrivalEntry }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -512,7 +515,7 @@ function DailyBarChart({ data, color }: { data: { date: string; count: number }[
 function LeastHoursRow({ entry }: { entry: TeamLeastHoursEntry }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -553,7 +556,7 @@ function HoursDonut({ buckets }: { buckets: { label: string; count: number; pct:
 function FrequentBreaksRow({ entry }: { entry: TeamFrequentBreaksEntry }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -887,7 +890,7 @@ function AssignmentsTab({ token }: { token: string }) {
                 </td>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Avatar name={r.fullName} size={26} />
+                    <Avatar userId={r.employeeUserId} name={r.fullName} size={26} />
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.fullName}</span>
                   </div>
                 </td>
@@ -1187,7 +1190,7 @@ function KudosModal({ target, token, onClose }: { target: KudosTarget | null; to
     <div style={overlayStyle} onClick={onClose}>
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <Avatar name={target.name} size={36} />
+          <Avatar userId={target.userId} name={target.name} size={36} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>Appreciating</div>
             <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
@@ -1338,7 +1341,7 @@ function PeersView({ token }: { token: string }) {
           ) : (
             onLeaveList.map(r => (
               <div key={r.peer.userId} style={{ ...inactiveDimStyle(r.peer.active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar name={r.peer.fullName} size={30} />
+                <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.peer.fullName}</span>
                 {!r.peer.active && <StatusBadge active={false} />}
                 <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{r.leaveTypeName}</span>
@@ -1360,7 +1363,7 @@ function PeersView({ token }: { token: string }) {
               <div style={{ display: 'flex' }}>
                 {notInYet.slice(0, OVERFLOW_LIMIT).map((r, i) => (
                   <div key={r.peer.userId} title={r.peer.fullName} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid var(--panel)', borderRadius: '50%' }}>
-                    <Avatar name={r.peer.fullName} size={30} />
+                    <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
                   </div>
                 ))}
               </div>
@@ -1432,7 +1435,7 @@ function PeersView({ token }: { token: string }) {
                 <tr key={p.userId} style={inactiveDimStyle(p.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar name={p.fullName} size={24} />
+                      <Avatar userId={p.userId} name={p.fullName} size={24} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{p.fullName}</span>
                       {!p.active && <StatusBadge active={false} />}
                     </div>
@@ -1490,7 +1493,7 @@ function PeersView({ token }: { token: string }) {
           ) : filteredPeers.map(row => (
             <div key={row.peer.userId} style={{ ...inactiveDimStyle(row.peer.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <Avatar name={row.peer.fullName} />
+                <Avatar userId={row.peer.userId} name={row.peer.fullName} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.peer.fullName}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.peer.designationName ?? '—'}</div>
@@ -1778,7 +1781,7 @@ function PenaltiesTab({ token }: { token: string }) {
                 </td>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Avatar name={r.fullName} size={26} />
+                    <Avatar userId={r.employeeUserId} name={r.fullName} size={26} />
                     <div>
                       <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.fullName}</div>
                       <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
@@ -2065,7 +2068,7 @@ export default function MyTeamPage() {
               const active = directReportsById.get(l.employeeUserId)?.active ?? true;
               return (
                 <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                  <Avatar name={l.employeeName} size={30} />
+                  <Avatar userId={l.employeeUserId} name={l.employeeName} size={30} />
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{l.employeeName}</span>
                   {!active && <StatusBadge active={false} />}
                   <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{l.leaveTypeName}</span>
@@ -2086,7 +2089,7 @@ export default function MyTeamPage() {
           ) : (
             notInYet.map(r => (
               <div key={r.dr.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar name={r.dr.fullName} size={30} />
+                <Avatar userId={r.dr.userId} name={r.dr.fullName} size={30} />
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.dr.fullName}</span>
               </div>
             ))
@@ -2150,7 +2153,7 @@ export default function MyTeamPage() {
                 <tr key={dr.userId} style={inactiveDimStyle(dr.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar name={dr.fullName} size={24} />
+                      <Avatar userId={dr.userId} name={dr.fullName} size={24} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{dr.fullName}</span>
                       {!dr.active && <StatusBadge active={false} />}
                     </div>
@@ -2211,7 +2214,7 @@ export default function MyTeamPage() {
             ) : filteredRoster.map(row => (
               <div key={row.dr.userId} style={{ ...inactiveDimStyle(row.dr.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <Avatar name={row.dr.fullName} />
+                  <Avatar userId={row.dr.userId} name={row.dr.fullName} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.dr.fullName}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.dr.designationName ?? '—'}</div>

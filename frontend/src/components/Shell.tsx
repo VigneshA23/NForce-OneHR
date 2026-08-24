@@ -14,6 +14,7 @@ import { ComplianceBanner } from './ComplianceBanner';
 import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
 import { StatusBadge, inactiveDimStyle } from './EmployeeStatus';
+import { EmployeeAvatar } from './EmployeeAvatar';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -22,40 +23,6 @@ function toRoleTagline(role: Role): string {
     case 'Manager':     return 'Manager Experience';
     default:            return 'Employee Experience';
   }
-}
-
-function getInitials(nameOrEmail?: string): string {
-  if (!nameOrEmail) return 'U';
-  if (nameOrEmail.includes('@')) return nameOrEmail.slice(0, 2).toUpperCase();
-  const parts = nameOrEmail.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  return nameOrEmail.slice(0, 2).toUpperCase();
-}
-
-// Shared circular avatar used by the sidebar profile card, the topbar trigger button, and the
-// profile dropdown header. Renders the uploaded photo as a `background` image (sized/positioned
-// via `cover`/`center`) when present, so it always fills whatever size this component is given —
-// no separate <img> geometry to keep in sync — and falls back to the initials disc otherwise.
-function AvatarCircle({ photoDataUrl, initials, size, fontSize, border }: {
-  photoDataUrl?: string | null;
-  initials: string;
-  size: number;
-  fontSize: number;
-  border?: string;
-}) {
-  return (
-    <div
-      style={{
-        width: size, height: size, borderRadius: '50%',
-        background: photoDataUrl ? `url(${photoDataUrl}) center/cover no-repeat` : '#B11116',
-        display: 'grid', placeItems: 'center', color: '#fff', fontSize, fontWeight: 700,
-        flexShrink: 0, boxSizing: 'border-box',
-        ...(border ? { border } : {}),
-      }}
-    >
-      {!photoDataUrl && initials}
-    </div>
-  );
 }
 
 function ComingInPhase({ label, phase }: { label: string; phase: number }) {
@@ -80,11 +47,10 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
   );
 }
 
-function ProfileDropdown({ name, email, role, initials, photoDataUrl, onClose }: {
+function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
   name: string;
   email: string;
   role: Role;
-  initials: string;
   photoDataUrl?: string | null;
   onClose: () => void;
 }) {
@@ -108,7 +74,7 @@ function ProfileDropdown({ name, email, role, initials, photoDataUrl, onClose }:
     >
       <div style={{ padding: '12px 14px', borderBottom: '1px solid #2A2E37' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <AvatarCircle photoDataUrl={photoDataUrl} initials={initials} size={32} fontSize={12} />
+          <EmployeeAvatar photoDataUrl={photoDataUrl} name={name} size={32} fontSize={12} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12.5, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
             <div style={{ fontSize: 11, color: '#9BA1AC', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email}</div>
@@ -184,7 +150,6 @@ export function Shell() {
   const role     = toShellRole(storeUser?.role);
   const email    = storeUser?.email || '';
   const name     = storeUser?.fullName || email || 'User';
-  const initials = getInitials(storeUser?.fullName ?? storeUser?.email);
 
   const navItems = NAV[role];
   const current  = navItems.find((n) => location.pathname.startsWith(n.path)) ?? navItems[0];
@@ -418,9 +383,7 @@ export function Shell() {
                   <button key={record.userId} onMouseDown={() => handleResultSelect({ kind: 'person', record })}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: searchIdx === globalIdx ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left', ...inactiveDimStyle(record.active) }}
                     onMouseEnter={() => setSearchIdx(globalIdx)} onMouseLeave={() => setSearchIdx(-1)}>
-                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                      {getInitials(record.fullName)}
-                    </div>
+                    <EmployeeAvatar userId={record.userId} name={record.fullName} size={24} fontSize={9} />
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.fullName}</div>
@@ -474,7 +437,7 @@ export function Shell() {
 
         {/* Profile card (sidebar) */}
         <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AvatarCircle photoDataUrl={storeUser?.photoDataUrl} initials={initials} size={30} fontSize={11} />
+          <EmployeeAvatar photoDataUrl={storeUser?.photoDataUrl} name={name} size={30} fontSize={11} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
             <div style={{ fontSize: 10, color: '#6B7280' }}>{role}</div>
@@ -618,9 +581,9 @@ export function Shell() {
                   onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.09)'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
                 >
-                  <AvatarCircle
+                  <EmployeeAvatar
                     photoDataUrl={storeUser?.photoDataUrl}
-                    initials={initials}
+                    name={name}
                     size={32}
                     fontSize={12}
                     border="2px solid rgba(255,255,255,0.55)"
@@ -646,7 +609,6 @@ export function Shell() {
                     name={name}
                     email={email}
                     role={role}
-                    initials={initials}
                     photoDataUrl={storeUser?.photoDataUrl}
                     onClose={() => setDropdownOpen(false)}
                   />
