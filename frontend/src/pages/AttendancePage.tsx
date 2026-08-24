@@ -2428,7 +2428,13 @@ function computeBreakMinutesFromPunches(punches: Punch[]): number {
     const gapStart = punches[i].checkOutAt;
     const gapEnd = punches[i + 1].checkInAt;
     if (gapStart && gapEnd) {
-      total += Math.round((wallClockMs(gapEnd) - wallClockMs(gapStart)) / 60000);
+      // Punches are sorted by checkInAt only (see the backend's PunchResponse ordering), but a
+      // Web Clock-In/Out session can genuinely overlap a normal Check-In/Out session in real
+      // time (they're independent — see WebClockInService's own class Javadoc), so an adjacent
+      // pair here can have gapEnd before gapStart. That's a real overlap, not a negative-length
+      // break — floor each interval at 0 rather than letting a negative gap corrupt the day's
+      // total (and ultimately render as e.g. "-48m").
+      total += Math.max(0, Math.round((wallClockMs(gapEnd) - wallClockMs(gapStart)) / 60000));
     }
   }
   return total;
