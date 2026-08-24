@@ -129,6 +129,17 @@ function WebClockInRow({ webToday, onSubmitted }: {
   const [showModal, setShowModal] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Web Clock Out / Resubmit / Web Clock In are mutually exclusive (see the three branches
+  // below) — never more than one of these text-links is mounted at once — so one shared hover
+  // flag is enough. Base color is high-contrast white (matches HeroCard's other high-emphasis
+  // text, e.g. the headline) since the previous var(--brand) red-on-near-black had poor
+  // contrast here (WCAG-failing); red is kept only as the hover accent, not the resting state.
+  const [linkHovered, setLinkHovered] = useState(false);
+  const actionLinkStyle: React.CSSProperties = {
+    fontSize: 12, fontWeight: 600, color: linkHovered ? 'var(--brand)' : '#E8EAED',
+    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+    transition: 'color 120ms ease',
+  };
 
   // PENDING counts as "currently open" alongside APPROVED — the attendance effect is immediate
   // regardless of HR review status (see WebClockInService.submit's doc comment).
@@ -187,7 +198,9 @@ function WebClockInRow({ webToday, onSubmitted }: {
           <button
             onClick={handleCheckOut}
             disabled={checkingOut}
-            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: checkingOut ? 'not-allowed' : 'pointer' }}
+            onMouseEnter={() => setLinkHovered(true)}
+            onMouseLeave={() => setLinkHovered(false)}
+            style={{ ...actionLinkStyle, cursor: checkingOut ? 'not-allowed' : 'pointer', opacity: checkingOut ? 0.7 : 1 }}
           >
             {checkingOut ? 'Web clocking out…' : 'Web Clock Out →'}
           </button>
@@ -198,7 +211,9 @@ function WebClockInRow({ webToday, onSubmitted }: {
           <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{legacy.reviewComment ? `: ${legacy.reviewComment}` : '.'}</span>
           <button
             onClick={() => setShowModal(true)}
-            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            onMouseEnter={() => setLinkHovered(true)}
+            onMouseLeave={() => setLinkHovered(false)}
+            style={actionLinkStyle}
           >
             Resubmit →
           </button>
@@ -208,7 +223,9 @@ function WebClockInRow({ webToday, onSubmitted }: {
         <button
           onClick={() => (reusableReason ? handleQuickWebClockIn(reusableReason) : setShowModal(true))}
           disabled={submitting}
-          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: submitting ? 'not-allowed' : 'pointer' }}
+          onMouseEnter={() => setLinkHovered(true)}
+          onMouseLeave={() => setLinkHovered(false)}
+          style={{ ...actionLinkStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
         >
           {submitting ? 'Checking in…' : 'Working remotely? Web Clock In →'}
         </button>
