@@ -116,41 +116,35 @@ function HeroPill({ dot, label, pulse = false }: { dot: string; label: string; p
 // employee's own currently-open Web Clock-In, if any) — never gated on the normal session's
 // canCheckIn/canCheckOut. Multiple Web Clock-In → Web Clock-Out cycles in one day are allowed
 // (see WebClockInService.submit) — this row simply reflects whatever the current cycle's state is.
-function WebClockInRow({ workDate, onSubmitted }: {
-  // The business/Location-zone work date for "today", from TodayAttendanceResponse.workDate —
-  // never the browser's own UTC calendar date, which can disagree with it near midnight or
-  // whenever the employee's device zone differs from their assigned Location's zone.
-  workDate: string | undefined;
+function WebClockInRow({ webToday, onSubmitted }: {
+  // Today's Web Clock-In records (already filtered to the business/Location-zone workDate by
+  // the parent) — passed down rather than fetched again here: the parent (AttendanceHeroBanner)
+  // already fetches this exact list on mount/poll/every action, so a second independent fetch in
+  // this child was pure duplicate network traffic on every render and every action.
+  webToday: WebClockInRecord[];
   onSubmitted: () => void;
 }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
   const [showModal, setShowModal] = useState(false);
-  const [openWeb, setOpenWeb] = useState<WebClockInRecord | null>(null);
-  const [legacy, setLegacy] = useState<WebClockInRecord | null>(null);
-  // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
-  // for every later cycle the same day/shift so the employee is only asked once (per requirement:
-  // "If Web Clock-In is performed again during the same day/shift, do not ask for the reason
-  // again"). Null once a NEW calendar/shift day starts, since workDate no longer matches.
-  const [reusableReason, setReusableReason] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const refreshMine = useCallback(() => {
-    if (!workDate) { setOpenWeb(null); setLegacy(null); setReusableReason(null); return; }
-    webClockInApi.mine(token).then(list => {
-      const todays = list.filter(r => r.workDate === workDate);
-      // PENDING counts as "currently open" alongside APPROVED — the attendance effect is
-      // immediate regardless of HR review status (see WebClockInService.submit's doc comment).
-      setOpenWeb(todays.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null);
-      setLegacy(todays.find(r => r.status === 'REJECTED' && !r.checkedOutAt) ?? null);
-      // `list` is already newest-first (see webClockInApi.mine), so the first match for today is
-      // the most recent cycle's reason.
-      setReusableReason(todays[0]?.reason ?? null);
-    }).catch(() => { setOpenWeb(null); setLegacy(null); setReusableReason(null); });
-  }, [token, workDate]);
-
-  useEffect(() => { refreshMine(); }, [refreshMine]);
+  // PENDING counts as "currently open" alongside APPROVED — the attendance effect is immediate
+  // regardless of HR review status (see WebClockInService.submit's doc comment).
+  const openWeb = useMemo(
+    () => webToday.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null,
+    [webToday]);
+  const legacy = useMemo(
+    () => webToday.find(r => r.status === 'REJECTED' && !r.checkedOutAt) ?? null,
+    [webToday]);
+  // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
+  // for every later cycle the same day/shift so the employee is only asked once (per requirement:
+  // "If Web Clock-In is performed again during the same day/shift, do not ask for the reason
+  // again"). `webToday` is already newest-first (see webClockInApi.mine), so [0] is the most
+  // recent cycle's reason. Null once a NEW calendar/shift day starts, since the parent's workDate
+  // filter no longer matches any of today's records.
+  const reusableReason = webToday[0]?.reason ?? null;
 
   async function handleCheckOut() {
     setCheckingOut(true);
@@ -158,7 +152,6 @@ function WebClockInRow({ workDate, onSubmitted }: {
       const resp = await webClockInApi.checkOut(token);
       const at = formatClockTime(resp.checkedOutAt);
       showToast('success', `Checked out ${at ? `at ${at}` : 'successfully'}`);
-      refreshMine();
       onSubmitted();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
@@ -175,7 +168,6 @@ function WebClockInRow({ workDate, onSubmitted }: {
       const resp = await webClockInApi.submit(reason, token);
       const at = formatClockTime(resp.requestedCheckIn);
       showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
-      refreshMine();
       onSubmitted();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-in failed');
@@ -222,7 +214,7 @@ function WebClockInRow({ workDate, onSubmitted }: {
         </button>
       )}
       {showModal && (
-        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => { refreshMine(); onSubmitted(); }} />
+        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => onSubmitted()} />
       )}
     </div>
   );
@@ -349,6 +341,9 @@ export function AttendanceHeroBanner() {
       LATE:             { dot: '#E0A93B', label: `Late${record.lateByMinutes ? ` by ${formatWorkedMinutes(record.lateByMinutes)}` : ''}` },
       ABSENT:           { dot: '#B11116', label: 'Absent' },
       MISSING_CHECKOUT: { dot: '#F97316', label: 'Missing checkout' },
+      // Matches AttendancePage's STATUS_COLORS/STATUS_LABELS (#4C8DD6 / "Half Day") — without
+      // this entry a genuinely HALF_DAY record silently showed no status pill at all here.
+      HALF_DAY:         { dot: '#4C8DD6', label: 'Half Day' },
     };
     const def = map[record.status];
     return def ? <HeroPill key="status" dot={def.dot} label={def.label} /> : null;
@@ -380,7 +375,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
-        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+        <WebClockInRow webToday={webToday} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -420,7 +415,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
-        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+        <WebClockInRow webToday={webToday} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -463,7 +458,7 @@ export function AttendanceHeroBanner() {
             Checked in at {formatClockTime(checkInAt)}{latestCheckOutAt ? ` · Checked out at ${formatClockTime(latestCheckOutAt)}` : ''}
           </p>
         )}
-        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+        <WebClockInRow webToday={webToday} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -509,7 +504,7 @@ export function AttendanceHeroBanner() {
           View full record →
         </button>
       </div>
-      <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+      <WebClockInRow webToday={webToday} onSubmitted={refresh} />
     </HeroCard>
   );
 }

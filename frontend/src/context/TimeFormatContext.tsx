@@ -30,10 +30,13 @@ function formatTimeAs(format: TimeFormat, iso: string | null): string | null {
 
 // Duration is format-independent (always "Xh Ym") — kept here only so callers have a single
 // import for both, and so a future format that changes duration display has one place to change.
+// Defensively floored at 0: a negative input (e.g. from an upstream gap/overlap calculation)
+// must never render as "-48m" — no duration is ever meaningfully negative to a viewer.
 function formatDurationMinutes(minutes: number | null): string | null {
   if (minutes == null) return null;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+  const clamped = Math.max(0, minutes);
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
