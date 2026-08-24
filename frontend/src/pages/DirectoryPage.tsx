@@ -5,25 +5,22 @@ import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 const PAGE_SIZE = 25;
 
 /* ── Helpers ──────────────────────────────────────── */
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
-function Avatar({ name, size = 34 }: { name: string; size?: number }) {
+function Avatar({ userId, name, size = 34 }: { userId: string; name: string; size?: number }) {
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'rgba(177,17,22,.18)', color: '#e4373d',
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.33, fontWeight: 700, flexShrink: 0,
-      fontFamily: '"Space Grotesk", sans-serif',
-    }}>
-      {initials(name)}
-    </div>
+    <EmployeeAvatar
+      userId={userId}
+      name={name}
+      size={size}
+      fontSize={size * 0.33}
+      background="rgba(177,17,22,.18)"
+      color="#e4373d"
+      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+    />
   );
 }
 
@@ -69,7 +66,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
       </div>
       <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Avatar name={entry.fullName} size={52} />
+          <Avatar userId={entry.userId} name={entry.fullName} size={52} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{entry.designationName ?? '—'}</div>
@@ -345,7 +342,7 @@ export default function DirectoryPage() {
                       >
                         <td style={TD}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Avatar name={e.fullName} />
+                            <Avatar userId={e.userId} name={e.fullName} />
                             <span style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</span>
                           </div>
                         </td>

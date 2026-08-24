@@ -260,11 +260,20 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
   modalTitle?: string;
   emptyMessage?: string;
 }) {
+  const navigate = useNavigate();
   const data = useMemo(() => buildJoinerData(joiners), [joiners]);
   const sorted = useMemo(
     () => [...joiners].sort((a, b) => b.joinedTeamOn.localeCompare(a.joinedTeamOn)),
     [joiners]
   );
+
+  // Same "open this person's record" navigation Shell's global search uses for anyone who
+  // isn't the signed-in user — there's no separate "view someone else's profile" page, so this
+  // opens their Company Directory entry instead.
+  function openProfile(userId: string) {
+    onClose();
+    navigate(`/directory?userId=${userId}`);
+  }
 
   return (
     <div
@@ -307,7 +316,16 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
             {sorted.length === 0 ? (
               <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>{emptyMessage}</div>
             ) : sorted.map((j, i) => (
-              <div key={`${j.userId}-${j.joinedTeamOn}-${i}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', ...inactiveDimStyle(j.active) }}>
+              <div
+                key={`${j.userId}-${j.joinedTeamOn}-${i}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => openProfile(j.userId)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openProfile(j.userId); } }}
+                style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', ...inactiveDimStyle(j.active) }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--raised2)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--raised)'; }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{j.fullName}</div>
                   {!j.active && <StatusBadge active={j.active} />}

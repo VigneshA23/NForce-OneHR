@@ -11,6 +11,7 @@ import {
   type OnboardingStatus, type StartOnboardingPayload,
 } from '../api/onboarding';
 import type { EmployeeRecord } from '../api/employees';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
@@ -20,11 +21,6 @@ const btnStyle: React.CSSProperties = { padding: '8px 16px', background: 'var(--
 const btnPrimaryStyle: React.CSSProperties = { ...btnStyle, background: 'var(--brand)', borderColor: 'var(--brand)', color: '#fff', fontWeight: 600 };
 
 // ── Small shared bits ──────────────────────────────────────
-
-function initialsOf(name: string) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
-}
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return '—';
@@ -196,9 +192,14 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 14 }}>
-          <div style={{ width: 46, height: 46, borderRadius: '50%', background: 'var(--brand)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', flexShrink: 0 }}>
-            {initialsOf(detail.employeeName)}
-          </div>
+          <EmployeeAvatar
+            userId={detail.employeeUserId}
+            name={detail.employeeName}
+            size={46}
+            fontSize={15}
+            background="var(--brand)"
+            style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+          />
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: '"Space Grotesk", sans-serif' }}>{detail.employeeName}</h2>
             <div style={{ color: 'var(--txt-mut)', fontSize: 12.5, marginTop: 3 }}>
@@ -417,9 +418,14 @@ function StartOnboardingModal({ onClose, onCreated }: { onClose: () => void; onC
         ) : (
           <>
             <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '14px 16px', marginBottom: 14, display: 'flex', gap: 12, alignItems: 'center' }}>
-              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--brand)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, fontFamily: '"Space Grotesk", sans-serif', flexShrink: 0 }}>
-                {initialsOf(selectedEmployee?.fullName ?? '?')}
-              </div>
+              <EmployeeAvatar
+                userId={selectedEmployee?.userId}
+                name={selectedEmployee?.fullName ?? '?'}
+                size={38}
+                fontSize={13}
+                background="var(--brand)"
+                style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+              />
               <div>
                 <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13.5 }}>{selectedEmployee?.fullName ?? '—'}</div>
                 <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>
@@ -550,9 +556,7 @@ export default function OnboardingPage() {
                   >
                     <td style={tdS}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--brand)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                          {initialsOf(r.employeeName)}
-                        </div>
+                        <EmployeeAvatar userId={r.employeeUserId} name={r.employeeName} size={30} fontSize={11} background="var(--brand)" />
                         <div>
                           <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</div>
                           <div style={{ color: 'var(--txt-dim)', fontSize: 11.5, fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>

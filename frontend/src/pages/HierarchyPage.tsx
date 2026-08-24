@@ -8,10 +8,14 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import logoUrl from '../assets/nforce-logo.png';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
+import { EmployeeAvatar, getInitials } from '../components/EmployeeAvatar';
 
 const PEER_MAX = 8;
-// Card width used for direct-reports HLine sizing
-const CARD_W = 152;
+// Fluid card width — a genuine linear function of viewport width (not a plain vw%, which
+// saturates at its ceiling well before typical desktop widths), anchored so mobile phones get
+// meaningfully narrower cards while tablet/desktop (≥~725px) render at the original 152px,
+// completely unchanged. Continuous across the whole range, including mid-resize.
+const CARD_W = 'clamp(118px, calc(108.3px + 3.04vw), 152px)';
 const CARD_GAP = 10;
 
 /* ── Role colour mapping (matches UserManagementPage exactly) ─────────── */
@@ -50,10 +54,6 @@ function deptColor(dept: string | null | undefined) {
   return key ? DEPT_COLORS[key] : DEFAULT_DEPT;
 }
 
-function initials(name: string) {
-  return name.trim().split(/\s+/).map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
 /* ── Dev safeguard: warn if same person appears in multiple tiers ──────── */
 function assertNoDuplicateTiers(ctx: OrgContext) {
   if (import.meta.env.PROD) return;
@@ -79,18 +79,16 @@ function assertNoDuplicateTiers(ctx: OrgContext) {
 function Avatar({ card, size = 42, isFocus = false }: { card: PersonCard; size?: number; isFocus?: boolean }) {
   const c = deptColor(card.department);
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0,
-      background: isFocus ? '#B11116' : c.bg,
-      color: isFocus ? '#fff' : c.fg,
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.35, fontWeight: 700,
-      fontFamily: '"Space Grotesk", sans-serif',
-      border: isFocus ? '2px solid rgba(228,55,61,.6)' : `1.5px solid ${c.border}44`,
-      boxSizing: 'border-box',
-    }}>
-      {card.initials || initials(card.name)}
-    </div>
+    <EmployeeAvatar
+      userId={card.id}
+      name={card.name}
+      size={size}
+      fontSize={size * 0.35}
+      background={isFocus ? '#B11116' : c.bg}
+      color={isFocus ? '#fff' : c.fg}
+      border={isFocus ? '2px solid rgba(228,55,61,.6)' : `1.5px solid ${c.border}44`}
+      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+    />
   );
 }
 
@@ -100,7 +98,7 @@ function SkeletonCard({ wide = false }: { wide?: boolean }) {
     <div style={{
       background: 'var(--panel)', border: '1.5px solid var(--line)',
       borderRadius: 10, padding: '10px 12px',
-      width: wide ? CARD_W + 20 : CARD_W, flexShrink: 0,
+      width: wide ? `calc(${CARD_W} + 20px)` : CARD_W, flexShrink: 0,
       display: 'flex', flexDirection: 'column', gap: 7,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -313,7 +311,7 @@ function RootsPicker({ roots, onPick, onClose }: {
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
         background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12,
         boxShadow: '0 20px 48px rgba(0,0,0,.5)', zIndex: 399,
-        width: 340, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+        width: 'min(340px, calc(100vw - 32px))', maxHeight: '70vh', display: 'flex', flexDirection: 'column',
       }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>View from the top</span>
@@ -354,11 +352,17 @@ function RootsPicker({ roots, onPick, onClose }: {
   );
 }
 
-/* ── Breadcrumb ──────────────────────────────────────────────────────── */
+/* ── Breadcrumb ──────────────────────────────────────────────────────────
+   Never wraps internally — crumbs + separators are one nowrap run. If the whole trail is too
+   wide to share a line with the action buttons, the *entire* breadcrumb moves to its own line
+   (handled by its parent row, see the main render) rather than splitting mid-trail with half
+   the crumbs stranded above/below the buttons. Only a pathologically deep chain that overflows
+   even a full-width line falls back to a horizontal scroll instead of breaking the single line.
+─────────────────────────────────────────────────────────────────────────── */
 function Breadcrumb({ crumbs, onJump }: { crumbs: BreadcrumbEntry[]; onJump: (id: string) => void }) {
   if (crumbs.length === 0) return null;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
       {crumbs.map((c, i) => (
         <React.Fragment key={c.id}>
           {i > 0 && <ChevronRight size={11} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} />}
@@ -369,7 +373,7 @@ function Breadcrumb({ crumbs, onJump }: { crumbs: BreadcrumbEntry[]; onJump: (id
               fontSize: 12, fontWeight: i === crumbs.length - 1 ? 700 : 400,
               color: i === crumbs.length - 1 ? 'var(--txt)' : 'var(--txt-mut)',
               cursor: i === crumbs.length - 1 ? 'default' : 'pointer',
-              borderRadius: 4,
+              borderRadius: 4, whiteSpace: 'nowrap', flexShrink: 0,
             }}
             tabIndex={i === crumbs.length - 1 ? -1 : 0}
           >
@@ -421,6 +425,10 @@ export default function HierarchyPage() {
   // Measured connector line state (computed from real DOM positions)
   const [connLeft, setConnLeft] = useState(0);
   const [connWidth, setConnWidth] = useState(0);
+  // Direct-reports header line width — measured from the real rendered row rather than derived
+  // from CARD_W arithmetic, since CARD_W is now a fluid clamp() and can't be resolved to a
+  // number in JS. Same DOM-measurement approach as the peer-row connector above.
+  const [reportsLineW, setReportsLineW] = useState(0);
 
   const chartRef           = useRef<HTMLDivElement>(null);
   const searchRef          = useRef<HTMLDivElement>(null);
@@ -428,6 +436,7 @@ export default function HierarchyPage() {
   const firstPeerRef       = useRef<HTMLDivElement>(null);
   const lastPeerRef        = useRef<HTMLDivElement>(null);
   const peerRowRef         = useRef<HTMLDivElement>(null);
+  const reportsRowRef      = useRef<HTMLDivElement>(null);
 
   /* Reset expand state when navigating */
   useEffect(() => { setPeersExpanded(false); }, [focusId]);
@@ -456,26 +465,41 @@ export default function HierarchyPage() {
   // Stable key for useLayoutEffect — changes only when the visible set actually changes
   const connectorKey = visiblePeers.map(p => p.id).join(',') + '|' + String(peersExpanded);
 
-  /* ── Measure peer-row connector line from real DOM positions ─────────── */
-  useLayoutEffect(() => {
+  /* ── Measure peer-row + direct-reports connector lines from real DOM positions ───────────
+     Card widths are now a fluid clamp() of viewport width (see CARD_W), so these positions
+     shift on every window resize, not just when the underlying data changes — re-measure on
+     both a data-driven layout pass and on window resize, not connectorKey alone. */
+  const measureConnectors = useCallback(() => {
     if (!peerRowRef.current || !firstPeerRef.current || visiblePeers.length < 2) {
       setConnLeft(0);
       setConnWidth(0);
-      return;
+    } else {
+      const containerRect = peerRowRef.current.getBoundingClientRect();
+      const firstRect     = firstPeerRef.current.getBoundingClientRect();
+      const lastEl        = lastPeerRef.current ?? firstPeerRef.current;
+      const lastRect      = lastEl.getBoundingClientRect();
+
+      // Center-X of each endpoint, relative to peerRowRef's left edge
+      const leftCenter  = firstRect.left - containerRect.left + firstRect.width  / 2;
+      const rightCenter = lastRect.left  - containerRect.left + lastRect.width   / 2;
+
+      setConnLeft(leftCenter);
+      setConnWidth(Math.max(0, rightCenter - leftCenter));
     }
-    const containerRect = peerRowRef.current.getBoundingClientRect();
-    const firstRect     = firstPeerRef.current.getBoundingClientRect();
-    const lastEl        = lastPeerRef.current ?? firstPeerRef.current;
-    const lastRect      = lastEl.getBoundingClientRect();
 
-    // Center-X of each endpoint, relative to peerRowRef's left edge
-    const leftCenter  = firstRect.left - containerRect.left + firstRect.width  / 2;
-    const rightCenter = lastRect.left  - containerRect.left + lastRect.width   / 2;
+    if (reportsRowRef.current && ctx && ctx.directReports.length >= 2) {
+      setReportsLineW(Math.min(reportsRowRef.current.scrollWidth, 960));
+    } else {
+      setReportsLineW(0);
+    }
+  }, [visiblePeers, ctx]);
 
-    setConnLeft(leftCenter);
-    setConnWidth(Math.max(0, rightCenter - leftCenter));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectorKey]);
+  useLayoutEffect(() => { measureConnectors(); }, [connectorKey, measureConnectors]);
+
+  useEffect(() => {
+    window.addEventListener('resize', measureConnectors);
+    return () => window.removeEventListener('resize', measureConnectors);
+  }, [measureConnectors]);
 
   /* ── Auto-scroll: center focus card in the scroll container ─────────── */
   useLayoutEffect(() => {
@@ -512,7 +536,7 @@ export default function HierarchyPage() {
         setAllNodes(nodes.map(n => ({
           id: n.userId, name: n.fullName,
           designation: n.designationName, department: n.departmentName,
-          initials: initials(n.fullName), directReportsCount: 0, isFocus: false, active: n.active,
+          initials: getInitials(n.fullName), directReportsCount: 0, isFocus: false, active: n.active,
         })));
       })
       .catch(() => {});
@@ -650,18 +674,13 @@ export default function HierarchyPage() {
         </div>
       );
     }
-    // HLine sized from actual card dimensions, capped at a reasonable max
-    const hlineW = Math.min(
-      ctx.directReports.length * (CARD_W + CARD_GAP) - CARD_GAP,
-      960
-    );
     return (
       <>
         <VLine height={28} />
         {ctx.directReports.length > 1 && (
-          <div style={{ height: 2, width: hlineW, background: 'var(--line2)' }} />
+          <div style={{ height: 2, width: reportsLineW, background: 'var(--line2)' }} />
         )}
-        <div style={{ display: 'flex', gap: CARD_GAP }}>
+        <div ref={reportsRowRef} style={{ display: 'flex', gap: CARD_GAP }}>
           {ctx.directReports.map(dr => (
             <div key={dr.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <VLine height={16} />
@@ -692,14 +711,22 @@ export default function HierarchyPage() {
         </p>
       </div>
 
-      {/* Breadcrumb + action buttons — OUTSIDE scroll container, always visible */}
+      {/* Breadcrumb + action buttons — OUTSIDE scroll container, always visible.
+          The breadcrumb is flexShrink:0 (never shrinks below its natural single-line width) —
+          combined with the Breadcrumb component's own internal nowrap, this means it can never
+          be squeezed into wrapping mid-trail. When it and the buttons together don't fit one
+          row, flex-wrap moves the *entire* buttons block down as one unit (marginLeft:auto
+          keeps it right-aligned when they do share a line) instead of interleaving with the
+          breadcrumb text. Below 767px the buttons additionally switch to a 2x2 grid (see
+          .nf-hierarchy-actions in index.css) so all four always fit — a row that's merely
+          allowed to wrap can still overflow if even one row's worth doesn't fit the viewport. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flexShrink: 0, maxWidth: '100%', overflowX: 'auto' }}>
           {ctx && ctx.breadcrumb.length > 1 && (
             <Breadcrumb crumbs={ctx.breadcrumb} onJump={recenter} />
           )}
         </div>
-        <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+        <div className="nf-hierarchy-actions" style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, marginLeft: 'auto' }}>
           <button onClick={jumpToMe} style={BTN} title="Return to your position">
             <Home size={13} /> My Position
           </button>
@@ -776,7 +803,11 @@ export default function HierarchyPage() {
       ─────────────────────────────────────────────────────────────────────── */}
       <div ref={scrollContainerRef} style={{
         background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12,
-        padding: '24px 20px', overflowX: 'auto', minHeight: 380,
+        // Fluid padding — more of a narrow phone's width goes to the chart itself instead of
+        // being eaten by fixed padding; continuous clamp(calc(px+vw)) so it scales all the way
+        // up to the original 24/20px at desktop widths, not just a single mobile breakpoint.
+        padding: 'clamp(12px, calc(8.57px + 1.07vw), 24px) clamp(10px, calc(7.14px + 0.89vw), 20px)',
+        overflowX: 'auto', minHeight: 380,
       }}>
         {/* min-width:max-content wrapper prevents alignItems:center from clipping left side */}
         <div style={{ minWidth: 'max-content', display: 'flex', justifyContent: 'center' }}>
