@@ -24,11 +24,12 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     @Query("SELECT DISTINCT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH u.roles LEFT JOIN FETCH e.department LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.location WHERE u.deletedAt IS NULL")
     List<Employee> findAllWithDetails();
 
-    // Backs WorkingDayService callers (Team Effort, Team Punctuality) and the Penalty list —
-    // joins the associations those read (location, weeklyOffPolicy, designation, department) in
-    // one query instead of one lazy-load per employee.
+    // Backs WorkingDayService callers (Team Effort, Team Punctuality), the Penalty list, and
+    // ExceptionService's per-employee shift-start resolution — joins the associations those read
+    // (location, weeklyOffPolicy, designation, department, shift) in one query instead of one
+    // lazy-load per employee.
     @Query("SELECT e FROM Employee e LEFT JOIN FETCH e.location LEFT JOIN FETCH e.weeklyOffPolicy "
-         + "LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
+         + "LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department LEFT JOIN FETCH e.shift WHERE e.userId IN :ids")
     List<Employee> findAllByIdWithScheduleDetails(@Param("ids") Collection<UUID> ids);
 
     // Backs the shift/weekly-off import (ONEHR-108) — rows are addressed by employee code, not id.

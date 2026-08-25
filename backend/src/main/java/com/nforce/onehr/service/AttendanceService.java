@@ -121,6 +121,13 @@ public class AttendanceService {
                     .canCheckIn(false)
                     .canCheckOut(true)
                     .record(toResponse(record, employee))
+                    // Missing here previously — this active-session branch never computed these,
+                    // so breakUsedMinutes came back null (frontend's `?? 0` fallback then showed
+                    // "0 / N min" instead of the real accumulated total) for the entire duration
+                    // of an open session, i.e. right after Check-In and on every refresh until
+                    // Check-Out. The closed-record branch below already did this correctly.
+                    .breakUsedMinutes(computeBreakMinutes(employee.getUserId(), record.getId(), record.getWorkDate()))
+                    .breakBudgetMinutes(props.getDailyBreakBudgetMinutes())
                     .build();
         }
 
