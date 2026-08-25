@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, LogOut } from 'lucide-react';
 import { BrandMark } from './BrandMark';
@@ -116,53 +116,74 @@ function HeroPill({ dot, label, pulse = false }: { dot: string; label: string; p
 // employee's own currently-open Web Clock-In, if any) — never gated on the normal session's
 // canCheckIn/canCheckOut. Multiple Web Clock-In → Web Clock-Out cycles in one day are allowed
 // (see WebClockInService.submit) — this row simply reflects whatever the current cycle's state is.
-function WebClockInRow({ workDate, onSubmitted }: {
-  // The business/Location-zone work date for "today", from TodayAttendanceResponse.workDate —
-  // never the browser's own UTC calendar date, which can disagree with it near midnight or
-  // whenever the employee's device zone differs from their assigned Location's zone.
-  workDate: string | undefined;
-  onSubmitted: () => void;
+function WebClockInRow({ webToday, onSubmitted }: {
+  // Today's Web Clock-In records (already filtered to the business/Location-zone workDate by
+  // the parent) — passed down rather than fetched again here: the parent (AttendanceHeroBanner)
+  // already fetches this exact list on mount/poll/every action, so a second independent fetch in
+  // this child was pure duplicate network traffic on every render and every action.
+  webToday: WebClockInRecord[];
+  onSubmitted: () => Promise<void>;
 }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
   const [showModal, setShowModal] = useState(false);
-  const [openWeb, setOpenWeb] = useState<WebClockInRecord | null>(null);
-  const [legacy, setLegacy] = useState<WebClockInRecord | null>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // Web Clock Out / Resubmit / Web Clock In are mutually exclusive (see the three branches
+  // below) — never more than one of these text-links is mounted at once — so one shared hover
+  // flag is enough. Base color is high-contrast white (matches HeroCard's other high-emphasis
+  // text, e.g. the headline) since the previous var(--brand) red-on-near-black had poor
+  // contrast here (WCAG-failing); red is kept only as the hover accent, not the resting state.
+  const [linkHovered, setLinkHovered] = useState(false);
+  const actionLinkStyle: React.CSSProperties = {
+    fontSize: 12, fontWeight: 600, color: linkHovered ? 'var(--brand)' : '#E8EAED',
+    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+    transition: 'color 120ms ease',
+  };
+
+  // PENDING counts as "currently open" alongside APPROVED — the attendance effect is immediate
+  // regardless of HR review status (see WebClockInService.submit's doc comment).
+  const openWeb = useMemo(
+    () => webToday.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null,
+    [webToday]);
+  const legacy = useMemo(
+    () => webToday.find(r => r.status === 'REJECTED' && !r.checkedOutAt) ?? null,
+    [webToday]);
   // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
   // for every later cycle the same day/shift so the employee is only asked once (per requirement:
   // "If Web Clock-In is performed again during the same day/shift, do not ask for the reason
-  // again"). Null once a NEW calendar/shift day starts, since workDate no longer matches.
-  const [reusableReason, setReusableReason] = useState<string | null>(null);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  // again"). `webToday` is already newest-first (see webClockInApi.mine), so [0] is the most
+  // recent cycle's reason. Null once a NEW calendar/shift day starts, since the parent's workDate
+  // filter no longer matches any of today's records.
+  const reusableReason = webToday[0]?.reason ?? null;
 
-  const refreshMine = useCallback(() => {
-    if (!workDate) { setOpenWeb(null); setLegacy(null); setReusableReason(null); return; }
-    webClockInApi.mine(token).then(list => {
-      const todays = list.filter(r => r.workDate === workDate);
-      // PENDING counts as "currently open" alongside APPROVED — the attendance effect is
-      // immediate regardless of HR review status (see WebClockInService.submit's doc comment).
-      setOpenWeb(todays.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null);
-      setLegacy(todays.find(r => r.status === 'REJECTED' && !r.checkedOutAt) ?? null);
-      // `list` is already newest-first (see webClockInApi.mine), so the first match for today is
-      // the most recent cycle's reason.
-      setReusableReason(todays[0]?.reason ?? null);
-    }).catch(() => { setOpenWeb(null); setLegacy(null); setReusableReason(null); });
-  }, [token, workDate]);
-
-  useEffect(() => { refreshMine(); }, [refreshMine]);
+  // Synchronous re-entrancy guards, checked/set BEFORE any state update — the `disabled`
+  // attribute alone only blocks a real click once React has committed it, which isn't
+  // guaranteed to happen before a second click (rapid double-click, a slow/blocked main thread)
+  // reaches the handler. A ref mutation is visible to the very next invocation immediately, with
+  // no render/paint dependency, unlike the setState-driven `disabled` prop.
+  const checkingOutRef = useRef(false);
+  const submittingRef = useRef(false);
 
   async function handleCheckOut() {
+    if (checkingOutRef.current) return;
+    checkingOutRef.current = true;
     setCheckingOut(true);
     try {
       const resp = await webClockInApi.checkOut(token);
       const at = formatClockTime(resp.checkedOutAt);
+      // Awaited BEFORE the guard is released below (see CheckInAction's identical punch()
+      // ordering in AttendancePage.tsx) — onSubmitted re-fetches webToday, which is what flips
+      // this row from "Web Clock Out" back to "Web Clock In". Releasing the guard/re-enabling
+      // the button before that fetch lands would leave a real window where the button is
+      // clickable again but still showing the stale (already-checked-out) state — exactly the
+      // gap a rapid double-click needs to fire a second real request.
+      await onSubmitted();
       showToast('success', `Checked out ${at ? `at ${at}` : 'successfully'}`);
-      refreshMine();
-      onSubmitted();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
     } finally {
+      checkingOutRef.current = false;
       setCheckingOut(false);
     }
   }
@@ -170,16 +191,20 @@ function WebClockInRow({ workDate, onSubmitted }: {
   // Reason already on file for today (a prior cycle this same day/shift) — skip the modal
   // entirely and resubmit straight away, reusing it.
   async function handleQuickWebClockIn(reason: string) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const resp = await webClockInApi.submit(reason, token);
       const at = formatClockTime(resp.requestedCheckIn);
+      // Same ordering as handleCheckOut above — await the refetch before the finally block
+      // re-enables the button, so it never shows the pre-submit label/state while clickable.
+      await onSubmitted();
       showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
-      refreshMine();
-      onSubmitted();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-in failed');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -195,7 +220,9 @@ function WebClockInRow({ workDate, onSubmitted }: {
           <button
             onClick={handleCheckOut}
             disabled={checkingOut}
-            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: checkingOut ? 'not-allowed' : 'pointer' }}
+            onMouseEnter={() => setLinkHovered(true)}
+            onMouseLeave={() => setLinkHovered(false)}
+            style={{ ...actionLinkStyle, cursor: checkingOut ? 'not-allowed' : 'pointer', opacity: checkingOut ? 0.7 : 1 }}
           >
             {checkingOut ? 'Web clocking out…' : 'Web Clock Out →'}
           </button>
@@ -206,7 +233,9 @@ function WebClockInRow({ workDate, onSubmitted }: {
           <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{legacy.reviewComment ? `: ${legacy.reviewComment}` : '.'}</span>
           <button
             onClick={() => setShowModal(true)}
-            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            onMouseEnter={() => setLinkHovered(true)}
+            onMouseLeave={() => setLinkHovered(false)}
+            style={actionLinkStyle}
           >
             Resubmit →
           </button>
@@ -216,13 +245,15 @@ function WebClockInRow({ workDate, onSubmitted }: {
         <button
           onClick={() => (reusableReason ? handleQuickWebClockIn(reusableReason) : setShowModal(true))}
           disabled={submitting}
-          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: submitting ? 'not-allowed' : 'pointer' }}
+          onMouseEnter={() => setLinkHovered(true)}
+          onMouseLeave={() => setLinkHovered(false)}
+          style={{ ...actionLinkStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
         >
           {submitting ? 'Checking in…' : 'Working remotely? Web Clock In →'}
         </button>
       )}
       {showModal && (
-        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => { refreshMine(); onSubmitted(); }} />
+        <WebClockInRequestModal onClose={() => setShowModal(false)} onSubmitted={() => onSubmitted()} />
       )}
     </div>
   );
@@ -241,6 +272,9 @@ export function AttendanceHeroBanner() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig]   = useState<AttendanceConfig | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy guard for handlePunch — see WebClockInRow's identical pattern above
+  // for why this can't just be the `submitting` state/disabled attribute alone.
+  const punchInFlightRef = useRef(false);
   const [now, setNow] = useState(() => new Date());
   // Anchors the shift countdown to the business/Location-zone clock the backend reported
   // (today.serverNow), not the viewer's own browser clock/zone — captured alongside the browser
@@ -280,6 +314,8 @@ export function AttendanceHeroBanner() {
   }, [refresh, token]);
 
   async function handlePunch(kind: 'in' | 'out') {
+    if (punchInFlightRef.current) return;
+    punchInFlightRef.current = true;
     setSubmitting(true);
     try {
       const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
@@ -290,6 +326,7 @@ export function AttendanceHeroBanner() {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
+      punchInFlightRef.current = false;
       setSubmitting(false);
     }
   }
@@ -349,6 +386,9 @@ export function AttendanceHeroBanner() {
       LATE:             { dot: '#E0A93B', label: `Late${record.lateByMinutes ? ` by ${formatWorkedMinutes(record.lateByMinutes)}` : ''}` },
       ABSENT:           { dot: '#B11116', label: 'Absent' },
       MISSING_CHECKOUT: { dot: '#F97316', label: 'Missing checkout' },
+      // Matches AttendancePage's STATUS_COLORS/STATUS_LABELS (#4C8DD6 / "Half Day") — without
+      // this entry a genuinely HALF_DAY record silently showed no status pill at all here.
+      HALF_DAY:         { dot: '#4C8DD6', label: 'Half Day' },
     };
     const def = map[record.status];
     return def ? <HeroPill key="status" dot={def.dot} label={def.label} /> : null;
@@ -380,7 +420,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
-        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+        <WebClockInRow webToday={webToday} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -420,7 +460,7 @@ export function AttendanceHeroBanner() {
         >
           View full record →
         </button>
-        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+        <WebClockInRow webToday={webToday} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -463,7 +503,7 @@ export function AttendanceHeroBanner() {
             Checked in at {formatClockTime(checkInAt)}{latestCheckOutAt ? ` · Checked out at ${formatClockTime(latestCheckOutAt)}` : ''}
           </p>
         )}
-        <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+        <WebClockInRow webToday={webToday} onSubmitted={refresh} />
       </HeroCard>
     );
   }
@@ -509,7 +549,7 @@ export function AttendanceHeroBanner() {
           View full record →
         </button>
       </div>
-      <WebClockInRow workDate={today?.workDate} onSubmitted={refresh} />
+      <WebClockInRow webToday={webToday} onSubmitted={refresh} />
     </HeroCard>
   );
 }

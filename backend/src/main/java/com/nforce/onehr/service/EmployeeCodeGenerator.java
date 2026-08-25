@@ -15,7 +15,7 @@ import java.time.Year;
  * MAX(employee_code)+1 logic.
  *
  * <p>The numeric suffix comes from one global Postgres sequence ({@code employee_code_seq},
- * V131) that never resets by year and never decreases — YYYY is simply the calendar year the ID
+ * V132) that never resets by year and never decreases — YYYY is simply the calendar year the ID
  * happens to be issued in, not part of the sequence's own numbering.
  *
  * <p>The Employee ID field on the Add Employee/User form is editable, and whatever the admin

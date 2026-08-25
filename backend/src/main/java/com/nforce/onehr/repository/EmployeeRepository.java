@@ -67,6 +67,24 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     @Query("SELECT COUNT(e) FROM Employee e JOIN e.user u WHERE e.shift.id = :id AND u.deletedAt IS NULL")
     long countByShiftId(@Param("id") UUID id);
 
+    // Batch equivalents of the 4 single-id counts above, one GROUP BY query each instead of one
+    // COUNT query per row — backs OrgService's listDepartments/listDesignations/listLocations/
+    // listShifts, which used to issue N extra round trips for N master-data rows on every
+    // Organization Masters page load (and every Add/Edit User modal open, for the Shift
+    // dropdown). Each returns Object[]{id (UUID), count (Long)}; a master-data row with zero
+    // employees simply has no entry — callers default to 0.
+    @Query("SELECT e.department.id, COUNT(e) FROM Employee e JOIN e.user u WHERE e.department IS NOT NULL AND u.deletedAt IS NULL GROUP BY e.department.id")
+    List<Object[]> countGroupedByDepartmentId();
+
+    @Query("SELECT e.designation.id, COUNT(e) FROM Employee e JOIN e.user u WHERE e.designation IS NOT NULL AND u.deletedAt IS NULL GROUP BY e.designation.id")
+    List<Object[]> countGroupedByDesignationId();
+
+    @Query("SELECT e.location.id, COUNT(e) FROM Employee e JOIN e.user u WHERE e.location IS NOT NULL AND u.deletedAt IS NULL GROUP BY e.location.id")
+    List<Object[]> countGroupedByLocationId();
+
+    @Query("SELECT e.shift.id, COUNT(e) FROM Employee e JOIN e.user u WHERE e.shift IS NOT NULL AND u.deletedAt IS NULL GROUP BY e.shift.id")
+    List<Object[]> countGroupedByShiftId();
+
     // Backs the Shifts master-data "Employees" drill-down (Organization Masters → Shifts) —
     // same non-deleted scoping as countByShiftId, with department fetched to avoid an N+1.
     @Query("SELECT DISTINCT e FROM Employee e JOIN FETCH e.user u LEFT JOIN FETCH e.department "

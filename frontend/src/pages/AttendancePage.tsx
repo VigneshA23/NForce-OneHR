@@ -2161,8 +2161,13 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
  * MyAttendance's `punch`/`refreshTodayAndMonth`. Checking in here calls the identical
  * attendanceApi.checkIn used by the calendar panel (so the late-arrival penalty applies the
  * same way regardless of which button was clicked); Web Check-In still goes through
- * webClockInApi.submit since it alone carries a reason, but checkout is always the one shared
- * `onCheckOut` — nothing calls webClockInApi.checkOut from this page anymore.
+ * webClockInApi.submit since it alone carries a reason, and the normal session's checkout is
+ * always the one shared `onCheckOut` — nothing calls attendanceApi.checkOut from anywhere else
+ * on this page. WebCheckInAction below DOES call webClockInApi.checkOut, for its own
+ * independent Web session (deliberately separate from the normal session's own checkout — see
+ * WebClockInService's class Javadoc); that was previously missing entirely (the button just sat
+ * disabled forever once a Web session opened), fixed to mirror AttendanceHeroBanner's own
+ * WebClockInRow.
  */
 interface CheckInStateProps {
   actionStyle: React.CSSProperties;
@@ -2266,34 +2271,57 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
   // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
   // for every later cycle the same day/shift so the employee is only asked once. Mirrors
   // AttendanceHeroBanner's WebClockInRow.
   const [reusableReason, setReusableReason] = useState<string | null>(null);
-  // Whether a Web session is currently open (PENDING/APPROVED, not yet checked out) — the only
-  // thing that should block a fresh Web Clock-In, independent of the normal session's own state.
-  const [webOpen, setWebOpen] = useState(false);
+  // The currently-open Web session (PENDING/APPROVED, not yet checked out), if any — not just a
+  // boolean: this button must offer Web Clock-Out once one is open (mirrors AttendanceHeroBanner's
+  // WebClockInRow, which already does this on the Dashboard — this Actions-panel button used to
+  // just sit disabled forever with no way to check out from here once open).
+  const [openWeb, setOpenWeb] = useState<WebClockInRecord | null>(null);
+  // Synchronous re-entrancy guards — the `disabled`/`busy`/`checkingOut` state alone only blocks
+  // a real click once React has committed the re-render, which isn't guaranteed before a second
+  // click (rapid double-click, a slow/blocked main thread) reaches these handlers. A ref
+  // mutation takes effect immediately, with no render/paint dependency.
+  const busyRef = useRef(false);
+  const checkingOutRef = useRef(false);
 
-  useEffect(() => {
+  // Returns the fetch's own promise (not fire-and-forget) — submitReason/handleWebCheckOut below
+  // await this before releasing their re-entrancy guard, so the button never re-enables while
+  // still showing stale openWeb/reusableReason state. A bare (unreturned) `.then(...)` call here
+  // would make `await refreshMine()` resolve immediately without actually waiting for it.
+  const refreshMine = useCallback(() => {
     // Filtered by the business/Location-zone work date (today.workDate) — never the browser's
     // own UTC calendar date, which can disagree with it near midnight or whenever the employee's
     // device zone differs from their assigned Location's zone.
     const businessTodayIso = today?.workDate;
-    if (!businessTodayIso) { setReusableReason(null); setWebOpen(false); return; }
-    webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
+    if (!businessTodayIso) { setReusableReason(null); setOpenWeb(null); return Promise.resolve(); }
+    return webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
       const todays = list.filter(r => r.workDate === businessTodayIso);
       setReusableReason(todays[0]?.reason ?? null);
-      setWebOpen(todays.some(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt));
-    }).catch(() => { setReusableReason(null); setWebOpen(false); });
+      setOpenWeb(todays.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null);
+    }).catch(() => { setReusableReason(null); setOpenWeb(null); });
   }, [token, today]);
 
-  const disabled = loading || webOpen;
+  useEffect(() => { refreshMine(); }, [refreshMine]);
+
+  const disabled = loading || !!openWeb;
 
   async function submitReason(trimmed: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     try {
       const created = await webClockInApi.submit(trimmed, token);
       await onSubmitted();
+      // Awaited (not fire-and-forget) — refreshMine is what sets openWeb, which is what flips
+      // this button to Web Clock-Out. Releasing busyRef/busy in the finally below before this
+      // resolves would re-enable the button while it still shows the pre-submit "Web Check-In"
+      // label, letting a rapid second click fire a genuine duplicate request. Mirrors
+      // CheckInAction's punch() in this same file, which awaits its own refresh the same way.
+      await refreshMine();
       const at = formatTime(created.requestedCheckIn);
       showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
       setOpen(false);
@@ -2301,6 +2329,7 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Action failed');
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -2312,6 +2341,39 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
       return;
     }
     submitReason(trimmed);
+  }
+
+  async function handleWebCheckOut() {
+    if (checkingOutRef.current) return;
+    checkingOutRef.current = true;
+    setCheckingOut(true);
+    try {
+      const resp = await webClockInApi.checkOut(token);
+      await onSubmitted();
+      // Same reasoning as submitReason above — awaited so checkingOutRef/checkingOut only
+      // release once openWeb has actually cleared, not before.
+      await refreshMine();
+      const at = formatTime(resp.checkedOutAt);
+      showToast('success', `Checked out ${at ? `at ${at}` : 'successfully'}`);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
+    } finally {
+      checkingOutRef.current = false;
+      setCheckingOut(false);
+    }
+  }
+
+  if (openWeb) {
+    return (
+      <button
+        onClick={handleWebCheckOut}
+        disabled={checkingOut}
+        style={{ ...actionStyle, opacity: checkingOut ? 0.6 : 1, cursor: checkingOut ? 'default' : 'pointer' }}
+      >
+        <LogOut size={14} style={{ color: 'var(--brand)' }} />
+        {checkingOut ? 'Web clocking out…' : `Web Clock-Out (since ${formatTime(openWeb.requestedCheckIn) ?? '—'})`}
+      </button>
+    );
   }
 
   return (
@@ -2428,7 +2490,13 @@ function computeBreakMinutesFromPunches(punches: Punch[]): number {
     const gapStart = punches[i].checkOutAt;
     const gapEnd = punches[i + 1].checkInAt;
     if (gapStart && gapEnd) {
-      total += Math.round((wallClockMs(gapEnd) - wallClockMs(gapStart)) / 60000);
+      // Punches are sorted by checkInAt only (see the backend's PunchResponse ordering), but a
+      // Web Clock-In/Out session can genuinely overlap a normal Check-In/Out session in real
+      // time (they're independent — see WebClockInService's own class Javadoc), so an adjacent
+      // pair here can have gapEnd before gapStart. That's a real overlap, not a negative-length
+      // break — floor each interval at 0 rather than letting a negative gap corrupt the day's
+      // total (and ultimately render as e.g. "-48m").
+      total += Math.max(0, Math.round((wallClockMs(gapEnd) - wallClockMs(gapStart)) / 60000));
     }
   }
   return total;
@@ -3064,6 +3132,11 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   const [regularizeDate, setRegularizeDate] = useState<string | null>(null);
   const [partialDayDate, setPartialDayDate] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy guard for punch() — the `disabled` attribute (driven by `submitting`)
+  // only blocks a real click once React has committed the re-render, which isn't guaranteed
+  // before a second click (rapid double-click, a slow/blocked main thread) reaches punch()
+  // itself. A ref mutation takes effect immediately, with no render/paint dependency.
+  const punchInFlightRef = useRef(false);
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
 
   useEffect(() => {
@@ -3351,6 +3424,8 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   }, [token, refreshMonth]);
 
   async function punch(kind: 'in' | 'out') {
+    if (punchInFlightRef.current) return;
+    punchInFlightRef.current = true;
     setSubmitting(true);
     try {
       const record = kind === 'in'
@@ -3366,6 +3441,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
+      punchInFlightRef.current = false;
       setSubmitting(false);
     }
   }

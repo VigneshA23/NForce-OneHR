@@ -5,7 +5,7 @@ import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Repository;
 
 /**
- * Thin wrapper around the {@code employee_code_seq} Postgres sequence (V131) — the single
+ * Thin wrapper around the {@code employee_code_seq} Postgres sequence (V132) — the single
  * source of truth for the numeric suffix in an Employee ID. Deliberately not a Spring Data JPA
  * repository since a sequence isn't backed by an entity; both queries below hit the sequence
  * directly.

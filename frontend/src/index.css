@@ -191,6 +191,22 @@ input[type="date"] {
   .nf-drawer-responsive { width: calc(100vw - 32px) !important; }
 }
 
+/* Org Hierarchy toolbar action buttons (My Position / View from Top / PNG / PDF) -> 2x2 grid,
+   mobile only. These buttons are flexShrink:0 (never shrunk illegibly), so on a narrow phone
+   all four side-by-side don't fit even alone on their own full-width row — merely allowing
+   them to wrap isn't enough, since a `flex-wrap` row still sizes itself to its unshrunk
+   content and overflows (the PDF button got clipped off the right edge). A fixed 2-column grid
+   always fits because each cell is a share of the available width, not the buttons' own
+   natural size. */
+@media (max-width: 767px) {
+  .nf-hierarchy-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    width: 100%;
+  }
+  .nf-hierarchy-actions button { width: 100%; justify-content: center; }
+}
+
 /* Shell header dropdown panel -> clamp to viewport, mobile only.
    `right: -6px` anchors to the trigger button's own wrapper, which isn't
    flush with the screen edge (bell sits left of the theme toggle/avatar),

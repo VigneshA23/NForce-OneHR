@@ -39,10 +39,16 @@ public class OrgService {
 
     // ── Departments ──────────────────────────────────────────────────────────
 
+    /**
+     * One GROUP BY count query for every department, instead of {@code countByDepartmentId}
+     * once per row (was N extra round trips for N departments on every Organization Masters
+     * page load) — see EmployeeRepository.countGroupedByDepartmentId's own comment.
+     */
     @Transactional(readOnly = true)
     public List<DepartmentResponse> listDepartments() {
+        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByDepartmentId());
         return departmentRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
-                .map(d -> DepartmentResponse.from(d, employeeRepo.countByDepartmentId(d.getId())))
+                .map(d -> DepartmentResponse.from(d, counts.getOrDefault(d.getId(), 0L)))
                 .toList();
     }
 
@@ -96,10 +102,12 @@ public class OrgService {
 
     // ── Designations ──────────────────────────────────────────────────────────
 
+    /** Same batched-count fix as listDepartments — see that method's own comment. */
     @Transactional(readOnly = true)
     public List<DesignationResponse> listDesignations() {
+        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByDesignationId());
         return designationRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
-                .map(d -> DesignationResponse.from(d, employeeRepo.countByDesignationId(d.getId())))
+                .map(d -> DesignationResponse.from(d, counts.getOrDefault(d.getId(), 0L)))
                 .toList();
     }
 
@@ -159,10 +167,12 @@ public class OrgService {
 
     // ── Locations ──────────────────────────────────────────────────────────────
 
+    /** Same batched-count fix as listDepartments — see that method's own comment. */
     @Transactional(readOnly = true)
     public List<LocationResponse> listLocations() {
+        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByLocationId());
         return locationRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
-                .map(l -> LocationResponse.from(l, employeeRepo.countByLocationId(l.getId())))
+                .map(l -> LocationResponse.from(l, counts.getOrDefault(l.getId(), 0L)))
                 .toList();
     }
 
@@ -266,11 +276,22 @@ public class OrgService {
     // EmployeeAssignmentController, unaffected by this), but must not be able to create, edit,
     // or delete the shift definition itself.
 
+    /**
+     * Same batched-count fix as listDepartments (see that method's own comment) — this one also
+     * backs the Add/Edit User Shift dropdown's data source (listShifts is reused there), so it
+     * was doubly on the critical path for the "dropdowns take too long to load" complaint.
+     */
     @Transactional(readOnly = true)
     public List<ShiftResponse> listShifts() {
+        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByShiftId());
         return shiftRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
-                .map(s -> ShiftResponse.from(s, employeeRepo.countByShiftId(s.getId())))
+                .map(s -> ShiftResponse.from(s, counts.getOrDefault(s.getId(), 0L)))
                 .toList();
+    }
+
+    /** Turns a countGroupedBy*Id() Object[]{id, count} projection into a lookup map. */
+    private static Map<UUID, Long> toCountMap(List<Object[]> rows) {
+        return rows.stream().collect(Collectors.toMap(r -> (UUID) r[0], r -> (Long) r[1]));
     }
 
     /** The employees currently assigned to a shift — backs the Shifts table's Employees drill-down. */

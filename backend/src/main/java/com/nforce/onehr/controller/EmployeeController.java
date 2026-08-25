@@ -10,6 +10,8 @@ import com.nforce.onehr.service.EmployeeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -92,5 +94,18 @@ public class EmployeeController {
     @GetMapping("/my-manager")
     public EmployeeResponse.ManagerRef myManager(Principal principal) {
         return employeeService.getMyManager(principal.getName());
+    }
+
+    /**
+     * Any employee's profile photo, raw bytes — no {@code @PreAuthorize}, so any authenticated
+     * user can view it (same visibility as the directory/org chart/team views, which already
+     * show everyone's name and department). 404 when there's no photo, so the frontend's avatar
+     * component can fall back to initials without treating it as an error.
+     */
+    @GetMapping("/{userId}/photo")
+    public ResponseEntity<byte[]> photo(@PathVariable UUID userId) {
+        byte[] photo = employeeService.getPhoto(userId);
+        if (photo == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(photo);
     }
 }

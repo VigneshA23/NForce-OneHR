@@ -8,6 +8,7 @@ import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
@@ -432,5 +433,219 @@ class AttendanceServiceTest {
         assertEquals("LATE", resp.getStatus());
         assertTrue(resp.getLateByMinutes() > 200,
                 "expected several hours late (shift started 20:30 the previous day), was " + resp.getLateByMinutes());
+    }
+
+    // ---------------------------------------------------------------- half day / full day timing
+
+    /**
+     * A checkout well before the shift's own natural end is a resumable break (checkIn's own
+     * "resume" branch explicitly allows checking in again later the same shift/day) — HALF_DAY
+     * must not be judged this early just because worked-minutes-so-far happens to be low. Uses
+     * the same deterministic offset trick as the overnight-lateness test above: "now" reads as
+     * 8:36 PM, six minutes into a 20:30-05:30 shift — nowhere near its 5:30 AM end.
+     */
+    @Test
+    void checkOut_beforeShiftEnd_doesNotFinalizeHalfDay_evenWithLowWorkedMinutes() {
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(20, 36).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId()));
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(20, 30));
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(checkInAt)
+                .sessionStartedAt(checkInAt)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        stubOpenNormalSession(open);
+
+        AttendanceResponse resp = service.checkOut(employeeEmail, null);
+
+        assertNotEquals("HALF_DAY", resp.getStatus(),
+                "shift hasn't ended yet (20:36, shift ends 05:30) — must not judge the day as HALF_DAY this early");
+        assertEquals("PRESENT", resp.getStatus(), "status should stay whatever check-in set until the shift actually ends");
+    }
+
+    /**
+     * Once the shift has actually reached its own natural end, a genuinely short day (checked in
+     * right at the very end, checked out minutes later — never came back) must finalize as
+     * HALF_DAY: there's no more opportunity to resume. "now" reads as 5:35 AM, five minutes past
+     * the 20:30-05:30 shift's own end.
+     */
+    @Test
+    void checkOut_atOrAfterShiftEnd_finalizesHalfDay_whenWorkedMinutesBelowThreshold() {
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(5, 35).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+
+        // "Now" (5:35 AM) is past midnight relative to the shift's own start (20:30 the evening
+        // before) — the open session's workDate is that earlier calendar day, same convention as
+        // the overnight-lateness test above.
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId())).minusDays(1);
+        LocalDateTime checkInAt = LocalDateTime.of(workDate.plusDays(1), LocalTime.of(5, 30));
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(checkInAt)
+                .sessionStartedAt(checkInAt)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        stubOpenNormalSession(open);
+
+        AttendanceResponse resp = service.checkOut(employeeEmail, null);
+
+        assertEquals("HALF_DAY", resp.getStatus(),
+                "shift has ended (05:35, shift ends 05:30) and only ~5 minutes were worked — must finalize as HALF_DAY now");
+    }
+
+    /**
+     * The sweep covering the case checkOut itself can't: an employee who checked out well
+     * before their shift ended and simply never came back that day. Once the shift's own
+     * natural end has since passed (checked here, not at the original checkout), the sweep must
+     * finalize the day as HALF_DAY on its own, without any further attendance action from the
+     * employee.
+     */
+    @Test
+    void finalizeStatusPastShiftEnd_finalizesHalfDay_forAClosedDayThatNeverReopenedAfterShiftEnd() {
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(5, 35).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId())).minusDays(1);
+        Attendance closed = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(20, 35)))
+                .checkOutAt(LocalDateTime.of(workDate, LocalTime.of(20, 40)))
+                .workedMinutes(5)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(any(), any()))
+                .thenReturn(List.of(closed));
+
+        service.finalizeStatusPastShiftEnd();
+
+        assertEquals("HALF_DAY", closed.getStatus());
+        verify(attendanceRepository).save(closed);
+    }
+
+    /** The mirror case: shift hasn't ended yet, so the sweep must leave the record untouched. */
+    @Test
+    void finalizeStatusPastShiftEnd_leavesRecordUntouched_whenShiftHasNotEndedYet() {
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(20, 36).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId()));
+        Attendance closed = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(20, 30)))
+                .checkOutAt(LocalDateTime.of(workDate, LocalTime.of(20, 31)))
+                .workedMinutes(1)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(any(), any()))
+                .thenReturn(List.of(closed));
+
+        service.finalizeStatusPastShiftEnd();
+
+        assertEquals("PRESENT", closed.getStatus(), "shift ends at 05:30 the next day — 20:36 is nowhere near over yet");
+        verify(attendanceRepository, never()).save(any(Attendance.class));
+    }
+
+    // ---------------------------------------------------------------- break minutes
+
+    /**
+     * A Web Clock-In/Out session can genuinely overlap a normal Check-In/Out session in real
+     * time (the two are independent — see WebClockInService's own class Javadoc): here the
+     * WEB_REMOTE cycle starts and ends entirely inside the still-open... no, entirely inside the
+     * already-closed SYSTEM session's window. collectPunches sorts by checkInAt only, so the
+     * "gap" between the SYSTEM session's checkOutAt and the (earlier-ending) WEB_REMOTE session's
+     * checkInAt is negative. Must be floored at 0, not surfaced to the employee as e.g.
+     * "-6 / 60 min" on the Today's Timings panel.
+     */
+    @Test
+    void getToday_neverReportsANegativeBreakUsedMinutes_whenWebAndNormalSessionsOverlap() {
+        LocalDate workDate = currentShiftDay();
+        LocalDateTime systemCheckIn = LocalDateTime.of(workDate, LocalTime.of(22, 3));
+        LocalDateTime systemCheckOut = LocalDateTime.of(workDate, LocalTime.of(22, 32));
+        Attendance closed = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(systemCheckIn)
+                .checkOutAt(systemCheckOut)
+                .workedMinutes(29)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
+                .thenReturn(Optional.of(closed));
+
+        AttendancePunch systemPunch = AttendancePunch.builder()
+                .id(UUID.randomUUID()).attendanceRecordId(closed.getId())
+                .checkInAt(systemCheckIn).checkOutAt(systemCheckOut).build();
+        when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(closed.getId()))
+                .thenReturn(List.of(systemPunch));
+
+        // Web Clock-In/Out cycle entirely inside the SYSTEM session's window — checkInAt 22:07,
+        // checkedOutAt 22:08 — both well before the SYSTEM session's own 22:32 checkout.
+        WebClockInRequest webCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).workDate(workDate)
+                .requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(22, 7)))
+                .checkedOutAt(LocalDateTime.of(workDate, LocalTime.of(22, 8)))
+                .reason("test").status("PENDING").build();
+        when(webClockInRequestRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(employeeId, workDate))
+                .thenReturn(List.of(webCycle));
+
+        TodayAttendanceResponse response = service.getToday(employeeEmail, null);
+
+        assertNotNull(response.getBreakUsedMinutes());
+        assertTrue(response.getBreakUsedMinutes() >= 0,
+                "break-used minutes must never be negative, was " + response.getBreakUsedMinutes());
+        assertEquals(0, response.getBreakUsedMinutes());
     }
 }

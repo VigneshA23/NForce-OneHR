@@ -7,7 +7,7 @@
 -- was never updated to allow those values — it still only permits Partial Day's three modes.
 -- Every WFH submission therefore violates the constraint at commit time and fails with a
 -- generic 500. This recreates the constraint to allow both request types' modes.
-ALTER TABLE attendance_requests DROP CONSTRAINT attendance_requests_partial_day_mode_check;
+ALTER TABLE attendance_requests DROP CONSTRAINT IF EXISTS attendance_requests_partial_day_mode_check;
 
 ALTER TABLE attendance_requests
     ADD CONSTRAINT attendance_requests_partial_day_mode_check

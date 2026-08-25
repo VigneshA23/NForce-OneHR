@@ -52,4 +52,13 @@ public interface AttendanceRepository extends JpaRepository<Attendance, UUID> {
     List<Attendance> findByWorkDateAndEmployeeUserIdIn(LocalDate workDate, List<UUID> employeeUserIds);
 
     List<Attendance> findByEmployeeUserIdInAndWorkDateBetween(List<UUID> employeeUserIds, LocalDate from, LocalDate to);
+
+    // Backs the periodic sweep that finalizes HALF_DAY (or confirms PRESENT/LATE) once a shift
+    // has actually ended for a day closeSession/WebClockInService.checkOut deliberately left
+    // un-finalized at checkout time — see AttendanceService.closeSession's own comment. Scoped
+    // to `from` (a small recent-days window, not all history) since a record only stays
+    // "pending finalization" between its own checkout and its own shift's natural end — at most
+    // a day or two even for the most delayed overnight-shift case — so this never grows into an
+    // unbounded full-table scan as the org's attendance history grows.
+    List<Attendance> findByStatusInAndWorkDateGreaterThanEqual(Collection<String> statuses, LocalDate from);
 }

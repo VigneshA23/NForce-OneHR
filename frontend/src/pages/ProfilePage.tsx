@@ -4,6 +4,7 @@ import { Camera, Lock, Shield, X } from 'lucide-react';
 import { profileApi, type ProfileData, type UpdateProfilePayload } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { invalidateEmployeePhoto } from '../components/EmployeeAvatar';
 
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -325,6 +326,10 @@ export default function ProfilePage() {
       // avatars (which read storeUser.photoDataUrl) update immediately, instead of
       // the photo only ever showing up here on this page.
       if (storeUser) setAuth(token, { ...storeUser, photoDataUrl: updated.photoDataUrl });
+      // Every other avatar for this person (directory, org chart, team lists, search — anywhere
+      // else in the app) resolves the photo via a session-cached fetch keyed by userId; drop
+      // that cache entry so those spots pick up the new photo instead of showing the old one.
+      invalidateEmployeePhoto(updated.userId);
       showToast('success', 'Photo updated');
       setShowPhotoModal(false);
     } catch (err) {
@@ -341,6 +346,7 @@ export default function ProfilePage() {
       const updated = await profileApi.removePhoto(token);
       setProfile(updated);
       if (storeUser) setAuth(token, { ...storeUser, photoDataUrl: updated.photoDataUrl });
+      invalidateEmployeePhoto(updated.userId);
       showToast('success', 'Photo removed');
       setShowPhotoModal(false);
     } catch (err) {

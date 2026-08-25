@@ -413,8 +413,10 @@ public class WebClockInService {
         // classification is about the day's overall worked-time sufficiency, not the normal
         // session's open/closed state — but a Missing-Check-Out flag already set by the normal
         // side's own staleness detection is left alone, not silently overwritten by this
-        // unrelated Web checkout.
-        if (!STATUS_MISSING_CHECKOUT.equals(record.getStatus())) {
+        // unrelated Web checkout. And per AttendanceService.closeSession's identical rule, a
+        // Web Clock-Out before the shift's own natural end (cutoff) is a resumable break, not the
+        // day's final word — HALF_DAY is only finalized once the shift has actually ended.
+        if (!STATUS_MISSING_CHECKOUT.equals(record.getStatus()) && !now.isBefore(cutoff)) {
             record.setStatus(workedMinutes < attendanceProps.getHalfDayMaxHours() * 60
                     ? STATUS_HALF_DAY
                     : (record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT));

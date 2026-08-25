@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Info, X } from 'lucide-react';
 
 /**
@@ -133,6 +133,20 @@ type PolicyTab = 'PENALISATION' | 'TIME_TRACKING';
 export function AttendancePolicyModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<PolicyTab>('PENALISATION');
   const blocks = tab === 'PENALISATION' ? PENALISATION_POLICY_BLOCKS : TIME_TRACKING_POLICY_BLOCKS;
+
+  // This is a full-page takeover that covers the viewport, but the Attendance page behind it
+  // stays in the DOM and keeps document.body scrollable — without this, the body's native
+  // scrollbar and this modal's own .nf-attpolicy-content scrollbar both render at the same
+  // right edge, showing as two scrollbars. Restores whatever overflow value was there before
+  // (rather than assuming ''), so it can't clobber a lock some other component already set.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
 
   return (
     <div className="nf-attpolicy-overlay" style={{ position: 'fixed', inset: 0, background: 'var(--shell)', zIndex: 500, display: 'flex', flexDirection: 'column' }}>

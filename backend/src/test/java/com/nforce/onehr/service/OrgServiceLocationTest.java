@@ -124,4 +124,30 @@ class OrgServiceLocationTest {
         assertEquals("Hyderabad", response.getName());
         verify(locationRepo, never()).existsByNameIgnoreCase(anyString());
     }
+
+    /**
+     * listLocations() must batch employee counts via one GROUP BY query (countGroupedByLocationId)
+     * rather than one countByLocationId call per row — this test locks in both the batching
+     * itself (never() on the per-row count) and that each location still ends up with the
+     * correct count from the grouped result, including a location with zero employees getting 0
+     * rather than a missing/null entry.
+     */
+    @Test
+    void listLocations_usesBatchedGroupedCount_notOnePerRowCountQuery() {
+        UUID hyderabadId = UUID.randomUUID();
+        UUID bangaloreId = UUID.randomUUID();
+        Location hyderabad = Location.builder().id(hyderabadId).name("Hyderabad").build();
+        Location bangalore = Location.builder().id(bangaloreId).name("Bangalore").build();
+        when(locationRepo.findAll(any(org.springframework.data.domain.Sort.class)))
+                .thenReturn(java.util.List.of(hyderabad, bangalore));
+        when(employeeRepo.countGroupedByLocationId())
+                .thenReturn(java.util.List.<Object[]>of(new Object[]{hyderabadId, 5L}));
+
+        java.util.List<LocationResponse> result = service.listLocations();
+
+        assertEquals(5L, result.stream().filter(r -> r.getId().equals(hyderabadId)).findFirst().orElseThrow().getEmployeeCount());
+        // Bangalore has no entry in the grouped result (zero employees) — must default to 0, not null/missing.
+        assertEquals(0L, result.stream().filter(r -> r.getId().equals(bangaloreId)).findFirst().orElseThrow().getEmployeeCount());
+        verify(employeeRepo, never()).countByLocationId(any());
+    }
 }
