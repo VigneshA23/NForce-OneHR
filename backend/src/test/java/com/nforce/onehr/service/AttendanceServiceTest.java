@@ -8,6 +8,7 @@ import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
@@ -432,5 +433,58 @@ class AttendanceServiceTest {
         assertEquals("LATE", resp.getStatus());
         assertTrue(resp.getLateByMinutes() > 200,
                 "expected several hours late (shift started 20:30 the previous day), was " + resp.getLateByMinutes());
+    }
+
+    // ---------------------------------------------------------------- break minutes
+
+    /**
+     * A Web Clock-In/Out session can genuinely overlap a normal Check-In/Out session in real
+     * time (the two are independent — see WebClockInService's own class Javadoc): here the
+     * WEB_REMOTE cycle starts and ends entirely inside the still-open... no, entirely inside the
+     * already-closed SYSTEM session's window. collectPunches sorts by checkInAt only, so the
+     * "gap" between the SYSTEM session's checkOutAt and the (earlier-ending) WEB_REMOTE session's
+     * checkInAt is negative. Must be floored at 0, not surfaced to the employee as e.g.
+     * "-6 / 60 min" on the Today's Timings panel.
+     */
+    @Test
+    void getToday_neverReportsANegativeBreakUsedMinutes_whenWebAndNormalSessionsOverlap() {
+        LocalDate workDate = currentShiftDay();
+        LocalDateTime systemCheckIn = LocalDateTime.of(workDate, LocalTime.of(22, 3));
+        LocalDateTime systemCheckOut = LocalDateTime.of(workDate, LocalTime.of(22, 32));
+        Attendance closed = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(systemCheckIn)
+                .checkOutAt(systemCheckOut)
+                .workedMinutes(29)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .build();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
+                .thenReturn(Optional.of(closed));
+
+        AttendancePunch systemPunch = AttendancePunch.builder()
+                .id(UUID.randomUUID()).attendanceRecordId(closed.getId())
+                .checkInAt(systemCheckIn).checkOutAt(systemCheckOut).build();
+        when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(closed.getId()))
+                .thenReturn(List.of(systemPunch));
+
+        // Web Clock-In/Out cycle entirely inside the SYSTEM session's window — checkInAt 22:07,
+        // checkedOutAt 22:08 — both well before the SYSTEM session's own 22:32 checkout.
+        WebClockInRequest webCycle = WebClockInRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).workDate(workDate)
+                .requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(22, 7)))
+                .checkedOutAt(LocalDateTime.of(workDate, LocalTime.of(22, 8)))
+                .reason("test").status("PENDING").build();
+        when(webClockInRequestRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(employeeId, workDate))
+                .thenReturn(List.of(webCycle));
+
+        TodayAttendanceResponse response = service.getToday(employeeEmail, null);
+
+        assertNotNull(response.getBreakUsedMinutes());
+        assertTrue(response.getBreakUsedMinutes() >= 0,
+                "break-used minutes must never be negative, was " + response.getBreakUsedMinutes());
+        assertEquals(0, response.getBreakUsedMinutes());
     }
 }

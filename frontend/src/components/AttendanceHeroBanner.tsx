@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, LogOut } from 'lucide-react';
 import { BrandMark } from './BrandMark';
@@ -157,7 +157,17 @@ function WebClockInRow({ webToday, onSubmitted }: {
   // filter no longer matches any of today's records.
   const reusableReason = webToday[0]?.reason ?? null;
 
+  // Synchronous re-entrancy guards, checked/set BEFORE any state update — the `disabled`
+  // attribute alone only blocks a real click once React has committed it, which isn't
+  // guaranteed to happen before a second click (rapid double-click, a slow/blocked main thread)
+  // reaches the handler. A ref mutation is visible to the very next invocation immediately, with
+  // no render/paint dependency, unlike the setState-driven `disabled` prop.
+  const checkingOutRef = useRef(false);
+  const submittingRef = useRef(false);
+
   async function handleCheckOut() {
+    if (checkingOutRef.current) return;
+    checkingOutRef.current = true;
     setCheckingOut(true);
     try {
       const resp = await webClockInApi.checkOut(token);
@@ -167,6 +177,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
     } finally {
+      checkingOutRef.current = false;
       setCheckingOut(false);
     }
   }
@@ -174,6 +185,8 @@ function WebClockInRow({ webToday, onSubmitted }: {
   // Reason already on file for today (a prior cycle this same day/shift) — skip the modal
   // entirely and resubmit straight away, reusing it.
   async function handleQuickWebClockIn(reason: string) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const resp = await webClockInApi.submit(reason, token);
@@ -183,6 +196,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-in failed');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -250,6 +264,9 @@ export function AttendanceHeroBanner() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig]   = useState<AttendanceConfig | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy guard for handlePunch — see WebClockInRow's identical pattern above
+  // for why this can't just be the `submitting` state/disabled attribute alone.
+  const punchInFlightRef = useRef(false);
   const [now, setNow] = useState(() => new Date());
   // Anchors the shift countdown to the business/Location-zone clock the backend reported
   // (today.serverNow), not the viewer's own browser clock/zone — captured alongside the browser
@@ -289,6 +306,8 @@ export function AttendanceHeroBanner() {
   }, [refresh, token]);
 
   async function handlePunch(kind: 'in' | 'out') {
+    if (punchInFlightRef.current) return;
+    punchInFlightRef.current = true;
     setSubmitting(true);
     try {
       const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
@@ -299,6 +318,7 @@ export function AttendanceHeroBanner() {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
+      punchInFlightRef.current = false;
       setSubmitting(false);
     }
   }

@@ -21,8 +21,9 @@ public class AttendanceConfigResponse {
     /** Null only if the caller has no Shift assigned — every employee is seeded with one (V95), so this is normally always set. */
     private LocalTime shiftEnd;
     private int lateGraceMinutes;
-    private int halfDayMaxHours;
-    private int fullDayMinHours;
+    // Fractional hours (3.5 = 3h30m) — mirrors AttendanceProperties.halfDayMaxHours/fullDayMinHours.
+    private double halfDayMaxHours;
+    private double fullDayMinHours;
     private int dailyBreakBudgetMinutes;
     /** java.time.DayOfWeek names, e.g. ["SATURDAY", "SUNDAY"]. */
     private List<String> weeklyOffDays;

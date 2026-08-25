@@ -164,7 +164,15 @@ public class AttendanceService {
             LocalDateTime gapStart = punches.get(i).getCheckOutAt();
             LocalDateTime gapEnd = punches.get(i + 1).getCheckInAt();
             if (gapStart != null && gapEnd != null) {
-                breakMinutes += (int) Duration.between(gapStart, gapEnd).toMinutes();
+                // Punches are sorted by checkInAt only (see collectPunches), but a Web Clock-In/
+                // Out session can genuinely overlap a normal Check-In/Out session in real time
+                // (they're independent — see WebClockInService's own class Javadoc), so an
+                // adjacent pair here can have gapEnd before gapStart. That's a real overlap, not
+                // a negative-length break — floor each interval at 0 rather than letting a
+                // negative gap corrupt the day's total (surfaced to the employee as e.g. "-6 /
+                // 60 min" on the Today's Timings panel). Mirrors the identical fix already
+                // applied to the frontend's own computeBreakMinutesFromPunches.
+                breakMinutes += Math.max(0, (int) Duration.between(gapStart, gapEnd).toMinutes());
             }
         }
         return breakMinutes;

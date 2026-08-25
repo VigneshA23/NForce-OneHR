@@ -50,8 +50,8 @@ app:
     # AttendanceService.shiftDayOf.
     shift-day-cutover: "07:00"
     late-grace-minutes: 10
-    half-day-max-hours: 4
-    full-day-min-hours: 8
+    half-day-max-hours: 3.5
+    full-day-min-hours: 7.5
     # Provisional — pending PO/final confirmation, same status as the shift fields above.
     daily-break-budget-minutes: 60
     regularization:

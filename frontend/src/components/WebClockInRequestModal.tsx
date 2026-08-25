@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
@@ -27,13 +27,21 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
   const { showToast } = useToast();
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy guard, checked/set BEFORE any state update or re-render — the
+  // `disabled` attribute alone only blocks a real click once React has committed it, which
+  // isn't guaranteed to happen before a second click (rapid double-click, a slow/blocked main
+  // thread, or a directly-invoked handler) reaches this function. A ref mutation is visible to
+  // the very next invocation immediately, with no render/paint dependency at all.
+  const inFlightRef = useRef(false);
 
   async function handleSubmit() {
+    if (inFlightRef.current) return;
     const trimmed = reason.trim();
     if (!trimmed) {
       showToast('error', 'Please enter a comment for the web clock-in request');
       return;
     }
+    inFlightRef.current = true;
     setSubmitting(true);
     try {
       const created = await webClockInApi.submit(trimmed, token);
@@ -43,6 +51,7 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
       onClose();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to submit check-in');
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   }

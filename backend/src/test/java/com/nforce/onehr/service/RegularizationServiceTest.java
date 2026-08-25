@@ -108,7 +108,7 @@ class RegularizationServiceTest {
                 });
         lenient().when(attendanceProps.getShiftStart()).thenReturn(LocalTime.of(9, 30));
         lenient().when(attendanceProps.getLateGraceMinutes()).thenReturn(15);
-        lenient().when(attendanceProps.getHalfDayMaxHours()).thenReturn(4);
+        lenient().when(attendanceProps.getHalfDayMaxHours()).thenReturn(4.0);
         // Matches the system default zone so LocalDate.now(ZoneId.of(...)) in the service
         // agrees with the plain LocalDate.now() used throughout these tests.
         lenient().when(attendanceProps.getZone()).thenReturn(java.time.ZoneId.systemDefault().getId());
