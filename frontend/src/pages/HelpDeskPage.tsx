@@ -73,12 +73,12 @@ function fmtDateTime(s?: string | null) {
 
 // ── Contact HR Support modal (ticket creation) — unchanged ─
 
-function ContactHRModal({ categories, token, onClose, onCreated }: {
-  categories: HelpdeskCategory[]; token: string; onClose: () => void; onCreated: () => void;
+function ContactHRModal({ categories, token, initialDescription, onClose, onCreated }: {
+  categories: HelpdeskCategory[]; token: string; initialDescription?: string; onClose: () => void; onCreated: () => void;
 }) {
   const { showToast } = useToast();
   const [categoryId, setCategoryId] = useState<number | ''>(categories[0]?.id ?? '');
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(initialDescription ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<TicketDetail | null>(null);
@@ -578,7 +578,7 @@ function GuideList({ items, onOpen, token, isAdmin, actions, busyIds }: {
 
 /** Full-content view for any content item — fetches its own detail and, if present, offers the shared attachment viewer. */
 function ContentModal({ id, token, onClose, onContactHR }: {
-  id: string; token: string; onClose: () => void; onContactHR: () => void;
+  id: string; token: string; onClose: () => void; onContactHR: (guideTitle: string) => void;
 }) {
   const [item, setItem] = useState<HelpContentDetail | null>(null);
   const [viewingAttachments, setViewingAttachments] = useState(false);
@@ -625,7 +625,7 @@ function ContentModal({ id, token, onClose, onContactHR }: {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-            <button onClick={onContactHR} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            <button onClick={() => onContactHR(item.title)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
               Still need help? Contact HR Support →
             </button>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
@@ -809,6 +809,10 @@ export default function HelpDeskPage() {
 
   const [categories, setCategories] = useState<HelpdeskCategory[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
+  // Seeded onto the Contact HR modal's description so HR sees what the employee was already
+  // looking at (a guide that didn't answer their question, or a search that came up empty)
+  // instead of starting the conversation from scratch.
+  const [contactPrefill, setContactPrefill] = useState('');
   const [activeContentId, setActiveContentId] = useState<string | null>(null);
   const [showAllFaqs, setShowAllFaqs] = useState(false);
   const [showAllGuides, setShowAllGuides] = useState(false);
@@ -1023,8 +1027,15 @@ export default function HelpDeskPage() {
     return () => clearTimeout(handle);
   }, [contentSearch, token]);
 
-  function openContactFromModal() {
+  function openContactFromModal(guideTitle: string) {
     setActiveContentId(null);
+    setContactPrefill(`Regarding "${guideTitle}": this guide didn't answer my question. `);
+    setShowContactModal(true);
+  }
+
+  function openContactFromSearch() {
+    const q = contentSearch.trim();
+    setContactPrefill(q ? `Regarding my search for "${q}": ` : '');
     setShowContactModal(true);
   }
 
@@ -1062,7 +1073,7 @@ export default function HelpDeskPage() {
             style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '11px 14px 11px 34px', color: 'var(--txt)', fontSize: 13.5, outline: 'none' }}
           />
         </div>
-        <button onClick={() => setShowContactModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '0 20px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <button onClick={() => { setContactPrefill(''); setShowContactModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '0 20px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           <HelpCircle size={15} /> Contact HR Support
         </button>
       </div>
@@ -1077,7 +1088,7 @@ export default function HelpDeskPage() {
           {!searching && searchResults.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 }}>
               No matches. Try different words, or{' '}
-              <button onClick={() => setShowContactModal(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', padding: 0, font: 'inherit' }}>contact HR</button>.
+              <button onClick={openContactFromSearch} style={{ background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', padding: 0, font: 'inherit' }}>contact HR</button>.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1224,7 +1235,8 @@ export default function HelpDeskPage() {
         <ContactHRModal
           categories={categories}
           token={token}
-          onClose={() => { setShowContactModal(false); loadTickets(0); }}
+          initialDescription={contactPrefill}
+          onClose={() => { setShowContactModal(false); setContactPrefill(''); loadTickets(0); }}
           onCreated={() => loadTickets(0)}
         />
       )}
