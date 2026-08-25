@@ -122,7 +122,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
   // already fetches this exact list on mount/poll/every action, so a second independent fetch in
   // this child was pure duplicate network traffic on every render and every action.
   webToday: WebClockInRecord[];
-  onSubmitted: () => void;
+  onSubmitted: () => Promise<void>;
 }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
@@ -172,8 +172,14 @@ function WebClockInRow({ webToday, onSubmitted }: {
     try {
       const resp = await webClockInApi.checkOut(token);
       const at = formatClockTime(resp.checkedOutAt);
+      // Awaited BEFORE the guard is released below (see CheckInAction's identical punch()
+      // ordering in AttendancePage.tsx) — onSubmitted re-fetches webToday, which is what flips
+      // this row from "Web Clock Out" back to "Web Clock In". Releasing the guard/re-enabling
+      // the button before that fetch lands would leave a real window where the button is
+      // clickable again but still showing the stale (already-checked-out) state — exactly the
+      // gap a rapid double-click needs to fire a second real request.
+      await onSubmitted();
       showToast('success', `Checked out ${at ? `at ${at}` : 'successfully'}`);
-      onSubmitted();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-out failed');
     } finally {
@@ -191,8 +197,10 @@ function WebClockInRow({ webToday, onSubmitted }: {
     try {
       const resp = await webClockInApi.submit(reason, token);
       const at = formatClockTime(resp.requestedCheckIn);
+      // Same ordering as handleCheckOut above — await the refetch before the finally block
+      // re-enables the button, so it never shows the pre-submit label/state while clickable.
+      await onSubmitted();
       showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
-      onSubmitted();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Web clock-in failed');
     } finally {

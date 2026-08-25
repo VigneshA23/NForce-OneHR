@@ -2288,13 +2288,17 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   const busyRef = useRef(false);
   const checkingOutRef = useRef(false);
 
+  // Returns the fetch's own promise (not fire-and-forget) — submitReason/handleWebCheckOut below
+  // await this before releasing their re-entrancy guard, so the button never re-enables while
+  // still showing stale openWeb/reusableReason state. A bare (unreturned) `.then(...)` call here
+  // would make `await refreshMine()` resolve immediately without actually waiting for it.
   const refreshMine = useCallback(() => {
     // Filtered by the business/Location-zone work date (today.workDate) — never the browser's
     // own UTC calendar date, which can disagree with it near midnight or whenever the employee's
     // device zone differs from their assigned Location's zone.
     const businessTodayIso = today?.workDate;
-    if (!businessTodayIso) { setReusableReason(null); setOpenWeb(null); return; }
-    webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
+    if (!businessTodayIso) { setReusableReason(null); setOpenWeb(null); return Promise.resolve(); }
+    return webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
       const todays = list.filter(r => r.workDate === businessTodayIso);
       setReusableReason(todays[0]?.reason ?? null);
       setOpenWeb(todays.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null);
@@ -2312,7 +2316,12 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
     try {
       const created = await webClockInApi.submit(trimmed, token);
       await onSubmitted();
-      refreshMine();
+      // Awaited (not fire-and-forget) — refreshMine is what sets openWeb, which is what flips
+      // this button to Web Clock-Out. Releasing busyRef/busy in the finally below before this
+      // resolves would re-enable the button while it still shows the pre-submit "Web Check-In"
+      // label, letting a rapid second click fire a genuine duplicate request. Mirrors
+      // CheckInAction's punch() in this same file, which awaits its own refresh the same way.
+      await refreshMine();
       const at = formatTime(created.requestedCheckIn);
       showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
       setOpen(false);
@@ -2341,7 +2350,9 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
     try {
       const resp = await webClockInApi.checkOut(token);
       await onSubmitted();
-      refreshMine();
+      // Same reasoning as submitReason above — awaited so checkingOutRef/checkingOut only
+      // release once openWeb has actually cleared, not before.
+      await refreshMine();
       const at = formatTime(resp.checkedOutAt);
       showToast('success', `Checked out ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {

@@ -461,10 +461,17 @@ public class AttendanceService {
         record.setWorkedMinutes(workedMinutes);
 
         // A short day overrides LATE — the shortfall is the more significant fact for payroll.
-        if (workedMinutes < props.getHalfDayMaxHours() * 60) {
-            record.setStatus(STATUS_HALF_DAY);
-        } else {
-            record.setStatus(record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT);
+        // Only finalized once the shift has actually reached its own natural end
+        // (workedMinutesCapAt) — a checkout BEFORE that is a resumable break (checkIn's own
+        // "resume" branch explicitly allows checking in again later the same shift/day), so
+        // downgrading to HALF_DAY this early would judge the day before it's actually over.
+        // Status stays whatever check-in already set (PRESENT/LATE) until then.
+        // StaleAttendanceSweeper#finalizeStatusPastShiftEnd covers the case where the employee
+        // never comes back to trigger this recompute themselves (a genuine early, one-off day).
+        if (!actualCheckOut.isBefore(workedMinutesCapAt)) {
+            record.setStatus(workedMinutes < props.getHalfDayMaxHours() * 60
+                    ? STATUS_HALF_DAY
+                    : (record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT));
         }
 
         return attendanceRepository.save(record);
@@ -606,6 +613,58 @@ public class AttendanceService {
         }
         if (flagged > 0) {
             log.info("flagAllStaleOpenSessionsAsMissingCheckout: flagged {} of {} open session(s) as Missing Check-Out", flagged, open.size());
+        }
+    }
+
+    /**
+     * Finalizes HALF_DAY (or confirms PRESENT/LATE) for a closed day whose shift has now ended,
+     * covering the one case closeSession/WebClockInService.checkOut can't handle themselves: an
+     * employee who checks out well before their shift's own natural end and simply never comes
+     * back that day (a genuine early finish, not a resumable break) — see closeSession's own
+     * comment for why that checkout deliberately left status as PRESENT/LATE rather than judging
+     * the day before it was actually over. Scoped to PRESENT/LATE records from the last few days
+     * (see the repository query) — once a record settles into HALF_DAY here it's never touched
+     * again, so this never re-processes already-finalized history.
+     */
+    @Transactional
+    public void finalizeStatusPastShiftEnd() {
+        List<Attendance> candidates = attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(
+                List.of(STATUS_PRESENT, STATUS_LATE), LocalDate.now(ZoneId.of(props.getZone())).minusDays(3));
+        int finalized = 0;
+        for (Attendance record : candidates) {
+            UUID employeeId = record.getEmployeeUserId();
+            // Still resumable — a currently-open normal session under this exact record, or a
+            // currently-open Web session for this exact workDate — must not be judged yet.
+            boolean normalSessionStillOpen = attendancePunchRepository.findOpenByEmployeeUserId(employeeId).stream()
+                    .anyMatch(p -> p.getAttendanceRecordId().equals(record.getId()));
+            boolean webSessionStillOpen = webClockInRequestRepository
+                    .findFirstByEmployeeUserIdAndCheckedOutAtIsNullOrderByWorkDateDesc(employeeId)
+                    .map(req -> req.getWorkDate().equals(record.getWorkDate()))
+                    .orElse(false);
+            if (normalSessionStillOpen || webSessionStillOpen) {
+                continue;
+            }
+            Employee employee = employeeRepository.findById(employeeId).orElse(null);
+            if (employee == null) {
+                continue;
+            }
+            LocalDateTime shiftEnd = shiftEndCutoff(employee, record.getWorkDate());
+            LocalDateTime nowInRecordZone = LocalDateTime.now(resolveZone(record, employee));
+            if (nowInRecordZone.isBefore(shiftEnd)) {
+                continue; // shift hasn't ended yet — still resumable, leave it for a later sweep
+            }
+            int workedMinutes = record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0;
+            String finalStatus = workedMinutes < props.getHalfDayMaxHours() * 60
+                    ? STATUS_HALF_DAY
+                    : (record.getLateByMinutes() != null && record.getLateByMinutes() > 0 ? STATUS_LATE : STATUS_PRESENT);
+            if (!finalStatus.equals(record.getStatus())) {
+                record.setStatus(finalStatus);
+                attendanceRepository.save(record);
+                finalized++;
+            }
+        }
+        if (finalized > 0) {
+            log.info("finalizeStatusPastShiftEnd: finalized {} of {} candidate record(s)", finalized, candidates.size());
         }
     }
 
