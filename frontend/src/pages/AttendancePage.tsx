@@ -2522,7 +2522,7 @@ function TimelineBar({ checkInAt, checkOutAt, leftPct, widthPct }: {
 /**
  * One break marker — the gap between two closed punch sessions, rendered as its own hoverable
  * segment (rather than empty space) so a break reads as calculated/intentional, not just an
- * absence of data. Mirrors TimelineBar's tooltip mechanics but with a distinct pale/hatched fill
+ * absence of data. Mirrors TimelineBar's tooltip mechanics but with a distinct pale, flat fill
  * and "Break HH:MM – HH:MM" wording, matching Keka's own attendance-visual break callout.
  */
 function BreakTimelineMarker({ breakStart, breakEnd, leftPct, widthPct }: {
@@ -2552,8 +2552,8 @@ function BreakTimelineMarker({ breakStart, breakEnd, leftPct, widthPct }: {
         style={{
           position: 'absolute', left: `${leftPct}%`, width: `${widthPct}%`, minWidth: 3,
           top: 0, height: '100%',
-          background: 'repeating-linear-gradient(45deg, var(--txt-dim) 0, var(--txt-dim) 1.5px, transparent 1.5px, transparent 4px)',
-          opacity: 0.55, borderRadius: 3,
+          background: 'var(--txt-dim)',
+          opacity: 0.4, borderRadius: 3,
         }}
       />
       {coords && createPortal(
@@ -2585,8 +2585,12 @@ function BreakTimelineMarker({ breakStart, breakEnd, leftPct, widthPct }: {
 // Visual" header, and the same font size as the rest of the table's cells (tdStyle) rather than
 // a smaller one-off size.
 const ATTENDANCE_VISUAL_COL_WIDTH = 200;
+// Compact overall track height — keep every element below (placeholder text, the hour-tick
+// axis, the track bar, and the session/break markers) sized off this one constant so they
+// all stay vertically centered and in proportion if it ever changes again.
+const ATTENDANCE_VISUAL_HEIGHT = 14;
 const attendanceVisualPlaceholderStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', height: 18, width: '100%', fontSize: 12.5, color: 'var(--txt-dim)',
+  display: 'flex', alignItems: 'center', height: ATTENDANCE_VISUAL_HEIGHT, width: '100%', fontSize: 12.5, color: 'var(--txt-dim)',
 };
 
 function AttendanceTimeline({ info, punches, punchesLoading }: {
@@ -2625,10 +2629,10 @@ function AttendanceTimeline({ info, punches, punchesLoading }: {
       : [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt }];
 
   return (
-    <div style={{ position: 'relative', height: 18, width: '100%' }}>
-      <div style={{ position: 'absolute', left: 0, right: 0, top: 6, height: 6, background: 'var(--raised2)', borderRadius: 3 }} />
+    <div style={{ position: 'relative', height: ATTENDANCE_VISUAL_HEIGHT, width: '100%' }}>
+      <div style={{ position: 'absolute', left: 0, right: 0, top: 5, height: 4, background: 'var(--raised2)', borderRadius: 2 }} />
       {Array.from({ length: 25 }).map((_, i) => (
-        <div key={i} style={{ position: 'absolute', left: `${(i / 24) * 100}%`, top: 3, width: 1, height: 12, background: 'var(--line2)', opacity: i % 6 === 0 ? 0.8 : 0.35 }} />
+        <div key={i} style={{ position: 'absolute', left: `${(i / 24) * 100}%`, top: 2, width: 1, height: 10, background: 'var(--line2)', opacity: i % 6 === 0 ? 0.8 : 0.35 }} />
       ))}
       {segments.map((seg, i) => {
         const inMin = minutesSinceMidnight(seg.checkInAt);
