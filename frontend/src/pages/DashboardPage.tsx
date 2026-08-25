@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Clock, Calendar, TrendingUp, UserCheck, X,
@@ -27,6 +27,7 @@ import { myRequestsApi, type MyRequestItem } from '../api/myRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
+import { PieHoverTooltip } from '../components/PieHoverTooltip';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -1056,20 +1057,28 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
 
 // ── Leave balance donut ──────────────────────────────────────────────────────────
 
-const DONUT_COLORS = ['#B11116', '#4E9EE8', '#2FB67C', '#E0A93B', '#8B5CF6', '#F97316', '#EC4899'];
+// Available/Consumed, not one slice per leave type — same dark/light brand-red pair as
+// LeavePage's LeaveBalanceDonut (see there for the color rationale), so this dashboard summary
+// and that per-type detail view read as the same visual language. The dashboard used to split
+// the ring one slice per leave type, which was misleading with a single Annual Leave type (a
+// "pie" of 100% one color) and doesn't scale to what actually matters here — how many days are
+// left overall, not which type they came from. Aggregating every configured type's
+// remaining/used into one Available-vs-Consumed ring shows that number directly, and still
+// generalizes cleanly if more leave types get added later.
+const LEAVE_DONUT_COLORS = { available: '#7A0C10', consumed: '#E8B4B6' };
 
 function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
-  const data = useMemo(
-    () => balances.filter(b => b.totalDays > 0).map(b => ({
-      name: b.leaveTypeName,
-      remaining: Number(b.remainingDays),
-      used: Number(b.usedDays),
-      total: Number(b.totalDays),
-    })),
-    [balances]
-  );
+  const configured = useMemo(() => balances.filter(b => b.totalDays > 0), [balances]);
 
-  const totalRemaining = data.reduce((s, d) => s + d.remaining, 0);
+  const totalRemaining = configured.reduce((s, b) => s + Math.max(0, Number(b.remainingDays)), 0);
+  const totalQuota = configured.reduce((s, b) => s + Number(b.totalDays), 0);
+  const totalConsumed = Math.max(0, totalQuota - totalRemaining);
+  const data = [
+    { name: 'Available', value: totalRemaining },
+    { name: 'Consumed/Reserved', value: totalConsumed },
+  ];
+  const isEmptyQuota = totalQuota <= 0;
+  const donutRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="nf-leave-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1077,32 +1086,41 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
         Leave Balance
       </div>
 
-      {data.length === 0 ? (
+      {isEmptyQuota ? (
         <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0', textAlign: 'center' }}>No leave balances configured.</div>
       ) : (
         <>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <div className="nf-leave-donut-wrap" style={{ position: 'relative', width: 160, height: 160 }}>
+            <div className="nf-leave-donut-wrap" style={{ position: 'relative', width: 160, height: 160 }} ref={donutRef}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={data.length === 0 ? [{ name: 'None', remaining: 1 }] : data}
+                    data={data}
                     cx="50%"
                     cy="50%"
                     innerRadius="62%"
                     outerRadius="87%"
-                    dataKey="remaining"
+                    dataKey="value"
                     startAngle={90}
                     endAngle={-270}
                     strokeWidth={0}
                   >
-                    {data.map((_, i) => (
-                      <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                    ))}
+                    <Cell fill={LEAVE_DONUT_COLORS.available} />
+                    <Cell fill={LEAVE_DONUT_COLORS.consumed} />
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
-                    formatter={(val, name) => [`${val}d remaining`, name ?? '']}
+                    /* Custom content (not contentStyle/formatter) so the box can flip to the left
+                       of the hovered slice when that slice is on the left half of the ring —
+                       Recharts' own positioning always offsets to the right. allowEscapeViewBox
+                       still lets it render past this small (160px) chart's own bounds. */
+                    content={props => (
+                      <PieHoverTooltip
+                        {...props}
+                        containerRef={donutRef}
+                        formatter={(val, name) => [`${val}d`, name]}
+                      />
+                    )}
+                    allowEscapeViewBox={{ x: true, y: true }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -1119,20 +1137,26 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {data.map((item, i) => (
-              <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: DONUT_COLORS[i % DONUT_COLORS.length], flexShrink: 0 }} />
-                <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {item.name}
-                </span>
-                <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
-                  {item.remaining}d
-                </span>
-                <span style={{ fontSize: 10, color: 'var(--txt-dim)', minWidth: 48, textAlign: 'right' }}>
-                  / {item.total}d
-                </span>
-              </div>
-            ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: LEAVE_DONUT_COLORS.available, flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)' }}>Available</span>
+              <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
+                {totalRemaining}d
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--txt-dim)', minWidth: 48, textAlign: 'right' }}>
+                / {totalQuota}d
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: LEAVE_DONUT_COLORS.consumed, flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)' }}>Consumed/Reserved</span>
+              <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
+                {totalConsumed}d
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--txt-dim)', minWidth: 48, textAlign: 'right' }}>
+                / {totalQuota}d
+              </span>
+            </div>
           </div>
         </>
       )}
@@ -1161,11 +1185,11 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
 
   if (actionItems.length === 0) {
     return (
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
           Action Needed
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '16px 0' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 0' }}>
           <CheckCircle2 size={22} style={{ color: 'var(--ok)' }} />
           <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Nothing needs your attention</span>
         </div>
@@ -1174,7 +1198,7 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
   }
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <AlertTriangle size={14} style={{ color: 'var(--risk)', flexShrink: 0 }} />
         <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
@@ -1210,7 +1234,7 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
       </div>
       <button
         onClick={() => navigate('/requests')}
-        style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        style={{ marginTop: 'auto', padding: 0, paddingTop: 12, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer' }}
       >
         View all requests →
       </button>
@@ -1224,7 +1248,7 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
   const navigate = useNavigate();
 
   const recent = useMemo(
-    () => [...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6),
+    () => [...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5),
     [requests]
   );
 
@@ -1254,12 +1278,12 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
   };
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
       <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
         My Recent Requests
       </div>
       {recent.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>No requests submitted yet.</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>No requests submitted yet.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
           {recent.map((item, i) => (
@@ -1295,7 +1319,7 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
       )}
       <button
         onClick={() => navigate('/requests')}
-        style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        style={{ marginTop: 'auto', padding: 0, paddingTop: 10, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer' }}
       >
         View all →
       </button>
@@ -1442,17 +1466,18 @@ function EmployeeDashboardView() {
         statsLoading={statsLoading}
       />
 
-      {/* Charts row: calendar (60%) + leave donut (40%) */}
-      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 16, alignItems: 'start' }}>
+      {/* Charts row: calendar (60%) + leave donut & upcoming holidays stacked (40%, combined height = calendar) */}
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 16 }}>
         <AttendanceCalendar token={token} config={config} />
-        <LeaveBalancePanel balances={balances} />
+        <div className="nf-dash-right-col" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <LeaveBalancePanel balances={balances} />
+          <UpcomingHolidays holidays={holidays} />
+        </div>
       </div>
 
-      {/* Holidays: full-width horizontal 3-card row */}
-      <UpcomingHolidays holidays={holidays} />
-
-      {/* Bottom row: Action Needed | Recent Requests */}
-      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+      {/* Bottom row: Action Needed | Recent Requests — both capped to 5 records and
+          stretched (default grid alignment) to the same height as each other */}
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <ActionNeeded requests={requests} />
         <RecentRequests requests={requests} />
       </div>
@@ -1500,6 +1525,11 @@ function SuperAdminDashboardView() {
   const [roleChangesMonth,   setRoleChangesMonth]   = useState<number | null>(null);
   const [passwordResetsMonth,setPasswordResetsMonth]= useState<number | null>(null);
   const [loading,            setLoading]            = useState(true);
+
+  // Wrapper refs for the two donuts below — PieHoverTooltip needs each chart's own pixel center
+  // (mid-width of the div its Pie's cx="50%" is relative to) to decide which side to flip to.
+  const pendingDonutRef = useRef<HTMLDivElement>(null);
+  const roleDonutRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const today = todayIsoDate();
@@ -1679,7 +1709,7 @@ function SuperAdminDashboardView() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <div style={{ position: 'relative', width: 140, height: 140 }}>
+                <div style={{ position: 'relative', width: 140, height: 140 }} ref={pendingDonutRef}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -1697,8 +1727,16 @@ function SuperAdminDashboardView() {
                         ))}
                       </Pie>
                       <Tooltip
-                        contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
-                        formatter={(val, name) => [`${val} pending`, name ?? '']}
+                        /* See LeaveBalancePanel's donut — same left/right-aware custom content,
+                           needed because Recharts' own positioning always offsets to the right. */
+                        content={props => (
+                          <PieHoverTooltip
+                            {...props}
+                            containerRef={pendingDonutRef}
+                            formatter={(val, name) => [`${val} pending`, name]}
+                          />
+                        )}
+                        allowEscapeViewBox={{ x: true, y: true }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -1805,7 +1843,7 @@ function SuperAdminDashboardView() {
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <div className="nf-leave-donut-wrap" style={{ position: 'relative', width: 160, height: 160 }}>
+                <div className="nf-leave-donut-wrap" style={{ position: 'relative', width: 160, height: 160 }} ref={roleDonutRef}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -1824,8 +1862,16 @@ function SuperAdminDashboardView() {
                         ))}
                       </Pie>
                       <Tooltip
-                        contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
-                        formatter={(val, name) => [`${val} users`, name ?? '']}
+                        /* See LeaveBalancePanel's donut — same left/right-aware custom content,
+                           needed because Recharts' own positioning always offsets to the right. */
+                        content={props => (
+                          <PieHoverTooltip
+                            {...props}
+                            containerRef={roleDonutRef}
+                            formatter={(val, name) => [`${val} users`, name]}
+                          />
+                        )}
+                        allowEscapeViewBox={{ x: true, y: true }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
