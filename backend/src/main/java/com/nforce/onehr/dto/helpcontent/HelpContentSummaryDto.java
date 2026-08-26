@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /** List-view shape — used for both the employee-facing list and the HR admin list. */
@@ -20,6 +21,8 @@ public class HelpContentSummaryDto {
     private int displayOrder;
     private long viewCount;
     private int attachmentCount;
+    // Empty/null = visible to everyone once published — see HelpContentService#publish.
+    private List<String> audience;
     private String rejectionReason;
     private Instant createdAt;
     private Instant updatedAt;

@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.helpcontent.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -48,6 +49,12 @@ public class HelpContentService {
     // HR/Super Admin retain full delete authority over their own content at any other stage.
     private static final Set<String> DELETABLE_STATUSES = Set.of("DRAFT", "APPROVED", "PUBLISHED", "UNPUBLISHED", "ARCHIVED");
     private static final Set<String> PUBLISHABLE_STATUSES = Set.of("APPROVED", "UNPUBLISHED");
+    // Quick Help and Document are retired as creatable types — the UI no longer offers them and
+    // existing rows of those types were removed (see migration V133). HelpContentType keeps all
+    // four values so historical data/enum parsing stays valid; this is purely a creation-time gate.
+    private static final Set<String> CREATABLE_TYPES = Set.of("FAQ", "GUIDE");
+    // Audience targeting, chosen at publish time — see #publish and RoleUtils#audienceBuckets.
+    private static final Set<String> VALID_AUDIENCES = Set.of("EMPLOYEE", "MANAGER", "HR", "ADMIN");
 
     // Multi-attachment upload limits — configurable constants, not hardcoded checks scattered
     // through the mutation methods.
@@ -58,6 +65,7 @@ public class HelpContentService {
 
     private final HelpContentRepository repo;
     private final HelpContentAttachmentRepository attachmentRepo;
+    private final HelpContentAudienceRepository audienceRepo;
     private final HelpContentApprovalRepository approvalRepo;
     private final HelpContentApprovalAttachmentRepository approvalAttachmentRepo;
     private final EmployeeManagerHistoryRepository managerHistoryRepo;
@@ -68,46 +76,71 @@ public class HelpContentService {
     // ── Employee-facing reads (published only) ─────
 
     @Transactional(readOnly = true)
-    public Page<HelpContentSummaryDto> listPublished(String type, String category, String search, String sort, int page, int size) {
+    public Page<HelpContentSummaryDto> listPublished(String type, String category, String search, String sort, int page, int size, String viewerEmail) {
+        Set<String> viewerBuckets = RoleUtils.audienceBuckets(requireUser(viewerEmail).getRoles());
         Specification<HelpContent> spec = Specification
                 .allOf(HelpContentSpecifications.publishedAndActive(),
                         HelpContentSpecifications.typeIs(type),
                         HelpContentSpecifications.categoryIs(category),
-                        HelpContentSpecifications.searchText(search));
+                        HelpContentSpecifications.searchText(search),
+                        HelpContentSpecifications.audienceVisibleTo(viewerBuckets));
         return repo.findAll(spec, PageRequest.of(page, size, sortFor(sort))).map(this::toSummary);
     }
 
     @Transactional(readOnly = true)
-    public HelpContentDetailDto getPublished(UUID id) {
+    public HelpContentDetailDto getPublished(UUID id, String viewerEmail) {
+        User viewer = requireUser(viewerEmail);
         HelpContent content = repo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Content not found: " + id));
-        if (!"PUBLISHED".equals(content.getStatus())) {
+        if (!"PUBLISHED".equals(content.getStatus()) || !isVisibleToViewer(content, viewer)) {
             throw new NoSuchElementException("Content not found: " + id);
         }
         return toDetail(content);
     }
 
     @Transactional
-    public void trackView(UUID id) {
-        // Fire-and-forget usage signal (FAQ expand, guide/document open) — no auth/ownership
-        // check needed since this only ever increments a counter on already-public content.
-        repo.findById(id).filter(c -> "PUBLISHED".equals(c.getStatus()))
+    public void trackView(UUID id, String viewerEmail) {
+        // Fire-and-forget usage signal (FAQ expand, guide/document open) — still gated on
+        // audience visibility so a view count can't be driven up on content the caller
+        // shouldn't even be able to see; no ownership check beyond that.
+        User viewer = requireUser(viewerEmail);
+        repo.findById(id)
+                .filter(c -> "PUBLISHED".equals(c.getStatus()) && isVisibleToViewer(c, viewer))
                 .ifPresent(c -> repo.incrementViewCount(id));
     }
 
     /**
+     * Audience check shared by every single-item, employee-facing read path (detail, view
+     * tracking, attachments — see {@link #requireVisible}). No tags on the content at all means
+     * "visible to everyone" (same as this feature's pre-existing unfiltered behavior); otherwise
+     * at least one tag must be in the viewer's bucket set (see {@code RoleUtils#audienceBuckets}
+     * — derived from every role the viewer actually holds, not a hardcoded hierarchy).
+     */
+    private boolean isVisibleToViewer(HelpContent content, User viewer) {
+        List<String> tags = audienceRepo.findByContentId(content.getId()).stream()
+                .map(HelpContentAudience::getAudience).collect(Collectors.toList());
+        if (tags.isEmpty()) return true;
+        Set<String> viewerBuckets = RoleUtils.audienceBuckets(viewer.getRoles());
+        return !Collections.disjoint(tags, viewerBuckets);
+    }
+
+    /**
      * Ranking is configurable, not a hardcoded "top 5": callers choose how many rows via
-     * {@code size} and how to rank via {@code sort} — "popular" (featured, then most-viewed,
-     * then manual order) or "recent" (newest first). Default is manual curation order.
+     * {@code size} and how to rank via {@code sort} — "recent" (newest first), or anything else
+     * (including no {@code sort} at all) for the standard employee-facing ranking: featured
+     * first, then most-viewed, since HR no longer hand-curates order (the Add/Edit form has no
+     * Order field) — actual employee engagement drives ranking instead. {@code displayOrder}
+     * stays as a tiebreaker (never removed from the schema/sorting per the "don't touch the data
+     * model" constraint) but is uniformly 0 on any row created after this change, so it only
+     * still discriminates between pre-existing, previously hand-ordered rows; {@code createdAt}
+     * is the final deterministic tiebreaker. "popular" is still accepted as an explicit synonym
+     * for this same ranking (no separate code path — it's just no longer opt-in).
      */
     private Sort sortFor(String sort) {
-        if ("popular".equalsIgnoreCase(sort)) {
-            return Sort.by(Sort.Order.desc("featured"), Sort.Order.desc("viewCount"), Sort.Order.asc("displayOrder"));
-        }
         if ("recent".equalsIgnoreCase(sort)) {
             return Sort.by(Sort.Order.desc("createdAt"));
         }
-        return Sort.by(Sort.Order.asc("displayOrder"), Sort.Order.desc("createdAt"));
+        return Sort.by(Sort.Order.desc("featured"), Sort.Order.desc("viewCount"), Sort.Order.asc("displayOrder"), Sort.Order.desc("createdAt"));
     }
 
     // ── Employee-facing attachment reads (published only for non-admins) ─
@@ -132,7 +165,8 @@ public class HelpContentService {
     }
 
     private void requireVisible(HelpContent content, User actor) {
-        if (!isAdmin(actor) && !"PUBLISHED".equals(content.getStatus())) {
+        if (isAdmin(actor)) return; // HR/SA manage their own content regardless of status/audience
+        if (!"PUBLISHED".equals(content.getStatus()) || !isVisibleToViewer(content, actor)) {
             throw new AccessDeniedException("This content is not available");
         }
     }
@@ -162,6 +196,9 @@ public class HelpContentService {
     public HelpContentDetailDto create(CreateHelpContentRequest req, String actorEmail) {
         User actor = requireAdmin(actorEmail);
         HelpContentType type = HelpContentType.from(req.getType());
+        if (!CREATABLE_TYPES.contains(type.name())) {
+            throw new IllegalArgumentException("Content type " + type.name() + " can no longer be created");
+        }
 
         HelpContent content = HelpContent.builder()
                 .type(type.name())
@@ -187,7 +224,10 @@ public class HelpContentService {
         target.setBody(req.getBody());
         target.setCategory(req.getCategory());
         target.setFeatured(req.isFeatured());
-        target.setDisplayOrder(req.getDisplayOrder());
+        // displayOrder is deliberately left untouched here — the Add/Edit form no longer submits
+        // it (HR doesn't hand-curate order any more; see sortFor), and UpdateHelpContentRequest's
+        // primitive int can't distinguish "not sent" from "sent as 0", so applying it on every
+        // edit would silently zero out any pre-existing value. It stays settable only via create.
         target.setUpdatedBy(actor.getId());
         repo.save(target);
         return toDetail(target);
@@ -539,13 +579,28 @@ public class HelpContentService {
         return toDetail(content);
     }
 
+    /**
+     * Publishing is an authorization/visibility decision, not another edit of the content
+     * fields — the audience the publisher picks here is the only thing this method changes
+     * about who can see the content; title/body/category/featured etc. are untouched. Always
+     * replaces the full audience-tag set (not a merge), so re-publishing previously-UNPUBLISHED
+     * content with a different selection fully honors the new choice rather than layering on
+     * top of the old one.
+     */
     @Transactional
-    public HelpContentDetailDto publish(UUID id, String actorEmail) {
+    public HelpContentDetailDto publish(UUID id, PublishRequest req, String actorEmail) {
         User actor = requireAdmin(actorEmail);
         HelpContent content = findOrThrow(id);
         if (!PUBLISHABLE_STATUSES.contains(content.getStatus())) {
             throw new AccessDeniedException("Only approved or unpublished content can be published");
         }
+        List<String> audiences = normalizeAudiences(req == null ? null : req.getAudience());
+
+        audienceRepo.deleteByContentId(id);
+        for (String a : audiences) {
+            audienceRepo.save(HelpContentAudience.builder().contentId(id).audience(a).build());
+        }
+
         content.setStatus("PUBLISHED");
         content.setPublishedAt(Instant.now());
         content.setUpdatedBy(actor.getId());
@@ -559,6 +614,23 @@ public class HelpContentService {
             });
         }
         return toDetail(content);
+    }
+
+    private List<String> normalizeAudiences(List<String> requested) {
+        if (requested == null || requested.isEmpty()) {
+            throw new IllegalArgumentException("At least one audience must be selected");
+        }
+        List<String> normalized = requested.stream().filter(Objects::nonNull)
+                .map(a -> a.trim().toUpperCase()).distinct().collect(Collectors.toList());
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("At least one audience must be selected");
+        }
+        for (String a : normalized) {
+            if (!VALID_AUDIENCES.contains(a)) {
+                throw new IllegalArgumentException("Unknown audience: " + a);
+            }
+        }
+        return normalized;
     }
 
     @Transactional
@@ -610,6 +682,7 @@ public class HelpContentService {
             throw new AccessDeniedException("Only draft or archived content can be deleted");
         }
         attachmentRepo.deleteByContentId(id);
+        audienceRepo.deleteByContentId(id);
         repo.delete(content);
     }
 
@@ -880,6 +953,11 @@ public class HelpContentService {
 
     // ── Mapping ────────────────────────────────────────────────
 
+    private List<String> audiencesFor(UUID contentId) {
+        return audienceRepo.findByContentId(contentId).stream()
+                .map(HelpContentAudience::getAudience).collect(Collectors.toList());
+    }
+
     private HelpContentSummaryDto toSummary(HelpContent c) {
         return HelpContentSummaryDto.builder()
                 .id(c.getId())
@@ -892,6 +970,7 @@ public class HelpContentService {
                 .displayOrder(c.getDisplayOrder())
                 .viewCount(c.getViewCount())
                 .attachmentCount((int) attachmentRepo.countByContentId(c.getId()))
+                .audience(audiencesFor(c.getId()))
                 .rejectionReason(c.getRejectionReason())
                 .createdAt(c.getCreatedAt())
                 .updatedAt(c.getUpdatedAt())
@@ -913,6 +992,7 @@ public class HelpContentService {
                 .featured(c.isFeatured())
                 .displayOrder(c.getDisplayOrder())
                 .viewCount(c.getViewCount())
+                .audience(audiencesFor(c.getId()))
                 .attachments(attachments)
                 .rejectionReason(c.getRejectionReason())
                 .createdByName(employeeOrEmailName(c.getCreatedBy()))
