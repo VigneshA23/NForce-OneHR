@@ -12,6 +12,7 @@ public class UpdateUserRequest {
              message = "Full name can only contain letters, spaces, hyphens, and apostrophes")
     private String fullName;
     private String role;
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID locationId;

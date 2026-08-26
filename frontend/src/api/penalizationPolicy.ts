@@ -24,6 +24,13 @@ export interface BasicInfoConfig {
   leavePriorityOrder: string[];
   bufferPeriodDays: number | null;
   noticePeriodForcesLopEnabled: boolean;
+  /**
+   * Request-only: an admin-chosen future effective date (YYYY-MM-DD) for the version being saved.
+   * Null (the default) defers to the backend's original behavior — effective the 1st of next
+   * calendar month. Never populated on a response's own basicInfo — the version's actual resolved
+   * effective date is PenalizationPolicy.effectiveFrom at the top level.
+   */
+  requestedEffectiveFrom?: string | null;
 }
 
 export interface NoAttendanceConfig {
@@ -68,11 +75,15 @@ export interface WorkHoursTier {
 
 export interface WorkHoursShortageConfig {
   enabled: boolean;
-  deductionBasis: 'EFFECTIVE_HOURS';
-  deductionPeriod: 'DAY';
+  deductionBasis: 'EFFECTIVE_HOURS' | 'GROSS_HOURS';
+  deductionPeriod: 'DAY' | 'WEEK' | 'MONTH';
   tiers: WorkHoursTier[];
   applyPenaltyForShortageEnabled: boolean;
   applyPenaltyForLateArrivalEnabled: boolean;
+  /** "Exclude hours worked outside the assigned shift timing" from the shortage calculation. */
+  excludeHoursOutsideShiftEnabled: boolean;
+  /** "Penalize shortage caused by missing logs" — a day with no check-out is otherwise never evaluated for shortage. */
+  penalizeShortageCausedByMissingLogsEnabled: boolean;
 }
 
 export interface MissingLogsConfig {

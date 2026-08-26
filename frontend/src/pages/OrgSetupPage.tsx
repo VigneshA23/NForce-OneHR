@@ -5,16 +5,17 @@ import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
-import { orgApi, type DepartmentRow, type DesignationRow, type LocationRow, type ShiftRow, type ShiftEmployeeRow } from '../api/org';
+import { orgApi, type BusinessUnitRow, type DepartmentRow, type DesignationRow, type LocationRow, type ShiftRow, type ShiftEmployeeRow } from '../api/org';
 import { usersApi } from '../api/employees';
 import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
 } from '../api/documents';
 import PolicyListSection from './penalization/PolicyListSection';
+import PenalizationPolicyAllocationSection from './penalization/PenalizationPolicyAllocationSection';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
 
-type OrgTab = 'departments' | 'designations' | 'locations' | 'shifts' | 'doctypes' | 'penalization';
+type OrgTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shifts' | 'doctypes' | 'penalization';
 
 interface TabDef {
   label: string;
@@ -27,6 +28,12 @@ interface TabDef {
 const LEVEL_OPTIONS = ['L1', 'L2', 'L3', 'L4', 'L5'];
 
 const TABS: Record<OrgTab, TabDef> = {
+  businessunits: {
+    label: 'Business Units', icon: Building2,
+    columns: ['Name', 'Employees', 'Status'],
+    addLabel: 'Add Business Unit',
+    emptyLine: 'No business units configured yet. Add one to get started.',
+  },
   departments: {
     label: 'Departments', icon: Building2,
     columns: ['Name', 'Employees', 'Status'],
@@ -195,7 +202,7 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
 
 interface AddEditModalProps {
   tab: OrgTab;
-  editRow?: DepartmentRow | DesignationRow | LocationRow;
+  editRow?: BusinessUnitRow | DepartmentRow | DesignationRow | LocationRow;
   onClose: () => void;
   onSaved: () => void;
   token: string;
@@ -208,7 +215,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
 
   const [name, setName] = useState(() => {
     if (!editRow) return '';
-    return tab === 'designations' ? (editRow as DesignationRow).title : (editRow as DepartmentRow | LocationRow).name;
+    return tab === 'designations' ? (editRow as DesignationRow).title : (editRow as BusinessUnitRow | DepartmentRow | LocationRow).name;
   });
   const [grade, setGrade] = useState(() => (editRow && tab === 'designations' ? ((editRow as DesignationRow).grade ?? '') : ''));
   const [level, setLevel] = useState(() => (editRow && tab === 'designations' ? ((editRow as DesignationRow).level ?? '') : ''));
@@ -270,7 +277,9 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
     setLoading(true);
     try {
       if (isEdit && editRow) {
-        if (tab === 'departments') {
+        if (tab === 'businessunits') {
+          await orgApi.updateBusinessUnit(token, editRow.id, trimmed);
+        } else if (tab === 'departments') {
           await orgApi.updateDepartment(token, editRow.id, trimmed);
         } else if (tab === 'designations') {
           await orgApi.updateDesignation(token, editRow.id, {
@@ -285,7 +294,9 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
           });
         }
       } else {
-        if (tab === 'departments') {
+        if (tab === 'businessunits') {
+          await orgApi.createBusinessUnit(token, trimmed);
+        } else if (tab === 'departments') {
           await orgApi.createDepartment(token, trimmed);
         } else if (tab === 'designations') {
           await orgApi.createDesignation(token, trimmed, grade.trim() || undefined, level || undefined);
@@ -349,6 +360,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
               placeholder={
                 tab === 'designations' ? 'e.g. Senior Software Engineer'
                 : tab === 'departments' ? 'e.g. Engineering'
+                : tab === 'businessunits' ? 'e.g. Operations'
                 : 'e.g. Chennai HQ'
               }
               style={inputStyle}
@@ -808,6 +820,12 @@ export default function OrgSetupPage() {
   const canManageShifts = role === 'SUPER_ADMIN';
 
   const [activeTab, setActiveTab] = useState<OrgTab>('departments');
+  const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
+  // Set when the Policy List's employee-count link is clicked — consumed once by
+  // PenalizationPolicyAllocationSection to pre-select its Penalization Policy filter, then cleared
+  // so switching tabs afterward doesn't keep re-applying it.
+  const [allocationInitialPolicyId, setAllocationInitialPolicyId] = useState<string | null>(null);
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnitRow[]>([]);
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [designations, setDesignations] = useState<DesignationRow[]>([]);
   const [locations, setLocations] = useState<LocationRow[]>([]);
@@ -818,7 +836,7 @@ export default function OrgSetupPage() {
 
   const [addEditModal, setAddEditModal] = useState<{
     open: boolean;
-    row?: DepartmentRow | DesignationRow | LocationRow;
+    row?: BusinessUnitRow | DepartmentRow | DesignationRow | LocationRow;
     key: number;
   }>({ open: false, key: 0 });
   const [docTypeModal, setDocTypeModal] = useState<{ open: boolean; row?: DocumentType; key: number }>({ open: false, key: 0 });
@@ -835,7 +853,8 @@ export default function OrgSetupPage() {
   // (empty on first load) and their specific error is surfaced, not swallowed into one generic
   // "unexpected error" that gives no clue which section actually failed.
   async function fetchAll() {
-    const [deps, desigs, locs, shiftRows, dts] = await Promise.allSettled([
+    const [bus, deps, desigs, locs, shiftRows, dts] = await Promise.allSettled([
+      orgApi.listBusinessUnits(token),
       orgApi.listDepartments(token),
       orgApi.listDesignations(token),
       orgApi.listLocations(token),
@@ -843,6 +862,7 @@ export default function OrgSetupPage() {
       listAllDocTypes(token),
     ]);
     const failed: string[] = [];
+    if (bus.status === 'fulfilled') setBusinessUnits(bus.value); else failed.push(`Business Units (${bus.reason instanceof Error ? bus.reason.message : 'failed to load'})`);
     if (deps.status === 'fulfilled') setDepartments(deps.value); else failed.push(`Departments (${deps.reason instanceof Error ? deps.reason.message : 'failed to load'})`);
     if (desigs.status === 'fulfilled') setDesignations(desigs.value); else failed.push(`Designations (${desigs.reason instanceof Error ? desigs.reason.message : 'failed to load'})`);
     if (locs.status === 'fulfilled') setLocations(locs.value); else failed.push(`Locations (${locs.reason instanceof Error ? locs.reason.message : 'failed to load'})`);
@@ -855,6 +875,7 @@ export default function OrgSetupPage() {
   useEffect(() => { setSearch(''); }, [activeTab]);
 
   const q = search.toLowerCase();
+  const visibleBusinessUnits = businessUnits.filter(b => b.name.toLowerCase().includes(q));
   const visibleDepts  = departments.filter(d => d.name.toLowerCase().includes(q));
   const visibleDesigs = designations.filter(d => d.title.toLowerCase().includes(q));
   const visibleLocs   = locations.filter(l =>
@@ -865,6 +886,7 @@ export default function OrgSetupPage() {
     s.name.toLowerCase().includes(q) || (s.code ?? '').toLowerCase().includes(q)
   );
   const visibleRows =
+    activeTab === 'businessunits' ? visibleBusinessUnits :
     activeTab === 'departments' ? visibleDepts :
     activeTab === 'designations' ? visibleDesigs :
     activeTab === 'doctypes' ? visibleDocTypes :
@@ -876,7 +898,7 @@ export default function OrgSetupPage() {
     if (activeTab === 'shifts') { setShiftModal(s => ({ open: true, key: s.key + 1 })); return; }
     setAddEditModal(s => ({ open: true, key: s.key + 1 }));
   }
-  function openEdit(row: DepartmentRow | DesignationRow | LocationRow) {
+  function openEdit(row: BusinessUnitRow | DepartmentRow | DesignationRow | LocationRow) {
     setAddEditModal(s => ({ open: true, row, key: s.key + 1 }));
   }
   function openEditDocType(dt: DocumentType) {
@@ -886,7 +908,7 @@ export default function OrgSetupPage() {
     setShiftModal(s => ({ open: true, row, key: s.key + 1 }));
   }
 
-  function triggerToggleActive(row: DepartmentRow | DesignationRow | LocationRow, label: string) {
+  function triggerToggleActive(row: BusinessUnitRow | DepartmentRow | DesignationRow | LocationRow, label: string) {
     const wasActive = row.active;
     setConfirmState({
       title: wasActive ? `Deactivate ${label}` : `Reactivate ${label}`,
@@ -896,7 +918,8 @@ export default function OrgSetupPage() {
       confirmLabel: wasActive ? 'Deactivate' : 'Reactivate',
       danger: wasActive,
       onConfirm: async () => {
-        if (activeTab === 'departments') await orgApi.toggleDepartmentActive(token, row.id);
+        if (activeTab === 'businessunits') await orgApi.toggleBusinessUnitActive(token, row.id);
+        else if (activeTab === 'departments') await orgApi.toggleDepartmentActive(token, row.id);
         else if (activeTab === 'designations') await orgApi.toggleDesignationActive(token, row.id);
         else await orgApi.toggleLocationActive(token, row.id);
         showToast('success', `"${label}" ${wasActive ? 'deactivated' : 'reactivated'}`);
@@ -905,14 +928,15 @@ export default function OrgSetupPage() {
     });
   }
 
-  function triggerDelete(row: DepartmentRow | DesignationRow | LocationRow, label: string) {
+  function triggerDelete(row: BusinessUnitRow | DepartmentRow | DesignationRow | LocationRow, label: string) {
     setConfirmState({
       title: `Delete ${label}`,
       body: `"${label}" will be permanently deleted. This cannot be undone.`,
       confirmLabel: 'Delete',
       danger: true,
       onConfirm: async () => {
-        if (activeTab === 'departments') await orgApi.deleteDepartment(token, row.id);
+        if (activeTab === 'businessunits') await orgApi.deleteBusinessUnit(token, row.id);
+        else if (activeTab === 'departments') await orgApi.deleteDepartment(token, row.id);
         else if (activeTab === 'designations') await orgApi.deleteDesignation(token, row.id);
         else await orgApi.deleteLocation(token, row.id);
         showToast('success', `"${label}" deleted`);
@@ -1022,7 +1046,7 @@ export default function OrgSetupPage() {
     ];
   }
 
-  function kebabItems(row: DepartmentRow | DesignationRow | LocationRow, label: string): KebabItem[] {
+  function kebabItems(row: BusinessUnitRow | DepartmentRow | DesignationRow | LocationRow, label: string): KebabItem[] {
     const count = row.employeeCount;
     return [
       { label: 'Edit', onClick: () => openEdit(row) },
@@ -1038,7 +1062,7 @@ export default function OrgSetupPage() {
           if (count > 0) {
             setConfirmState({
               title: `Cannot Delete "${label}"`,
-              body: `${count} employee${count === 1 ? ' is' : 's are'} assigned to this ${activeTab.slice(0, -1)}. Remove all assignments first, or deactivate it instead.`,
+              body: `${count} employee${count === 1 ? ' is' : 's are'} assigned to this ${activeTab === 'businessunits' ? 'business unit' : activeTab.slice(0, -1)}. Remove all assignments first, or deactivate it instead.`,
               confirmLabel: 'Got it',
               danger: false,
               onConfirm: async () => {},
@@ -1113,7 +1137,12 @@ export default function OrgSetupPage() {
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
       </div>
 
-      {loadError && (
+      {/* Scoped to the tabs that actually consume fetchAll()'s data — Penalization Policy (and
+          its Allocation sub-tab) fetch their own Business Unit/Department/Location/Policy
+          lookups independently and render their own errors, so a failure here (e.g. one of the
+          six unrelated Organization Master lookups) must never surface as a page-wide banner
+          while the user is looking at an unrelated tab that doesn't use this data at all. */}
+      {loadError && activeTab !== 'penalization' && (
         <div role="alert" style={{
           background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)',
           borderRadius: 8, padding: '10px 14px', color: 'var(--risk)', fontSize: 13,
@@ -1182,10 +1211,40 @@ export default function OrgSetupPage() {
 
         {/* Penalization Policy is a Policy List (Section 5), not a row-per-item table like the
             tabs below — rendered by PolicyListSection, reusing this page's shell/tab-bar/toast/
-            loading/error patterns but not the generic table below. */}
+            loading/error patterns but not the generic table below. Penalization Policy
+            Allocation is a sibling sub-tab of this same top-level tab (not a separate
+            Organization Masters tab, and not under Time & Attendance), per the explicit
+            navigation requirement. */}
         {activeTab === 'penalization' ? (
           <div style={{ padding: 18 }}>
-            <PolicyListSection token={token} />
+            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
+              {([
+                { key: 'policy', label: 'Penalization Policy' },
+                { key: 'allocation', label: 'Penalization Policy Allocation' },
+              ] as const).map(t => (
+                <button key={t.key} onClick={() => setPenalizationSubTab(t.key)} style={{
+                  padding: '9px 14px', background: 'transparent', border: 'none', cursor: 'pointer',
+                  fontSize: 12.5, fontWeight: penalizationSubTab === t.key ? 600 : 400,
+                  color: penalizationSubTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
+                  borderBottom: penalizationSubTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
+                  marginBottom: -1,
+                }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {penalizationSubTab === 'policy' ? (
+              <PolicyListSection token={token} onViewAllocations={policyId => {
+                setAllocationInitialPolicyId(policyId);
+                setPenalizationSubTab('allocation');
+              }} />
+            ) : (
+              <PenalizationPolicyAllocationSection
+                token={token}
+                initialPolicyFilter={allocationInitialPolicyId}
+                onInitialPolicyFilterConsumed={() => setAllocationInitialPolicyId(null)}
+              />
+            )}
           </div>
         ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -1236,6 +1295,17 @@ export default function OrgSetupPage() {
                     )}
                   </td>
                 </tr>
+              ) : activeTab === 'businessunits' ? (
+                visibleBusinessUnits.map(b => (
+                  <tr key={b.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{b.name}</td>
+                    <td style={{ padding: '10px 16px' }}><CountBadge count={b.employeeCount} /></td>
+                    <td style={{ padding: '10px 16px' }}><StatusBadge active={b.active} /></td>
+                    <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                      <KebabMenu items={kebabItems(b, b.name)} />
+                    </td>
+                  </tr>
+                ))
               ) : activeTab === 'departments' ? (
                 visibleDepts.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>

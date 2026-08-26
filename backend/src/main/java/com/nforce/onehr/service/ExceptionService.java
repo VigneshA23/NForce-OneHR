@@ -6,13 +6,13 @@ import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.dto.exceptions.ExceptionResponse;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.WorkHoursCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -51,9 +51,10 @@ public class ExceptionService {
     private final EmailService emailService;
     private final AttendancePenaltyEvaluationService attendancePenaltyEvaluationService;
     private final WorkingDayService workingDayService;
-    private final PenalizationPolicyVersionRepository penalizationPolicyVersionRepository;
     private final HolidayRepository holidayRepository;
-    private final PenalizationPolicyService penalizationPolicyService;
+    private final PenalizationPolicyResolutionService penalizationPolicyResolutionService;
+    private final ExpectedWorkHoursService expectedWorkHoursService;
+    private final WorkHoursShortageCalculationService workHoursShortageCalculationService;
 
     /**
      * HR Admin + Super Admin see company-wide exceptions; Manager sees only current
@@ -202,7 +203,7 @@ public class ExceptionService {
                         expectedShiftStart, record.getCheckInAt().toLocalTime(),
                         record.getLateByMinutes());
             }
-            if (record.getCheckInAt() != null && record.getCheckOutAt() == null && record.getWorkDate().isBefore(today)) {
+            if (record.isMissingCheckOut() && record.getWorkDate().isBefore(today)) {
                 upsertException(record, ExceptionType.MISSING_PUNCH,
                         null, record.getCheckInAt().toLocalTime(), null);
             }
@@ -234,6 +235,8 @@ public class ExceptionService {
         }
         List<Employee> employees = employeeRepository.findAllByIdWithScheduleDetails(scopeIdList);
         Map<UUID, WorkingDaySchedule> schedules = workingDayService.computeExpectedWorkingDaysBulk(employees, from, rangeEnd);
+        Map<String, LeaveRequest> partialHourLeaveByEmployeeDate =
+                expectedWorkHoursService.loadPartialHourLeaveByEmployeeDate(scopeIdList, from, rangeEnd);
 
         Map<String, Attendance> byEmployeeDate = records.stream()
                 .collect(Collectors.toMap(r -> r.getEmployeeUserId() + "|" + r.getWorkDate(), r -> r, (a, b) -> a));
@@ -243,6 +246,14 @@ public class ExceptionService {
             if (schedule == null) {
                 continue;
             }
+            // Resolved once per employee (matching detectAdjoiningPenalties' own convention) —
+            // decides which detection MODE runs for this whole pass; evaluatePolicy still resolves
+            // the precise per-date version for the actual penalty math regardless.
+            PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, rangeEnd);
+            boolean cyclicFrequency = version != null
+                    && ("WEEK".equals(version.getWhsDeductionPeriod()) || "MONTH".equals(version.getWhsDeductionPeriod()));
+            boolean missingLogShortageEnabled = version != null && version.isWhsPenalizeShortageCausedByMissingLogsEnabled();
+
             for (LocalDate date : schedule.getWorkingDates()) {
                 Attendance existing = byEmployeeDate.get(employee.getUserId() + "|" + date);
                 if (existing == null) {
@@ -252,19 +263,68 @@ public class ExceptionService {
                     Attendance noAttendance = Attendance.builder()
                             .employeeUserId(employee.getUserId()).workDate(date).workedMinutes(0).build();
                     upsertException(noAttendance, ExceptionType.NO_ATTENDANCE, null, null, null);
-                } else if (existing.getCheckOutAt() != null && existing.getWorkedMinutes() != null
-                        && employee.getShift() != null) {
-                    long shiftMinutes = Duration.between(
-                            employee.getShift().getStartTime(), employee.getShift().getEndTime()).toMinutes();
-                    if (shiftMinutes > 0 && existing.getWorkedMinutes() < shiftMinutes) {
+                } else if (cyclicFrequency) {
+                    // WEEK/MONTH frequency is evaluated once per cycle, not per day — see
+                    // detectCyclicWorkHoursShortage below.
+                } else if (existing.getCheckOutAt() != null && existing.getWorkedMinutes() != null) {
+                    // Expected minutes are reduced (not removed — see WorkingDayService) by any
+                    // approved hourly/quarter-day leave on this date, so a shortage is only flagged
+                    // against what the employee was actually still expected to work.
+                    Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(
+                            employee, date, partialHourLeaveByEmployeeDate.get(employee.getUserId() + "|" + date));
+                    if (expectedMinutes != null && existing.getWorkedMinutes() < expectedMinutes) {
                         upsertException(existing, ExceptionType.WORK_HOURS_SHORTAGE,
                                 employee.getShift().getEndTime(), existing.getCheckOutAt().toLocalTime(), null);
+                    }
+                } else if (missingLogShortageEnabled && existing.isMissingCheckOut()) {
+                    // Section 10 (Phase 3): a missing check-out is a candidate shortage day only
+                    // when explicitly opted in — evaluatePolicy treats it as 0 worked minutes.
+                    Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(
+                            employee, date, partialHourLeaveByEmployeeDate.get(employee.getUserId() + "|" + date));
+                    if (expectedMinutes != null && expectedMinutes > 0) {
+                        upsertException(existing, ExceptionType.WORK_HOURS_SHORTAGE, null, null, null);
                     }
                 }
             }
         }
 
+        detectCyclicWorkHoursShortage(employees, from, rangeEnd);
         detectAdjoiningPenalties(employees, schedules, byEmployeeDate, from, rangeEnd);
+    }
+
+    /**
+     * Section 5 (Phase 3): WEEK/MONTH Work Hours Shortage frequency — evaluated once on the
+     * cycle's own last calendar day (not necessarily a working day itself; the aggregate inside
+     * {@link WorkHoursShortageCalculationService} only counts the cycle's actual working days),
+     * so exactly one {@code AttendanceException} row (and one penalty evaluation) results per
+     * cycle rather than one per day.
+     */
+    private void detectCyclicWorkHoursShortage(List<Employee> employees, LocalDate from, LocalDate to) {
+        for (Employee employee : employees) {
+            PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, to);
+            if (version == null || !version.isWorkHoursShortageEnabled()) {
+                continue;
+            }
+            String period = version.getWhsDeductionPeriod();
+            if (!"WEEK".equals(period) && !"MONTH".equals(period)) {
+                continue;
+            }
+            for (LocalDate date : from.datesUntil(to.plusDays(1)).toList()) {
+                LocalDate[] cycle = cyclePeriod(date, period);
+                if (!date.equals(cycle[1])) {
+                    continue; // only the cycle's last calendar day triggers evaluation
+                }
+                Double percent = workHoursShortageCalculationService.computeShortagePercent(employee, date, version);
+                // Cheap pre-filter mirroring the DAY-mode gate ("worked < expected") — avoids an
+                // exception row (and a full policy evaluation) for a cycle with no shortfall at all.
+                if (percent == null || percent >= 100.0) {
+                    continue;
+                }
+                Attendance synthetic = Attendance.builder()
+                        .employeeUserId(employee.getUserId()).workDate(date).build();
+                upsertException(synthetic, ExceptionType.WORK_HOURS_SHORTAGE, null, null, null);
+            }
+        }
     }
 
     /**
@@ -295,7 +355,7 @@ public class ExceptionService {
             if (schedule == null) {
                 continue;
             }
-            PenalizationPolicyVersion version = resolveEffectiveVersion(resolveAssignedOrDefaultPolicyId(employee), to);
+            PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, to);
             if (version == null || (!version.isNaAdjoiningHolidayEnabled() && !version.isNaAdjoiningWeekoffEnabled())) {
                 continue;
             }
@@ -482,8 +542,8 @@ public class ExceptionService {
         LocalDate today = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
 
         Employee employee = employeeRepository.findById(employeeUserId).orElse(null);
-        UUID assignedPolicyId = resolveAssignedOrDefaultPolicyId(employee);
-        PenalizationPolicyVersion version = resolveEffectiveVersion(assignedPolicyId, exceptionDate);
+        UUID assignedPolicyId = penalizationPolicyResolutionService.resolveAssignedOrDefaultPolicyId(employee, exceptionDate);
+        PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersion(assignedPolicyId, exceptionDate);
 
         List<RegularizationRequest> regularizations = regularizationRequestRepository
                 .findByEmployeeUserIdInAndAttendanceDateBetween(List.of(employeeUserId), exceptionDate, exceptionDate);
@@ -536,7 +596,9 @@ public class ExceptionService {
                 .hasApprovedRegularization(hasApproved)
                 .lateMinutes(record.getLateByMinutes())
                 .workedMinutes(record.getWorkedMinutes())
-                .effectiveHoursPercent(computeEffectiveHoursPercent(record))
+                .effectiveHoursPercent(computeEffectiveHoursPercent(record, employee))
+                .workHoursShortagePercent(employee != null
+                        ? workHoursShortageCalculationService.computeShortagePercent(employee, exceptionDate, version) : null)
                 .lateArrivalCountInPeriod(lateArrivalCount)
                 .missingLogCountInPeriod(missingLogCount)
                 .lateArrivalAlsoOccurredSameDay(lateArrivalSameDay)
@@ -549,39 +611,12 @@ public class ExceptionService {
     }
 
     /**
-     * The employee's own assigned policy, or — if unset (e.g. a newly-created employee nobody has
-     * assigned one to yet via Employee Assignments) — the org's original default policy, resolved
-     * the exact same way {@link PenalizationPolicyService#resolveDefaultPolicyId()} does. Without
-     * this fallback, an unassigned employee would fall through to
-     * {@link PenalizationPolicyVersionRepository#findVersionsEffectiveAt} — an *unscoped* query
-     * across every policy's version chain — which stopped being a safe "the one policy" lookup
-     * the moment Policy List (Section 5) made multiple named policies possible: "ORDER BY version
-     * DESC" with no policy filter can return an arbitrary policy's version, not the org's default.
-     * Returns {@code null} only in the fully-degenerate case where no {@code PenalisationPolicy}
-     * row exists at all (shouldn't happen given the V95 seed).
+     * Monday-Sunday for {@code WEEK} (Section 34); calendar month for {@code MONTH} or unset. The
+     * one definition of "the policy's cycle boundaries" — also reused by
+     * {@link WorkHoursShortageCalculationService} for weekly/monthly Work Hours Shortage
+     * aggregation, so a "week"/"month" never means something subtly different there.
      */
-    private UUID resolveAssignedOrDefaultPolicyId(Employee employee) {
-        if (employee != null && employee.getPenalisationPolicy() != null) {
-            return employee.getPenalisationPolicy().getId();
-        }
-        try {
-            return penalizationPolicyService.resolveDefaultPolicyId();
-        } catch (IllegalStateException e) {
-            // No PenalisationPolicy row exists at all (shouldn't happen given the V95 seed) — no
-            // default to fall back to; the caller's null-handling (noMatch) takes over from here.
-            return null;
-        }
-    }
-
-    private PenalizationPolicyVersion resolveEffectiveVersion(UUID assignedPolicyId, LocalDate date) {
-        List<PenalizationPolicyVersion> candidates = assignedPolicyId != null
-                ? penalizationPolicyVersionRepository.findVersionsEffectiveAtForPolicy(assignedPolicyId, date.atStartOfDay())
-                : penalizationPolicyVersionRepository.findVersionsEffectiveAt(date.atStartOfDay());
-        return candidates.stream().findFirst().orElse(null);
-    }
-
-    /** Monday-Sunday for {@code WEEK} (Section 34); calendar month for {@code MONTH} or unset. */
-    private LocalDate[] cyclePeriod(LocalDate date, String periodUnit) {
+    static LocalDate[] cyclePeriod(LocalDate date, String periodUnit) {
         if ("WEEK".equals(periodUnit)) {
             LocalDate start = date.minusDays(date.getDayOfWeek().getValue() - 1L);
             return new LocalDate[]{start, start.plusDays(6)};
@@ -597,20 +632,18 @@ public class ExceptionService {
         return employee.getNoticePeriodStartDate() == null || !date.isBefore(employee.getNoticePeriodStartDate());
     }
 
-    /** {@code workedMinutes} as a percentage of the employee's assigned shift duration — null (not 0%) when either fact is unavailable, so the engine can tell "no data" apart from "worked nothing". */
-    private Double computeEffectiveHoursPercent(Attendance record) {
-        if (record.getWorkedMinutes() == null) {
+    /**
+     * {@code workedMinutes} as a percentage of the employee's expected minutes for that date —
+     * the assigned shift duration, reduced by any approved hourly/quarter-day leave on that date
+     * (see ExpectedWorkHoursService) — null (not 0%) when a required fact is unavailable, so the
+     * engine can tell "no data" apart from "worked nothing".
+     */
+    private Double computeEffectiveHoursPercent(Attendance record, Employee employee) {
+        if (record.getWorkedMinutes() == null || employee == null) {
             return null;
         }
-        Employee employee = employeeRepository.findById(record.getEmployeeUserId()).orElse(null);
-        if (employee == null || employee.getShift() == null) {
-            return null;
-        }
-        long shiftMinutes = Duration.between(employee.getShift().getStartTime(), employee.getShift().getEndTime()).toMinutes();
-        if (shiftMinutes <= 0) {
-            return null;
-        }
-        return record.getWorkedMinutes() * 100.0 / shiftMinutes;
+        Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(employee, record.getWorkDate());
+        return WorkHoursCalculator.minutesToPercent(record.getWorkedMinutes(), expectedMinutes);
     }
 
     /** Null if the employee has no current manager on file — the email is simply sent without a cc. */

@@ -28,6 +28,10 @@ public class Employee {
     private String fullName;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "business_unit_id")
+    private BusinessUnit businessUnit;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "department_id")
     private Department department;
 

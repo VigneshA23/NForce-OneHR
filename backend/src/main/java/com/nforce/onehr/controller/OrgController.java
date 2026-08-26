@@ -25,6 +25,35 @@ public class OrgController {
         return orgService.getHierarchy();
     }
 
+    // ── Business Units ───────────────────────────────────────────────────────
+
+    @GetMapping("/business-units")
+    public List<BusinessUnitResponse> listBusinessUnits() {
+        return orgService.listBusinessUnits();
+    }
+
+    @PostMapping("/business-units")
+    @ResponseStatus(HttpStatus.CREATED)
+    public BusinessUnitResponse createBusinessUnit(@Valid @RequestBody CreateBusinessUnitRequest req) {
+        return orgService.createBusinessUnit(req);
+    }
+
+    @PutMapping("/business-units/{id}")
+    public BusinessUnitResponse updateBusinessUnit(@PathVariable UUID id, @Valid @RequestBody UpdateBusinessUnitRequest req) {
+        return orgService.updateBusinessUnit(id, req);
+    }
+
+    @PatchMapping("/business-units/{id}/toggle-active")
+    public BusinessUnitResponse toggleBusinessUnitActive(@PathVariable UUID id) {
+        return orgService.toggleBusinessUnitActive(id);
+    }
+
+    @DeleteMapping("/business-units/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteBusinessUnit(@PathVariable UUID id) {
+        orgService.deleteBusinessUnit(id);
+    }
+
     // ── Departments ───────────────────────────────────────────────────────────
 
     @GetMapping("/departments")

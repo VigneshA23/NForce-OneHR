@@ -36,6 +36,9 @@ export const penalisationPoliciesApi = {
   rename: (token: string, id: string, name: string, description: string): Promise<PenalisationPolicySummary> =>
     fetch(`${BASE}/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ name, description }) }).then(handle<PenalisationPolicySummary>),
 
+  toggleActive: (token: string, id: string): Promise<PenalisationPolicySummary> =>
+    fetch(`${BASE}/${id}/toggle-active`, { method: 'PATCH', headers: authHeaders(token) }).then(handle<PenalisationPolicySummary>),
+
   clone: (token: string, id: string, name: string, description: string): Promise<PenalisationPolicySummary> =>
     fetch(`${BASE}/${id}/clone`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ name, description }) }).then(handle<PenalisationPolicySummary>),
 

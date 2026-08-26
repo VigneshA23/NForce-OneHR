@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.org.CreateLocationRequest;
 import com.nforce.onehr.dto.org.LocationResponse;
 import com.nforce.onehr.dto.org.UpdateLocationRequest;
 import com.nforce.onehr.entity.Location;
+import com.nforce.onehr.repository.BusinessUnitRepository;
 import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OrgServiceLocationTest {
 
+    @Mock private BusinessUnitRepository businessUnitRepo;
     @Mock private DepartmentRepository departmentRepo;
     @Mock private DesignationRepository designationRepo;
     @Mock private LocationRepository locationRepo;
@@ -42,7 +44,7 @@ class OrgServiceLocationTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrgService(departmentRepo, designationRepo, locationRepo, shiftRepo, employeeRepo, historyRepo);
+        service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo, employeeRepo, historyRepo);
         lenient().when(locationRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(employeeRepo.countByLocationId(any())).thenReturn(0L);
     }

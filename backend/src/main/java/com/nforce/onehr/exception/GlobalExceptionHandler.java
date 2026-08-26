@@ -14,6 +14,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.NoSuchElementException;
@@ -104,6 +105,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError("The uploaded file(s) exceed the maximum allowed size"));
+    }
+
+    // A query/path param that can't be converted to its declared type — e.g. a filter id that
+    // isn't a well-formed UUID. Without this handler it falls through to the generic 500 below,
+    // indistinguishable from a real server error, for what is actually a malformed request.
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        String expectedType = e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "the expected type";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("'" + e.getName() + "' must be a valid " + expectedType));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
