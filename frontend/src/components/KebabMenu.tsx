@@ -1,12 +1,15 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, type LucideIcon } from 'lucide-react';
 
 export interface KebabItem {
   label: string;
   onClick: () => void;
   danger?: boolean;
   dividerBefore?: boolean;
+  // Optional — items without one still render label-only exactly as before. Never used to
+  // replace the label (menu items stay text-visible), only to make them faster to scan.
+  icon?: LucideIcon;
 }
 
 const ITEM_HEIGHT = 36; // approx px per item (9px top + 9px bottom padding + ~16px text)
@@ -100,40 +103,46 @@ export function KebabMenu({
                 overflow: 'hidden',
               }}
             >
-              {items.map((item, i) => (
-                <button
-                  key={i}
-                  onClick={e => {
-                    e.stopPropagation();
-                    item.onClick();
-                    setOpen(false);
-                  }}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '9px 14px',
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: item.danger ? '#E4373D' : 'var(--txt)',
-                    borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
-                    transition: 'background .1s',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.background = item.danger
-                      ? 'rgba(228,55,61,.08)'
-                      : 'var(--raised)';
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.background = 'none';
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
+              {items.map((item, i) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={i}
+                    onClick={e => {
+                      e.stopPropagation();
+                      item.onClick();
+                      setOpen(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 9,
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '9px 14px',
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: item.danger ? '#E4373D' : 'var(--txt)',
+                      borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
+                      transition: 'background .1s',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = item.danger
+                        ? 'rgba(228,55,61,.08)'
+                        : 'var(--raised)';
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'none';
+                    }}
+                  >
+                    {Icon && <Icon size={13} style={{ flexShrink: 0, opacity: 0.85 }} />}
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </>,
           document.body

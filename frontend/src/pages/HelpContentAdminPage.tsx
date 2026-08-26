@@ -26,7 +26,10 @@ const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', 
 const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const iconBtn: React.CSSProperties = { background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 7px', color: 'var(--txt-mut)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' };
 
-const TYPE_OPTIONS: HelpContentType[] = ['FAQ', 'QUICK_HELP', 'GUIDE', 'DOCUMENT'];
+// Quick Help and Document are no longer creatable (see HelpContentService.CREATABLE_TYPES) and
+// their existing rows were removed (V133), so the filter dropdown only offers FAQ/Guide now.
+// TYPE_LABEL keeps all four entries since it's also used to render legacy rows' type column.
+const TYPE_OPTIONS: HelpContentType[] = ['FAQ', 'GUIDE'];
 const TYPE_LABEL: Record<HelpContentType, string> = { FAQ: 'FAQ', QUICK_HELP: 'Quick Help', GUIDE: 'Guide', DOCUMENT: 'Document' };
 
 // NOTE: this page is no longer reachable via navigation — Help & Guidance content management
@@ -74,7 +77,9 @@ export default function HelpContentAdminPage() {
         await hrHelpContentApi.withdraw(item.id, reason, token);
         showToast('success', 'Withdrawn — back to Draft');
       } else if (item.status === 'APPROVED' || item.status === 'UNPUBLISHED') {
-        await hrHelpContentApi.publish(item.id, token);
+        // This unrouted legacy page has no Review & Publish modal (see HelpDeskPage.tsx for
+        // that) — publishes to Employee only as a minimal default so this still compiles/works.
+        await hrHelpContentApi.publish(item.id, ['EMPLOYEE'], token);
         showToast('success', 'Published');
       } else if (item.status === 'PUBLISHED') {
         await hrHelpContentApi.unpublish(item.id, token);

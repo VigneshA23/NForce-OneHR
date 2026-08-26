@@ -42,6 +42,16 @@ export function validateAttachmentFile(file: File): string | null {
 // see PUBLISHED; every other status is HR/Super Admin-only.
 export type HelpContentStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'PUBLISHED' | 'UNPUBLISHED' | 'ARCHIVED';
 
+// Chosen in the Review & Publish flow (see ReviewPublishModal), not the Add/Edit form —
+// publishing is an authorization/visibility decision, not a content-editing one. Mirrors the
+// same 4-bucket collapse the nav already uses for the underlying Role codes (HR_ADMIN -> HR,
+// SUPER_ADMIN -> ADMIN) — see backend RoleUtils.audienceBuckets.
+export type Audience = 'EMPLOYEE' | 'MANAGER' | 'HR' | 'ADMIN';
+export const AUDIENCE_OPTIONS: Audience[] = ['EMPLOYEE', 'MANAGER', 'HR', 'ADMIN'];
+export const AUDIENCE_LABEL: Record<Audience, string> = {
+  EMPLOYEE: 'Employee', MANAGER: 'Manager', HR: 'HR', ADMIN: 'Admin',
+};
+
 export interface Attachment {
   id: string;
   fileName: string;
@@ -61,6 +71,8 @@ export interface HelpContentSummary {
   displayOrder: number;
   viewCount: number;
   attachmentCount: number;
+  // Empty/absent = visible to everyone once published.
+  audience: Audience[];
   rejectionReason: string | null;
   createdAt: string;
   updatedAt: string;
@@ -138,8 +150,8 @@ export const hrHelpContentApi = {
   withdraw: (id: string, reason: string, token: string) =>
     fetch(`${HR_BASE}/${id}/withdraw`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }) }).then(handle<HelpContentDetail>),
 
-  publish: (id: string, token: string) =>
-    fetch(`${HR_BASE}/${id}/publish`, { method: 'POST', headers: authHeaders(token) }).then(handle<HelpContentDetail>),
+  publish: (id: string, audience: Audience[], token: string) =>
+    fetch(`${HR_BASE}/${id}/publish`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ audience }) }).then(handle<HelpContentDetail>),
 
   unpublish: (id: string, token: string) =>
     fetch(`${HR_BASE}/${id}/unpublish`, { method: 'POST', headers: authHeaders(token) }).then(handle<HelpContentDetail>),

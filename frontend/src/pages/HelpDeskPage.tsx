@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  BookOpen, CheckCircle2, ChevronDown, FileText, FolderOpen, HelpCircle, Paperclip,
-  Plus, Search, Send, X,
+  Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
+  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -24,8 +24,8 @@ import {
   type HelpContentType,
 } from '../api/helpContent';
 import { ContentFormModal, StatusChip, ConfirmModal } from '../components/helpContent/ContentFormModal';
+import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
-import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -360,72 +360,134 @@ interface ContentAdminActions {
   onDelete: (item: HelpContentSummary) => void;
 }
 
+/** One icon-only action button, rendered inline in AdminItemControls (no ⋮ menu — every action is always visible). */
+interface ActionButtonItem {
+  label: string;
+  icon: LucideIcon;
+  onClick: () => void;
+  danger?: boolean;
+  dividerBefore?: boolean;
+}
+
 /**
  * Action availability per status — mirrors HelpContentService's ARCHIVABLE_STATUSES /
  * DELETABLE_STATUSES / PUBLISHABLE_STATUSES. A DRAFT hasn't been through approval yet, so
  * there's nothing worth retaining via Archive (Delete only); every other status except the
  * locked PENDING_APPROVAL may be permanently deleted.
  */
-function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions): KebabItem[] {
-  const { onEdit, onView, onSubmit, onWithdraw, onPublish, onUnpublish, onArchive, onRestore, onDelete } = actions;
+function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions): ActionButtonItem[] {
+  const { onEdit, onView, onSubmit, onWithdraw, onUnpublish, onArchive, onRestore, onDelete } = actions;
   switch (item.status) {
     case 'DRAFT':
       return [
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Submit for Approval', onClick: () => onSubmit(item) },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true, dividerBefore: true },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item) },
+        { label: 'Submit for Approval', icon: Send, onClick: () => onSubmit(item) },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true, dividerBefore: true },
       ];
     case 'PENDING_APPROVAL':
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Withdraw', onClick: () => onWithdraw(item), dividerBefore: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Withdraw', icon: Undo2, onClick: () => onWithdraw(item), dividerBefore: true },
       ];
     case 'APPROVED':
+      // Publish is deliberately not in this menu — see the dedicated button in
+      // AdminItemControls, which is the primary (only) way to publish now.
       return [
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Publish', onClick: () => onPublish(item) },
-        { label: 'Archive', onClick: () => onArchive(item), dividerBefore: true },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item) },
+        { label: 'Archive', icon: Archive, onClick: () => onArchive(item), dividerBefore: true },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
     case 'PUBLISHED':
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Unpublish', onClick: () => onUnpublish(item), dividerBefore: true },
-        { label: 'Archive', onClick: () => onArchive(item) },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item) },
+        { label: 'Unpublish', icon: EyeOff, onClick: () => onUnpublish(item), dividerBefore: true },
+        { label: 'Archive', icon: Archive, onClick: () => onArchive(item) },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
     case 'UNPUBLISHED':
+      // Publish is deliberately not in this menu — see the dedicated button in
+      // AdminItemControls, which is the primary (only) way to publish now.
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Publish', onClick: () => onPublish(item), dividerBefore: true },
-        { label: 'Archive', onClick: () => onArchive(item) },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item), dividerBefore: true },
+        { label: 'Archive', icon: Archive, onClick: () => onArchive(item) },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
     default: // ARCHIVED
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Restore', onClick: () => onRestore(item), dividerBefore: true },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Restore', icon: ArchiveRestore, onClick: () => onRestore(item), dividerBefore: true },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
   }
 }
 
 /**
- * Status chip + a kebab action menu, shown under an FAQ or Guide row, admins only. A portal-
- * based dropdown (not inline text links) so opening it never reflows the row — the trigger is a
- * fixed 30×30 button regardless of how many actions the current status has, which keeps FAQ and
- * Guide rows visually consistent and never shifts the page underneath an open menu.
+ * One icon-only action button next to Publish — same 30x30 footprint and hover convention as
+ * the ⋮ trigger it replaces, just without the trigger: every action for the current status is
+ * always visible, and the label only ever shows up as a hover tooltip (title/aria-label), the
+ * same convention already used for the Publish button itself.
+ */
+function ActionIconButton({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 30, height: 30, borderRadius: 6, cursor: 'pointer',
+        background: hovered ? (danger ? 'rgba(228,55,61,.08)' : 'var(--raised2)') : 'transparent',
+        border: `1px solid ${hovered ? (danger ? 'rgba(228,55,61,.2)' : 'var(--line2)') : 'transparent'}`,
+        color: danger ? '#E4373D' : (hovered ? 'var(--txt)' : 'var(--txt-mut)'),
+        transition: 'background .15s, border-color .15s, color .15s',
+      }}
+    >
+      <Icon size={14} />
+    </button>
+  );
+}
+
+/**
+ * Status chip + actions, shown under an FAQ or Guide row, admins only — right-aligned via
+ * space-between so the chip stays left and every action stays right, consistently for both FAQ
+ * and Guide rows (same shared component either way). No ⋮ menu — every action for the current
+ * status (including Publish) is always visible as its own icon button, so nothing is hidden
+ * behind a click. dividerBefore renders as a thin vertical rule, preserving the same grouping
+ * the old menu expressed with a horizontal divider (e.g. separating Delete from the safer
+ * actions before it).
  */
 function AdminItemControls({ item, actions, busy }: { item: HelpContentSummary; actions: ContentAdminActions; busy?: boolean }) {
+  const canPublish = item.status === 'APPROVED' || item.status === 'UNPUBLISHED';
+  const buttons = actionsForStatus(item, actions);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 30 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, height: 30 }}>
       <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />
       {busy ? (
         <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>Working…</span>
       ) : (
-        <KebabMenu items={actionsForStatus(item, actions)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {canPublish && (
+            <button
+              onClick={() => actions.onPublish(item)}
+              title="Publish"
+              aria-label="Publish"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+            >
+              <ArrowUp size={14} />
+            </button>
+          )}
+          {buttons.map(b => (
+            <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {b.dividerBefore && <span style={{ width: 1, height: 16, background: 'var(--line)', margin: '0 2px' }} />}
+              <ActionIconButton icon={b.icon} label={b.label} onClick={b.onClick} danger={b.danger} />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -817,6 +879,10 @@ export default function HelpDeskPage() {
   const [showAllFaqs, setShowAllFaqs] = useState(false);
   const [showAllGuides, setShowAllGuides] = useState(false);
   const [withdrawing, setWithdrawing] = useState<HelpContentSummary | null>(null);
+  // The Review & Publish modal — opened by the visible Publish button (AdminItemControls), not
+  // by the ⋮ menu. Holds the full detail (title/body/attachments/etc.) so the modal can show a
+  // complete read-only review before the publisher picks who sees it.
+  const [reviewingPublish, setReviewingPublish] = useState<HelpContentDetail | null>(null);
   // Ids currently mid-action (Submit/Publish/Archive/etc.) — drives the "Working…" state and
   // blocks a second click on the same row while its request is in flight.
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -919,6 +985,13 @@ export default function HelpDeskPage() {
     setFormOpen(true);
   }
 
+  /** "Edit" from the Review & Publish modal — already has the full detail, so no re-fetch. */
+  function openEditFromReview(detail: HelpContentDetail) {
+    setReviewingPublish(null);
+    setEditingContent(detail);
+    setFormOpen(true);
+  }
+
   function handleSubmitForApproval(item: HelpContentSummary) {
     setConfirmAction({
       title: 'Submit for Approval',
@@ -943,12 +1016,17 @@ export default function HelpDeskPage() {
     setWithdrawing(null);
   }
 
-  function handlePublish(item: HelpContentSummary) {
-    runAction(item.id, async () => {
-      const updated = await hrHelpContentApi.publish(item.id, token);
-      applyContentUpdate(updated);
-      showToast('success', 'Published');
-    }).catch(err => showToast('error', err instanceof Error ? err.message : 'Failed to publish'));
+  // Opens the Review & Publish modal — publishing itself happens from there (see
+  // reviewingPublish/handlePublished below), never as a direct one-click action.
+  async function handlePublish(item: HelpContentSummary) {
+    const detail = await hrHelpContentApi.getOne(item.id, token);
+    setReviewingPublish(detail);
+  }
+
+  function handlePublished(updated: HelpContentDetail) {
+    applyContentUpdate(updated);
+    setReviewingPublish(null);
+    refreshContent();
   }
 
   function handleUnpublish(item: HelpContentSummary) {
@@ -1280,6 +1358,16 @@ export default function HelpDeskPage() {
           token={token}
           onClose={() => setFormOpen(false)}
           onSaved={refreshContent}
+        />
+      )}
+
+      {reviewingPublish && (
+        <ReviewPublishModal
+          item={reviewingPublish}
+          token={token}
+          onClose={() => setReviewingPublish(null)}
+          onEdit={openEditFromReview}
+          onPublished={handlePublished}
         />
       )}
 
