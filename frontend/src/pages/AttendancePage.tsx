@@ -1199,10 +1199,20 @@ function BulkActionModal({ action, ids, token, onClose, onDone }: {
 }
 
 /** Day roster used by both the Manager and HR views. */
+const ROSTER_PAGE_SIZE = 10;
+
 function RosterTable({ rows, loading, emptyMessage }: {
   rows: AttendanceRecord[]; loading: boolean; emptyMessage: string;
 }) {
   const { formatTime, formatDuration } = useTimeFormat();
+  const [page, setPage] = useState(0);
+  // Rows arrive fresh on every date change (see DayRoster's effect) — reset to page 1 whenever
+  // the underlying list changes so a stale page index can't point past the new row count.
+  useEffect(() => { setPage(0); }, [rows]);
+
+  const totalPages = Math.ceil(rows.length / ROSTER_PAGE_SIZE);
+  const paged = rows.slice(page * ROSTER_PAGE_SIZE, (page + 1) * ROSTER_PAGE_SIZE);
+
   return (
     <div style={panelStyle}>
       {loading ? (
@@ -1213,35 +1223,75 @@ function RosterTable({ rows, loading, emptyMessage }: {
           <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{emptyMessage}</div>
         </div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Employee ID', 'Name', 'Check In', 'Check Out', 'Timezone', 'Hours', 'Status', 'Source'].map((h) => (
-                  <th key={h} style={thStyle}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.employeeUserId}>
-                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{r.employeeCode}</td>
-                  <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
-                  <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
-                  <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
-                  {/* r.timezone is this employee's OWN effective timezone (locked in at their
-                      check-in), not the viewer's — shown explicitly so an HR/Admin/Manager
-                      viewing someone in a different timezone always knows which zone the Check
-                      In/Out times above belong to. */}
-                  <td style={{ ...tdStyle, fontSize: 11.5, color: 'var(--txt-dim)' }}>{r.timezone ?? dash}</td>
-                  <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
-                  <td style={tdStyle}><StatusPill status={r.status} /></td>
-                  <td style={tdStyle}><SourceTag source={r.source} /></td>
+        <>
+          {/* overflowX only — the table's own vertical scroll (if any, from the page's normal
+              flow) is untouched; pagination replaces unbounded row growth, not the scrollbar. */}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Employee ID', 'Name', 'Check In', 'Check Out', 'Timezone', 'Hours', 'Status', 'Source'].map((h) => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {paged.map((r) => (
+                  <tr key={r.employeeUserId}>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{r.employeeCode}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
+                    <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
+                    <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
+                    {/* r.timezone is this employee's OWN effective timezone (locked in at their
+                        check-in), not the viewer's — shown explicitly so an HR/Admin/Manager
+                        viewing someone in a different timezone always knows which zone the Check
+                        In/Out times above belong to. */}
+                    <td style={{ ...tdStyle, fontSize: 11.5, color: 'var(--txt-dim)' }}>{r.timezone ?? dash}</td>
+                    <td style={tdStyle}>{formatDuration(r.workedMinutes) ?? dash}</td>
+                    <td style={tdStyle}><StatusPill status={r.status} /></td>
+                    <td style={tdStyle}><SourceTag source={r.source} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+                Showing {page * ROSTER_PAGE_SIZE + 1}–{Math.min((page + 1) * ROSTER_PAGE_SIZE, rows.length)} of {rows.length}
+              </span>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => p - 1)}
+                  style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  const p = totalPages <= 7 ? i : page <= 3 ? i : page >= totalPages - 4 ? totalPages - 7 + i : page - 3 + i;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      style={{ padding: '5px 10px', minWidth: 32, background: page === p ? 'var(--brand)' : 'var(--raised)', border: `1px solid ${page === p ? 'var(--brand)' : 'var(--line2)'}`, borderRadius: 5, cursor: 'pointer', color: page === p ? '#fff' : 'var(--txt)', fontSize: 12, fontWeight: page === p ? 700 : 400 }}
+                    >
+                      {p + 1}
+                    </button>
+                  );
+                })}
+                <button
+                  disabled={page === totalPages - 1}
+                  onClick={() => setPage((p) => p + 1)}
+                  style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: page === totalPages - 1 ? 'not-allowed' : 'pointer', opacity: page === totalPages - 1 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -2954,6 +3004,19 @@ function DayDetailsModal({ info, config, punches, onClose, onRegularize, onApply
   );
 }
 
+/** Subtle full-row tint for Weekly-off and Leave days, so the day's status reads at a glance
+ * without opening the row — same predicates InlineDayBadge uses for its W-OFF/LEAVE badges
+ * (leave takes priority over weekend, matching InlineDayBadge's own precedence), so the row
+ * shading and the badge always agree. Colors echo each badge's own hue at low opacity: purple
+ * for leave (InlineDayBadge's LEAVE badge), warm beige for weekly-off — deliberately a distinct
+ * hue from the W-OFF badge's neutral gray so the two full-row states stay visually distinct at
+ * a glance, per the Keka reference (cream weekend rows vs. lavender leave rows). */
+function attendanceRowTint(info: DayInfo): string | undefined {
+  if (info.leaveTypeName) return 'rgba(139,92,246,.08)';
+  if (info.isWeekend && !info.record) return 'rgba(196,164,108,.10)';
+  return undefined;
+}
+
 /** Special-day badge shown next to the date — plain PRESENT/LATE status is conveyed by the
  * Arrival/Effective Hours columns instead, so it's deliberately not repeated here. */
 function InlineDayBadge({ info }: { info: DayInfo }) {
@@ -3620,7 +3683,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                       const punchesLoading = !!info.record?.checkInAt && !punches;
                       const metrics = computeRowMetrics(info, punches, workedMinutesToday, today?.workDate);
                       return (
-                        <tr key={info.iso}>
+                        <tr key={info.iso} style={{ background: attendanceRowTint(info) }}>
                           <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{formatDay(info.iso)}</span>
@@ -4074,6 +4137,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
 // two-stage one. See AttendanceRequestService for why. ──────────────────────────
 function AttendanceRequestsSection({ token, canApprove }: { token: string; canApprove: boolean }) {
   const { showToast } = useToast();
+  const { formatDuration } = useTimeFormat();
   const [myRequests, setMyRequests] = useState<AttendanceRequestRecord[]>([]);
   const [pending, setPending] = useState<AttendanceRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4230,7 +4294,9 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                     {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
                     <td style={tdStyle}>{partialDayModeLabel(r)}</td>
-                    <td style={tdStyle}>{r.partialDayHours ?? dash}</td>
+                    {/* partialDayHours is a decimal (e.g. 3.33 for 3h 20m) — round-trip through
+                        minutes for a precise "3h 20m" instead of that raw fraction. */}
+                    <td style={tdStyle}>{r.partialDayHours != null ? formatDuration(Math.round(r.partialDayHours * 60)) ?? dash : dash}</td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
                     <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
                     <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
@@ -4338,7 +4404,7 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
 // ─── Overtime requests — same single-stage shape as AttendanceRequestsSection. ──
 function OvertimeRequestsSection({ token, canApprove }: { token: string; canApprove: boolean }) {
   const { showToast } = useToast();
-  const { formatTime, formatDuration } = useTimeFormat();
+  const { formatDuration } = useTimeFormat();
   const [myRequests, setMyRequests] = useState<OvertimeRequestRecord[]>([]);
   const [pending, setPending] = useState<OvertimeRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4461,7 +4527,10 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
             <ModalHeader title={`${acting.action === 'APPROVE' ? 'Approve' : 'Reject'} — ${acting.request.employeeName}`} onClose={() => setActing(null)} />
             <div style={{ padding: 24 }}>
               <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-                {formatDay(acting.request.workDate)} · {formatTime(acting.request.requestedStart) ?? dash} → {formatTime(acting.request.requestedEnd) ?? dash}
+                {/* requestedStart/requestedEnd are a midnight-anchored placeholder span sized to
+                    match the requested duration (see OvertimeRequestModal.handleSubmit) — never
+                    real clock times — so show the duration itself instead of that fake range. */}
+                {formatDay(acting.request.workDate)} · {formatDuration(acting.request.requestedMinutes) ?? dash}
               </div>
               <Field label={acting.action === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
                 <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
@@ -4853,12 +4922,17 @@ function AttendancePageInner() {
   return (
     <div>
       <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
-        <div>
+        <div style={{ maxWidth: 560 }}>
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
             color: 'var(--txt)', margin: 0,
           }}>My Attendance</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
+          {/* minHeight reserves 2 lines regardless of role: the subtitle text length varies by
+              role (Employee's is one line, Manager/HR Admin/Super Admin's wrap to two), and
+              without a reserved height the header block's total height — and therefore the
+              vertical start of the stats row below it — shifted per role, reading as
+              inconsistent alignment across roles even though it's the same shared component. */}
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--txt-mut)', marginTop: 4, minHeight: 'calc(13px * 1.5 * 2)' }}>{subtitle}</p>
         </div>
         <div className="nf-attendance-actions" style={{ display: 'flex', gap: 10 }}>
           <button
