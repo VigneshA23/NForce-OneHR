@@ -2,8 +2,6 @@ import React, { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Download, User, Users, Settings, Shield,
-  Clock, Calendar, FileText, Package, GitBranch, AlertTriangle,
-  Home, HelpCircle, CheckSquare, Lock,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NAV, type Role, type NavItem } from '../lib/nav.config';
@@ -51,12 +49,6 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
   integrations: 'Connect NForce OneHR with external identity providers, payroll systems, and third-party tools.',
   featurelab:   'Preview and test upcoming platform features before they are released to the rest of the organization.',
   help:         'Raise a support ticket, browse help articles, and get instant answers to common HR questions.',
-};
-
-// Map nav icon names used in nav.config.ts to component refs for display
-const ICON_MAP: Record<string, LucideIcon> = {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package,
-  CheckSquare, User, Settings, Lock,
 };
 
 function NavItemRow({ item }: { item: NavItem }) {
