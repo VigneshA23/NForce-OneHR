@@ -332,7 +332,14 @@ export function AttendanceHeroBanner() {
   }
 
   const record     = today?.record ?? null;
-  const checkInAt  = record?.checkInAt  ?? null;
+  // sessionStartedAt (not checkInAt) — checkInAt is the day's *original* check-in, deliberately
+  // frozen across a same-day resume (see AttendanceRecord's own doc comment and
+  // AttendanceService.checkIn's "resume" branch), so it never reflects a later Check-In → Check-
+  // Out → Check-In again cycle. Every display below reads this one value, so it was showing the
+  // stale original time immediately after a resumed check-in (and after a refresh — this wasn't
+  // a caching bug, checkInAt genuinely never updates). sessionStartedAt updates on every check-in
+  // including a resume, so it's what "Checked in at" should actually show.
+  const checkInAt  = record?.sessionStartedAt ?? record?.checkInAt ?? null;
   const checkOutAt = record?.checkOutAt ?? null;
 
   // The later of the normal Check-Out and the most recent closed Web Clock-Out today, whichever
