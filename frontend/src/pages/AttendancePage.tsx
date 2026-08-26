@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, MoreVertical, XCircle } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -4394,6 +4394,190 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
   );
 }
 
+const dropdownMenuItemStyle: React.CSSProperties = {
+  display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', fontSize: 12.5,
+  background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt)',
+};
+
+/** Row-level "•••" menu — replaces the old inline Approve/Reject buttons. Every row gets "View
+ * Request" (opens the read-only detail drawer); a pending row also gets Approve/Reject shortcuts
+ * when the viewer is an approver, opening the same drawer pre-armed for that action. */
+function OvertimeActionMenu({ request, canApprove, onView, onApprove, onReject }: {
+  request: OvertimeRequestRecord; canApprove: boolean;
+  onView: () => void; onApprove: () => void; onReject: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Actions"
+        style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+      >
+        <MoreVertical size={14} />
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 40, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.35)', minWidth: 150, overflow: 'hidden' }}>
+          <button
+            onClick={() => { setOpen(false); onView(); }}
+            style={dropdownMenuItemStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            View Request
+          </button>
+          {canApprove && request.status === 'PENDING' && (
+            <>
+              <button
+                onClick={() => { setOpen(false); onApprove(); }}
+                style={{ ...dropdownMenuItemStyle, color: '#2FB67C' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => { setOpen(false); onReject(); }}
+                style={{ ...dropdownMenuItemStyle, color: '#E4373D' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                Reject
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Right-side slide-out detail drawer (replaces the old center modal), modeled on the Keka
+ * reference: employee summary, a "View breakdown by day" section, applied-vs-approved hours,
+ * the approval/rejection event, and — only in APPROVE/REJECT mode — the same comment field the
+ * old modal used to submit that decision. There is no persisted multi-comment thread in this
+ * data model (OvertimeRequest has a single reviewComment, not a comments table), so unlike the
+ * Keka reference the comment box is shown only while it's wired to a real action — never as a
+ * decorative always-present field that would silently do nothing when submitted.
+ * "Breakdown by day" is a single row today because a request always covers exactly one workDate
+ * (there's no multi-day grouped-request concept in this schema); the section still exists so the
+ * UI already matches the reference shape if that ever changes.
+ */
+function OvertimeDetailDrawer({ request, mode, comment, setComment, submitting, onClose, onConfirmAction }: {
+  request: OvertimeRequestRecord;
+  mode: 'VIEW' | 'APPROVE' | 'REJECT';
+  comment: string;
+  setComment: (v: string) => void;
+  submitting: boolean;
+  onClose: () => void;
+  onConfirmAction: () => void;
+}) {
+  const { formatDuration } = useTimeFormat();
+  const [breakdownOpen, setBreakdownOpen] = useState(true);
+  const approvedMinutes = request.status === 'APPROVED' ? request.requestedMinutes : null;
+  const initials = request.employeeName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 600 }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 100vw)', background: 'var(--panel)', borderLeft: '1px solid var(--line)', boxShadow: '-12px 0 32px rgba(0,0,0,.4)', zIndex: 601, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Overtime Request Details</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
+              {initials || <User size={16} />}
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 14 }}>{request.employeeName}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Requested on {formatDay(request.createdAt.slice(0, 10))}</div>
+            </div>
+          </div>
+
+          <div>
+            <button
+              onClick={() => setBreakdownOpen((o) => !o)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, padding: 0 }}
+            >
+              View breakdown by day {breakdownOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+            {breakdownOpen && (
+              <div style={{ marginTop: 10, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(request.workDate)}</span>
+                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{formatDuration(request.requestedMinutes) ?? dash}</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 28 }}>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Total Applied Hours</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{formatDuration(request.requestedMinutes) ?? dash}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Total Approved Hours</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{approvedMinutes != null ? formatDuration(approvedMinutes) : dash}</div>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Reason</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>{request.reason}</div>
+          </div>
+
+          {request.reviewedByName && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: request.status === 'REJECTED' ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)', border: `1px solid ${request.status === 'REJECTED' ? 'rgba(228,55,61,.25)' : 'rgba(47,182,124,.25)'}`, borderRadius: 8, padding: '10px 12px' }}>
+              {request.status === 'REJECTED'
+                ? <XCircle size={15} style={{ color: '#E4373D', flexShrink: 0, marginTop: 1 }} />
+                : <CheckCircle2 size={15} style={{ color: '#2FB67C', flexShrink: 0, marginTop: 1 }} />}
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>
+                  {request.status === 'REJECTED' ? 'Rejected' : 'Approved'} by {request.reviewedByName}
+                  {request.reviewedAt && <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}> · {formatDay(request.reviewedAt.slice(0, 10))}</span>}
+                </div>
+                {request.reviewComment && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>{request.reviewComment}</div>}
+              </div>
+            </div>
+          )}
+
+          {mode !== 'VIEW' && (
+            <div>
+              <Field label={mode === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
+                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
+              </Field>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
+                <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                <button
+                  onClick={onConfirmAction}
+                  disabled={submitting}
+                  style={{ background: mode === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                >
+                  {submitting ? 'Submitting…' : mode === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Overtime requests — same single-stage shape as AttendanceRequestsSection. ──
 function OvertimeRequestsSection({ token, canApprove }: { token: string; canApprove: boolean }) {
   const { showToast } = useToast();
@@ -4403,7 +4587,7 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
   const [loading, setLoading] = useState(true);
   const [showRequest, setShowRequest] = useState(false);
   const [month, setMonth] = useState(ALL_MONTHS_VALUE);
-  const [acting, setActing] = useState<{ request: OvertimeRequestRecord; action: 'APPROVE' | 'REJECT' } | null>(null);
+  const [drawer, setDrawer] = useState<{ request: OvertimeRequestRecord; mode: 'VIEW' | 'APPROVE' | 'REJECT' } | null>(null);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -4422,18 +4606,22 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
     [myRequests, month],
   );
 
+  function closeDrawer() {
+    setDrawer(null);
+    setComment('');
+  }
+
   async function handleAct() {
-    if (!acting) return;
-    if (acting.action === 'REJECT' && !comment.trim()) { showToast('error', 'A comment is required when rejecting'); return; }
+    if (!drawer || drawer.mode === 'VIEW') return;
+    if (drawer.mode === 'REJECT' && !comment.trim()) { showToast('error', 'A comment is required when rejecting'); return; }
     setSubmitting(true);
     try {
-      const updated = acting.action === 'APPROVE'
-        ? await overtimeRequestApi.approve(acting.request.id, token, comment.trim() || undefined)
-        : await overtimeRequestApi.reject(acting.request.id, comment.trim(), token);
+      const updated = drawer.mode === 'APPROVE'
+        ? await overtimeRequestApi.approve(drawer.request.id, token, comment.trim() || undefined)
+        : await overtimeRequestApi.reject(drawer.request.id, comment.trim(), token);
       setPending((prev) => prev.filter((r) => r.id !== updated.id));
-      showToast('success', acting.action === 'APPROVE' ? 'Request approved' : 'Request rejected');
-      setActing(null);
-      setComment('');
+      showToast('success', drawer.mode === 'APPROVE' ? 'Request approved' : 'Request rejected');
+      closeDrawer();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Action failed');
     } finally {
@@ -4441,7 +4629,7 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
     }
   }
 
-  function renderTable(rows: OvertimeRequestRecord[], showActions: boolean) {
+  function renderTable(rows: OvertimeRequestRecord[], showApprovalActions: boolean) {
     return (
       <div style={panelStyle}>
         {rows.length === 0 ? (
@@ -4450,29 +4638,30 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                {/* Employee only shown for Pending Approvals (showActions) — see the same
-                    reasoning in AttendanceRequestsSection.renderTable. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                {/* Employee only shown for Pending Approvals (showApprovalActions) — see the same
+                    reasoning in AttendanceRequestsSection.renderTable. The "..." Actions column is
+                    always present (every row can at least be viewed), unlike the old Approve/
+                    Reject buttons that only appeared in the approvals table. */}
+                <tr>{[...(showApprovalActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Approver', 'Status', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    {showApprovalActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
                     <td style={tdStyle}>{formatDuration(r.requestedMinutes) ?? dash}</td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
                     <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
                     <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                    {showActions && (
-                      <td style={tdStyle}>
-                        {r.status === 'PENDING' ? (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => setActing({ request: r, action: 'APPROVE' })} style={{ background: 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>Approve</button>
-                            <button onClick={() => setActing({ request: r, action: 'REJECT' })} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 11, color: '#E4373D', cursor: 'pointer', fontWeight: 600 }}>Reject</button>
-                          </div>
-                        ) : dash}
-                      </td>
-                    )}
+                    <td style={tdStyle}>
+                      <OvertimeActionMenu
+                        request={r}
+                        canApprove={showApprovalActions && canApprove}
+                        onView={() => setDrawer({ request: r, mode: 'VIEW' })}
+                        onApprove={() => setDrawer({ request: r, mode: 'APPROVE' })}
+                        onReject={() => setDrawer({ request: r, mode: 'REJECT' })}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -4514,33 +4703,16 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
           onSaved={(r) => setMyRequests((prev) => [r, ...prev])}
         />
       )}
-      {acting && (
-        <div style={overlayStyle}>
-          <div style={{ ...modalStyle, maxWidth: 420 }}>
-            <ModalHeader title={`${acting.action === 'APPROVE' ? 'Approve' : 'Reject'} — ${acting.request.employeeName}`} onClose={() => setActing(null)} />
-            <div style={{ padding: 24 }}>
-              <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-                {/* requestedStart/requestedEnd are a midnight-anchored placeholder span sized to
-                    match the requested duration (see OvertimeRequestModal.handleSubmit) — never
-                    real clock times — so show the duration itself instead of that fake range. */}
-                {formatDay(acting.request.workDate)} · {formatDuration(acting.request.requestedMinutes) ?? dash}
-              </div>
-              <Field label={acting.action === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
-                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
-              </Field>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-                <button onClick={() => setActing(null)} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-                <button
-                  onClick={handleAct}
-                  disabled={submitting}
-                  style={{ background: acting.action === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting…' : acting.action === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {drawer && (
+        <OvertimeDetailDrawer
+          request={drawer.request}
+          mode={drawer.mode}
+          comment={comment}
+          setComment={setComment}
+          submitting={submitting}
+          onClose={closeDrawer}
+          onConfirmAction={handleAct}
+        />
       )}
     </div>
   );
