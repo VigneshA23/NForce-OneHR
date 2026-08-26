@@ -5,6 +5,7 @@ import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
+import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.Role;
@@ -172,6 +173,35 @@ class LeaveServiceTest {
         LeaveRequestResponse resp = leaveService.submitRequest(request(day, day, true, "Doctor"), employeeEmail);
 
         assertEquals(new BigDecimal("0.5"), resp.getTotalDays());
+    }
+
+    // Regression test for the "Request Leave: Unexpected error" bug: LeaveRequest.durationType is
+    // NOT NULL at the DB level (see V140__add_leave_duration_type.sql). A save() call that leaves
+    // it unset (e.g. relying only on the entity's @Builder.Default without submitRequest also
+    // setting it explicitly) compiles and passes every mock-based assertion above, but fails with
+    // a NOT NULL constraint violation the moment it hits a real database — exactly what reproduced
+    // against the running app. Asserting the field on the object actually passed to save() is what
+    // catches that class of bug in a pure-mock unit test.
+    @Test
+    void submitRequest_persistsDurationType_mirroringIsHalfDay() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        ArgumentCaptor<LeaveRequest> captor = ArgumentCaptor.forClass(LeaveRequest.class);
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        leaveService.submitRequest(request(start, start.plusDays(1), false, "Full day"), employeeEmail);
+        LocalDate day = LocalDate.now().plusDays(10);
+        leaveService.submitRequest(request(day, day, true, "Half day"), employeeEmail);
+
+        verify(leaveRequestRepository, times(2)).save(captor.capture());
+        List<LeaveRequest> saved = captor.getAllValues();
+        assertEquals(LeaveDurationType.FULL_DAY, saved.get(0).getDurationType());
+        assertNull(saved.get(0).getLeaveHours());
+        assertEquals(LeaveDurationType.HALF_DAY, saved.get(1).getDurationType());
+        assertNull(saved.get(1).getLeaveHours());
     }
 
     @Test

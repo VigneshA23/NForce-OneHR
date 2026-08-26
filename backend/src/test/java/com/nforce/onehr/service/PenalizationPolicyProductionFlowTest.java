@@ -50,11 +50,13 @@ class PenalizationPolicyProductionFlowTest {
     @Mock private LeaveBalanceRepository leaveBalanceRepository;
 
     @Mock private PenalizationPolicyVersionRepository versionRepository;
+    @Mock private PenalizationPolicyAllocationRepository allocationRepository;
     @Mock private PenalizationPolicyWorkHoursTierRepository tierRepository;
     @Mock private PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
     @Mock private PenalisationPolicyRepository penalisationPolicyRepository;
     @Mock private AuditService auditService;
+    @Mock private NotificationService notificationService;
 
     private ExceptionService exceptionService;
 
@@ -73,11 +75,19 @@ class PenalizationPolicyProductionFlowTest {
                 new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService);
         WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
-                lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer, attendanceProperties);
+                lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
+                attendanceProperties, employeeRepository, notificationService);
+        lenient().when(allocationRepository.findEffectiveAt(any(), any())).thenReturn(List.of());
+        PenalizationPolicyResolutionService policyResolutionService =
+                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository);
+        ExpectedWorkHoursService expectedWorkHoursService = new ExpectedWorkHoursService(leaveRequestRepository);
+        WorkHoursShortageCalculationService workHoursShortageCalculationService =
+                new WorkHoursShortageCalculationService(attendanceRepository, expectedWorkHoursService, workingDayService);
         exceptionService = new ExceptionService(userRepository, employeeRepository, historyRepository,
                 attendanceExceptionRepository, attendanceRepository, leaveRequestRepository,
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
-                workingDayService, versionRepository, holidayRepository, penalizationPolicyService);
+                workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
+                workHoursShortageCalculationService);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));

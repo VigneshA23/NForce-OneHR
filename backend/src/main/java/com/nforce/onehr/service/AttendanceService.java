@@ -86,6 +86,7 @@ public class AttendanceService {
     // regardless of which check-in entry point was used — see LatePenaltyService.
     private final LatePenaltyService latePenaltyService;
     private final WorkingDayService workingDayService;
+    private final ExpectedWorkHoursService expectedWorkHoursService;
 
     // ---------------------------------------------------------------- self-service
 
@@ -846,8 +847,6 @@ public class AttendanceService {
 
     // ---------------------------------------------------------------- Team Effort / Negligence (ONEHR-106/107)
 
-    private static final int EXPECTED_HOURS_PER_WORKDAY = 8;
-
     /** Avg. Work Hours Leaderboard — ranked desc by avg hrs/day over the range (ONEHR-106). */
     @Transactional(readOnly = true)
     public List<TeamEffortEntry> getTeamEffort(String managerEmail, LocalDate from, LocalDate to) {
@@ -865,6 +864,12 @@ public class AttendanceService {
         // same range (e.g. one joined mid-range, or is on a non-Sat/Sun weekly-off policy).
         Map<UUID, WorkingDaySchedule> schedules =
                 workingDayService.computeExpectedWorkingDaysBulk(new ArrayList<>(byId.values()), from, to);
+        // Per-employee assigned-shift duration, reduced day-by-day by any approved hourly/
+        // quarter-day leave (same adjusted-expected-hours calculation the Penalization Policy
+        // engine uses — see ExpectedWorkHoursService) — never a flat per-day constant, since two
+        // reports can be on different shifts.
+        var partialHourLeaveByEmployeeDate =
+                expectedWorkHoursService.loadPartialHourLeaveByEmployeeDate(reportIds, from, to);
 
         return groupByEmployee(records).entrySet().stream()
                 .filter(e -> e.getValue().activeDays > 0)
@@ -872,7 +877,7 @@ public class AttendanceService {
                     TeamStat stat = e.getValue();
                     Employee employee = byId.get(e.getKey());
                     WorkingDaySchedule schedule = schedules.get(e.getKey());
-                    double expectedHours = (schedule != null ? schedule.getExpectedWorkingDays() : 0) * EXPECTED_HOURS_PER_WORKDAY;
+                    double expectedHours = expectedHoursFor(employee, schedule, partialHourLeaveByEmployeeDate);
                     return TeamEffortEntry.builder()
                             .employeeUserId(e.getKey())
                             .fullName(employee != null ? employee.getFullName() : null)
@@ -885,6 +890,35 @@ public class AttendanceService {
                 })
                 .sorted(Comparator.comparingDouble(TeamEffortEntry::getAvgHoursPerDay).reversed())
                 .toList();
+    }
+
+    // No assigned shift on file — falls back to this flat estimate rather than silently reporting
+    // 0 expected hours (matches this leaderboard's pre-shift-aware behavior for that edge case
+    // only; every shift-assigned employee uses their real, leave-adjusted shift duration below).
+    private static final int FALLBACK_HOURS_PER_WORKDAY_WHEN_NO_SHIFT = 8;
+
+    /**
+     * Sums each working date's adjusted expected minutes (assigned shift duration, reduced by any
+     * approved hourly/quarter-day leave on that date) — the same calculation the Penalization
+     * Policy engine uses (see {@link ExpectedWorkHoursService}), so this leaderboard's "expected
+     * hours" is never a second, independently-derived figure.
+     */
+    private double expectedHoursFor(Employee employee, WorkingDaySchedule schedule,
+                                     Map<String, com.nforce.onehr.entity.LeaveRequest> partialHourLeaveByEmployeeDate) {
+        if (schedule == null) {
+            return 0.0;
+        }
+        if (employee == null || expectedWorkHoursService.shiftMinutes(employee) == null) {
+            return schedule.getExpectedWorkingDays() * (double) FALLBACK_HOURS_PER_WORKDAY_WHEN_NO_SHIFT;
+        }
+        long totalMinutes = schedule.getWorkingDates().stream()
+                .mapToLong(date -> {
+                    Long minutes = expectedWorkHoursService.adjustedExpectedMinutes(employee, date,
+                            partialHourLeaveByEmployeeDate.get(employee.getUserId() + "|" + date));
+                    return minutes != null ? minutes : 0L;
+                })
+                .sum();
+        return totalMinutes / 60.0;
     }
 
     /**

@@ -190,7 +190,7 @@ class ConfiguredAttendancePolicyEngineTest {
         engine = newEngine();
 
         PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.WORK_HOURS_SHORTAGE)
-                .effectiveHoursPercent(82.0).build());
+                .workHoursShortagePercent(82.0).build());
 
         assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
         // 82% falls below the "less than 90%" tier only, not "less than 50%" — its own deduction, 0.5, applies.
@@ -208,7 +208,7 @@ class ConfiguredAttendancePolicyEngineTest {
         engine = newEngine();
 
         PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.WORK_HOURS_SHORTAGE)
-                .effectiveHoursPercent(30.0).build());
+                .workHoursShortagePercent(30.0).build());
 
         assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
         // 30% falls below both tiers — the stricter "less than 50%" tier's own deduction (1 day) governs.
@@ -225,7 +225,7 @@ class ConfiguredAttendancePolicyEngineTest {
         engine = newEngine();
 
         PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.WORK_HOURS_SHORTAGE)
-                .effectiveHoursPercent(95.0).build());
+                .workHoursShortagePercent(95.0).build());
 
         assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
     }
@@ -253,6 +253,56 @@ class ConfiguredAttendancePolicyEngineTest {
                 .missingLogCountInPeriod(3).build());
 
         assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
+    }
+
+    // ── 8b. Missing-log deduction rate (mlDeductionMode/mlDeductionPerShifts) ──
+    @Test
+    void missingLogs_defaultPerShiftModeWithNoExplicitRate_deductsEveryOccurrencePastExempt() {
+        // No mlDeductionMode/mlDeductionPerShifts set — must behave exactly like every
+        // pre-existing policy saved before this distinction existed (backward compatibility).
+        PenalizationPolicyVersion version = baseVersion(1).missingLogsEnabled(true).mlExemptDays(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(3).build()).getType());
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(4).build()).getType());
+    }
+
+    @Test
+    void missingLogs_perShiftModeWithRateOfTwo_onlyDeductsOnEveryOtherOccurrencePastExempt() {
+        PenalizationPolicyVersion version = baseVersion(1).missingLogsEnabled(true).mlExemptDays(2)
+                .mlDeductionMode("PER_SHIFT").mlDeductionPerShifts(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        // Occurrence #3 overall = 1st past exempt -> not a multiple of 2 -> no match.
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(3).build()).getType());
+        // Occurrence #4 overall = 2nd past exempt -> multiple of 2 -> applies.
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(4).build()).getType());
+        // Occurrence #5 overall = 3rd past exempt -> not a multiple of 2 -> no match again.
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(5).build()).getType());
+    }
+
+    @Test
+    void missingLogs_irrespectiveMode_deductsOnlyOnceForTheWholePeriod() {
+        PenalizationPolicyVersion version = baseVersion(1).missingLogsEnabled(true).mlExemptDays(2)
+                .mlDeductionMode("IRRESPECTIVE").build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        // First occurrence past exempt -> the one and only deduction for the period.
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(3).build()).getType());
+        // Every subsequent occurrence in the same period -> no further deduction.
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(4).build()).getType());
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(7).build()).getType());
     }
 
     // ── 9. No-attendance configuration affects evaluation ──

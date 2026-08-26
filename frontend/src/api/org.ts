@@ -18,6 +18,9 @@ function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+export interface BusinessUnitRow {
+  id: string; name: string; active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
+}
 export interface DepartmentRow {
   id: string; name: string; active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
@@ -46,6 +49,26 @@ export interface ShiftEmployeeRow {
 }
 
 export const orgApi = {
+  // Business Units
+  listBusinessUnits: (token: string) =>
+    fetch(`${BASE}/business-units`, { headers: authHeaders(token) }).then(r => handle<BusinessUnitRow[]>(r)),
+
+  createBusinessUnit: (token: string, name: string) =>
+    fetch(`${BASE}/business-units`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ name }) })
+      .then(r => handle<BusinessUnitRow>(r)),
+
+  updateBusinessUnit: (token: string, id: string, name: string) =>
+    fetch(`${BASE}/business-units/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ name }) })
+      .then(r => handle<BusinessUnitRow>(r)),
+
+  toggleBusinessUnitActive: (token: string, id: string) =>
+    fetch(`${BASE}/business-units/${id}/toggle-active`, { method: 'PATCH', headers: authHeaders(token) })
+      .then(r => handle<BusinessUnitRow>(r)),
+
+  deleteBusinessUnit: (token: string, id: string) =>
+    fetch(`${BASE}/business-units/${id}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handleEmpty(r)),
+
   // Departments
   listDepartments: (token: string) =>
     fetch(`${BASE}/departments`, { headers: authHeaders(token) }).then(r => handle<DepartmentRow[]>(r)),

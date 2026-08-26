@@ -29,6 +29,7 @@ public class CreateUserRequest {
     private String role;
 
     private String employeeCode;
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID shiftId;

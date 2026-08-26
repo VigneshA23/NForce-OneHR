@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Copy, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Copy, Pencil, Power, Trash2, Plus, X } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { penalisationPoliciesApi, type PenalisationPolicySummary } from '../../api/penalisationPolicies';
-import PenalizationPolicySection from './PenalizationPolicySection';
+import PenalizationPolicySection, { ConfirmDiscardModal } from './PenalizationPolicySection';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--raised)', border: '1px solid var(--line2)',
@@ -16,7 +16,7 @@ function fmtDate(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// ── Name/description prompt — shared shell for Create/Rename/Clone ──
+// ── Name/description prompt — shared shell for Create/Clone (Rename lives in EditPolicyModal) ──
 function NamePromptModal({ title, initialName, initialDescription, confirmLabel, onClose, onConfirm }: {
   title: string; initialName: string; initialDescription: string; confirmLabel: string;
   onClose: () => void; onConfirm: (name: string, description: string) => Promise<void>;
@@ -114,34 +114,117 @@ function ConfirmDeleteModal({ policy, onClose, onConfirm }: { policy: Penalisati
   );
 }
 
-// ── Edit — full policy configuration for one specific policy, in a large modal ──
-function EditPolicyModal({ policy, token, onClose }: { policy: PenalisationPolicySummary; token: string; onClose: () => void }) {
+// ── Edit — full policy configuration for one specific policy, in a large modal.
+// Also owns Rename (name/description) — folded in here instead of its own Actions button, so
+// Actions only ever holds Edit/Clone/Deactivate-Activate/Delete. ──
+function EditPolicyModal({ policy: initialPolicy, token, onClose }: { policy: PenalisationPolicySummary; token: string; onClose: () => void }) {
+  const { showToast } = useToast();
+  const [policy, setPolicy] = useState(initialPolicy);
+  const [dirty, setDirty] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
+
+  const [name, setName] = useState(policy.name);
+  const [description, setDescription] = useState(policy.description ?? '');
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState('');
+  const detailsDirty = name.trim() !== policy.name || description.trim() !== (policy.description ?? '');
+
+  function requestClose() {
+    if (dirty) setConfirmingClose(true); else onClose();
+  }
+
+  async function saveDetails() {
+    if (!name.trim()) { setDetailsError('Name is required'); return; }
+    setDetailsError('');
+    setSavingDetails(true);
+    try {
+      const updated = await penalisationPoliciesApi.rename(token, policy.id, name.trim(), description.trim());
+      setPolicy(p => ({ ...p, name: updated.name, description: updated.description }));
+      showToast('success', 'Policy renamed');
+    } catch (e) {
+      setDetailsError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSavingDetails(false);
+    }
+  }
+
   return (
     <div role="dialog" aria-modal="true" aria-label={`Edit ${policy.name}`} style={{
       position: 'fixed', inset: 0, zIndex: 205, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
       background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)', overflowY: 'auto', padding: '40px 16px',
-    }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '22px 26px', width: 720, maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,.4)' }}>
+    }} onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '22px 26px', width: 900, maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,.4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{policy.name}</h2>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}><X size={16} /></button>
+          <button onClick={requestClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}><X size={16} /></button>
         </div>
-        <PenalizationPolicySection token={token} policyId={policy.id} />
+
+        {/* Rename — name/description */}
+        <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: 14, marginBottom: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 10 }}>
+            Rename
+          </div>
+          {detailsError && (
+            <div role="alert" style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 10, color: 'var(--risk)', fontSize: 12.5 }}>
+              {detailsError}
+            </div>
+          )}
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div>
+              <span style={labelText}>Policy name</span>
+              <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} />
+            </div>
+            <div>
+              <span style={labelText}>Description</span>
+              <input style={inputStyle} value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={saveDetails} disabled={!detailsDirty || savingDetails}
+              style={{ padding: '6px 14px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: (!detailsDirty || savingDetails) ? 'not-allowed' : 'pointer', opacity: (!detailsDirty || savingDetails) ? 0.6 : 1 }}>
+              {savingDetails ? 'Saving…' : 'Save Name'}
+            </button>
+          </div>
+        </div>
+
+        <PenalizationPolicySection token={token} policyId={policy.id} onDirtyChange={setDirty} />
       </div>
+      {confirmingClose && (
+        <ConfirmDiscardModal onKeepEditing={() => setConfirmingClose(false)} onDiscard={onClose} />
+      )}
     </div>
   );
 }
 
-export default function PolicyListSection({ token }: { token: string }) {
+export default function PolicyListSection({ token, onViewAllocations }: {
+  token: string;
+  /** Navigates to the Penalization Policy Allocation sub-tab with this policy pre-selected as the filter. */
+  onViewAllocations?: (policyId: string) => void;
+}) {
   const { showToast } = useToast();
   const [policies, setPolicies] = useState<PenalisationPolicySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [creating, setCreating] = useState(false);
-  const [renaming, setRenaming] = useState<PenalisationPolicySummary | null>(null);
   const [cloning, setCloning] = useState<PenalisationPolicySummary | null>(null);
   const [deleting, setDeleting] = useState<PenalisationPolicySummary | null>(null);
   const [editing, setEditing] = useState<PenalisationPolicySummary | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  async function handleToggleActive(policy: PenalisationPolicySummary) {
+    setTogglingId(policy.id);
+    try {
+      await penalisationPoliciesApi.toggleActive(token, policy.id);
+      showToast('success', policy.status === 'ACTIVE'
+        ? `"${policy.name}" deactivated — it no longer appears in the active allocation dropdown`
+        : `"${policy.name}" activated`);
+      await load();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to update status');
+    } finally {
+      setTogglingId(null);
+    }
+  }
 
   async function load() {
     setLoadError('');
@@ -182,8 +265,8 @@ export default function PolicyListSection({ token }: { token: string }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: 'var(--panel)', textAlign: 'left' }}>
-              {['Policy Name', 'Status', 'Employee Count', 'Version', 'Effective Date', ''].map(h => (
-                <th key={h} style={{ padding: '10px 14px', fontSize: 11.5, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid var(--line)' }}>{h}</th>
+              {['Policy Name', 'Status', 'Employee Count', 'Version', 'Effective Date', 'Actions'].map(h => (
+                <th key={h} style={{ padding: '10px 14px', fontSize: 11.5, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid var(--line)', textAlign: 'left' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -198,14 +281,28 @@ export default function PolicyListSection({ token }: { token: string }) {
                     color: p.status === 'ACTIVE' ? 'var(--ok)' : 'var(--txt-dim)',
                   }}>{p.status}</span>
                 </td>
-                <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{p.employeeCount}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  {onViewAllocations ? (
+                    <button
+                      onClick={() => onViewAllocations(p.id)}
+                      title="View this policy's employees in Penalization Policy Allocation"
+                      style={{ background: 'none', border: 'none', padding: 0, color: 'var(--brand-bright)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', fontSize: 13 }}>
+                      {p.employeeCount}
+                    </button>
+                  ) : p.employeeCount}
+                </td>
                 <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{p.currentVersion != null ? `V${p.currentVersion}` : 'Not configured'}</td>
                 <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{fmtDate(p.effectiveFrom)}</td>
                 <td style={{ padding: '10px 14px' }}>
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-start' }}>
                     <button aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)} title="Edit" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={13} /></button>
-                    <button aria-label={`Rename ${p.name}`} onClick={() => setRenaming(p)} title="Rename" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '0 10px', height: 30, color: 'var(--txt-mut)', cursor: 'pointer', fontSize: 12 }}>Rename</button>
                     <button aria-label={`Clone ${p.name}`} onClick={() => setCloning(p)} title="Clone" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Copy size={13} /></button>
+                    <button aria-label={p.status === 'ACTIVE' ? `Deactivate ${p.name}` : `Activate ${p.name}`}
+                      onClick={() => handleToggleActive(p)} disabled={togglingId === p.id}
+                      title={p.status === 'ACTIVE' ? 'Deactivate — hides it from new allocations, keeps existing history' : 'Activate'}
+                      style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: p.status === 'ACTIVE' ? 'var(--txt-mut)' : 'var(--ok)', cursor: togglingId === p.id ? 'not-allowed' : 'pointer', opacity: togglingId === p.id ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Power size={13} />
+                    </button>
                     <button aria-label={`Delete ${p.name}`} onClick={() => setDeleting(p)} title="Delete" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--risk)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>
                   </div>
                 </td>
@@ -225,16 +322,6 @@ export default function PolicyListSection({ token }: { token: string }) {
             await penalisationPoliciesApi.create(token, name, description);
             setCreating(false);
             showToast('success', 'Policy created');
-            load();
-          }} />
-      )}
-      {renaming && (
-        <NamePromptModal title={`Rename "${renaming.name}"`} initialName={renaming.name} initialDescription={renaming.description ?? ''} confirmLabel="Save"
-          onClose={() => setRenaming(null)}
-          onConfirm={async (name, description) => {
-            await penalisationPoliciesApi.rename(token, renaming.id, name, description);
-            setRenaming(null);
-            showToast('success', 'Policy renamed');
             load();
           }} />
       )}

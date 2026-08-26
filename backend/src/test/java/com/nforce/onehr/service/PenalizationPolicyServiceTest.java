@@ -37,6 +37,8 @@ class PenalizationPolicyServiceTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer snapshotSerializer;
     @Mock private AttendanceProperties attendanceProperties;
+    @Mock private com.nforce.onehr.repository.EmployeeRepository employeeRepository;
+    @Mock private NotificationService notificationService;
 
     private PenalizationPolicyService service;
     private final UUID actorId = UUID.randomUUID();
@@ -45,7 +47,8 @@ class PenalizationPolicyServiceTest {
     @BeforeEach
     void setUp() {
         service = new PenalizationPolicyService(versionRepository, tierRepository, lateHoursTierRepository,
-                penalisationPolicyRepository, userRepository, auditService, snapshotSerializer, attendanceProperties);
+                penalisationPolicyRepository, userRepository, auditService, snapshotSerializer, attendanceProperties,
+                employeeRepository, notificationService);
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(userRepository.findByEmail("hr@test.com"))
                 .thenReturn(Optional.of(User.builder().id(actorId).email("hr@test.com").build()));
@@ -59,7 +62,7 @@ class PenalizationPolicyServiceTest {
         lenient().when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(any())).thenReturn(List.of());
         // Only consulted when no current version exists yet (first-ever save) — see
         // PenalizationPolicyService.resolveDefaultPolicyId.
-        lenient().when(penalisationPolicyRepository.findAll()).thenReturn(List.of(
+        lenient().when(penalisationPolicyRepository.findFirstByOrderByCreatedAtAsc()).thenReturn(Optional.of(
                 PenalisationPolicy.builder().id(defaultPolicyId)
                         .createdAt(java.time.LocalDateTime.of(2025, 1, 1, 0, 0)).build()));
     }
@@ -74,6 +77,41 @@ class PenalizationPolicyServiceTest {
         req.setWorkHoursShortage(new WorkHoursShortageConfigDto());
         req.setMissingLogs(new MissingLogsConfigDto());
         return req;
+    }
+
+    // ── Phase 3: Work Hours Shortage — basis, frequency, exclude-outside-shift, missing-log linkage ──
+
+    @Test
+    void save_workHoursShortagePhase3Settings_roundTripThroughToResponse() {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getWorkHoursShortage().setEnabled(true);
+        req.getWorkHoursShortage().setDeductionBasis("GROSS_HOURS");
+        req.getWorkHoursShortage().setDeductionPeriod("WEEK");
+        req.getWorkHoursShortage().setExcludeHoursOutsideShiftEnabled(true);
+        req.getWorkHoursShortage().setPenalizeShortageCausedByMissingLogsEnabled(true);
+        req.getWorkHoursShortage().setTiers(List.of(tier("90", "0.5")));
+
+        PenalizationPolicyResponse response = service.save(null, req, "hr@test.com");
+
+        assertEquals("GROSS_HOURS", response.getWorkHoursShortage().getDeductionBasis());
+        assertEquals("WEEK", response.getWorkHoursShortage().getDeductionPeriod());
+        assertEquals(true, response.getWorkHoursShortage().isExcludeHoursOutsideShiftEnabled());
+        assertEquals(true, response.getWorkHoursShortage().isPenalizeShortageCausedByMissingLogsEnabled());
+    }
+
+    @Test
+    void save_workHoursShortageDefaults_preserveBackwardCompatibleBehavior() {
+        // A request that never touches the new Phase 3 fields must persist the exact same
+        // defaults every existing policy already has: EFFECTIVE_HOURS/DAY, both toggles off.
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+
+        PenalizationPolicyResponse response = service.save(null, minimalRequest(), "hr@test.com");
+
+        assertEquals("EFFECTIVE_HOURS", response.getWorkHoursShortage().getDeductionBasis());
+        assertEquals("DAY", response.getWorkHoursShortage().getDeductionPeriod());
+        assertEquals(false, response.getWorkHoursShortage().isExcludeHoursOutsideShiftEnabled());
+        assertEquals(false, response.getWorkHoursShortage().isPenalizeShortageCausedByMissingLogsEnabled());
     }
 
     @Test
@@ -185,5 +223,175 @@ class PenalizationPolicyServiceTest {
         assertEquals(new java.math.BigDecimal("20"), savedTiers.get(0).getThresholdPercent());
         assertEquals(new java.math.BigDecimal("50"), savedTiers.get(1).getThresholdPercent());
         assertEquals(new java.math.BigDecimal("80"), savedTiers.get(2).getThresholdPercent());
+    }
+
+    @Test
+    void save_workHoursShortageEnabledWithNoTiers_rejected_doesNotSaveVersion() {
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getWorkHoursShortage().setEnabled(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.save(null, req, "hr@test.com"));
+
+        assertEquals("At least one Work Hours Shortage tier must be configured when the section is enabled", ex.getMessage());
+        verify(versionRepository, never()).save(any());
+    }
+
+    @Test
+    void save_workHoursShortageDisabledWithNoTiers_accepted() {
+        // Disabled sections need no tiers at all — the requirement only kicks in once enabled.
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+        PenalizationPolicyRequest req = minimalRequest();
+
+        PenalizationPolicyResponse response = service.save(null, req, "hr@test.com");
+
+        assertEquals(1, response.getVersion());
+    }
+
+    private LateHoursTierDto lateHoursTier(String thresholdHours, String deductionDays) {
+        LateHoursTierDto t = new LateHoursTierDto();
+        t.setThresholdHours(new java.math.BigDecimal(thresholdHours));
+        t.setDeductionDays(new java.math.BigDecimal(deductionDays));
+        return t;
+    }
+
+    @Test
+    void save_lateArrivalTotalHoursBasisWithNoTiers_rejected_doesNotSaveVersion() {
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getLateArrival().setEnabled(true);
+        req.getLateArrival().setBasis("TOTAL_HOURS");
+        req.getLateArrival().setAllowedHours(new java.math.BigDecimal("2"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.save(null, req, "hr@test.com"));
+
+        assertEquals("At least one Total Late Hours tier must be configured when basis is TOTAL_HOURS", ex.getMessage());
+        verify(versionRepository, never()).save(any());
+    }
+
+    @Test
+    void save_lateArrivalTotalHoursBasisWithTiers_accepted() {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getLateArrival().setEnabled(true);
+        req.getLateArrival().setBasis("TOTAL_HOURS");
+        req.getLateArrival().setAllowedHours(new java.math.BigDecimal("2"));
+        req.getLateArrival().setLateHoursTiers(List.of(lateHoursTier("2", "0.5"), lateHoursTier("5", "1")));
+
+        PenalizationPolicyResponse response = service.save(null, req, "hr@test.com");
+
+        assertEquals(1, response.getVersion());
+    }
+
+    // ── Section 45: mid-cycle policy-change notification ────────────────────────────────────
+
+    @Test
+    void secondSave_notifiesEveryEmployeeExplicitlyAssignedToThePolicy() {
+        PenalizationPolicyVersion v1 = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(java.time.LocalDateTime.of(2026, 8, 1, 0, 0)).build();
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(v1.getPolicyId())).thenReturn(Optional.of(v1));
+        UUID emp1 = UUID.randomUUID();
+        UUID emp2 = UUID.randomUUID();
+        when(employeeRepository.findByPenalisationPolicy_Id(v1.getPolicyId())).thenReturn(List.of(
+                com.nforce.onehr.entity.Employee.builder().userId(emp1).fullName("Employee One").build(),
+                com.nforce.onehr.entity.Employee.builder().userId(emp2).fullName("Employee Two").build()));
+
+        service.save(v1.getPolicyId(), minimalRequest(), "hr@test.com");
+
+        verify(notificationService).send(eq(emp1), eq("PENALIZATION_POLICY_CHANGED"), any(), any(), any());
+        verify(notificationService).send(eq(emp2), eq("PENALIZATION_POLICY_CHANGED"), any(), any(), any());
+    }
+
+    @Test
+    void firstSave_neverNotifies_noOneWasRelyingOnPriorBehaviorYet() {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+
+        service.save(null, minimalRequest(), "hr@test.com");
+
+        verifyNoInteractions(notificationService);
+    }
+
+    // ── Section 15/25: admin-chosen future effective date ───────────────────────────────────
+
+    @Test
+    void save_requestedEffectiveFrom_inTheFuture_isUsedAsTheVersionsEffectiveDate() {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        PenalizationPolicyRequest req = minimalRequest();
+        java.time.LocalDate futureDate = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).plusMonths(2);
+        req.getBasicInfo().setRequestedEffectiveFrom(futureDate);
+
+        PenalizationPolicyResponse response = service.save(null, req, "hr@test.com");
+
+        assertEquals(futureDate.atStartOfDay(), response.getEffectiveFrom());
+    }
+
+    @Test
+    void save_requestedEffectiveFrom_today_rejected() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getBasicInfo().setRequestedEffectiveFrom(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.save(null, req, "hr@test.com"));
+
+        assertEquals("Effective date must be in the future", ex.getMessage());
+        verify(versionRepository, never()).save(any());
+    }
+
+    @Test
+    void save_requestedEffectiveFrom_inThePast_rejected() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getBasicInfo().setRequestedEffectiveFrom(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).minusDays(1));
+
+        assertThrows(IllegalArgumentException.class, () -> service.save(null, req, "hr@test.com"));
+        verify(versionRepository, never()).save(any());
+    }
+
+    @Test
+    void save_requestedEffectiveFrom_notAfterAlreadyScheduledVersion_rejected() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        PenalizationPolicyVersion alreadyScheduled = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).plusMonths(2).atStartOfDay())
+                .build();
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(alreadyScheduled.getPolicyId()))
+                .thenReturn(Optional.of(alreadyScheduled));
+        PenalizationPolicyRequest req = minimalRequest();
+        // Same date as the already-scheduled version — not strictly after it.
+        req.getBasicInfo().setRequestedEffectiveFrom(alreadyScheduled.getEffectiveFrom().toLocalDate());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.save(alreadyScheduled.getPolicyId(), req, "hr@test.com"));
+
+        assertTrue(ex.getMessage().contains("must be after the currently scheduled version's effective date"));
+        verify(versionRepository, never()).save(any());
+    }
+
+    @Test
+    void save_noRequestedEffectiveFrom_defaultsToFirstOfNextMonth_unchangedBehavior() {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+
+        PenalizationPolicyResponse response = service.save(null, minimalRequest(), "hr@test.com");
+
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        java.time.LocalDateTime expected = today.withDayOfMonth(1).plusMonths(1).atStartOfDay();
+        assertEquals(expected, response.getEffectiveFrom());
+    }
+
+    @Test
+    void save_lateArrivalIncidentsBasisWithNoTiers_accepted() {
+        // The tier requirement is specific to TOTAL_HOURS — the default NUMBER_OF_INCIDENTS basis
+        // needs no tiers at all.
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getLateArrival().setEnabled(true);
+
+        PenalizationPolicyResponse response = service.save(null, req, "hr@test.com");
+
+        assertEquals(1, response.getVersion());
     }
 }

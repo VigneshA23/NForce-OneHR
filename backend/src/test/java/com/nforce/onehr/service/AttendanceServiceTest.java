@@ -57,6 +57,7 @@ class AttendanceServiceTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private LatePenaltyService latePenaltyService;
     @Mock private WorkingDayService workingDayService;
+    @Mock private ExpectedWorkHoursService expectedWorkHoursService;
 
     private AttendanceService service;
 
@@ -68,7 +69,7 @@ class AttendanceServiceTest {
         AttendanceProperties props = new AttendanceProperties();
         service = new AttendanceService(attendanceRepository, attendancePunchRepository, webClockInRequestRepository,
                 attendanceExceptionRepository, employeeRepository, managerHistoryRepository,
-                auditService, auditSnapshot, props, latePenaltyService, workingDayService);
+                auditService, auditSnapshot, props, latePenaltyService, workingDayService, expectedWorkHoursService);
 
         Shift shift = Shift.builder().name("Regular").startTime(LocalTime.of(15, 30)).endTime(LocalTime.of(0, 30)).build();
         Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(shift).build();

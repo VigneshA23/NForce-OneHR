@@ -29,6 +29,7 @@ public class UserManagementService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
@@ -81,6 +82,8 @@ public class UserManagementService {
                 .createdBy(actor.getId())
                 .build();
 
+        if (req.getBusinessUnitId() != null)
+            emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
         if (req.getDepartmentId() != null)
             emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
         if (req.getDesignationId() != null)
@@ -189,6 +192,15 @@ public class UserManagementService {
                 && !Objects.equals(emp.getWorkMode(), req.getWorkMode())) {
             emp.setWorkMode(req.getWorkMode());
             forceLogoutRequired = true;
+        }
+        if (req.getBusinessUnitId() != null) {
+            BusinessUnit newBusinessUnit = businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null);
+            UUID currentBusinessUnitId = emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId() : null;
+            UUID newBusinessUnitId = newBusinessUnit != null ? newBusinessUnit.getId() : null;
+            if (!Objects.equals(currentBusinessUnitId, newBusinessUnitId)) {
+                emp.setBusinessUnit(newBusinessUnit);
+                forceLogoutRequired = true;
+            }
         }
         if (req.getDepartmentId() != null) {
             Department newDepartment = departmentRepository.findById(req.getDepartmentId()).orElse(null);
@@ -342,6 +354,7 @@ public class UserManagementService {
         snapshot.put("fullName", emp.getFullName());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
+        snapshot.put("businessUnit", emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null);
         snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
         snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
         snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
@@ -511,6 +524,8 @@ public class UserManagementService {
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
+                .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
+                .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationId(emp.getDesignation() != null ? emp.getDesignation().getId().toString() : null)
