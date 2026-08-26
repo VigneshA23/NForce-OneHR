@@ -44,6 +44,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/login").permitAll()
                 .requestMatchers("/api/auth/forgot-password").permitAll()
+                // Ticket-authenticated, not Bearer-authenticated — native EventSource can't send
+                // an Authorization header. See SessionEventController for the actual auth check.
+                .requestMatchers(HttpMethod.GET, "/api/auth/events").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .anyRequest().authenticated()
             )

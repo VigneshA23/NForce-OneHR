@@ -1,0 +1,21 @@
+-- NForce OneHR — Flyway Migration V130
+-- Numbered V130 (not V125) because origin/dev already had its own, unrelated V125, V127, and
+-- V128 by the time this branch was merged in — see V40/V47 header comments before assuming a
+-- version number is free on the shared dev DB.
+--
+-- Drops the "at most one PENDING Web Clock-In request per employee per day" constraint from
+-- V46. That rule predates this session's PENDING-approval redesign: back when every Web
+-- Clock-In self-approved instantly, PENDING rows were rare (they only existed briefly, or for
+-- legacy rows awaiting a one-time manual review), so the constraint never mattered in practice.
+-- Now that EVERY submission starts PENDING and an employee is expected to Web Clock-In/Out
+-- multiple times per day (WebClockInService#submit), this constraint actively breaks that
+-- feature: a 3rd+ same-day cycle throws a raw, unhandled duplicate-key error the moment an
+-- earlier same-day cycle hasn't been reviewed by HR/manager yet.
+--
+-- Safe to drop outright rather than relax to a narrower scope: the real invariant — only one
+-- *open* (not-yet-checked-out) session at a time, regardless of source — is already enforced at
+-- the application layer via WebClockInService#submit's own openSession check against
+-- attendance_records, which has always been the actual source of truth for "already checked in."
+-- This index was never that check; it only ever constrained *review status*, which multiple
+-- concurrent PENDING rows for the same day is perfectly legitimate under the current design.
+DROP INDEX IF EXISTS idx_web_clock_in_one_pending_per_date;

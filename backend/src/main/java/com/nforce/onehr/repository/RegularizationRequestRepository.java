@@ -34,4 +34,9 @@ public interface RegularizationRequestRepository extends JpaRepository<Regulariz
     // team, scoped by caller, over a date range.
     List<RegularizationRequest> findByEmployeeUserIdInAndAttendanceDateBetween(
             Collection<UUID> employeeUserIds, LocalDate from, LocalDate to);
+
+    // Backs "View Regularization History" from the Penalties kebab menu — every request ever
+    // filed for one employee/date, newest first.
+    List<RegularizationRequest> findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(
+            UUID employeeUserId, LocalDate attendanceDate);
 }

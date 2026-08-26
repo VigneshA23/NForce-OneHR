@@ -14,18 +14,27 @@ const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
   WEB_CLOCK_IN: 'Web Clock-In',
+  WFH: 'Work From Home',
+  PARTIAL_DAY: 'Partial Day',
+  OVERTIME: 'Overtime',
 };
 
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
   WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
+  WFH: 'rgba(76,141,214,.18)',
+  PARTIAL_DAY: 'rgba(224,169,59,.18)',
+  OVERTIME: 'rgba(236,72,153,.18)',
 };
 
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
   WEB_CLOCK_IN: '#4C8DD6',
+  WFH: '#4C8DD6',
+  PARTIAL_DAY: '#E0A93B',
+  OVERTIME: '#EC4899',
 };
 
 function TypeBadge({ type }: { type: RequestType }) {
@@ -63,6 +72,17 @@ function fmtTime(s?: string | null) {
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
+ * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
+function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
+  if (!startIso || !endIso) return '—';
+  const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
+  if (minutes <= 0) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 // ── Type-aware row detail summary ─────────────────────────
 
 function ItemDetail({ item }: { item: MyRequestItem }) {
@@ -87,6 +107,20 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
         {item.attendanceDate} · In {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
         {item.status === 'APPROVED' && (item.requestedCheckOut ? ` · Out ${fmtTime(item.requestedCheckOut)}` : ' · still clocked in')}
+      </div>
+    );
+  }
+  if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${item.partialDayHours}h` : ''}
+      </div>
+    );
+  }
+  if (item.requestType === 'OVERTIME') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+        {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
       </div>
     );
   }
@@ -149,6 +183,22 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               </>
             )}
 
+            {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
+              <>
+                <Row label="Date" value={item.attendanceDate} />
+                {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+                <Row label="Reason" value={item.regularizationReason} />
+              </>
+            )}
+
+            {item.requestType === 'OVERTIME' && (
+              <>
+                <Row label="Date" value={item.attendanceDate} />
+                <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
+                <Row label="Reason" value={item.regularizationReason} />
+              </>
+            )}
+
             <div>
               <div style={labelStyle}>Status</div>
               <StatusBadge status={item.status} />
@@ -168,7 +218,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'WFH', 'PARTIAL_DAY', 'OVERTIME'];
 
 export default function MyRequestsPage() {
   const token = useAuthStore(s => s.token)!;

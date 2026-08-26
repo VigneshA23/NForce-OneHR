@@ -26,6 +26,8 @@ export interface EmployeeRecord {
   designationName: string | null;
   locationId: string | null;
   locationName: string | null;
+  shiftId: string | null;
+  shiftName: string | null;
   employmentType: string;
   workMode: string;
   joiningDate: string;
@@ -41,6 +43,7 @@ export interface CreateEmployeePayload {
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
   joiningDate: string;
@@ -52,8 +55,11 @@ export interface UpdateEmployeePayload {
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
+  /** Required (true) to change department/designation/employmentType on a deactivated employee. */
+  confirmInactiveEdit?: boolean;
 }
 
 export interface CreateUserPayload extends CreateEmployeePayload {
@@ -66,12 +72,22 @@ export interface UpdateUserPayload {
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
   managerId?: string;
+  /** Required (true) to change role/manager/department/designation/employmentType on a deactivated user. */
+  confirmInactiveEdit?: boolean;
+}
+
+export interface UpdateJoiningDatePayload {
+  newJoiningDate: string;
+  note?: string;
 }
 
 export interface ResetPasswordResult { tempPassword: string; message: string; }
+
+export interface EmployeeCodePreview { employeeCode: string; }
 
 export const employeesApi = {
   list: (token: string) =>
@@ -85,6 +101,11 @@ export const employeesApi = {
 
   potentialManagers: (token: string) =>
     fetch(`${BASE}/employees/potential-managers`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),
+
+  // Read-only preview of the Employee ID the Add Employee/User form should display — does NOT
+  // reserve or consume the ID. See EmployeeCodeGenerator#preview on the backend.
+  previewNextCode: (token: string) =>
+    fetch(`${BASE}/employees/next-code`, { headers: authHeaders(token) }).then(handle<EmployeeCodePreview>),
 };
 
 export const usersApi = {
@@ -96,6 +117,9 @@ export const usersApi = {
 
   update: (userId: string, payload: UpdateUserPayload, token: string) =>
     fetch(`${BASE}/users/${userId}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeRecord>),
+
+  updateJoiningDate: (userId: string, payload: UpdateJoiningDatePayload, token: string) =>
+    fetch(`${BASE}/users/${userId}/joining-date`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeRecord>),
 
   resetPassword: (userId: string, token: string) =>
     fetch(`${BASE}/users/${userId}/reset-password`, { method: 'POST', headers: authHeaders(token) }).then(handle<ResetPasswordResult>),

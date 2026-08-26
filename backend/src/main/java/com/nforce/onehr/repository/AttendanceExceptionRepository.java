@@ -17,4 +17,18 @@ public interface AttendanceExceptionRepository extends JpaRepository<AttendanceE
 
     Optional<AttendanceException> findByEmployeeUserIdAndExceptionDateAndExceptionType(
             UUID employeeUserId, LocalDate exceptionDate, String exceptionType);
+
+    // Backs ConfiguredAttendancePolicyEngine's exemption-period counts (Late Arrival's "exempt N
+    // in a Month", Missing Logs' "exempt N days in a Month") and same-day interaction checks —
+    // counting existing detected exceptions, not re-deriving attendance facts.
+    long countByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+            UUID employeeUserId, String exceptionType, LocalDate from, LocalDate to);
+
+    boolean existsByEmployeeUserIdAndExceptionDateAndExceptionType(
+            UUID employeeUserId, LocalDate exceptionDate, String exceptionType);
+
+    // Backs Late Arrival's Total Hours basis (Section 25/29) — needs each occurrence's raw
+    // minutesLate to compute the grace-excluded cumulative total, not just a count.
+    List<AttendanceException> findByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+            UUID employeeUserId, String exceptionType, LocalDate from, LocalDate to);
 }

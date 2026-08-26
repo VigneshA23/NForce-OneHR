@@ -3,10 +3,14 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.ForceLogoutBroadcaster;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -28,11 +32,19 @@ public class UserManagementService {
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
+    private final ShiftRepository shiftRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final LeaveService leaveService;
+    private final ForceLogoutBroadcaster forceLogoutBroadcaster;
+    private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for the package-private findCurrentManagersBulk bulk manager lookup used by
+    // listUsers() below — reuses EmployeeService's existing bulk implementation instead of a
+    // second copy of the same N+1-prone-if-done-per-row logic.
+    private final EmployeeService employeeService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -58,7 +70,7 @@ public class UserManagementService {
                 .build();
         newUser = userRepository.save(newUser);
 
-        String code = resolveCode(req.getEmployeeCode());
+        String code = employeeCodeGenerator.claim(req.getEmployeeCode());
         Employee emp = Employee.builder()
                 .user(newUser)
                 .employeeCode(code)
@@ -75,10 +87,14 @@ public class UserManagementService {
             emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
         if (req.getLocationId() != null)
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        if (req.getShiftId() != null)
+            emp.setShift(shiftRepository.findById(req.getShiftId()).orElse(null));
 
         emp = employeeRepository.save(emp);
+        leaveService.initializeDefaultBalances(newUser.getId());
 
         if (req.getManagerId() != null) {
+            validateNoCycle(newUser.getId(), req.getManagerId());
             historyRepository.save(EmployeeManagerHistory.builder()
                     .employeeUserId(newUser.getId())
                     .managerUserId(req.getManagerId())
@@ -96,25 +112,35 @@ public class UserManagementService {
     }
 
     /**
-     * Employee/Manager/HR Admin are all staff first — they get the base EMPLOYEE role
-     * alongside whatever admin role they're assigned, so self-service features (attendance
-     * punch, leave, etc.) work for them too. Super Admin is the one deliberate exception:
-     * see AttendanceController's "never a punch clock of their own" comment.
+     * Every Phase 1 role is staff first — everyone gets the base EMPLOYEE role alongside
+     * whatever admin role they're assigned, so self-service features (attendance punch, leave,
+     * etc.) work for them too, Super Admin included. (V111/V115 previously stripped this from
+     * Super Admin and back; V116 restores it again.)
      */
     private Set<Role> rolesFor(Role assignedRole) {
         Set<Role> roles = new HashSet<>();
         roles.add(assignedRole);
-        if (!"SUPER_ADMIN".equals(assignedRole.getCode()) && !"EMPLOYEE".equals(assignedRole.getCode())) {
+        if (!"EMPLOYEE".equals(assignedRole.getCode())) {
             roleRepository.findByCode("EMPLOYEE").ifPresent(roles::add);
         }
         return roles;
     }
 
-    /** Super Admin: list all users across all roles. */
+    /**
+     * Super Admin: list all users across all roles.
+     *
+     * Resolves every employee's current manager in one bulk lookup (see
+     * {@link EmployeeService#findCurrentManagersBulk}) instead of calling
+     * {@link #findCurrentManager} once per employee — that per-row version does up to 3 extra
+     * queries each, which for the full org list turns into hundreds of sequential round trips.
+     */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listUsers() {
-        return employeeRepository.findAllWithDetails().stream()
-                .map(e -> toResponse(e, findCurrentManager(e.getUserId()), e.getUser(), null))
+        List<Employee> emps = employeeRepository.findAllWithDetails();
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                employeeService.findCurrentManagersBulk(emps.stream().map(Employee::getUserId).toList());
+        return emps.stream()
+                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
                 .collect(Collectors.toList());
     }
 
@@ -129,70 +155,210 @@ public class UserManagementService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
         String before = auditSnapshot.toJson(userSnapshot(emp, target));
+        String currentRole = RoleUtils.primaryRoleCode(target.getRoles(), null);
+        UUID currentManagerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId)
+                .map(EmployeeManagerHistory::getManagerUserId)
+                .orElse(null);
+        boolean forceLogoutRequired = false;
+        boolean roleChanged = false;
+        boolean managerChanged = false;
 
-        if (req.getFullName() != null && !req.getFullName().isBlank())
-            emp.setFullName(req.getFullName().trim());
-        if (req.getEmploymentType() != null && !req.getEmploymentType().isBlank())
+        // Role/manager/department/designation/employment type imply active employment — for a
+        // deactivated user these are blocked behind an explicit confirmation (name, location,
+        // shift and other offboarding-correction fields stay editable unconditionally). The
+        // server is the real boundary here, not just the edit form's disabled inputs.
+        if (!target.isActive() && !req.isConfirmInactiveEdit()
+                && changesGatedUserFields(emp, currentRole, currentManagerId, req)) {
+            throw new IllegalArgumentException(
+                    "This user is inactive. Confirm the change to update Role, Manager, Department, Designation, or Employment Type for an inactive user.");
+        }
+
+        if (req.getFullName() != null && !req.getFullName().isBlank()) {
+            String fullName = req.getFullName().trim();
+            if (!Objects.equals(emp.getFullName(), fullName)) {
+                emp.setFullName(fullName);
+                forceLogoutRequired = true;
+            }
+        }
+        if (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType())) {
             emp.setEmploymentType(req.getEmploymentType());
-        if (req.getWorkMode() != null && !req.getWorkMode().isBlank())
+            forceLogoutRequired = true;
+        }
+        if (req.getWorkMode() != null && !req.getWorkMode().isBlank()
+                && !Objects.equals(emp.getWorkMode(), req.getWorkMode())) {
             emp.setWorkMode(req.getWorkMode());
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+            forceLogoutRequired = true;
+        }
+        if (req.getDepartmentId() != null) {
+            Department newDepartment = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+            UUID newDepartmentId = newDepartment != null ? newDepartment.getId() : null;
+            if (!Objects.equals(currentDepartmentId, newDepartmentId)) {
+                emp.setDepartment(newDepartment);
+                forceLogoutRequired = true;
+            }
+        }
+        if (req.getDesignationId() != null) {
+            Designation newDesignation = designationRepository.findById(req.getDesignationId()).orElse(null);
+            UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+            UUID newDesignationId = newDesignation != null ? newDesignation.getId() : null;
+            if (!Objects.equals(currentDesignationId, newDesignationId)) {
+                emp.setDesignation(newDesignation);
+                forceLogoutRequired = true;
+            }
+        }
+        if (req.getLocationId() != null) {
+            Location newLocation = locationRepository.findById(req.getLocationId()).orElse(null);
+            UUID currentLocationId = emp.getLocation() != null ? emp.getLocation().getId() : null;
+            UUID newLocationId = newLocation != null ? newLocation.getId() : null;
+            if (!Objects.equals(currentLocationId, newLocationId)) {
+                emp.setLocation(newLocation);
+                forceLogoutRequired = true;
+            }
+        }
+        if (req.getShiftId() != null) {
+            Shift newShift = shiftRepository.findById(req.getShiftId()).orElse(null);
+            UUID currentShiftId = emp.getShift() != null ? emp.getShift().getId() : null;
+            UUID newShiftId = newShift != null ? newShift.getId() : null;
+            if (!Objects.equals(currentShiftId, newShiftId)) {
+                emp.setShift(newShift);
+                forceLogoutRequired = true;
+            }
+        }
 
         // Role change
         if (req.getRole() != null && !req.getRole().isBlank()) {
             String roleCode = req.getRole().toUpperCase();
             if (!PHASE1_ROLES.contains(roleCode))
                 throw new IllegalArgumentException("Invalid role: " + roleCode);
-            Role newRole = roleRepository.findByCode(roleCode)
-                    .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
-            target.getRoles().clear();
-            target.getRoles().addAll(rolesFor(newRole));
-            userRepository.save(target);
-            notificationService.send(target.getId(), "ACCOUNT",
-                    "Role Updated",
-                    "Your role has been updated to " + roleCode.replace("_", " ") + ".",
-                    "/profile");
+            if (!Objects.equals(currentRole, roleCode)) {
+                Role newRole = roleRepository.findByCode(roleCode)
+                        .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
+                target.getRoles().clear();
+                target.getRoles().addAll(rolesFor(newRole));
+                forceLogoutRequired = true;
+                roleChanged = true;
+            }
         }
 
         // Manager change — effective-dating: close current, insert new
         if (req.getManagerId() != null) {
-            Optional<EmployeeManagerHistory> current =
-                    historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId);
-            boolean changed = current.map(h -> !h.getManagerUserId().equals(req.getManagerId())).orElse(true);
-            if (changed) {
+            if (!Objects.equals(currentManagerId, req.getManagerId())) {
+                validateNoCycle(userId, req.getManagerId());
                 historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
                 historyRepository.save(EmployeeManagerHistory.builder()
                         .employeeUserId(userId)
                         .managerUserId(req.getManagerId())
                         .changedBy(actor.getId())
                         .build());
+                forceLogoutRequired = true;
+                managerChanged = true;
             }
         }
 
+        if (forceLogoutRequired) {
+            // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
+            // their very next API call fails auth under the old token even if their open tab
+            // misses the SSE push.
+            target.setTokenVersion(target.getTokenVersion() + 1);
+            userRepository.save(target);
+        }
+
         emp = employeeRepository.save(emp);
+
+        if (roleChanged) {
+            notificationService.send(target.getId(), "ACCOUNT",
+                    "Role Updated",
+                    "Your role has been updated to " + RoleUtils.primaryRoleCode(target.getRoles(), "").replace("_", " ") + ".",
+                    "/profile");
+        }
+        if (managerChanged) {
+            notificationService.send(target.getId(), "ACCOUNT",
+                    "Manager Updated",
+                    "Your manager has been updated.",
+                    "/profile");
+        }
+
         String after = auditSnapshot.toJson(userSnapshot(emp, target));
         auditService.log(actor.getId(), "USER_UPDATED", userId, before, after);
+
+        if (forceLogoutRequired) {
+            forceLogoutAfterCommit(target.getId());
+        }
+
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 
-    /** Role and manager are the two fields most worth diffing here — everything else mirrors EmployeeService. */
+    /**
+     * Super Admin only (enforced at the controller). Joining date drives probation,
+     * leave accrual and seniority elsewhere in the system, so it's deliberately not
+     * part of the general updateUser fields — every change goes through here with a
+     * mandatory audit trail of the old date, new date, and the reason.
+     */
+    @Transactional
+    public EmployeeResponse updateJoiningDate(UUID userId, UpdateJoiningDateRequest req, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        Employee emp = employeeRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        User target = emp.getUser();
+
+        String before = auditSnapshot.toJson(Map.of("joiningDate", emp.getJoiningDate().toString()));
+        emp.setJoiningDate(req.getNewJoiningDate());
+        emp = employeeRepository.save(emp);
+
+        Map<String, Object> afterSnapshot = new LinkedHashMap<>();
+        afterSnapshot.put("joiningDate", emp.getJoiningDate().toString());
+        if (req.getNote() != null && !req.getNote().isBlank()) afterSnapshot.put("note", req.getNote().trim());
+        String after = auditSnapshot.toJson(afterSnapshot);
+
+        auditService.log(actor.getId(), "JOINING_DATE_UPDATED", userId, before, after);
+        return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /** True if the request would actually change one of the fields gated behind confirmInactiveEdit. */
+    private boolean changesGatedUserFields(Employee emp, String currentRole, UUID currentManagerId, UpdateUserRequest req) {
+        UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+        UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+        return (req.getDepartmentId() != null && !Objects.equals(req.getDepartmentId(), currentDepartmentId))
+                || (req.getDesignationId() != null && !Objects.equals(req.getDesignationId(), currentDesignationId))
+                || (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
+                        && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType()))
+                || (req.getRole() != null && !req.getRole().isBlank()
+                        && !Objects.equals(currentRole, req.getRole().toUpperCase()))
+                || (req.getManagerId() != null && !Objects.equals(currentManagerId, req.getManagerId()));
+    }
+
+    /**
+     * Role and manager are the two fields most worth diffing here — everything else mirrors
+     * EmployeeService. Department/designation/location/manager are captured by name, not id —
+     * the audit detail popup shows these snapshots verbatim, and a raw UUID means nothing to a
+     * reader. Naming it at the time of the edit (rather than resolving the id at read time) also
+     * means the audit trail keeps showing what it actually was even if that department/
+     * designation/location/manager is later renamed, reassigned, or deleted.
+     */
     private Map<String, Object> userSnapshot(Employee emp, User user) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("fullName", emp.getFullName());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
-        snapshot.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
-        snapshot.put("designationId", emp.getDesignation() != null ? emp.getDesignation().getId() : null);
-        snapshot.put("locationId", emp.getLocation() != null ? emp.getLocation().getId() : null);
-        snapshot.put("role", user.getRoles().stream().findFirst().map(Role::getCode).orElse(null));
-        snapshot.put("managerId", historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
-                .map(EmployeeManagerHistory::getManagerUserId).orElse(null));
+        snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
+        snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
+        snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
+        snapshot.put("shift", emp.getShift() != null ? emp.getShift().getName() : null);
+        snapshot.put("role", RoleUtils.primaryRoleCode(user.getRoles(), null));
+        UUID managerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
+                .map(EmployeeManagerHistory::getManagerUserId).orElse(null);
+        snapshot.put("manager", resolveEmployeeName(managerId));
         return snapshot;
+    }
+
+    /** Best-effort display name for a user id — employee's full name, falling back to email, null if no id. */
+    private String resolveEmployeeName(UUID userId) {
+        if (userId == null) return null;
+        return employeeRepository.findById(userId)
+                .map(Employee::getFullName)
+                .orElseGet(() -> userRepository.findById(userId).map(User::getEmail).orElse(null));
     }
 
     /** Super Admin: generate new temp password, set must_change_password = true. */
@@ -208,6 +374,8 @@ public class UserManagementService {
         String tempPassword = generateTempPassword();
         target.setPasswordHash(passwordEncoder.encode(tempPassword));
         target.setMustChangePassword(true);
+        // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
+        target.setTokenVersion(target.getTokenVersion() + 1);
         userRepository.save(target);
         String after = auditSnapshot.toJson(Map.of("mustChangePassword", true));
 
@@ -222,13 +390,26 @@ public class UserManagementService {
                 .build();
     }
 
-    /** Super Admin: activate or deactivate. Deactivated user's existing JWT stops working immediately (JWT filter checks isEnabled). */
+    /**
+     * Super Admin: activate or deactivate. Deactivated user's existing JWT stops working
+     * immediately (JWT filter checks isEnabled) — two guards below exist specifically because
+     * that immediacy makes a mistaken deactivation unrecoverable in-app:
+     *  - self-deactivation would end the actor's own session mid-request, with no other Super
+     *    Admin necessarily available to undo it;
+     *  - deactivating the last active Super Admin would leave nobody able to reactivate anyone,
+     *    including themselves — recoverable only via direct DB access.
+     * Both are re-checked here (not just hidden in the UI) since the API is the actual
+     * security boundary.
+     */
     @Transactional
     public EmployeeResponse setActiveStatus(UUID userId, boolean active, String actorEmail) {
         User actor = requireActor(actorEmail);
         Employee emp = employeeRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
+
+        if (!active) assertNotSelfOrLastActiveSuperAdmin(actor, target, "deactivate");
+
         String before = auditSnapshot.toJson(Map.of("active", target.isActive()));
         target.setActive(active);
         userRepository.save(target);
@@ -237,7 +418,12 @@ public class UserManagementService {
         return toResponse(emp, findCurrentManager(userId), target, null);
     }
 
-    /** Super Admin: soft-delete — sets deleted_at. Deleted user's JWT stops working immediately. */
+    /**
+     * Super Admin: soft-delete — sets deleted_at. Deleted user's JWT stops working immediately.
+     * Carries the exact same self/last-Super-Admin lockout risk as {@link #setActiveStatus} (it
+     * also forces active=false), so it re-checks the same guard rather than leaving delete as a
+     * bypass of the deactivation restriction above.
+     */
     @Transactional
     public void softDeleteUser(UUID userId, String actorEmail) {
         User actor = requireActor(actorEmail);
@@ -245,12 +431,61 @@ public class UserManagementService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         if (target.getDeletedAt() != null)
             throw new IllegalArgumentException("User is already deleted");
+        assertNotSelfOrLastActiveSuperAdmin(actor, target, "delete");
         String before = auditSnapshot.toJson(Map.of("deletedAt", "null", "active", target.isActive()));
         target.setDeletedAt(Instant.now());
         target.setActive(false);
         userRepository.save(target);
         String after = auditSnapshot.toJson(Map.of("deletedAt", target.getDeletedAt().toString(), "active", false));
         auditService.log(actor.getId(), "USER_SOFT_DELETED", userId, before, after);
+    }
+
+    /**
+     * Shared guard for setActiveStatus(active=false) and softDeleteUser — both end up disabling
+     * `target`'s login, so both must block:
+     *  - acting on your own account (would end the actor's own session mid-request), and
+     *  - the last remaining active Super Admin (would leave nobody able to reactivate anyone).
+     * `verb` is only used to phrase the error ("deactivate"/"delete").
+     */
+    private void assertNotSelfOrLastActiveSuperAdmin(User actor, User target, String verb) {
+        if (target.getId().equals(actor.getId()))
+            throw new IllegalArgumentException("You cannot " + verb + " your own account. Ask another Super Admin to do this.");
+        boolean targetIsSuperAdmin = target.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getCode()));
+        if (targetIsSuperAdmin && target.isActive()) {
+            boolean anotherActiveSuperAdminExists = userRepository.findActiveSuperAdmins().stream()
+                    .anyMatch(u -> !u.getId().equals(target.getId()));
+            if (!anotherActiveSuperAdminExists)
+                throw new IllegalArgumentException("Cannot " + verb + " the last active Super Admin. Assign Super Admin to another user first.");
+        }
+    }
+
+    /**
+     * Rejects any manager assignment that would create a circular reporting chain.
+     * Walks the proposed manager's ancestor chain; if it reaches employeeId at any point
+     * the assignment would form a cycle and is rejected with a clear error.
+     */
+    private void validateNoCycle(UUID employeeId, UUID proposedManagerId) {
+        if (proposedManagerId == null) return;
+        if (proposedManagerId.equals(employeeId))
+            throw new IllegalArgumentException("Cannot assign a user as their own manager.");
+
+        Map<UUID, UUID> empToMgr = historyRepository.findByEffectiveToIsNull()
+                .stream()
+                .collect(Collectors.toMap(
+                        h -> h.getEmployeeUserId(),
+                        h -> h.getManagerUserId(),
+                        (a, b) -> a));
+
+        UUID cur = proposedManagerId;
+        Set<UUID> visited = new HashSet<>();
+        while (cur != null) {
+            if (!visited.add(cur)) break; // cycle already in data — stop traversal
+            if (cur.equals(employeeId))
+                throw new IllegalArgumentException(
+                        "Cannot assign this manager: it would create a circular reporting chain. " +
+                        "The proposed manager is already a direct or indirect report of this user.");
+            cur = empToMgr.get(cur);
+        }
     }
 
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
@@ -269,7 +504,7 @@ public class UserManagementService {
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {
-        String role = user.getRoles().stream().findFirst().map(Role::getCode).orElse("");
+        String role = RoleUtils.primaryRoleCode(user.getRoles(), "");
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
                 .employeeCode(emp.getEmployeeCode())
@@ -282,6 +517,8 @@ public class UserManagementService {
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                 .locationId(emp.getLocation() != null ? emp.getLocation().getId().toString() : null)
                 .locationName(emp.getLocation() != null ? emp.getLocation().getName() : null)
+                .shiftId(emp.getShift() != null ? emp.getShift().getId().toString() : null)
+                .shiftName(emp.getShift() != null ? emp.getShift().getName() : null)
                 .employmentType(emp.getEmploymentType())
                 .workMode(emp.getWorkMode())
                 .joiningDate(emp.getJoiningDate())
@@ -296,21 +533,21 @@ public class UserManagementService {
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
     }
 
-    private String resolveCode(String requested) {
-        if (requested != null && !requested.isBlank()) {
-            String code = requested.trim().toUpperCase();
-            if (employeeRepository.existsByEmployeeCode(code))
-                throw new IllegalArgumentException("Employee code '" + code + "' is already in use");
-            return code;
-        }
-        int next = employeeRepository.findMaxNumericEmployeeCode()
-                .map(c -> Integer.parseInt(c.substring(3)) + 1)
-                .orElse(1);
-        return String.format("NF-%05d", next);
-    }
-
     private String generateTempPassword() {
         int digits = 100000 + RANDOM.nextInt(900000);
         return "OneHR@" + digits;
+    }
+
+    private void forceLogoutAfterCommit(UUID userId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    forceLogoutBroadcaster.forceLogout(userId);
+                }
+            });
+            return;
+        }
+        forceLogoutBroadcaster.forceLogout(userId);
     }
 }

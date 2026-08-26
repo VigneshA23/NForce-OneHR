@@ -4,11 +4,26 @@ spring:
   servlet:
     multipart:
       max-file-size: 10MB
-      max-request-size: 12MB
+      # Help content attachments allow up to 5 files per upload (HelpContentService
+      # .MAX_ATTACHMENTS_PER_CONTENT) at up to 10MB each in one multipart request.
+      max-request-size: 55MB
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+    hikari:
+      data-source-properties:
+        # Required for Shift.startTime/endTime's LocalTimeTextConverter (see its own Javadoc):
+        # that converter binds a plain String against a native `TIME WITHOUT TIME ZONE` column
+        # deliberately, to make the value immune to any timezone/Calendar participation at all —
+        # but pgjdbc's default "stringtype=varchar" sends untyped String parameters with an
+        # explicit varchar OID, which Postgres then refuses to implicitly cast to `time` ("column
+        # ... is of type time without time zone but expression is of type character varying").
+        # "unspecified" sends them with no OID instead, letting Postgres resolve the cast itself
+        # from context — exactly how a plain SQL text literal ('15:30:00') already behaves, with
+        # no schema change and no effect on any other typed binding (UUID, timestamptz, int, ...),
+        # which continue to bind with their own explicit types exactly as before.
+        stringtype: unspecified
   jpa:
     hibernate:
       # Override validate — Flyway owns the schema; ddl-auto: validate
@@ -42,22 +57,28 @@ app:
     # Deliberately explicit — the JVM default is UTC on Railway.
     zone: ${ATTENDANCE_ZONE:Asia/Kolkata}
     # Provisional shift rules pending PO confirmation.
-    shift-start: "09:30"
-    late-grace-minutes: 15
-    half-day-max-hours: 4
-    full-day-min-hours: 8
+    shift-start: "15:30"
+    # Shift ends 12:30 AM, but a fresh punch anywhere from midnight up to this time still
+    # belongs to the shift-day that started the evening before — see
+    # AttendanceService.shiftDayOf.
+    shift-day-cutover: "07:00"
+    late-grace-minutes: 10
+    half-day-max-hours: 3.5
+    full-day-min-hours: 7.5
+    # Provisional — pending PO/final confirmation, same status as the shift fields above.
+    daily-break-budget-minutes: 60
     regularization:
       # N-day lookback window (counting today itself) for regularization requests submitted by
       # anyone other than Super Admin, who is exempt entirely — see
-      # RegularizationService.submit/update/validateLookbackWindow. E.g. 3 with today=6th
-      # allows the 6th/5th/4th and blocks the 3rd onward.
-      employee-lookback-days: 3
+      # RegularizationService.submit/update/validateLookbackWindow. E.g. 7 with today=19th
+      # allows the 19th through the 13th and blocks the 12th onward.
+      employee-lookback-days: 7
       # Max regularization requests a non-Super-Admin employee may submit per calendar month
       # (counts every submission regardless of eventual status). Super Admin is exempt.
       monthly-limit: 3
 resend:
   api-key: ${RESEND_API_KEY}
-  from: OneHR <onboarding@nforceone.com>
+  from: OneHR <onehr@resend.dev>
 
 server:
   port: ${PORT:8081}
@@ -74,4 +95,4 @@ management:
 logging:
   level:
     com.nforce.onehr: DEBUG
-    org.flywaydb: DEBUG
+    org.flywaydb: WARN

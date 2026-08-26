@@ -30,14 +30,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .collect(Collectors.toList());
 
         boolean disabled = !user.isActive() || user.getDeletedAt() != null;
-        return org.springframework.security.core.userdetails.User.builder()
-                .username(user.getEmail())
-                .password(user.getPasswordHash())
-                .disabled(disabled)
-                .accountLocked(false)
-                .credentialsExpired(false)
-                .accountExpired(false)
-                .authorities(authorities)
-                .build();
+        return new AppUserPrincipal(user.getId(), user.getEmail(), user.getPasswordHash(),
+                user.getTokenVersion(), disabled, authorities);
     }
 }

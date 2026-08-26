@@ -1,0 +1,268 @@
+/* ── Hero mesh blobs ──────────────────────────────────────────────────────── */
+@keyframes lp-blob-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%       { transform: translate(14%, -22%) scale(1.35); }
+}
+@keyframes lp-blob-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(-12%, 14%) scale(1.15); }
+  66%       { transform: translate(9%, -7%) scale(0.88); }
+}
+@keyframes lp-blob-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%       { transform: translate(-16%, 12%) scale(1.22); }
+}
+.lp-blob-1 { animation: lp-blob-1 20s ease-in-out infinite; }
+.lp-blob-2 { animation: lp-blob-2 25s ease-in-out infinite; }
+.lp-blob-3 { animation: lp-blob-3 18s ease-in-out infinite; }
+
+/* ── Scroll reveal — three variants ──────────────────────────────────────── */
+.lp-fade {
+  opacity: 0;
+  transform: translateY(36px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lp-fade-left {
+  opacity: 0;
+  transform: translateX(-32px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lp-fade-right {
+  opacity: 0;
+  transform: translateX(32px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lp-fade.lp-visible,
+.lp-fade-left.lp-visible,
+.lp-fade-right.lp-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Nav ──────────────────────────────────────────────────────────────────── */
+.lp-nav {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 100;
+  border-bottom: 1px solid transparent;
+  transition: background 0.35s ease, border-color 0.35s ease, backdrop-filter 0.35s ease;
+}
+.lp-nav-scrolled {
+  background: rgba(14, 15, 18, 0.92) !important;
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border-color: rgba(42, 46, 55, 0.7) !important;
+}
+
+/* ── Feature cards ─────────────────────────────────────────────────────────── */
+.lp-feature-card {
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+}
+.lp-feature-card::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 24px; bottom: 24px;
+  width: 2px;
+  background: var(--brand-bright);
+  border-radius: 0 2px 2px 0;
+  opacity: 0;
+  transition: opacity 0.22s ease, top 0.22s ease, bottom 0.22s ease;
+}
+.lp-feature-card:hover::after { opacity: 1; top: 0; bottom: 0; }
+.lp-feature-card:hover {
+  border-color: rgba(228, 55, 61, 0.22) !important;
+  box-shadow: inset 0 0 56px rgba(177, 17, 22, 0.06), 0 12px 40px rgba(0, 0, 0, 0.38);
+  background: rgba(22, 24, 29, 0.98) !important;
+}
+
+/* ── AI Agent cards — glass ────────────────────────────────────────────────── */
+.lp-agent-card {
+  position: relative;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease,
+              transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lp-agent-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(to right, transparent, rgba(228, 55, 61, 0.55), transparent);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.lp-agent-card:hover {
+  border-color: rgba(228, 55, 61, 0.32) !important;
+  box-shadow: 0 0 0 1px rgba(228, 55, 61, 0.08),
+              0 8px 40px rgba(228, 55, 61, 0.12),
+              0 24px 64px rgba(0, 0, 0, 0.5);
+  transform: translateY(-5px);
+}
+.lp-agent-card:hover::before { opacity: 1; }
+
+/* ── Featured agent — editorial large card ────────────────────────────────── */
+.lp-featured-agent {
+  position: relative;
+  padding: 40px 42px;
+  background: linear-gradient(
+    135deg,
+    rgba(22, 24, 29, 0.96) 0%,
+    rgba(177, 17, 22, 0.07) 100%
+  );
+  border: 1px solid rgba(228, 55, 61, 0.22);
+  border-radius: 18px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.lp-featured-agent::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(228, 55, 61, 0.65) 40%,
+    rgba(228, 55, 61, 0.65) 60%,
+    transparent 100%
+  );
+}
+.lp-featured-agent::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 60% 50% at 80% 100%,
+    rgba(228, 55, 61, 0.06) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.lp-featured-agent:hover {
+  border-color: rgba(228, 55, 61, 0.4);
+  box-shadow: 0 0 0 1px rgba(228, 55, 61, 0.1),
+              0 16px 64px rgba(228, 55, 61, 0.14),
+              0 40px 100px rgba(0, 0, 0, 0.55);
+}
+
+/* ── Product showcase frames ──────────────────────────────────────────────── */
+.lp-showcase-frame {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.58),
+              0 0 0 1px rgba(255, 255, 255, 0.03);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.35s ease;
+}
+.lp-showcase-frame:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 52px 110px rgba(0, 0, 0, 0.68),
+              0 0 0 1px rgba(228, 55, 61, 0.12);
+}
+
+/* ── Role cards ────────────────────────────────────────────────────────────── */
+.lp-role-card {
+  cursor: pointer;
+  transition: border-color 0.22s ease,
+              transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.22s ease;
+}
+.lp-role-card:hover {
+  border-color: rgba(228, 55, 61, 0.38) !important;
+  transform: translateY(-6px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4),
+              0 0 0 1px rgba(228, 55, 61, 0.1);
+}
+
+/* ── Pricing cards ───────────────────────────────────────────────────────── */
+.lp-pricing-card {
+  transition: border-color 0.22s ease, transform 0.25s ease, box-shadow 0.22s ease;
+}
+.lp-pricing-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.42);
+}
+
+/* ── CTA pulse animation ─────────────────────────────────────────────────── */
+@keyframes lp-cta-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(228, 55, 61, 0); }
+  50%       { box-shadow: 0 0 32px 8px rgba(228, 55, 61, 0.22); }
+}
+.lp-btn-primary { animation: lp-cta-pulse 3.5s ease-in-out infinite; }
+
+/* ── Screenshot glow breathe ─────────────────────────────────────────────── */
+@keyframes lp-glow-breathe {
+  0%, 100% { opacity: 0.65; transform: translateX(-50%) scale(1); }
+  50%       { opacity: 1;    transform: translateX(-50%) scale(1.07); }
+}
+
+/* ── Brand moment section ────────────────────────────────────────────────── */
+.lp-brand-section {
+  position: relative;
+  overflow: hidden;
+}
+.lp-brand-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    rgba(14, 15, 18, 0.94) 45%,
+    rgba(14, 15, 18, 0.55) 100%
+  );
+  z-index: 1;
+}
+
+/* ── Divider ─────────────────────────────────────────────────────────────── */
+.lp-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--line), transparent);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* ── How it works connector line ─────────────────────────────────────────── */
+.lp-step-connector {
+  position: absolute;
+  top: 28px;
+  left: calc(50% + 32px);
+  right: calc(-50% + 32px);
+  height: 1px;
+  background: linear-gradient(to right, var(--brand-bright), var(--line));
+  opacity: 0.3;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .lp-nav-links-desktop { display: none !important; }
+  .lp-hide-mobile       { display: none !important; }
+  .lp-featured-agent    { padding: 28px 24px !important; }
+}
+@media (min-width: 769px) {
+  .lp-nav-links-desktop { display: flex !important; }
+  .lp-mobile-menu-btn   { display: none !important; }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .lp-fade,
+  .lp-fade-left,
+  .lp-fade-right { opacity: 1; transform: none; transition: none; }
+  .lp-fade.lp-visible,
+  .lp-fade-left.lp-visible,
+  .lp-fade-right.lp-visible { opacity: 1; transform: none; }
+  .lp-btn-primary     { animation: none; }
+  .lp-blob-1, .lp-blob-2, .lp-blob-3 { animation: none; }
+  .lp-agent-card:hover,
+  .lp-role-card:hover,
+  .lp-pricing-card:hover,
+  .lp-showcase-frame:hover { transform: none; }
+}

@@ -36,11 +36,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // Re-validate user against DB on every request — catches deactivated accounts immediately
             UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-            if (userDetails.isEnabled()) {
+            // A Super Admin profile change bumps User.tokenVersion (see
+            // UserManagementService#updateUser); any token minted before that bump carries the
+            // old "tv" claim and fails this check — same immediate-rejection effect as the
+            // isEnabled() check below, but for stale profile/role data instead of deactivation.
+            boolean tokenVersionCurrent = !(userDetails instanceof AppUserPrincipal principal)
+                    || principal.getTokenVersion() == jwtTokenProvider.extractTokenVersion(token);
+
+            if (userDetails.isEnabled() && tokenVersionCurrent) {
                 UsernamePasswordAuthenticationToken auth =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(auth);
+            } else if (!tokenVersionCurrent) {
+                log.debug("Rejected request: token version stale for {}", email);
             } else {
                 log.debug("Rejected request: user {} is deactivated", email);
             }

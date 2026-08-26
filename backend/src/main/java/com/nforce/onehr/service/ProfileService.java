@@ -3,11 +3,11 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.ProfileResponse;
 import com.nforce.onehr.dto.UpdateProfileRequest;
 import com.nforce.onehr.entity.Employee;
-import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
@@ -76,8 +76,18 @@ public class ProfileService {
         return toResponse(user, emp);
     }
 
+    @Transactional
+    public ProfileResponse removePhoto(String email) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setProfilePhoto(null);
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
     private ProfileResponse toMinimalResponse(User user) {
-        String role = user.getRoles().stream().findFirst().map(Role::getCode).orElse("EMPLOYEE");
+        String role = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
         return ProfileResponse.builder()
                 .userId(user.getId())
                 .email(user.getEmail())
@@ -103,7 +113,7 @@ public class ProfileService {
             }
         }
 
-        String role = user.getRoles().stream().findFirst().map(Role::getCode).orElse("EMPLOYEE");
+        String role = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
 
         String photoDataUrl = null;
         if (emp.getProfilePhoto() != null && emp.getProfilePhoto().length > 0) {

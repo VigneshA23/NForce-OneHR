@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { UserPlus, X, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type ResetPasswordResult } from '../api/employees';
-import { orgApi } from '../api/org';
+import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
+import { orgApi, type ShiftRow } from '../api/org';
 import { onboardingApi } from '../api/onboarding';
 import { useToast } from '../context/ToastContext';
 import { KebabMenu } from '../components/KebabMenu';
+import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
+import { StatusBadge, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 
 const ROLES = [
   { value: 'EMPLOYEE',    label: 'Employee' },
@@ -16,6 +18,15 @@ const ROLES = [
 
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'];
+
+// Letters (any language), spaces, hyphens, and apostrophes only — blocks emojis, digits,
+// and other symbols while still allowing names like "O'Brien" or "Anne-Marie". Mirrors the
+// backend's CreateUserRequest @Pattern so both sides reject the same inputs.
+const NAME_PATTERN = /^(?=.*\p{L})[\p{L}\s'-]+$/u;
+// Requires a real, letters-only TLD (2+ chars) with nothing after it — rejects domains with
+// no dot (e.g. "a@99999999999") and trailing junk after the TLD (e.g. "a@example.com123").
+// Mirrors the backend's CreateUserRequest @Pattern so both sides reject the same inputs.
+const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 const ROLE_COLOR: Record<string, string> = {
   EMPLOYEE: '#2FB67C', MANAGER: '#4C8DD6', HR_ADMIN: '#E0A93B', SUPER_ADMIN: '#E4373D',
@@ -29,15 +40,7 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function StatusBadge({ active }: { active: boolean }) {
-  return (
-    <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#2FB67C' : '#E4373D', background: active ? 'rgba(47,182,124,.1)' : 'rgba(228,55,61,.1)', borderRadius: 4, padding: '2px 7px' }}>
-      {active ? 'Active' : 'Inactive'}
-    </span>
-  );
-}
-
-interface OrgOptions { departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; }
+interface OrgOptions { departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
@@ -118,33 +121,155 @@ function CreatableLocationSelect({ locations, value, onChange, token }: { locati
   );
 }
 
+// ─── Shift Select (with inline "+ Add New Shift") ─────────────────────────────
+function ShiftSelect({ shifts, value, onChange, onCreated, token }: {
+  shifts: ShiftRow[]; value: string | undefined; onChange: (id: string | undefined) => void;
+  onCreated: (shift: ShiftRow) => void; token: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = shifts.find(s => s.id === value);
+  useEffect(() => {
+    function out(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener('mousedown', out);
+    return () => document.removeEventListener('mousedown', out);
+  }, []);
+  const label = (s: ShiftRow) => `${s.name} — ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }} onClick={() => setOpen(o => !o)}>
+        <input readOnly style={{ ...inputStyle, paddingRight: 32, cursor: 'pointer' }} placeholder="Select a shift…"
+          value={current ? label(current) : ''} />
+        <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
+          <div onMouseDown={() => { onChange(undefined); setOpen(false); }}
+            style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', cursor: 'pointer' }}>
+            — None —
+          </div>
+          {shifts.map(s => (
+            <div key={s.id} onMouseDown={() => { onChange(s.id); setOpen(false); }}
+              style={{ padding: '9px 14px', fontSize: 13, color: value === s.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === s.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--raised)')}
+              onMouseLeave={e => (e.currentTarget.style.background = value === s.id ? 'rgba(176,17,22,.12)' : 'transparent')}>
+              {label(s)}
+            </div>
+          ))}
+          <div onMouseDown={() => { setShowCreate(true); setOpen(false); }}
+            style={{ padding: '9px 14px', fontSize: 13, color: '#4C8DD6', borderTop: '1px solid var(--line)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 700 }}>+</span> Add New Shift
+          </div>
+        </div>
+      )}
+      {showCreate && (
+        <ShiftFormModal
+          token={token}
+          onClose={() => setShowCreate(false)}
+          onSaved={(saved) => { onCreated(saved); onChange(saved.id); setShowCreate(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// `opts.managers` (the potential-managers list) is fetched once per page load and shared by
+// Add/Edit modals — see UserManagementPage's own comment on that state. Any action here that
+// changes a user's active status, role, or name (status toggle, edit, soft delete) needs to
+// patch this cached list in place too, or a since-deactivated (or renamed/re-roled) user keeps
+// showing up as a selectable manager until the whole page is reloaded.
+function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord): EmployeeRecord[] {
+  return managers.some(m => m.userId === updated.userId)
+    ? managers.map(m => (m.userId === updated.userId ? updated : m))
+    : [...managers, updated];
+}
+
+function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
+  // `managers` (opts.managers) is fetched once per page load — defensively re-check `active`
+  // here too (not just at fetch time) so a manager deactivated later in the same session, before
+  // this cached list gets refreshed, can't still be picked. `!== false` so a record that simply
+  // omits the field isn't wrongly excluded.
+  const eligible = managers.filter(m => m.active !== false);
+  if (role === 'EMPLOYEE') return eligible.filter(m => m.role === 'MANAGER');
+  return eligible.filter(m => m.role === 'SUPER_ADMIN');
+}
+
 // ─── Add User Modal ───────────────────────────────────────────────────────────
-function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string }) {
+function AddModal({ onClose, onCreated, token, opts, setOpts }: {
+  onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string;
+  // Org-wide reference data (departments/designations/locations/managers/shifts) — fetched ONCE
+  // by the parent UserManagementPage and shared with EditModal, instead of each modal re-fetching
+  // it (including the expensive potential-managers lookup) on every single open. See
+  // UserManagementPage's own orgOptions state/effect for where this actually loads.
+  opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
+}) {
   const { showToast } = useToast();
   const [form, setForm] = useState<CreateUserPayload>({ fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [] });
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set instead of `error` specifically when the backend rejects the submitted Employee ID as
+  // already taken (EmployeeCodeGenerator#claim's exact conflict message) — rendered as its own
+  // banner with a "Click here" action that fetches a fresh suggestion via the same non-consuming
+  // preview endpoint, without touching any other field or closing this modal.
+  const [employeeCodeConflict, setEmployeeCodeConflict] = useState(false);
+  const [fetchingNewId, setFetchingNewId] = useState(false);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
   const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
+  // Auto-populated suggestion only (see employeesApi.previewNextCode) — fetched once on open
+  // and dropped straight into the (editable) Employee ID field below as a starting value. The
+  // admin can freely overwrite it; this fetch never reserves/consumes the ID. Whatever ends up
+  // in the field — untouched or edited — is submitted to the backend verbatim and validated as
+  // the exact requested Employee ID (see handleSubmit below and EmployeeCodeGenerator#claim on
+  // the backend): a stale submission must fail with a clear conflict, never silently resolve to
+  // a different ID.
+  const [previewLoading, setPreviewLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-    ]).then(([d, des, l, m]) => setOpts({ departments: d, designations: des, locations: l, managers: m }));
+    employeesApi.previewNextCode(token)
+      .then(r => setForm(f => ({ ...f, employeeCode: f.employeeCode ?? r.employeeCode })))
+      .catch(() => { /* leave the field blank — the backend auto-assigns one if none is submitted */ })
+      .finally(() => setPreviewLoading(false));
   }, [token]);
+
+  // Fetches a fresh suggestion via the same non-consuming preview endpoint used on open, and
+  // drops it straight into the Employee ID field — nothing else in the form is touched, and the
+  // modal stays open. Backs the "Click here" action in the conflict banner below.
+  async function handleGetNewId() {
+    setFetchingNewId(true);
+    try {
+      const r = await employeesApi.previewNextCode(token);
+      setForm(f => ({ ...f, employeeCode: r.employeeCode }));
+      setEmployeeCodeConflict(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not fetch a new Employee ID';
+      showToast('error', msg);
+    } finally {
+      setFetchingNewId(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.fullName.trim() || !form.email.trim()) { setError('Name and email required.'); return; }
-    if (!/[a-zA-Z]/.test(form.fullName.trim())) { setError('Full name must contain at least one letter.'); return; }
-    setSubmitting(true); setError(null);
+    const trimmedName = form.fullName.trim();
+    const rawEmail = form.email;
+    if (!trimmedName || !rawEmail) { setError('Name and email required.'); return; }
+    if (!NAME_PATTERN.test(trimmedName)) { setError("Full name can only contain letters, spaces, hyphens, and apostrophes — no emojis or symbols."); return; }
+    // Deliberately checked against the raw value, not a trimmed one — a leading/trailing
+    // space is rejected outright rather than silently stripped before validating.
+    if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
+    if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
+    if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
+    if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
+    setSubmitting(true); setError(null); setEmployeeCodeConflict(false);
+    // Submit the Employee ID exactly as displayed — untouched or edited — and let the backend
+    // validate that exact value. If it's already taken (e.g. another admin's form showed the
+    // same suggestion and got there first), the backend rejects it outright rather than
+    // silently assigning a different one; see the catch block below.
+    const trimmedCode = (form.employeeCode ?? '').trim();
     try {
-      const emp = await usersApi.create(form, token);
+      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: trimmedCode || undefined }, token);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
       if (startOnboarding) {
@@ -162,8 +287,16 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
       }
       setCreated(emp);
     } catch (err) {
+      // The backend rejects a submitted Employee ID that's already in use (or was just taken by
+      // a concurrent request) with this exact message — surfaced as its own banner with a
+      // "Click here" recovery action instead of the generic error text, so the admin doesn't
+      // have to reopen the form (and lose everything else they typed) to get a fresh ID.
       const msg = err instanceof Error ? err.message : 'Create failed';
-      setError(msg);
+      if (msg === 'Employee ID is unavailable. Please go back and retry.') {
+        setEmployeeCodeConflict(true);
+      } else {
+        setError(msg);
+      }
       showToast('error', msg);
     } finally { setSubmitting(false); }
   }
@@ -212,16 +345,44 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: 580 }}>
         <ModalHeader title="Add User" onClose={onClose} />
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {error && !employeeCodeConflict && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name *"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field></div>
           <div style={{ gridColumn: '1/-1' }}><Field label="Company Email *"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field></div>
           <Field label="Role *">
-            <select style={inputStyle} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+            <select style={inputStyle} value={form.role} onChange={e => {
+              const newRole = e.target.value;
+              const newMgrs = getManagersForRole(newRole, opts.managers);
+              setForm(f => ({
+                ...f, role: newRole,
+                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+              }));
+            }}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
-          <Field label="Employee ID (auto if blank)"><input style={inputStyle} value={form.employeeCode ?? ''} onChange={e => set('employeeCode', e.target.value)} placeholder="NF-00001" /></Field>
+          <Field label="Employee ID">
+            <input
+              style={inputStyle}
+              value={form.employeeCode ?? ''}
+              onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value }))}
+              placeholder={previewLoading ? 'Loading…' : 'e.g. NF-20260007'}
+            />
+            {employeeCodeConflict && (
+              <div style={{ marginTop: 6, color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>
+                Employee ID already exists.{' '}
+                <button
+                  type="button"
+                  onClick={handleGetNewId}
+                  disabled={fetchingNewId}
+                  style={{ background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textDecoration: 'underline', cursor: fetchingNewId ? 'wait' : 'pointer' }}
+                >
+                  {fetchingNewId ? 'Fetching…' : 'Click here'}
+                </button>
+                {' '}to get a new ID.
+              </div>
+            )}
+          </Field>
           <Field label="Joining Date *"><input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} /></Field>
           <Field label="Employment Type">
             <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
@@ -244,15 +405,39 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
             </select>
           </Field>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Location">
+            <Field label="Location *">
               <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Manager">
-              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                <option value="">— None —</option>{opts.managers.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
-              </select>
+            {(() => {
+              const isSA = form.role === 'SUPER_ADMIN';
+              const mgrList = getManagersForRole(form.role, opts.managers);
+              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              return (
+                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
+                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                  </select>
+                  {!isSA && mgrList.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
+                      No {mgrRoleLabel}-role users found — add one first.
+                    </div>
+                  )}
+                </Field>
+              );
+            })()}
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Shift">
+              <ShiftSelect
+                shifts={opts.shifts}
+                value={form.shiftId}
+                onChange={id => setForm(f => ({ ...f, shiftId: id }))}
+                onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
+                token={token}
+              />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
@@ -282,7 +467,12 @@ function AddModal({ onClose, onCreated, token }: { onClose: () => void; onCreate
 }
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
-function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
+  user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
+  // Shared with AddModal — see AddModal's own comment on these two props for why this isn't
+  // fetched fresh here.
+  opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
+}) {
   const { showToast } = useToast();
   const [form, setForm] = useState<UpdateUserPayload>({
     fullName: user.fullName,
@@ -290,28 +480,35 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     departmentId: user.departmentId ?? undefined,
     designationId: user.designationId ?? undefined,
     locationId: user.locationId ?? undefined,
+    shiftId: user.shiftId ?? undefined,
     employmentType: user.employmentType,
     workMode: user.workMode ?? 'ONSITE',
     managerId: user.currentManager?.userId ?? undefined,
   });
-  const [opts, setOpts] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [] });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isInactive = !user.active;
+  const [confirmInactiveEdit, setConfirmInactiveEdit] = useState(false);
+  const gatedFieldsLocked = isInactive && !confirmInactiveEdit;
 
-  useEffect(() => {
-    Promise.all([
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      employeesApi.potentialManagers(token),
-    ]).then(([d, des, l, m]) => setOpts({ departments: d, designations: des, locations: l, managers: m }));
-  }, [token]);
+  // Joining date moved in from the old standalone "Update Date of Joining" modal — same
+  // usersApi.updateJoiningDate call and audit-trail note, just triggered from this form instead
+  // of a separate 3-dot menu entry. Kept as its own request (not part of `form`/usersApi.update)
+  // because the backend deliberately keeps it a separate endpoint with its own audit trail —
+  // see UserManagementService.updateJoiningDate.
+  const [joiningDate, setJoiningDate] = useState(user.joiningDate);
+  const [joiningDateNote, setJoiningDateNote] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
     setSubmitting(true); setError(null);
     try {
-      const updated = await usersApi.update(user.userId, form, token);
+      let updated = await usersApi.update(user.userId, { ...form, confirmInactiveEdit }, token);
+      if (joiningDate !== user.joiningDate) {
+        const payload: UpdateJoiningDatePayload = { newJoiningDate: joiningDate, note: joiningDateNote.trim() || undefined };
+        updated = await usersApi.updateJoiningDate(user.userId, payload, token);
+      }
       onUpdated(updated);
       showToast('success', `${updated.fullName} updated successfully`);
       onClose();
@@ -328,16 +525,24 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: 580 }}>
         <ModalHeader title={`Edit — ${user.fullName}`} onClose={onClose} />
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+          {isInactive && <InactiveEditBanner />}
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name"><input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} /></Field></div>
           <Field label="Role">
-            <select style={inputStyle} value={form.role ?? 'EMPLOYEE'} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.role ?? 'EMPLOYEE'} onChange={e => {
+              const newRole = e.target.value;
+              const newMgrs = getManagersForRole(newRole, opts.managers).filter(m => m.userId !== user.userId);
+              setForm(f => ({
+                ...f, role: newRole,
+                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+              }));
+            }}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
           <Field label="Employment Type">
-            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
               {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
             </select>
           </Field>
@@ -347,39 +552,82 @@ function EditModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; 
             </select>
           </Field>
           <Field label="Department">
-            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
               <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
-            <select style={inputStyle} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
               <option value="">— None —</option>{opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
+          <Field label="Date of Joining">
+            <input type="date" style={inputStyle} value={joiningDate} onChange={e => setJoiningDate(e.target.value)} />
+          </Field>
+          {joiningDate !== user.joiningDate && (
+            <div style={{ gridColumn: '1/-1' }}>
+              <Field label="Reason for date change">
+                <textarea
+                  style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+                  value={joiningDateNote}
+                  onChange={e => setJoiningDateNote(e.target.value)}
+                  placeholder="Reason for changing the date of joining…"
+                />
+              </Field>
+            </div>
+          )}
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Location">
               <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Manager">
-              <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                <option value="">— None —</option>
-                {opts.managers.filter(m => m.userId !== user.userId).map((m: any) => (
-                  <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>
-                ))}
-              </select>
+            {(() => {
+              const isSA = form.role === 'SUPER_ADMIN';
+              const mgrList = getManagersForRole(form.role ?? 'EMPLOYEE', opts.managers).filter(m => m.userId !== user.userId);
+              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              return (
+                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
+                  <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                  </select>
+                  {!isSA && mgrList.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
+                      No {mgrRoleLabel}-role users found — add one first.
+                    </div>
+                  )}
+                </Field>
+              );
+            })()}
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Field label="Shift">
+              <ShiftSelect
+                shifts={opts.shifts}
+                value={form.shiftId}
+                onChange={id => setForm(f => ({ ...f, shiftId: id }))}
+                onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
+                token={token}
+              />
             </Field>
           </div>
+          {isInactive && (
+            <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
+          )}
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
+            <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
         </form>
       </div>
     </div>
   );
 }
+
+// Date-of-joining update now lives inline in EditModal above (see its joiningDate/joiningDateNote
+// state) instead of this separate modal — same usersApi.updateJoiningDate call, just reached from
+// the "Edit" action instead of its own 3-dot menu entry.
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
 function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; onClose: () => void; token: string }) {
@@ -442,11 +690,20 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
 }
 
 // ─── Status Toggle Confirm ────────────────────────────────────────────────────
-function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+// isSelf/isLastActiveSuperAdmin are defense-in-depth only — the row's Deactivate action is
+// already hidden for both cases (see the row menu below), so this modal shouldn't normally
+// open for them. But the API is the real boundary (UserManagementService.setActiveStatus
+// re-checks both server-side), so if it's somehow reached anyway the explicit warning/blocked
+// states below still apply, and a stale-list race just surfaces the backend's rejection message.
+function StatusModal({ user, isSelf, isLastActiveSuperAdmin, onClose, onUpdated, token }: {
+  user: EmployeeRecord; isSelf: boolean; isLastActiveSuperAdmin: boolean;
+  onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
+}) {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const action = user.active ? 'Deactivate' : 'Activate';
+  const blocked = user.active && (isSelf || isLastActiveSuperAdmin);
 
   async function confirm() {
     setLoading(true); setError(null);
@@ -468,7 +725,15 @@ function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord
       <div style={{ ...modalStyle, maxWidth: 400 }}>
         <ModalHeader title={`${action} User`} onClose={onClose} />
         <div style={{ padding: 24 }}>
-          {user.active ? (
+          {isSelf && user.active ? (
+            <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
+              Deactivating your account will end your session. Another Super Admin is required to restore access.
+            </div>
+          ) : isLastActiveSuperAdmin && user.active ? (
+            <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
+              <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> is the last active Super Admin. Deactivating this account would leave nobody able to manage users — assign Super Admin to another account first.
+            </div>
+          ) : user.active ? (
             <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
               Deactivating <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> will invalidate their active JWT immediately. They cannot log in until reactivated.
             </div>
@@ -480,7 +745,7 @@ function StatusModal({ user, onClose, onUpdated, token }: { user: EmployeeRecord
           {error && <div style={{ color: 'var(--risk)', marginBottom: 12, fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={confirm} disabled={loading} style={{ background: user.active ? '#C0392B' : '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+            <button onClick={confirm} disabled={loading || blocked} style={{ background: user.active ? '#C0392B' : '#2FB67C', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (loading || blocked) ? 'not-allowed' : 'pointer', opacity: (loading || blocked) ? 0.5 : 1 }}>
               {loading ? '…' : action}
             </button>
           </div>
@@ -496,7 +761,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
   const [typed, setTyped] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const match = typed.trim().toLowerCase() === user.email.toLowerCase();
+  const match = typed === user.email;
 
   async function confirm() {
     if (!match) return;
@@ -554,6 +819,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function UserManagementPage() {
   const token = useAuthStore(s => s.token)!;
+  const currentUserEmail = useAuthStore(s => s.user?.email)?.toLowerCase();
   const [users, setUsers] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -561,6 +827,13 @@ export default function UserManagementPage() {
   const [resetting, setResetting] = useState<EmployeeRecord | null>(null);
   const [toggling, setToggling] = useState<EmployeeRecord | null>(null);
   const [deleting, setDeleting] = useState<EmployeeRecord | null>(null);
+  // Reference data for the Add/Edit User forms — departments/designations/locations/managers/
+  // shifts. Fetched ONCE here (not per-modal-open) and shared by both AddModal and EditModal, so
+  // opening either repeatedly doesn't re-run 5 API calls (including the expensive
+  // potential-managers lookup) every single time. A newly-created location/shift from inside
+  // either modal is appended straight into this shared state, so it's immediately available to
+  // the other modal too without a re-fetch.
+  const [orgOptions, setOrgOptions] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
 
   // Filters
   const [search, setSearch] = useState('');
@@ -574,6 +847,16 @@ export default function UserManagementPage() {
     usersApi.list(token).then(setUsers).finally(() => setLoading(false));
   }, [token]);
 
+  useEffect(() => {
+    Promise.all([
+      orgApi.listDepartments(token),
+      orgApi.listDesignations(token),
+      orgApi.listLocations(token),
+      employeesApi.potentialManagers(token),
+      orgApi.listShifts(token),
+    ]).then(([d, des, l, m, sh]) => setOrgOptions({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
+  }, [token]);
+
   // Derived filter options from real data
   const departments = Array.from(new Set(users.map(u => u.departmentName).filter(Boolean))) as string[];
   const roles = Array.from(new Set(users.map(u => u.role).filter(Boolean))) as string[];
@@ -584,6 +867,7 @@ export default function UserManagementPage() {
   const inactive = total - active;
   const roleCounts: Record<string, number> = {};
   users.forEach(u => { if (u.role) roleCounts[u.role] = (roleCounts[u.role] ?? 0) + 1; });
+  const activeSuperAdminCount = users.filter(u => u.role === 'SUPER_ADMIN' && u.active).length;
 
   // Filter logic
   const filtered = users.filter(u => {
@@ -696,13 +980,18 @@ export default function UserManagementPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Manager', 'Status', ''].map(h => (
+                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Reporting Manager', 'Status', ''].map(h => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {paginated.map(u => (
+                  {paginated.map(u => {
+                    const isSelf = !!currentUserEmail && u.email.toLowerCase() === currentUserEmail;
+                    // Only meaningful while this row is itself an active Super Admin — deactivating
+                    // anyone else never touches the Super Admin headcount.
+                    const isLastActiveSuperAdmin = u.role === 'SUPER_ADMIN' && u.active && activeSuperAdminCount <= 1;
+                    return (
                     <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
@@ -717,12 +1006,23 @@ export default function UserManagementPage() {
                         <KebabMenu items={[
                           { label: 'Edit', onClick: () => setEditing(u) },
                           { label: 'Reset Password', onClick: () => setResetting(u) },
-                          { label: u.active ? 'Deactivate' : 'Reactivate', onClick: () => setToggling(u) },
-                          { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
+                          // Deactivate is hidden outright for the logged-in Super Admin's own row
+                          // and for the last remaining active Super Admin — both are unrecoverable
+                          // in-app once a session ends, so there's no "disabled with tooltip"
+                          // middle ground here (see setActiveStatus on the backend for the
+                          // matching, authoritative check).
+                          ...(u.active && (isSelf || isLastActiveSuperAdmin) ? [] : [
+                            { label: u.active ? 'Deactivate' : 'Reactivate', onClick: () => setToggling(u) },
+                          ]),
+                          // Self-delete carries the exact same lockout risk as self-deactivation.
+                          ...(isSelf ? [] : [
+                            { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
+                          ]),
                         ]} />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -759,11 +1059,29 @@ export default function UserManagementPage() {
         )}
       </div>
 
-      {showAdd && <AddModal token={token} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
-      {editing && <EditModal user={editing} token={token} onClose={() => setEditing(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
+      {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
+      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
+        setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
+        setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
+      }} />}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
-      {toggling && <StatusModal user={toggling} token={token} onClose={() => setToggling(null)} onUpdated={updated => setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u))} />}
-      {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => setUsers(prev => prev.filter(u => u.userId !== userId))} />}
+      {toggling && (
+        <StatusModal
+          user={toggling}
+          isSelf={!!currentUserEmail && toggling.email.toLowerCase() === currentUserEmail}
+          isLastActiveSuperAdmin={toggling.role === 'SUPER_ADMIN' && toggling.active && activeSuperAdminCount <= 1}
+          token={token}
+          onClose={() => setToggling(null)}
+          onUpdated={updated => {
+            setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
+            setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
+          }}
+        />
+      )}
+      {deleting && <DeleteModal user={deleting} token={token} onClose={() => setDeleting(null)} onDeleted={userId => {
+        setUsers(prev => prev.filter(u => u.userId !== userId));
+        setOrgOptions(o => ({ ...o, managers: o.managers.filter(m => m.userId !== userId) }));
+      }} />}
     </div>
   );
 }

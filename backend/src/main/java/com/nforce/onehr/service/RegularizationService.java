@@ -11,6 +11,7 @@ import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.RegularizationApproval;
 import com.nforce.onehr.entity.RegularizationRequest;
 import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -30,10 +31,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -44,8 +49,10 @@ import java.util.UUID;
  * and entity {@link AttendanceService} writes on check-in/check-out — tagging it with
  * source=REGULARIZATION.
  *
- * Notification on approve/reject is intentionally NOT wired here — owned by another
- * workstream. Hook it in at the two TODO(notifications) call sites once that service exists.
+ * <p>Lifecycle notifications (Created/Approved/Rejected) reuse the existing
+ * {@link NotificationService} — the same in-app notification model/API/bell every other
+ * workstream (AssetService, DocumentService, ...) already sends through. No new notification
+ * architecture; see {@link #notifyRecipients} for the one dedup seam.
  */
 @Service
 @RequiredArgsConstructor
@@ -69,6 +76,18 @@ public class RegularizationService {
     private static final String STATUS_APPROVED = "APPROVED";
     private static final String STATUS_REJECTED = "REJECTED";
 
+    // Request Regularization's own "today" switches at 07:00 AM, not midnight — a shift/punch
+    // that runs into the early morning is still yesterday's business day until 7 AM, so an
+    // employee correcting an overnight punch isn't blocked by the lookback window or miscounted
+    // against the wrong month just because the wall clock rolled over. Scoped entirely to this
+    // service's own date validation — AttendanceService's check-in/check-out day resolution
+    // (open-session carry-over, see AttendanceService.getToday) is untouched.
+    private static final LocalTime REGULARIZATION_DAY_BOUNDARY = LocalTime.of(7, 0);
+
+    // Matches EmailService's existing notification-date wording exactly ("d MMM yyyy") rather
+    // than introducing a different format for regularization notifications.
+    private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
+
     private final RegularizationRequestRepository regularizationRepository;
     private final RegularizationApprovalRepository regularizationApprovalRepository;
     private final AttendanceRepository attendanceRepository;
@@ -78,6 +97,7 @@ public class RegularizationService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
+    private final NotificationService notificationService;
 
     /** Resolved requested times after applying punch auto-fill from attendance history. */
     private record ResolvedTimes(LocalDateTime checkIn, LocalDateTime checkOut) {}
@@ -85,7 +105,7 @@ public class RegularizationService {
     // Lookback window (N days): how far back a non-Super-Admin employee may request a
     // correction. Super Admin submitters (also holding EMPLOYEE in this org) are exempt
     // entirely — see submit()/update().
-    @Value("${app.attendance.regularization.employee-lookback-days:3}")
+    @Value("${app.attendance.regularization.employee-lookback-days:7}")
     private int employeeLookbackDays;
 
     // Max regularization requests a non-Super-Admin employee may submit per calendar month
@@ -99,6 +119,7 @@ public class RegularizationService {
         boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
 
         ResolvedTimes times = resolveTimes(req, actor.getId());
+        assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
         if (!isSuperAdmin) {
             validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
             assertMonthlyLimitNotExceeded(actor.getId());
@@ -117,6 +138,22 @@ public class RegularizationService {
         entity = regularizationRepository.save(entity);
 
         auditService.log(actor.getId(), "REGULARIZATION_REQUESTED", actor.getId());
+
+        // Request Created: notify the resolved approver (the employee's reporting manager, or a
+        // manually-picked eligible approver) plus every active HR Admin, so HR isn't left to
+        // discover a new request only by checking their queue. Deliberately HR_ADMIN only, not
+        // findAdminUserIds — Super Admin already has blanket queue visibility (see
+        // listPendingForApprover), so isn't separately paged on every single submission.
+        Set<UUID> submittedRecipients = new LinkedHashSet<>();
+        if (entity.getAssignedApproverId() != null) submittedRecipients.add(entity.getAssignedApproverId());
+        submittedRecipients.addAll(userRepository.findActiveHrAdminUserIds());
+        if (!submittedRecipients.isEmpty()) {
+            notifyRecipients(submittedRecipients, "REGULARIZATION_SUBMITTED",
+                    "Regularization Request Submitted",
+                    employeeName(actor.getId()) + " has submitted a regularization request for "
+                            + entity.getAttendanceDate().format(NOTIFICATION_DATE_FMT) + ".",
+                    "/approvals?type=REGULARIZATION");
+        }
         return toResponse(entity);
     }
 
@@ -127,7 +164,7 @@ public class RegularizationService {
      * existing pending request must not consume an extra slot.
      */
     private void assertMonthlyLimitNotExceeded(UUID employeeId) {
-        LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
+        LocalDate today = regularizationBusinessToday();
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
         long countThisMonth = regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
                 employeeId, monthStart, monthStart.plusMonths(1));
@@ -136,6 +173,25 @@ public class RegularizationService {
                     "You have reached the maximum of " + monthlyLimit + " regularization requests for this month");
         }
     }
+
+    /**
+     * "N requests remaining this month" for the Regularization modal's balance display —
+     * read-only, reuses the exact same count query {@link #assertMonthlyLimitNotExceeded} runs
+     * before every submit(); never enforces anything itself. Super Admin is exempt from the
+     * limit (see submit()), so its balance is reported as unlimited rather than a real count.
+     */
+    @Transactional(readOnly = true)
+    public RegularizationBalance getBalance(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
+        LocalDate today = regularizationBusinessToday();
+        LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
+        int usedCount = (int) regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
+                actor.getId(), monthStart, monthStart.plusMonths(1));
+        return new RegularizationBalance(usedCount, monthlyLimit, Math.max(0, monthlyLimit - usedCount), isSuperAdmin);
+    }
+
+    public record RegularizationBalance(int usedCount, int limitCount, int remainingCount, boolean unlimited) {}
 
     /**
      * Edit a still-pending request. Only the submitting employee may edit, and only while
@@ -155,6 +211,7 @@ public class RegularizationService {
 
         String before = auditSnapshot.toJson(regularizationSnapshot(existing));
         ResolvedTimes times = resolveTimes(req, actor.getId());
+        assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
         if (!hasRole(actor, "SUPER_ADMIN")) {
             validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
         }
@@ -211,12 +268,6 @@ public class RegularizationService {
         if (req.getRequestedCheckIn() == null && req.getRequestedCheckOut() == null) {
             throw new IllegalArgumentException("Provide at least a corrected check-in or check-out time");
         }
-        if (req.getRequestedCheckIn() != null && !req.getRequestedCheckIn().toLocalDate().equals(req.getAttendanceDate())) {
-            throw new IllegalArgumentException("Corrected check-in time must fall on the attendance date");
-        }
-        if (req.getRequestedCheckOut() != null && !req.getRequestedCheckOut().toLocalDate().equals(req.getAttendanceDate())) {
-            throw new IllegalArgumentException("Corrected check-out time must fall on the attendance date");
-        }
 
         Attendance existingPunch;
         try {
@@ -237,6 +288,34 @@ public class RegularizationService {
         LocalDateTime checkOut = req.getRequestedCheckOut() != null
                 ? req.getRequestedCheckOut()
                 : (existingPunch != null ? existingPunch.getCheckOutAt() : null);
+
+        // Overnight shift (e.g. the configured default 3:30 PM -> 12:30 AM): the frontend always
+        // submits both times on the same attendanceDate (see RequestModal in AttendancePage.tsx —
+        // there is no next-day rollover in the UI), so a check-out clock time earlier than
+        // check-in's on that same date isn't a same-day ordering mistake, it's the next calendar
+        // day. Roll it forward exactly once here, after punch auto-fill above, so this applies
+        // identically whether check-out was explicitly requested or filled in from an existing
+        // punch. Only fires when both are still on the same date — a check-out already resolved
+        // to the next day (e.g. auto-filled from an existing overnight punch) is left untouched.
+        if (checkIn != null && checkOut != null
+                && checkOut.toLocalDate().equals(checkIn.toLocalDate())
+                && checkOut.toLocalTime().isBefore(checkIn.toLocalTime())) {
+            checkOut = checkOut.plusDays(1);
+        }
+
+        // Regularization's own 07:00 AM business-day boundary (REGULARIZATION_DAY_BOUNDARY /
+        // resolveBusinessDate — same rule already used for "today" in the lookback-window and
+        // monthly-limit checks) applies here too: a punch between midnight and 07:00 belongs to
+        // the PREVIOUS business date even though its own calendar date is the next day. Checked
+        // against the (possibly rolled-over) resolved value above, not the raw request field, so
+        // an overnight check-out — e.g. rolled over to 18-Aug 00:30 — is correctly attributed to
+        // 17-Aug's attendanceDate instead of being rejected for "not falling on" it.
+        if (req.getRequestedCheckIn() != null && !resolveBusinessDate(checkIn).equals(req.getAttendanceDate())) {
+            throw new IllegalArgumentException("Corrected check-in time must fall on the attendance date");
+        }
+        if (req.getRequestedCheckOut() != null && !resolveBusinessDate(checkOut).equals(req.getAttendanceDate())) {
+            throw new IllegalArgumentException("Corrected check-out time must fall on the attendance date");
+        }
 
         if (checkIn != null && checkOut != null && !checkOut.isAfter(checkIn)) {
             throw new IllegalArgumentException("Check-out time must be after check-in time");
@@ -298,6 +377,23 @@ public class RegularizationService {
                 .map(Employee::getDepartment)
                 .map(d -> d.getId())
                 .orElse(null);
+    }
+
+    /**
+     * "View Regularization History" from the Penalties kebab menu — every request ever filed
+     * for one employee/date. A plain Manager may only view a current direct report's history;
+     * HR/Super Admin may view anyone's, same override as {@link #getEmployeeHistory}-style checks
+     * elsewhere in this workstream.
+     */
+    @Transactional(readOnly = true)
+    public List<RegularizationResponse> getHistoryForManager(String managerEmail, UUID employeeUserId, LocalDate attendanceDate) {
+        User actor = requireActor(managerEmail);
+        if (!hasOverrideRole(actor)
+                && !historyRepository.findCurrentDirectReportIds(actor.getId()).contains(employeeUserId)) {
+            throw new AccessDeniedException("You can only view regularization history for your direct reports");
+        }
+        return regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(employeeUserId, attendanceDate)
+                .stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -363,12 +459,15 @@ public class RegularizationService {
     }
 
     /**
-     * Status-first, stage-aware approval. From PENDING: SUPER_ADMIN bypasses straight to the
-     * terminal APPROVED state; MANAGER (their assigned request only) moves it to
-     * PARTIALLY_APPROVED. From PARTIALLY_APPROVED: SUPER_ADMIN or HR_ADMIN finalize to APPROVED.
-     * Branching on the request's current status first (rather than the actor's "highest" role)
-     * means a dual-role actor (e.g. MANAGER + HR_ADMIN) gets whichever authority actually
-     * matches the request's stage, instead of one role permanently shadowing the other.
+     * Status-first approval. From PENDING: SUPER_ADMIN, HR_ADMIN, or MANAGER (their assigned
+     * request only) all go straight to the terminal APPROVED state — a single approval from any
+     * one eligible approver is final; there is no longer a two-stage hand-off. The
+     * PARTIALLY_APPROVED branch below is kept only to let SUPER_ADMIN/HR_ADMIN finalize any
+     * request that already reached that status before this change (legacy data) — no new
+     * approval can produce PARTIALLY_APPROVED going forward. Branching on the request's current
+     * status first (rather than the actor's "highest" role) means a dual-role actor (e.g.
+     * MANAGER + HR_ADMIN) gets whichever authority actually matches the request's stage, instead
+     * of one role permanently shadowing the other.
      */
     @Transactional
     public RegularizationResponse approve(UUID requestId, String comment, String actorEmail) {
@@ -382,10 +481,17 @@ public class RegularizationService {
             if (hasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
                 finalStage = true;
+            } else if (hasRole(actor, "HR_ADMIN")) {
+                // Same bypass SUPER_ADMIN already has at this stage — HR_ADMIN need not be the
+                // employee's manager, and may act before the manager has (ONEHR-140 follow-up).
+                actingRole = "HR_ADMIN";
+                finalStage = true;
             } else if (hasRole(actor, "MANAGER")) {
+                // A Manager's approval is now final on its own — no HR/Super Admin sign-off
+                // required afterward. Still gated to their own assigned/reporting employee.
                 assertCanReview(req, actor);
                 actingRole = "MANAGER";
-                finalStage = false;
+                finalStage = true;
             } else {
                 throw new AccessDeniedException("You are not authorized to review this request");
             }
@@ -423,7 +529,7 @@ public class RegularizationService {
             if (req.getRequestedCheckIn() != null) record.setCheckInAt(req.getRequestedCheckIn());
             if (req.getRequestedCheckOut() != null) record.setCheckOutAt(req.getRequestedCheckOut());
             record.setSource(SOURCE_REGULARIZATION);
-            recomputeDerivedFields(record);
+            recomputeDerivedFields(record, req.getEmployeeUserId());
             attendanceRepository.save(record);
 
             req.setStatus(STATUS_APPROVED);
@@ -445,7 +551,19 @@ public class RegularizationService {
         auditService.log(actor.getId(),
                 finalStage ? "REGULARIZATION_APPROVED" : "REGULARIZATION_PARTIALLY_APPROVED",
                 req.getEmployeeUserId());
-        // TODO(notifications): notify req.getEmployeeUserId() of approval — owned by another workstream.
+
+        // finalStage is always true for a fresh approval now (Manager included) — this guard
+        // only still matters for finalizing a request that was already left PARTIALLY_APPROVED
+        // before this change; that legacy path also reaches here with finalStage true, so the
+        // guard itself is effectively redundant now, just defensive.
+        if (finalStage) {
+            notifyRecipients(List.of(req.getEmployeeUserId()), "REGULARIZATION_APPROVED",
+                    "Regularization Request Approved",
+                    "Your regularization request for " + req.getAttendanceDate().format(NOTIFICATION_DATE_FMT)
+                            + " has been approved by " + employeeName(actor.getId()) + "."
+                            + (comment != null && !comment.isBlank() ? " Comment: " + comment.trim() : ""),
+                    "/my-requests?type=REGULARIZATION");
+        }
         return toResponse(req);
     }
 
@@ -460,6 +578,9 @@ public class RegularizationService {
         if (STATUS_PENDING.equals(req.getStatus())) {
             if (hasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
+            } else if (hasRole(actor, "HR_ADMIN")) {
+                // Same bypass SUPER_ADMIN already has at this stage — see approve() above.
+                actingRole = "HR_ADMIN";
             } else if (hasRole(actor, "MANAGER")) {
                 assertCanReview(req, actor);
                 actingRole = "MANAGER";
@@ -489,7 +610,15 @@ public class RegularizationService {
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "reviewComment", comment != null ? comment : ""));
         auditService.log(actor.getId(), "REGULARIZATION_REJECTED", req.getEmployeeUserId(), before, after);
-        // TODO(notifications): notify req.getEmployeeUserId() of rejection — owned by another workstream.
+
+        // Request Rejected: reject() has no interim stage — every reject() call is terminal —
+        // so the employee is always notified, with the rejection reason included when given.
+        notifyRecipients(List.of(req.getEmployeeUserId()), "REGULARIZATION_REJECTED",
+                "Regularization Request Rejected",
+                "Your regularization request for " + req.getAttendanceDate().format(NOTIFICATION_DATE_FMT)
+                        + " has been rejected by " + employeeName(actor.getId()) + "."
+                        + (comment != null && !comment.isBlank() ? " Reason: " + comment.trim() : ""),
+                "/my-requests?type=REGULARIZATION");
         return toResponse(req);
     }
 
@@ -503,11 +632,26 @@ public class RegularizationService {
                 .build());
     }
 
-    /** Mirrors AttendanceService's check-in/check-out status derivation for a corrected row. */
-    private void recomputeDerivedFields(Attendance record) {
-        LocalTime deadline = attendanceProps.getShiftStart().plusMinutes(attendanceProps.getLateGraceMinutes());
-        int lateByMinutes = record.getCheckInAt().toLocalTime().isAfter(deadline)
-                ? (int) Duration.between(deadline, record.getCheckInAt().toLocalTime()).toMinutes()
+    /** The employee's actually-assigned Shift start (ONEHR-108) if present, else the global fallback. */
+    private LocalTime resolveShiftStart(UUID employeeUserId) {
+        return employeeRepository.findById(employeeUserId)
+                .map(Employee::getShift)
+                .map(Shift::getStartTime)
+                .orElse(attendanceProps.getShiftStart());
+    }
+
+    /**
+     * Mirrors AttendanceService's check-in/check-out status derivation for a corrected row.
+     * shiftStart is anchored to the record's own workDate (not compared as a bare LocalTime-of-
+     * day) so an overnight shift's post-midnight check-in (e.g. 20:30-05:30 shift, 1:11 AM
+     * check-in) is correctly measured as hours late instead of reading as "before" shiftStart.
+     */
+    private void recomputeDerivedFields(Attendance record, UUID employeeUserId) {
+        LocalDateTime shiftStartAt = LocalDateTime.of(record.getWorkDate(), resolveShiftStart(employeeUserId));
+        LocalDateTime deadlineAt = shiftStartAt.plusMinutes(attendanceProps.getLateGraceMinutes());
+        LocalDateTime checkInAt = record.getCheckInAt();
+        int lateByMinutes = checkInAt.isAfter(deadlineAt)
+                ? (int) Duration.between(deadlineAt, checkInAt).toMinutes()
                 : 0;
         record.setLateByMinutes(lateByMinutes);
 
@@ -534,14 +678,30 @@ public class RegularizationService {
      * (see RequestModal in AttendancePage.tsx) purely as a convenience.
      */
     private void validateLookbackWindow(LocalDate attendanceDate, int windowDays) {
-        LocalDate today = LocalDate.now(ZoneId.of(attendanceProps.getZone()));
+        LocalDate today = regularizationBusinessToday();
         if (attendanceDate.isAfter(today)) {
             throw new IllegalArgumentException("Cannot request regularization for a future date");
         }
         LocalDate earliestAllowed = today.minusDays(Math.max(windowDays, 1) - 1);
         if (attendanceDate.isBefore(earliestAllowed)) {
             throw new IllegalArgumentException(
-                    "Regularization requests are only allowed within the last " + windowDays + " days (including today)");
+                    "You are not allowed to apply regularization for this date after "
+                            + earliestAllowed.format(NOTIFICATION_DATE_FMT) + ".");
+        }
+    }
+
+    /**
+     * There's no attendance to correct for a date before the employee even joined — unlike the
+     * lookback window/monthly limit above, this is a data-integrity rule, not a business policy,
+     * so it applies to everyone with no Super Admin exemption. Silently allows when the employee
+     * record can't be resolved (never happens for a real actor, but fails open rather than
+     * blocking on an unrelated lookup issue).
+     */
+    private void assertNotBeforeJoiningDate(UUID employeeUserId, LocalDate attendanceDate) {
+        LocalDate joiningDate = employeeRepository.findById(employeeUserId).map(Employee::getJoiningDate).orElse(null);
+        if (joiningDate != null && attendanceDate.isBefore(joiningDate)) {
+            throw new IllegalArgumentException(
+                    "Cannot request regularization for a date before your joining date (" + joiningDate.format(NOTIFICATION_DATE_FMT) + ").");
         }
     }
 
@@ -575,6 +735,39 @@ public class RegularizationService {
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+    }
+
+    private LocalDate regularizationBusinessToday() {
+        return resolveBusinessDate(LocalDateTime.now(ZoneId.of(attendanceProps.getZone())));
+    }
+
+    /**
+     * Package-private and pure (no {@code now()} call inside) so the 07:00 AM boundary itself is
+     * directly unit-testable without depending on the wall clock — mirrors
+     * {@code PenalizationPolicyService.resolveDefaultPolicyId}'s convention of exposing just
+     * enough for a direct test, nothing more.
+     */
+    static LocalDate resolveBusinessDate(LocalDateTime now) {
+        return now.toLocalTime().isBefore(REGULARIZATION_DAY_BOUNDARY)
+                ? now.toLocalDate().minusDays(1)
+                : now.toLocalDate();
+    }
+
+    private String employeeName(UUID employeeUserId) {
+        return employeeRepository.findById(employeeUserId).map(Employee::getFullName).orElse("Unknown");
+    }
+
+    /**
+     * Sends one notification per DISTINCT recipient — collapses any duplicate user IDs a single
+     * event might otherwise resolve to (e.g. a dual-role actor matching more than one recipient
+     * path) into exactly one notification per person, and silently skips nulls (e.g. an employee
+     * with no manager on file). Reuses {@link NotificationService#send} as-is — no new
+     * notification model, queue, or delivery mechanism.
+     */
+    private void notifyRecipients(Collection<UUID> recipientIds, String type, String title, String message, String linkPath) {
+        new LinkedHashSet<>(recipientIds).stream()
+                .filter(Objects::nonNull)
+                .forEach(id -> notificationService.send(id, type, title, message, linkPath));
     }
 
     private RegularizationResponse toResponse(RegularizationRequest req) {

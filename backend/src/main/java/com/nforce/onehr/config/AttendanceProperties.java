@@ -25,16 +25,35 @@ public class AttendanceProperties {
      */
     private String zone = "Asia/Kolkata";
 
-    /** Scheduled start of the workday. */
+    /** Scheduled start of the workday. Shift is 3:30 PM - 12:30 AM — crosses midnight. */
     @DateTimeFormat(iso = DateTimeFormat.ISO.TIME)
-    private LocalTime shiftStart = LocalTime.of(9, 30);
+    private LocalTime shiftStart = LocalTime.of(15, 30);
+
+    /**
+     * Shift-day cutover — the boundary at which a fresh check-in (or any other "what shift-day
+     * is this?" attribution) stops belonging to the previous shift-day and starts belonging to
+     * today's. The shift ends at 12:30 AM, but a fresh punch anywhere from midnight up to this
+     * time still belongs to the shift that started the evening before; only from this time
+     * onward does a fresh punch start a new shift-day. See AttendanceService.shiftDayOf.
+     */
+    @DateTimeFormat(iso = DateTimeFormat.ISO.TIME)
+    private LocalTime shiftDayCutover = LocalTime.of(7, 0);
 
     /** Minutes past shiftStart that are forgiven before a punch counts as LATE. */
-    private int lateGraceMinutes = 15;
+    private int lateGraceMinutes = 10;
+
+    // Fractional hours (3.5 = 3h30m) — was `int` (whole-hour-only) until the business rule was
+    // confirmed as 3h30m/7h30m; `double` is exact for both here (.5 has no floating-point
+    // rounding error), and every call site already does `getHalfDayMaxHours() * 60` /
+    // `getFullDayMinHours() * 60`, which stays correct unchanged (double * int => double,
+    // compared against an int workedMinutes via normal widening).
 
     /** A day with fewer worked hours than this is HALF_DAY. */
-    private int halfDayMaxHours = 4;
+    private double halfDayMaxHours = 3.5;
 
     /** Worked hours required for the day to count as a full day. */
-    private int fullDayMinHours = 8;
+    private double fullDayMinHours = 7.5;
+
+    /** Daily break allowance before it starts eating into worked hours. Provisional — pending PO/final confirmation. */
+    private int dailyBreakBudgetMinutes = 60;
 }

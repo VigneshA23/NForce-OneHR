@@ -1,12 +1,15 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, type LucideIcon } from 'lucide-react';
 
 export interface KebabItem {
   label: string;
   onClick: () => void;
   danger?: boolean;
   dividerBefore?: boolean;
+  // Optional — items without one still render label-only exactly as before. Never used to
+  // replace the label (menu items stay text-visible), only to make them faster to scan.
+  icon?: LucideIcon;
 }
 
 const ITEM_HEIGHT = 36; // approx px per item (9px top + 9px bottom padding + ~16px text)
@@ -34,7 +37,15 @@ export function KebabMenu({
       const rect = btnRef.current.getBoundingClientRect();
       const menuHeight = items.length * ITEM_HEIGHT + 8;
       const spaceBelow = window.innerHeight - rect.bottom;
-      const right = window.innerWidth - rect.right;
+      const viewportMargin = 8;
+      // `right` is normally measured from the trigger button's own right edge,
+      // which works when the button sits near the right side of the screen.
+      // On narrow/mobile widths a button nearer the left would push a
+      // right-anchored menu past the left edge of the viewport, so clamp it
+      // to the widest right-offset that still keeps the menu's minWidth
+      // fully on-screen.
+      const maxRight = Math.max(viewportMargin, window.innerWidth - minWidth - viewportMargin);
+      const right = Math.min(window.innerWidth - rect.right, maxRight);
       if (spaceBelow < menuHeight) {
         setPos({ bottom: window.innerHeight - rect.top + 4, right });
       } else {
@@ -87,43 +98,51 @@ export function KebabMenu({
                 boxShadow: '0 12px 32px rgba(0,0,0,.55)',
                 zIndex: 1000,
                 minWidth,
+                maxWidth: 'calc(100vw - 16px)',
+                boxSizing: 'border-box',
                 overflow: 'hidden',
               }}
             >
-              {items.map((item, i) => (
-                <button
-                  key={i}
-                  onClick={e => {
-                    e.stopPropagation();
-                    item.onClick();
-                    setOpen(false);
-                  }}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '9px 14px',
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: item.danger ? '#E4373D' : 'var(--txt)',
-                    borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
-                    transition: 'background .1s',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.background = item.danger
-                      ? 'rgba(228,55,61,.08)'
-                      : 'var(--raised)';
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.background = 'none';
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
+              {items.map((item, i) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={i}
+                    onClick={e => {
+                      e.stopPropagation();
+                      item.onClick();
+                      setOpen(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 9,
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '9px 14px',
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: item.danger ? '#E4373D' : 'var(--txt)',
+                      borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
+                      transition: 'background .1s',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = item.danger
+                        ? 'rgba(228,55,61,.08)'
+                        : 'var(--raised)';
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'none';
+                    }}
+                  >
+                    {Icon && <Icon size={13} style={{ flexShrink: 0, opacity: 0.85 }} />}
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </>,
           document.body

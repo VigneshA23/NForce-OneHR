@@ -8,11 +8,14 @@ public class PasswordConstraintValidator implements ConstraintValidator<ValidPas
     @Override
     public boolean isValid(String password, ConstraintValidatorContext context) {
         if (password == null || password.isBlank()) return true; // @NotBlank handles null/blank
-        int score = 0;
-        if (password.matches(".*[A-Z].*")) score++;
-        if (password.matches(".*[a-z].*")) score++;
-        if (password.matches(".*[0-9].*")) score++;
-        if (password.matches(".*[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>/?].*")) score++;
-        return score >= 3;
+
+        if (PasswordPolicy.containsSpace(password)) {
+            context.disableDefaultConstraintViolation();
+            context.buildConstraintViolationWithTemplate(PasswordPolicy.SPACE_MESSAGE)
+                    .addConstraintViolation();
+            return false;
+        }
+
+        return PasswordPolicy.characterClassScore(password) >= PasswordPolicy.MIN_CHARACTER_CLASSES;
     }
 }

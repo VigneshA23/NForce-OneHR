@@ -4,19 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from '../components/BrandMark';
-
-const CRITERIA = [
-  { label: 'Uppercase letter', test: (p: string) => /[A-Z]/.test(p) },
-  { label: 'Lowercase letter', test: (p: string) => /[a-z]/.test(p) },
-  { label: 'Number', test: (p: string) => /[0-9]/.test(p) },
-  { label: 'Special character', test: (p: string) => /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?]/.test(p) },
-];
-
-function strengthScore(password: string) {
-  if (!password) return 0;
-  const classScore = CRITERIA.filter((c) => c.test(password)).length;
-  return password.length < 8 ? Math.min(classScore, 2) : classScore;
-}
+import {
+  PASSWORD_CRITERIA as CRITERIA,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_SPACE_MESSAGE,
+  containsSpace,
+  passwordStrengthScore as strengthScore,
+  validateNewPassword,
+} from '../utils/passwordPolicy';
 
 type FormValues = {
   currentPassword: string;
@@ -140,17 +135,16 @@ export default function ChangePasswordPage() {
       setError('currentPassword', { message: 'Current password is required' });
       invalid = true;
     }
-    if (data.newPassword.length < 8) {
-      setError('newPassword', { message: 'Must be at least 8 characters' });
-      invalid = true;
-    } else if (strengthScore(data.newPassword) < 3) {
-      setError('newPassword', {
-        message: 'Must include at least 3 of: uppercase, lowercase, number, special character',
-      });
+    const newPasswordError = validateNewPassword(data.newPassword);
+    if (newPasswordError) {
+      setError('newPassword', { message: newPasswordError });
       invalid = true;
     }
     if (!data.confirmPassword) {
       setError('confirmPassword', { message: 'Please confirm your new password' });
+      invalid = true;
+    } else if (containsSpace(data.confirmPassword)) {
+      setError('confirmPassword', { message: PASSWORD_SPACE_MESSAGE });
       invalid = true;
     } else if (data.newPassword !== data.confirmPassword) {
       setError('confirmPassword', { message: 'Passwords do not match' });
@@ -173,8 +167,7 @@ export default function ChangePasswordPage() {
       clearTimeout(timeoutId);
       setAuth(res.token, {
         email: user!.email,
-        firstName: user?.firstName,
-        lastName: user?.lastName,
+        fullName: user?.fullName,
         mustChangePassword: false,
         role: user?.role,
       });
@@ -304,7 +297,7 @@ export default function ChangePasswordPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
-                    {[{ label: 'At least 8 characters', test: (p: string) => p.length >= 8 }, ...CRITERIA].map((c) => (
+                    {[{ label: `At least ${PASSWORD_MIN_LENGTH} characters`, test: (p: string) => p.length >= PASSWORD_MIN_LENGTH }, ...CRITERIA].map((c) => (
                       <span
                         key={c.label}
                         className="text-[11px] flex items-center gap-1"

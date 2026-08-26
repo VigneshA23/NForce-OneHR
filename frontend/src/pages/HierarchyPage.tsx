@@ -1,12 +1,38 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   GitBranch, Search, Users, User, ArrowUp, Home, ChevronRight,
-  Download, FileText, X, AlertCircle,
+  Download, FileText, X, AlertCircle, ChevronDown,
 } from 'lucide-react';
 import { hierarchyApi, type OrgContext, type PersonCard, type BreadcrumbEntry } from '../api/hierarchy';
 import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import logoUrl from '../assets/nforce-logo.png';
+import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
+import { EmployeeAvatar, getInitials } from '../components/EmployeeAvatar';
+
+const PEER_MAX = 8;
+// Fluid card width — a genuine linear function of viewport width (not a plain vw%, which
+// saturates at its ceiling well before typical desktop widths), anchored so mobile phones get
+// meaningfully narrower cards while tablet/desktop (≥~725px) render at the original 152px,
+// completely unchanged. Continuous across the whole range, including mid-resize.
+const CARD_W = 'clamp(118px, calc(108.3px + 3.04vw), 152px)';
+const CARD_GAP = 10;
+
+/* ── Role colour mapping (matches UserManagementPage exactly) ─────────── */
+const ROLE_COLOR: Record<string, { text: string; bg: string }> = {
+  SUPER_ADMIN: { text: '#E4373D', bg: 'rgba(228,55,61,.12)' },
+  HR_ADMIN:    { text: '#E0A93B', bg: 'rgba(224,169,59,.12)' },
+  MANAGER:     { text: '#4C8DD6', bg: 'rgba(76,141,214,.12)' },
+  EMPLOYEE:    { text: '#2FB67C', bg: 'rgba(47,182,124,.12)' },
+};
+const ROLE_LABEL: Record<string, string> = {
+  SUPER_ADMIN: 'Super Admin', HR_ADMIN: 'HR Admin', MANAGER: 'Manager', EMPLOYEE: 'Employee',
+};
+
+function roleLeftBorderColor(card: PersonCard): string {
+  if (card.primaryRole && ROLE_COLOR[card.primaryRole]) return ROLE_COLOR[card.primaryRole].text;
+  return '#B11116';
+}
 
 /* ── Department colour mapping ─────────────────────────────────────────── */
 const DEPT_COLORS: Record<string, { border: string; bg: string; fg: string }> = {
@@ -28,26 +54,41 @@ function deptColor(dept: string | null | undefined) {
   return key ? DEPT_COLORS[key] : DEFAULT_DEPT;
 }
 
-function initials(name: string) {
-  return name.trim().split(/\s+/).map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
+/* ── Dev safeguard: warn if same person appears in multiple tiers ──────── */
+function assertNoDuplicateTiers(ctx: OrgContext) {
+  if (import.meta.env.PROD) return;
+  const ids: string[] = [
+    ...(ctx.manager ? [ctx.manager.id] : []),
+    ...ctx.peers.map(p => p.id),
+    ...ctx.directReports.map(d => d.id),
+  ];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) {
+      console.warn(
+        `[HierarchyPage] ⚠ DUPLICATE PERSON IN VIEW: id=${id} appears in multiple tiers. ` +
+        `Tiers: manager=${ctx.manager?.id}, peers=[${ctx.peers.map(p => p.id).join(',')}], ` +
+        `directReports=[${ctx.directReports.map(d => d.id).join(',')}]`
+      );
+    }
+    seen.add(id);
+  }
 }
 
 /* ── Avatar ────────────────────────────────────────────────────────────── */
 function Avatar({ card, size = 42, isFocus = false }: { card: PersonCard; size?: number; isFocus?: boolean }) {
-  const c = isFocus ? { bg: 'rgba(177,17,22,.25)', fg: '#fff', border: '' } : deptColor(card.department);
+  const c = deptColor(card.department);
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0,
-      background: isFocus ? '#B11116' : c.bg,
-      color: isFocus ? '#fff' : c.fg,
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.33, fontWeight: 700,
-      fontFamily: '"Space Grotesk", sans-serif',
-      border: isFocus ? '2px solid rgba(228,55,61,.6)' : `1.5px solid ${c.border}44`,
-      boxSizing: 'border-box',
-    }}>
-      {card.initials || initials(card.name)}
-    </div>
+    <EmployeeAvatar
+      userId={card.id}
+      name={card.name}
+      size={size}
+      fontSize={size * 0.35}
+      background={isFocus ? '#B11116' : c.bg}
+      color={isFocus ? '#fff' : c.fg}
+      border={isFocus ? '2px solid rgba(228,55,61,.6)' : `1.5px solid ${c.border}44`}
+      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+    />
   );
 }
 
@@ -56,18 +97,18 @@ function SkeletonCard({ wide = false }: { wide?: boolean }) {
   return (
     <div style={{
       background: 'var(--panel)', border: '1.5px solid var(--line)',
-      borderRadius: 12, padding: '14px 16px',
-      width: wide ? 200 : 172, flexShrink: 0,
-      display: 'flex', flexDirection: 'column', gap: 8,
+      borderRadius: 10, padding: '10px 12px',
+      width: wide ? `calc(${CARD_W} + 20px)` : CARD_W, flexShrink: 0,
+      display: 'flex', flexDirection: 'column', gap: 7,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--raised2)', flexShrink: 0 }} />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ height: 11, background: 'var(--raised2)', borderRadius: 4, width: '70%' }} />
-          <div style={{ height: 9, background: 'var(--raised2)', borderRadius: 4, width: '50%' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--raised2)', flexShrink: 0 }} />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ height: 10, background: 'var(--raised2)', borderRadius: 4, width: '70%' }} />
+          <div style={{ height: 8, background: 'var(--raised2)', borderRadius: 4, width: '50%' }} />
         </div>
       </div>
-      <div style={{ height: 9, background: 'var(--raised2)', borderRadius: 4, width: '40%' }} />
+      <div style={{ height: 8, background: 'var(--raised2)', borderRadius: 4, width: '40%' }} />
     </div>
   );
 }
@@ -78,7 +119,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.3)', zIndex: 298 }} />
-      <div style={{
+      <div className="nf-drawer-responsive" style={{
         position: 'fixed', top: 0, right: 0, bottom: 0, width: 300,
         background: 'var(--panel)', borderLeft: '1px solid var(--line)',
         boxShadow: '-8px 0 32px rgba(0,0,0,.4)', zIndex: 299,
@@ -92,9 +133,9 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Avatar card={card} size={52} isFocus={card.isFocus} />
+            <Avatar card={card} size={48} isFocus={card.isFocus} />
             <div>
-              <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 2 }}>{card.name}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 2 }}>{card.name}</div>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{card.designation ?? '—'}</div>
             </div>
           </div>
@@ -120,7 +161,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
   );
 }
 
-/* ── Person card ───────────────────────────────────────────────────────── */
+/* ── Person card (compact) ─────────────────────────────────────────────── */
 function OrgCard({
   card, isFocusCard = false, onRecenter, onProfile, disabled = false, myUserId = null,
 }: {
@@ -132,6 +173,7 @@ function OrgCard({
   myUserId?: string | null;
 }) {
   const c = deptColor(card.department);
+  const leftBorder = roleLeftBorderColor(card);
   const [hover, setHover] = useState(false);
 
   return (
@@ -142,15 +184,20 @@ function OrgCard({
         border: isFocusCard
           ? '2px solid rgba(228,55,61,.55)'
           : `1.5px solid ${hover && !disabled ? c.border + '88' : 'var(--line)'}`,
-        borderLeft: `4px solid ${c.border}`,
-        borderRadius: 12,
-        padding: '12px 14px',
-        width: 180,
+        borderLeft: `4px solid ${leftBorder}`,
+        borderRadius: 10,
+        padding: '8px 10px',
+        width: CARD_W,
         flexShrink: 0,
-        boxShadow: isFocusCard ? '0 0 18px rgba(177,17,22,.14)' : hover && !disabled ? '0 4px 16px rgba(0,0,0,.2)' : '0 1px 4px rgba(0,0,0,.1)',
+        boxShadow: isFocusCard
+          ? '0 0 14px rgba(177,17,22,.14)'
+          : hover && !disabled
+          ? '0 3px 12px rgba(0,0,0,.18)'
+          : '0 1px 3px rgba(0,0,0,.1)',
         transition: 'border-color 140ms, background 140ms, box-shadow 140ms',
         cursor: disabled ? 'default' : 'pointer',
         userSelect: 'none',
+        ...inactiveDimStyle(card.active),
       }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -158,9 +205,9 @@ function OrgCard({
       {/* YOU / FOCUS badge */}
       {(card.id === myUserId || isFocusCard) && (
         <div style={{
-          position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)',
+          position: 'absolute', top: -9, left: '50%', transform: 'translateX(-50%)',
           background: card.id === myUserId ? '#2FB67C' : '#B11116', color: '#fff',
-          fontSize: 9, fontWeight: 700, padding: '1px 8px', borderRadius: 20,
+          fontSize: 8.5, fontWeight: 700, padding: '1px 7px', borderRadius: 20,
           whiteSpace: 'nowrap', letterSpacing: '.05em',
         }}>
           {card.id === myUserId ? 'YOU' : 'FOCUS'}
@@ -172,46 +219,67 @@ function OrgCard({
         onClick={disabled ? undefined : onRecenter}
         aria-label={`View ${card.name}'s team`}
         style={{
-          display: 'flex', flexDirection: 'column', gap: 8, width: '100%',
-          background: 'none', border: 'none', padding: 0, cursor: disabled ? 'default' : 'pointer', textAlign: 'left',
+          display: 'flex', flexDirection: 'column', gap: 6, width: '100%',
+          background: 'none', border: 'none', padding: 0,
+          cursor: disabled ? 'default' : 'pointer', textAlign: 'left',
         }}
         tabIndex={disabled ? -1 : 0}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <Avatar card={card} size={36} isFocus={isFocusCard} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <Avatar card={card} size={30} isFocus={isFocusCard} />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{
+              fontSize: 11.5, fontWeight: 700, color: 'var(--txt)',
+              fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1.3,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
               {card.name}
             </div>
             {card.designation && (
-              <div style={{ fontSize: 10.5, color: 'var(--txt-mut)', lineHeight: 1.3, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{
+                fontSize: 10, color: 'var(--txt-mut)', lineHeight: 1.3, marginTop: 1,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
                 {card.designation}
               </div>
             )}
           </div>
         </div>
-        {card.department && (
-          <div>
-            <span style={{ fontSize: 9.5, fontWeight: 600, padding: '2px 7px', borderRadius: 20, background: c.bg, color: c.fg }}>
-              {card.department}
-            </span>
+        {(card.department || !card.active) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            {card.department && (
+              <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 20, background: c.bg, color: c.fg }}>
+                {card.department}
+              </span>
+            )}
+            {!card.active && <StatusBadge active={card.active} />}
           </div>
         )}
+        {card.primaryRole && (() => {
+          const rc = ROLE_COLOR[card.primaryRole] ?? { text: '#9BA1AC', bg: 'rgba(155,161,172,.12)' };
+          return (
+            <div>
+              <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 20, background: rc.bg, color: rc.text }}>
+                {ROLE_LABEL[card.primaryRole] ?? card.primaryRole}
+              </span>
+            </div>
+          );
+        })()}
         {card.directReportsCount > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 10.5 }}>
-            <Users size={10} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--txt-dim)', fontSize: 10 }}>
+            <Users size={9} />
             <span>{card.directReportsCount} report{card.directReportsCount !== 1 ? 's' : ''}</span>
           </div>
         )}
       </button>
 
-      {/* Profile icon button — separate from recenter */}
+      {/* Profile icon — separate click from recenter */}
       <button
         onClick={e => { e.stopPropagation(); onProfile(); }}
         aria-label={`View ${card.name}'s profile`}
         title="View profile"
         style={{
-          position: 'absolute', top: 8, right: 8,
+          position: 'absolute', top: 6, right: 6,
           background: 'none', border: 'none', padding: 3,
           cursor: 'pointer', color: 'var(--txt-dim)', borderRadius: 4,
           display: 'flex', alignItems: 'center',
@@ -219,7 +287,7 @@ function OrgCard({
         }}
         tabIndex={0}
       >
-        <User size={12} />
+        <User size={11} />
       </button>
     </div>
   );
@@ -230,14 +298,12 @@ function VLine({ height = 36 }: { height?: number }) {
   return <div style={{ width: 2, height, background: 'var(--line2)', margin: '0 auto' }} />;
 }
 
-function HLine({ width }: { width: number }) {
-  return <div style={{ height: 2, width, background: 'var(--line2)' }} />;
-}
-
 /* ── Roots picker modal ───────────────────────────────────────────────── */
-function RootsPicker({
-  roots, onPick, onClose,
-}: { roots: PersonCard[]; onPick: (id: string) => void; onClose: () => void }) {
+function RootsPicker({ roots, onPick, onClose }: {
+  roots: PersonCard[];
+  onPick: (id: string) => void;
+  onClose: () => void;
+}) {
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', zIndex: 398 }} />
@@ -245,7 +311,7 @@ function RootsPicker({
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
         background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12,
         boxShadow: '0 20px 48px rgba(0,0,0,.5)', zIndex: 399,
-        width: 340, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+        width: 'min(340px, calc(100vw - 32px))', maxHeight: '70vh', display: 'flex', flexDirection: 'column',
       }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>View from the top</span>
@@ -262,11 +328,15 @@ function RootsPicker({
                 display: 'flex', alignItems: 'center', gap: 10,
                 background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8,
                 padding: '10px 12px', cursor: 'pointer', textAlign: 'left',
+                ...inactiveDimStyle(r.active),
               }}
             >
-              <Avatar card={r} size={34} />
-              <div>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
+              <Avatar card={r} size={32} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
+                  {!r.active && <StatusBadge active={r.active} />}
+                </div>
                 <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{r.designation ?? r.department ?? 'Root'}</div>
               </div>
               {r.directReportsCount > 0 && (
@@ -282,11 +352,17 @@ function RootsPicker({
   );
 }
 
-/* ── Breadcrumb ──────────────────────────────────────────────────────── */
+/* ── Breadcrumb ──────────────────────────────────────────────────────────
+   Never wraps internally — crumbs + separators are one nowrap run. If the whole trail is too
+   wide to share a line with the action buttons, the *entire* breadcrumb moves to its own line
+   (handled by its parent row, see the main render) rather than splitting mid-trail with half
+   the crumbs stranded above/below the buttons. Only a pathologically deep chain that overflows
+   even a full-width line falls back to a horizontal scroll instead of breaking the single line.
+─────────────────────────────────────────────────────────────────────────── */
 function Breadcrumb({ crumbs, onJump }: { crumbs: BreadcrumbEntry[]; onJump: (id: string) => void }) {
   if (crumbs.length === 0) return null;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', marginBottom: 4 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
       {crumbs.map((c, i) => (
         <React.Fragment key={c.id}>
           {i > 0 && <ChevronRight size={11} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} />}
@@ -297,7 +373,7 @@ function Breadcrumb({ crumbs, onJump }: { crumbs: BreadcrumbEntry[]; onJump: (id
               fontSize: 12, fontWeight: i === crumbs.length - 1 ? 700 : 400,
               color: i === crumbs.length - 1 ? 'var(--txt)' : 'var(--txt-mut)',
               cursor: i === crumbs.length - 1 ? 'default' : 'pointer',
-              borderRadius: 4,
+              borderRadius: 4, whiteSpace: 'nowrap', flexShrink: 0,
             }}
             tabIndex={i === crumbs.length - 1 ? -1 : 0}
           >
@@ -306,6 +382,24 @@ function Breadcrumb({ crumbs, onJump }: { crumbs: BreadcrumbEntry[]; onJump: (id
         </React.Fragment>
       ))}
     </div>
+  );
+}
+
+/* ── "+N more peers" expand button ──────────────────────────────────── */
+function MoreButton({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 20,
+        padding: '5px 12px', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)',
+        cursor: 'pointer', whiteSpace: 'nowrap',
+      }}
+    >
+      <ChevronDown size={11} />
+      +{count} more peers
+    </button>
   );
 }
 
@@ -326,10 +420,101 @@ export default function HierarchyPage() {
   const [searchResults, setSearchResults] = useState<PersonCard[]>([]);
   const [allNodes, setAllNodes] = useState<PersonCard[]>([]);
   const [showSearchDrop, setShowSearchDrop] = useState(false);
-  const chartRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [peersExpanded, setPeersExpanded] = useState(false);
 
-  /* Load profile to get my userId */
+  // Measured connector line state (computed from real DOM positions)
+  const [connLeft, setConnLeft] = useState(0);
+  const [connWidth, setConnWidth] = useState(0);
+  // Direct-reports header line width — measured from the real rendered row rather than derived
+  // from CARD_W arithmetic, since CARD_W is now a fluid clamp() and can't be resolved to a
+  // number in JS. Same DOM-measurement approach as the peer-row connector above.
+  const [reportsLineW, setReportsLineW] = useState(0);
+
+  const chartRef           = useRef<HTMLDivElement>(null);
+  const searchRef          = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const firstPeerRef       = useRef<HTMLDivElement>(null);
+  const lastPeerRef        = useRef<HTMLDivElement>(null);
+  const peerRowRef         = useRef<HTMLDivElement>(null);
+  const reportsRowRef      = useRef<HTMLDivElement>(null);
+
+  /* Reset expand state when navigating */
+  useEffect(() => { setPeersExpanded(false); }, [focusId]);
+
+  /* ── Derived peer data — strictly from real backend data, no role merging */
+  const sortedPeers: PersonCard[] = ctx
+    ? [...ctx.peers].sort((a, b) => b.directReportsCount - a.directReportsCount)
+    : [];
+
+  const focusIdxInSorted = sortedPeers.findIndex(p => p.isFocus);
+
+  let visiblePeers: PersonCard[];
+  if (!ctx || peersExpanded || sortedPeers.length <= PEER_MAX) {
+    visiblePeers = sortedPeers;
+  } else {
+    const first8 = sortedPeers.slice(0, PEER_MAX);
+    // Guarantee focus person is always visible even if sorted past slot 8
+    if (focusIdxInSorted < PEER_MAX || focusIdxInSorted < 0) {
+      visiblePeers = first8;
+    } else {
+      visiblePeers = [...first8, sortedPeers[focusIdxInSorted]];
+    }
+  }
+  const hiddenCount = sortedPeers.length - visiblePeers.length;
+
+  // Stable key for useLayoutEffect — changes only when the visible set actually changes
+  const connectorKey = visiblePeers.map(p => p.id).join(',') + '|' + String(peersExpanded);
+
+  /* ── Measure peer-row + direct-reports connector lines from real DOM positions ───────────
+     Card widths are now a fluid clamp() of viewport width (see CARD_W), so these positions
+     shift on every window resize, not just when the underlying data changes — re-measure on
+     both a data-driven layout pass and on window resize, not connectorKey alone. */
+  const measureConnectors = useCallback(() => {
+    if (!peerRowRef.current || !firstPeerRef.current || visiblePeers.length < 2) {
+      setConnLeft(0);
+      setConnWidth(0);
+    } else {
+      const containerRect = peerRowRef.current.getBoundingClientRect();
+      const firstRect     = firstPeerRef.current.getBoundingClientRect();
+      const lastEl        = lastPeerRef.current ?? firstPeerRef.current;
+      const lastRect      = lastEl.getBoundingClientRect();
+
+      // Center-X of each endpoint, relative to peerRowRef's left edge
+      const leftCenter  = firstRect.left - containerRect.left + firstRect.width  / 2;
+      const rightCenter = lastRect.left  - containerRect.left + lastRect.width   / 2;
+
+      setConnLeft(leftCenter);
+      setConnWidth(Math.max(0, rightCenter - leftCenter));
+    }
+
+    if (reportsRowRef.current && ctx && ctx.directReports.length >= 2) {
+      setReportsLineW(Math.min(reportsRowRef.current.scrollWidth, 960));
+    } else {
+      setReportsLineW(0);
+    }
+  }, [visiblePeers, ctx]);
+
+  useLayoutEffect(() => { measureConnectors(); }, [connectorKey, measureConnectors]);
+
+  useEffect(() => {
+    window.addEventListener('resize', measureConnectors);
+    return () => window.removeEventListener('resize', measureConnectors);
+  }, [measureConnectors]);
+
+  /* ── Auto-scroll: center focus card in the scroll container ─────────── */
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const focusEl = container.querySelector<HTMLElement>('[data-focus-peer]');
+    if (!focusEl) return;
+    const containerRect = container.getBoundingClientRect();
+    const focusRect     = focusEl.getBoundingClientRect();
+    const focusCenter   = focusRect.left - containerRect.left + container.scrollLeft + focusRect.width / 2;
+    container.scrollLeft = focusCenter - container.clientWidth / 2;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectorKey]);
+
+  /* ── Side effects ────────────────────────────────────────────────────── */
   useEffect(() => {
     profileApi.get(token)
       .then(p => {
@@ -337,7 +522,6 @@ export default function HierarchyPage() {
         if (p.hasEmployeeRecord) {
           setFocusId(p.userId);
         } else {
-          // SA/HR Admin without an employee record — jump straight to roots
           setNoEmployeeRecord(true);
           setLoading(false);
           setShowRoots(true);
@@ -346,33 +530,34 @@ export default function HierarchyPage() {
       .catch(() => setError('Could not load your profile'));
   }, [token]);
 
-  /* Load all nodes for search */
   useEffect(() => {
     hierarchyApi.list(token)
       .then(nodes => {
         setAllNodes(nodes.map(n => ({
           id: n.userId, name: n.fullName,
           designation: n.designationName, department: n.departmentName,
-          initials: initials(n.fullName), directReportsCount: 0, isFocus: false, active: n.active,
+          initials: getInitials(n.fullName), directReportsCount: 0, isFocus: false, active: n.active,
         })));
       })
-      .catch(() => { /* search just won't work */ });
+      .catch(() => {});
   }, [token]);
 
-  /* Load roots */
   useEffect(() => {
-    hierarchyApi.getRoots(token).then(setRoots).catch(() => { /* roots unavailable */ });
+    hierarchyApi.getRoots(token).then(setRoots).catch(() => {});
   }, [token]);
 
-  /* Fetch context whenever focusId changes */
   useEffect(() => {
     if (!focusId) return;
     setLoadingCtx(true);
     setError('');
     hierarchyApi.getContext(token, focusId)
-      .then(data => { setCtx(data); setLoading(false); })
+      .then(data => {
+        assertNoDuplicateTiers(data);
+        setCtx(data);
+        setNoEmployeeRecord(false);
+        setLoading(false);
+      })
       .catch(() => {
-        // This user has no employee record — fall back to roots picker
         setLoading(false);
         setNoEmployeeRecord(true);
         setShowRoots(true);
@@ -380,17 +565,19 @@ export default function HierarchyPage() {
       .finally(() => setLoadingCtx(false));
   }, [token, focusId]);
 
-  /* Search filter */
   useEffect(() => {
     const q = search.trim().toLowerCase();
     if (!q) { setSearchResults([]); return; }
     setSearchResults(allNodes.filter(n =>
-      n.name.toLowerCase().includes(q) || (n.designation ?? '').toLowerCase().includes(q) || (n.department ?? '').toLowerCase().includes(q)
+      n.name.toLowerCase().includes(q) ||
+      (n.designation ?? '').toLowerCase().includes(q) ||
+      (n.department ?? '').toLowerCase().includes(q)
     ).slice(0, 8));
   }, [search, allNodes]);
 
   const recenter = useCallback((id: string) => {
     setFocusId(id);
+    setNoEmployeeRecord(false);
     setSearch('');
     setShowSearchDrop(false);
   }, []);
@@ -399,7 +586,8 @@ export default function HierarchyPage() {
     if (myUserId) recenter(myUserId);
   }, [myUserId, recenter]);
 
-  /* Export */
+  /* ── Export ──────────────────────────────────────────────────────────── */
+  // Breadcrumb is outside chartRef DOM — drawn from ctx data directly into canvas.
   async function buildExportCanvas(): Promise<HTMLCanvasElement> {
     await document.fonts.ready;
     const { default: html2canvas } = await import('html2canvas');
@@ -407,14 +595,13 @@ export default function HierarchyPage() {
       backgroundColor: '#16181D', scale: 2, useCORS: true, logging: false,
     });
 
-    const HEADER = 96; // px in final canvas coords
+    const HEADER = 96;
     const W = chartCanvas.width;
     const combined = document.createElement('canvas');
     combined.width = W;
     combined.height = chartCanvas.height + HEADER;
     const gfx = combined.getContext('2d')!;
 
-    // Gradient header — matches topbar: #050506 → #6B0C10 → #A01418
     const grad = gfx.createLinearGradient(0, 0, W, 0);
     grad.addColorStop(0, '#050506');
     grad.addColorStop(0.4, '#6B0C10');
@@ -422,7 +609,6 @@ export default function HierarchyPage() {
     gfx.fillStyle = grad;
     gfx.fillRect(0, 0, W, HEADER);
 
-    // Logo
     const logoImg = new Image();
     logoImg.src = logoUrl;
     await new Promise<void>(r => { logoImg.onload = () => r(); logoImg.onerror = () => r(); });
@@ -432,21 +618,20 @@ export default function HierarchyPage() {
       gfx.drawImage(logoImg, 24, (HEADER - logoH) / 2, logoW, logoH);
     }
 
-    // Title
     gfx.fillStyle = '#E8EAED';
-    gfx.font = 'bold 26px "Space Grotesk", system-ui, sans-serif';
-    const titleX = logoImg.naturalWidth > 0 ? 24 + (HEADER * 0.55 * logoImg.naturalWidth / logoImg.naturalHeight) + 20 : 24;
+    gfx.font = 'bold 24px "Space Grotesk", system-ui, sans-serif';
+    const titleX = logoImg.naturalWidth > 0
+      ? 24 + (HEADER * 0.55 * logoImg.naturalWidth / logoImg.naturalHeight) + 20
+      : 24;
     gfx.fillText('NForce OneHR — Organization Hierarchy', titleX, HEADER / 2 - 4);
 
-    // Breadcrumb
     const crumbText = ctx?.breadcrumb.map(b => b.name).join(' › ') ?? '';
     if (crumbText) {
       gfx.fillStyle = '#9BA1AC';
-      gfx.font = '18px Inter, system-ui, sans-serif';
+      gfx.font = '16px Inter, system-ui, sans-serif';
       gfx.fillText(crumbText, titleX, HEADER / 2 + 20);
     }
 
-    // Chart
     gfx.drawImage(chartCanvas, 0, HEADER);
     return combined;
   }
@@ -471,7 +656,7 @@ export default function HierarchyPage() {
     pdf.save('org-hierarchy.pdf');
   }
 
-  /* ── Render ─────────────────────────────────────────────────────────── */
+  /* ── Shared button style ─────────────────────────────────────────────── */
   const BTN: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 5,
     background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7,
@@ -479,20 +664,76 @@ export default function HierarchyPage() {
     cursor: 'pointer', whiteSpace: 'nowrap',
   };
 
+  /* ── Direct reports tier (tier 3) ────────────────────────────────────── */
+  function DirectReports() {
+    if (!ctx) return null;
+    if (ctx.directReports.length === 0) {
+      return (
+        <div style={{ marginTop: 20, padding: '10px 16px', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12, color: 'var(--txt-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Users size={12} /> No direct reports
+        </div>
+      );
+    }
+    return (
+      <>
+        <VLine height={28} />
+        {ctx.directReports.length > 1 && (
+          <div style={{ height: 2, width: reportsLineW, background: 'var(--line2)' }} />
+        )}
+        <div ref={reportsRowRef} style={{ display: 'flex', gap: CARD_GAP }}>
+          {ctx.directReports.map(dr => (
+            <div key={dr.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <VLine height={16} />
+              <OrgCard
+                card={dr}
+                onRecenter={() => recenter(dr.id)}
+                onProfile={() => setDetail(dr)}
+                myUserId={myUserId}
+              />
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  /* ── Render ──────────────────────────────────────────────────────────── */
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <h1 style={{ margin: 0, marginBottom: 3, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Org Hierarchy</h1>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>Click any card to re-center the view. Read-only — manage reporting lines in User Management.</p>
+      {/* Page title */}
+      <div>
+        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          Org Hierarchy
+        </h1>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>
+          Click any card to re-center the view. Read-only — manage reporting lines in User Management.
+        </p>
+      </div>
+
+      {/* Breadcrumb + action buttons — OUTSIDE scroll container, always visible.
+          The breadcrumb is flexShrink:0 (never shrinks below its natural single-line width) —
+          combined with the Breadcrumb component's own internal nowrap, this means it can never
+          be squeezed into wrapping mid-trail. When it and the buttons together don't fit one
+          row, flex-wrap moves the *entire* buttons block down as one unit (marginLeft:auto
+          keeps it right-aligned when they do share a line) instead of interleaving with the
+          breadcrumb text. Below 767px the buttons additionally switch to a 2x2 grid (see
+          .nf-hierarchy-actions in index.css) so all four always fit — a row that's merely
+          allowed to wrap can still overflow if even one row's worth doesn't fit the viewport. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flexShrink: 0, maxWidth: '100%', overflowX: 'auto' }}>
+          {ctx && ctx.breadcrumb.length > 1 && (
+            <Breadcrumb crumbs={ctx.breadcrumb} onJump={recenter} />
+          )}
         </div>
-        <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="nf-hierarchy-actions" style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, marginLeft: 'auto' }}>
           <button onClick={jumpToMe} style={BTN} title="Return to your position">
             <Home size={13} /> My Position
           </button>
-          <button onClick={() => { if (roots.length === 1) recenter(roots[0].id); else setShowRoots(true); }} style={BTN}>
+          <button
+            onClick={() => { if (roots.length === 1) recenter(roots[0].id); else setShowRoots(true); }}
+            style={BTN}
+          >
             <ArrowUp size={13} /> View from Top
           </button>
           <button onClick={exportPng} style={BTN}><Download size={13} /> PNG</button>
@@ -501,7 +742,7 @@ export default function HierarchyPage() {
       </div>
 
       {/* Search bar */}
-      <div style={{ position: 'relative', maxWidth: 360 }} ref={searchRef as any}>
+      <div style={{ position: 'relative', maxWidth: 360 }} ref={searchRef}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
         <input
           value={search}
@@ -535,13 +776,17 @@ export default function HierarchyPage() {
                   width: '100%', background: 'none', border: 'none',
                   padding: '9px 12px', cursor: 'pointer', textAlign: 'left',
                   borderBottom: '1px solid var(--line)',
+                  ...inactiveDimStyle(r.active),
                 }}
                 onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised)'}
                 onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'none'}
               >
-                <Avatar card={r} size={28} />
-                <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.name}</div>
+                <Avatar card={r} size={26} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                    {!r.active && <StatusBadge active={r.active} />}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{r.designation ?? r.department ?? ''}</div>
                 </div>
               </button>
@@ -550,147 +795,154 @@ export default function HierarchyPage() {
         )}
       </div>
 
-      {/* Main chart panel */}
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '28px 24px', overflowX: 'auto', minHeight: 420 }}>
+      {/* ── Scrollable chart panel ──────────────────────────────────────────
+          FIX for left-edge clipping: the inner wrapper has min-width:max-content
+          so the scroll container can access ALL content in both directions.
+          alignItems:center on the flex-column chartRef centers narrow tiers
+          (manager card, etc.) within the max-content width.
+      ─────────────────────────────────────────────────────────────────────── */}
+      <div ref={scrollContainerRef} style={{
+        background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12,
+        // Fluid padding — more of a narrow phone's width goes to the chart itself instead of
+        // being eaten by fixed padding; continuous clamp(calc(px+vw)) so it scales all the way
+        // up to the original 24/20px at desktop widths, not just a single mobile breakpoint.
+        padding: 'clamp(12px, calc(8.57px + 1.07vw), 24px) clamp(10px, calc(7.14px + 0.89vw), 20px)',
+        overflowX: 'auto', minHeight: 380,
+      }}>
+        {/* min-width:max-content wrapper prevents alignItems:center from clipping left side */}
+        <div style={{ minWidth: 'max-content', display: 'flex', justifyContent: 'center' }}>
 
-        {loading ? (
-          /* Initial loading skeleton */
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
-            <SkeletonCard wide />
-            <VLine />
-            <div style={{ display: 'flex', gap: 12 }}>
-              {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
+              <SkeletonCard wide />
+              <VLine height={24} />
+              <div style={{ display: 'flex', gap: CARD_GAP }}>
+                {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
+              </div>
+              <VLine height={24} />
+              <div style={{ display: 'flex', gap: CARD_GAP }}>
+                {[1, 2].map(i => <SkeletonCard key={i} />)}
+              </div>
             </div>
-            <VLine />
-            <div style={{ display: 'flex', gap: 12 }}>
-              {[1, 2].map(i => <SkeletonCard key={i} />)}
+          ) : noEmployeeRecord ? (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <GitBranch size={28} style={{ color: 'var(--txt-dim)', margin: '0 auto 12px', display: 'block' }} />
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>Your account has no employee record</div>
+              <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 16 }}>Use "View from Top" to browse the org chart, or search for a person.</div>
+              <button
+                onClick={() => { if (roots.length === 1) recenter(roots[0].id); else setShowRoots(true); }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(177,17,22,.1)', border: '1px solid rgba(177,17,22,.3)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: 'var(--brand)', cursor: 'pointer' }}
+              >
+                <ArrowUp size={14} /> View from Top
+              </button>
             </div>
-          </div>
-        ) : noEmployeeRecord ? (
-          <div style={{ textAlign: 'center', padding: '48px 0' }}>
-            <GitBranch size={28} style={{ color: 'var(--txt-dim)', margin: '0 auto 12px', display: 'block' }} />
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>Your account has no employee record</div>
-            <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 16 }}>Use "View from Top" to browse the org chart, or search for a person.</div>
-            <button
-              onClick={() => { if (roots.length === 1) recenter(roots[0].id); else setShowRoots(true); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(177,17,22,.1)', border: '1px solid rgba(177,17,22,.3)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: 'var(--brand)', cursor: 'pointer' }}
+          ) : error ? (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <AlertCircle size={28} style={{ color: 'var(--risk)', margin: '0 auto 10px', display: 'block' }} />
+              <div style={{ fontSize: 13, color: 'var(--risk)', marginBottom: 6 }}>{error}</div>
+              <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Check that the backend is running.</div>
+            </div>
+          ) : ctx ? (
+            <div
+              ref={chartRef}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, paddingBottom: 8 }}
             >
-              <ArrowUp size={14} /> View from Top
-            </button>
-          </div>
-        ) : error ? (
-          <div style={{ textAlign: 'center', padding: '48px 0' }}>
-            <AlertCircle size={28} style={{ color: 'var(--risk)', margin: '0 auto 10px', display: 'block' }} />
-            <div style={{ fontSize: 13, color: 'var(--risk)', marginBottom: 6 }}>{error}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Check that the backend is running.</div>
-          </div>
-        ) : ctx ? (
-          <div ref={chartRef} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, paddingBottom: 8 }}>
 
-            {/* Breadcrumb */}
-            {ctx.breadcrumb.length > 1 && (
-              <div style={{ marginBottom: 16, alignSelf: 'flex-start' }}>
-                <Breadcrumb crumbs={ctx.breadcrumb} onJump={recenter} />
-              </div>
-            )}
-
-            {/* Tier 1: Manager */}
-            {ctx.manager ? (
-              <>
-                <OrgCard card={ctx.manager} onRecenter={() => recenter(ctx.manager!.id)} onProfile={() => setDetail(ctx.manager)} myUserId={myUserId} />
-                <VLine height={32} />
-                {/* Horizontal bar spanning peers */}
-                {ctx.peers.length > 1 && (
-                  <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
-                    <HLine width={Math.min(ctx.peers.length * 196, 1000)} />
-                  </div>
-                )}
-              </>
-            ) : (
-              /* Root label */
-              <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <GitBranch size={13} style={{ color: 'var(--txt-dim)' }} />
-                <span style={{ fontSize: 12, color: 'var(--txt-dim)', fontWeight: 600 }}>Organisation Root</span>
-              </div>
-            )}
-
-            {/* Tier 2+3: Peers row with focus card anchoring its direct reports */}
-            {loadingCtx ? (
-              <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                {[1, 2, 3].map(i => (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    {ctx.manager && <VLine height={20} />}
-                    <SkeletonCard />
-                  </div>
-                ))}
-              </div>
-            ) : (() => {
-              const fi = ctx.peers.findIndex(p => p.isFocus);
-              const leftPeers = ctx.peers.slice(0, fi);
-              const focusPeer = fi >= 0 ? ctx.peers[fi] : null;
-              const rightPeers = ctx.peers.slice(fi + 1);
-
-              const renderSidePeer = (peer: PersonCard) => (
-                <div key={peer.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  {ctx.manager && <VLine height={20} />}
+              {/* ── Tier 1: Manager — strictly from ctx.manager (real data) ── */}
+              {ctx.manager ? (
+                <>
                   <OrgCard
-                    card={peer}
-                    onRecenter={() => recenter(peer.id)}
-                    onProfile={() => setDetail(peer)}
+                    card={ctx.manager}
+                    onRecenter={() => recenter(ctx.manager!.id)}
+                    onProfile={() => setDetail(ctx.manager)}
                     myUserId={myUserId}
                   />
+                  <VLine height={28} />
+                </>
+              ) : (
+                /* Focus person is a true root — tier above is completely empty */
+                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <GitBranch size={13} style={{ color: 'var(--txt-dim)' }} />
+                  <span style={{ fontSize: 12, color: 'var(--txt-dim)', fontWeight: 600 }}>Organisation Root</span>
                 </div>
-              );
+              )}
 
-              return (
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', justifyContent: 'center' }}>
-                  {leftPeers.map(renderSidePeer)}
-
-                  {focusPeer && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      {ctx.manager && <VLine height={20} />}
-                      <OrgCard
-                        card={focusPeer}
-                        isFocusCard
-                        onRecenter={() => {}}
-                        onProfile={() => setDetail(focusPeer)}
-                        disabled
-                        myUserId={myUserId}
-                      />
-                      {ctx.directReports.length > 0 ? (
-                        <>
-                          <VLine height={32} />
-                          {ctx.directReports.length > 1 && (
-                            <HLine width={Math.min(ctx.directReports.length * 196, 960)} />
-                          )}
-                          <div style={{ display: 'flex', gap: 12 }}>
-                            {ctx.directReports.map(dr => (
-                              <div key={dr.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <VLine height={20} />
-                                <OrgCard
-                                  card={dr}
-                                  onRecenter={() => recenter(dr.id)}
-                                  onProfile={() => setDetail(dr)}
-                                  myUserId={myUserId}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ marginTop: 24, padding: '12px 20px', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12, color: 'var(--txt-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Users size={13} /> No direct reports
-                        </div>
-                      )}
+              {/* ── Tier 2: Peers — all peers in ONE flat row, exactly as returned by API ── */}
+              {/* No role-based splitting. Mixed roles (SA + Manager etc.) render side-by-side. */}
+              {loadingCtx ? (
+                <div style={{ display: 'flex', gap: CARD_GAP, justifyContent: 'center' }}>
+                  {[1, 2, 3].map(i => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      {ctx.manager && <VLine height={16} />}
+                      <SkeletonCard />
                     </div>
+                  ))}
+                </div>
+              ) : (
+                /* peerRowRef is position:relative so absolute HLine is contained within */
+                <div
+                  ref={peerRowRef}
+                  style={{ position: 'relative', display: 'flex', gap: CARD_GAP, alignItems: 'flex-start' }}
+                >
+                  {/* Measured horizontal connector — spans first card center to last card center */}
+                  {visiblePeers.length > 1 && connWidth > 0 && ctx.manager && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: connLeft,
+                      width: connWidth,
+                      height: 2,
+                      background: 'var(--line2)',
+                      zIndex: 0,
+                    }} />
                   )}
 
-                  {rightPeers.map(renderSidePeer)}
+                  {/* Peer columns — sorted by directReportsCount DESC, focus guaranteed visible */}
+                  {visiblePeers.map((peer, idx) => {
+                    const isFirst = idx === 0;
+                    const isLast  = hiddenCount === 0 && idx === visiblePeers.length - 1;
+                    return (
+                      <div
+                        key={peer.id}
+                        ref={isFirst ? firstPeerRef : isLast ? lastPeerRef : undefined}
+                        data-focus-peer={peer.isFocus ? 'true' : undefined}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', zIndex: 1 }}
+                      >
+                        {ctx.manager && <VLine height={16} />}
+                        <OrgCard
+                          card={peer}
+                          isFocusCard={peer.isFocus}
+                          onRecenter={peer.isFocus ? () => {} : () => recenter(peer.id)}
+                          onProfile={() => setDetail(peer)}
+                          disabled={peer.isFocus}
+                          myUserId={myUserId}
+                        />
+                        {/* Tier 3: direct reports drop below the focus card only */}
+                        {peer.isFocus && <DirectReports />}
+                      </div>
+                    );
+                  })}
+
+                  {/* "+N more peers" pill — also measured as lastPeerRef */}
+                  {hiddenCount > 0 && (
+                    <div
+                      ref={lastPeerRef}
+                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', zIndex: 1 }}
+                    >
+                      {ctx.manager && <VLine height={16} />}
+                      <MoreButton count={hiddenCount} onClick={() => setPeersExpanded(true)} />
+                    </div>
+                  )}
                 </div>
-              );
-            })()}
-          </div>
-        ) : null}
+              )}
+
+              {/* Edge case: focus person not in visiblePeers (hidden behind +N more) */}
+              {!loadingCtx && !visiblePeers.some(p => p.isFocus) && <DirectReports />}
+
+            </div>
+          ) : null}
+
+        </div>{/* end min-width:max-content wrapper */}
       </div>
 
       {/* Modals */}

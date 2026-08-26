@@ -109,6 +109,7 @@ body {
 
 @keyframes glow-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
 @keyframes nf-toast-in { from { opacity: 0; transform: translateY(-6px) scale(.97) } to { opacity: 1; transform: none } }
+@keyframes nf-hero-pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
 @media (prefers-reduced-motion: no-preference) {
   html.nf-theme-transitioning * {
@@ -157,3 +158,519 @@ input[type="date"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Employee dashboard — Leave Balance + Upcoming Holidays stacked in the
+   Attendance Calendar row's right column (.nf-dash-right-col). The grid row
+   stretches that column to the calendar's height by default; Upcoming
+   Holidays keeps its natural content height and Leave Balance grows to
+   absorb the rest, so the two stacked panels' combined height always
+   matches the calendar's height exactly instead of drifting apart. */
+.nf-dash-right-col > .nf-leave-panel { flex: 1 1 auto; min-height: 0; justify-content: center; }
+.nf-dash-right-col > .nf-holiday-panel { flex: 0 0 auto; }
+
+/* ============================================================
+   Responsive — tablet ≤1024px, mobile ≤767px.
+   Every rule below is scoped inside a max-width media query,
+   so nothing here can ever apply at desktop widths (≥1025px).
+   Desktop (1920/1440/1366) is verified unaffected by construction.
+   ============================================================ */
+
+/* Two-column form/detail grid -> single column, tablet and below */
+@media (max-width: 1024px) {
+  .nf-grid-2col-collapse { grid-template-columns: 1fr !important; }
+}
+
+/* Fixed-px side-column grid (list + chart/detail) -> stack, tablet and below.
+   Handles both column orders (side col first or second) and both border
+   conventions seen in the codebase (border-right on non-last child,
+   border-left on last child). */
+@media (max-width: 1024px) {
+  .nf-grid-side-collapse { grid-template-columns: 1fr !important; }
+  .nf-grid-side-collapse > *:not(:last-child) { border-right: none !important; border-bottom: 1px solid var(--line); }
+  .nf-grid-side-collapse > *:last-child { border-left: none !important; border-top: 1px solid var(--line); }
+}
+
+/* Proportional split row (e.g. calendar + detail panel) -> stack, tablet and below */
+@media (max-width: 1024px) {
+  .nf-grid-proportional-collapse { grid-template-columns: 1fr !important; }
+}
+
+/* Fixed-width side drawer -> near-full-width, mobile only */
+@media (max-width: 767px) {
+  .nf-drawer-responsive { width: calc(100vw - 32px) !important; }
+}
+
+/* Org Hierarchy toolbar action buttons (My Position / View from Top / PNG / PDF) -> 2x2 grid,
+   mobile only. These buttons are flexShrink:0 (never shrunk illegibly), so on a narrow phone
+   all four side-by-side don't fit even alone on their own full-width row — merely allowing
+   them to wrap isn't enough, since a `flex-wrap` row still sizes itself to its unshrunk
+   content and overflows (the PDF button got clipped off the right edge). A fixed 2-column grid
+   always fits because each cell is a share of the available width, not the buttons' own
+   natural size. */
+@media (max-width: 767px) {
+  .nf-hierarchy-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    width: 100%;
+  }
+  .nf-hierarchy-actions button { width: 100%; justify-content: center; }
+}
+
+/* Shell header dropdown panel -> clamp to viewport, mobile only.
+   `right: -6px` anchors to the trigger button's own wrapper, which isn't
+   flush with the screen edge (bell sits left of the theme toggle/avatar),
+   so a near-full-width panel anchored there ran off the left of the
+   viewport. Anchor to the viewport itself instead so it's always fully
+   visible no matter where the trigger sits or how narrow the phone is. */
+@media (max-width: 767px) {
+  .nf-dropdown-panel {
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    top: 62px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 80px) !important;
+    overflow-y: auto !important;
+  }
+}
+
+/* Shell hamburger button — hidden by default, shown only on mobile */
+.nf-hamburger-btn { display: none; }
+@media (max-width: 767px) {
+  .nf-hamburger-btn { display: flex !important; }
+}
+
+/* Topbar search -> was a fixed 260px bar that just vanished entirely
+   (`display: none`) once the screen got too narrow to fit it, along with
+   the workspace breadcrumb and the rest of the topbar row. Collapse it to
+   a magnifying-glass icon button instead so the search affordance stays
+   present at every width — same icon-button treatment (padding/hover) as
+   the theme toggle and notification bell beside it — rather than
+   disappearing outright. Desktop/tablet keep the full bar unchanged. */
+.nf-topbar-search-icon { display: none; }
+@media (max-width: 767px) {
+  .nf-topbar-search-icon { display: flex !important; }
+}
+
+/* Shell sidebar -> off-canvas drawer, mobile only */
+@media (max-width: 767px) {
+  .shell-sidebar { transform: translateX(-100%); transition: transform 200ms ease; z-index: 100; }
+  .shell-sidebar--open { transform: translateX(0); }
+  .nf-main-area { margin-left: 0 !important; }
+  .nf-topbar-search { display: none !important; }
+}
+
+/* Sidebar logo (top-left, inside the off-canvas drawer) -> was a fixed
+   34px mark + fixed 13px/8px text at every width above 767px (the previous
+   version of this rule only fired inside a `max-width: 767px` query, so
+   dragging a desktop/tablet browser window narrower did nothing at all
+   until it crossed that one cutoff, then suddenly "activated"). Scoped to
+   `.shell-sidebar` so it doesn't affect the same BrandMark component used
+   elsewhere (e.g. the sign-in page's logo, which scales on its own vh/vw
+   ranges). Row height/border stay untouched — they must keep matching the
+   topbar exactly.
+   No media query at all this time: every size below is `clamp(min, calc(px
+   + vw), max)`, a linear function of viewport width (not a plain `Nvw`
+   percentage), tuned so the *middle* term stays within [min, max] — and so
+   keeps changing continuously — across the entire practical browser-resize
+   range (a 320px phone up through a 1440px laptop), only saturating at the
+   floor/ceiling beyond that. So it now visibly resizes at every width, not
+   just below the old 767px cliff, including tablet widths and ordinary
+   desktop window resizing. Sidebar column width itself stays a fixed
+   236px at every breakpoint (by design — only its on/off-canvas visibility
+   changes on mobile, see the block above), so the logo intentionally stops
+   growing past its original 34px desktop size beyond ~1440px viewport
+   width instead of ballooning on an ultrawide monitor. */
+.shell-sidebar .nf-sidebar-logo {
+  gap: clamp(6px, calc(7px + 0.21vw), 10px) !important;
+  padding: 0 clamp(10px, calc(12.5px + 0.11vw), 14px) !important;
+}
+.shell-sidebar .nf-brandmark, .shell-sidebar .nf-brandmark-ring, .shell-sidebar .nf-brandmark-img {
+  width: clamp(26px, calc(27.3px + 0.47vw), 34px) !important;
+  height: clamp(26px, calc(27.3px + 0.47vw), 34px) !important;
+}
+.shell-sidebar .nf-brandmark-glow {
+  width: clamp(40px, calc(36.6px + 1.07vw), 52px) !important;
+  height: clamp(40px, calc(36.6px + 1.07vw), 52px) !important;
+}
+.shell-sidebar .nf-sidebar-logo-title { font-size: clamp(11px, calc(10.4px + 0.18vw), 13px) !important; }
+.shell-sidebar .nf-sidebar-logo-sub { font-size: clamp(7px, calc(6.7px + 0.09vw), 8px) !important; }
+.nf-nav-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 90; }
+
+/* Main content padding reduction */
+@media (max-width: 1024px) { .nf-main-content { padding: 18px !important; } }
+@media (max-width: 767px)  { .nf-main-content { padding: 14px !important; } }
+
+/* Defensive: eliminate any missed horizontal-overflow source at phone widths only */
+@media (max-width: 767px) {
+  html, body { overflow-x: hidden; }
+}
+
+/* auto-fit/minmax rows whose px floor (e.g. 360px) can exceed the available
+   width on the narrowest phones even after wrapping to one column — drop the
+   floor to a plain 1fr at mobile only. Tablet/desktop keep the existing
+   auto-fit/minmax behavior untouched. */
+@media (max-width: 767px) {
+  .nf-autofit-mobile-safe { grid-template-columns: 1fr !important; }
+}
+
+/* Stat-card rows (Onboarding, Documents & Compliance) -> 2x2 grid on
+   mobile. Columns stay `1fr` (not a fixed px) so each card's width is
+   always exactly half the viewport minus the gap/padding, fitting
+   perfectly at any phone width instead of being squeezed 4-across. */
+@media (max-width: 767px) {
+  .nf-kpi-2x2-mobile { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* Documents & Compliance tab selector (Pending Verification / Verified /
+   Not Submitted) -> auto-adjust to the screen on mobile instead of running
+   off the right edge. The bar was `width: fit-content`, sized to the sum of
+   its three buttons' natural widths, which exceeds narrower phone screens.
+   No scrolling and no truncation: the bar goes full-width, each button is
+   an equal flex share, and the label is allowed to wrap onto a second line
+   within its own button so the full name always stays visible. */
+@media (max-width: 767px) {
+  .nf-doc-tabs {
+    width: 100% !important;
+    align-items: center;
+  }
+  .nf-doc-tabs .nf-doc-tab-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px !important;
+    font-size: 11.5px !important;
+    text-align: center;
+    justify-content: center !important;
+  }
+  .nf-doc-tabs .nf-doc-tab-label {
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.25;
+  }
+}
+
+/* My Documents & Policies (Employee) search bar -> auto-adjust to fill the
+   screen on mobile instead of staying a fixed 200px, which left excess
+   empty space on the right on narrow phones. */
+@media (max-width: 767px) {
+  .nf-search-full-mobile { width: 100% !important; }
+  .nf-search-full-mobile-input { width: 100% !important; box-sizing: border-box; }
+}
+
+/* Policies & Announcements stat tiles -> stay a 3-column row on mobile (no
+   layout change, no scroll) but let the tile padding and type sizes scale
+   down fluidly with `clamp()` so all three keep fitting cleanly at any
+   phone width instead of overflowing the shrunk 1fr columns. */
+@media (max-width: 767px) {
+  .nf-policy-kpi { gap: clamp(6px, 2vw, 12px) !important; }
+  .nf-policy-kpi-tile { padding: clamp(10px, 3vw, 16px) clamp(8px, 3vw, 20px) !important; }
+  .nf-policy-kpi-value { font-size: clamp(18px, 6vw, 26px) !important; }
+  .nf-policy-kpi-label { font-size: clamp(9.5px, 2.6vw, 12px) !important; }
+}
+
+/* Policies & Announcements header -> "New Announcement" / "New Policy"
+   go from a side-by-side 1x2 row to a stacked 2x1 column on mobile, each
+   full width. The header itself also stacks (title above, actions below)
+   so the now-taller two-row action block has room instead of being
+   squeezed beside the title. */
+@media (max-width: 767px) {
+  .nf-policy-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px;
+  }
+  .nf-policy-actions {
+    flex-direction: column !important;
+    width: 100%;
+  }
+  .nf-policy-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Attendance Policy full-page view -> tighter padding and horizontally
+   scrollable tabs on mobile, so the two policy-tab buttons never force the
+   header row to overflow or wrap awkwardly on a narrow phone. */
+@media (max-width: 767px) {
+  .nf-attpolicy-header { padding: 16px 18px !important; }
+  .nf-attpolicy-tabs {
+    padding: 0 18px 14px !important;
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+  }
+  .nf-attpolicy-tabs button { flex-shrink: 0; white-space: nowrap; }
+  .nf-attpolicy-content { padding: 20px 18px 40px !important; }
+  .nf-attpolicy-heading { font-size: 15.5px !important; margin: 24px 0 10px !important; }
+  .nf-attpolicy-callout { padding: 10px 12px !important; }
+}
+
+/* Assets & Expenses HR section selector (Asset Inventory / Asset Requests /
+   Expense Categories / Payroll-Ready Claims) -> horizontally scrollable on
+   mobile instead of squeezing/wrapping four tabs into the narrow viewport.
+   Buttons keep their natural nowrap width so labels stay fully readable;
+   the bar scrolls to reveal whichever don't fit. */
+@media (max-width: 767px) {
+  .nf-tab-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-tab-scroll > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* My Team -> Efforts/Punctuality -> On-Time Leaderboard: scroll both ways
+   on mobile instead of resizing. The panel is a two-column grid (leaderboard
+   rows + a fixed 320px daily bar chart); on a narrow phone that combination
+   was squeezing the row's name/progress-bar/stat segments and wrapping them
+   awkwardly. Give the grid its natural min-width (both columns comfortably
+   sized) and stop each row wrapping, so the scroll wrapper reveals the full
+   layout by scrolling instead of crushing it. Desktop/tablet untouched. */
+@media (max-width: 767px) {
+  .nf-team-leaderboard-scroll {
+    overflow: auto !important;
+    max-height: 60vh;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-team-leaderboard-grid {
+    /* Leaderboard column's own row content (avatar + name block + progress
+       bar + stat text, all non-wrapping) needs ~460px to stay uncrushed. */
+    grid-template-columns: minmax(460px, 1fr) 320px !important;
+    min-width: 780px;
+  }
+  .nf-team-leaderboard-row {
+    flex-wrap: nowrap !important;
+  }
+}
+
+/* Big data tables (Documents & Compliance; Policies & Announcements) ->
+   scroll both ways on mobile instead of squeezing columns/rows to fit. The
+   wrapper caps height and scrolls vertically for long lists; the table
+   drops its 100%-width constraint and its cells stop wrapping, so columns
+   keep their natural size and the wrapper scrolls horizontally instead of
+   crushing them. Desktop/tablet keep the existing unconstrained layout
+   untouched. */
+@media (max-width: 767px) {
+  .nf-doc-table-scroll {
+    overflow: auto !important;
+    max-height: 60vh;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; }
+  .nf-doc-table-scroll th, .nf-doc-table-scroll td { white-space: nowrap; }
+}
+
+/* KPI/stat-card rows (My Team) -> horizontally scrollable strip of
+   fixed-width cards on mobile, instead of squeezing a fixed N-column grid
+   until the cards and their text get cut off. Desktop/tablet keep the
+   even N-column grid set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-kpi-scroll {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    padding-bottom: 4px;
+  }
+  .nf-kpi-scroll > * {
+    flex: 0 0 190px !important;
+    scroll-snap-align: start;
+  }
+}
+
+/* Auth layout (Login / Forgot Password) -> single column, promo panel
+   hidden, mobile/tablet only (≤900px, matching the breakpoint used
+   throughout AuthLayout.tsx). Both the shell and the left panel set
+   `display` inline, so the collapse/hide has to be forced with
+   !important here rather than a plain Tailwind hidden/block utility. */
+@media (max-width: 900px) {
+  .nf-auth-shell { display: block !important; }
+  .nf-auth-left-panel { display: none !important; }
+}
+
+/* Auth layout right panel -> extend the left panel's gradient full-bleed
+   once the left promo panel is hidden, mobile/tablet only (matches the
+   900px collapse breakpoint used throughout AuthLayout.tsx). Desktop keeps
+   its flat var(--panel) background, set inline, untouched. Padding is also
+   tightened (from 40px/32px) so the enlarged brand mark + full sign-in
+   form both fit one screen without scrolling.
+   Keep this gradient string in sync with `panelGradient` in AuthLayout.tsx. */
+@media (max-width: 900px) {
+  .nf-auth-right-panel {
+    background: radial-gradient(120% 100% at 80% 10%, rgba(177,17,22,.26) 0%, transparent 55%),
+      linear-gradient(160deg, #0a0b0e 0%, #12141a 100%) !important;
+    padding: clamp(12px, 4vh, 24px) clamp(14px, 5vw, 24px) !important;
+    /* The brand mark (auto height) stays first and sits at the top; the
+       form wrapper below it is the flexed item (see .nf-auth-form-wrap)
+       that actually centers the sign-in form in the leftover space, so
+       justify-content on the panel itself no longer needs to do the
+       centering. flex-start keeps the brand mark from being pushed down
+       if the flexed child ever collapses to zero height. */
+    justify-content: flex-start !important;
+  }
+  .nf-auth-form-wrap {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    /* column direction: justify-content centers vertically (the actual
+       goal); align-items stays 'stretch' (the flex default) so the form
+       still fills this wrapper's full width instead of collapsing to its
+       content's intrinsic width. */
+    justify-content: center;
+    align-items: stretch;
+    min-height: 0;
+    /* Nudges the centered content up slightly: padding-bottom shrinks the
+       content box asymmetrically (only from the bottom), so the center
+       point `justify-content: center` centers around shifts upward. */
+    padding-bottom: clamp(16px, 5vh, 36px);
+  }
+}
+
+/* Auth layout mobile brand mark + sign-in form -> every size (logo, text,
+   gaps, headings, inputs, buttons) scales fluidly with the viewport via
+   clamp(), using vh as the primary driver since a short viewport height is
+   what causes overlap/overflow, with vw as a secondary factor for
+   horizontal padding. Because the brand mark stays in normal document flow
+   (no position:absolute/fixed) it can never overlap the form by
+   construction — flow elements stack, they don't overlap — and the fluid
+   sizing keeps the full stack short enough to fit any phone without
+   scrolling. Desktop/tablet keep the original fixed sizes set inline,
+   untouched. */
+@media (max-width: 900px) {
+  .nf-auth-mobile-brand { margin-bottom: clamp(10px, 3vh, 22px) !important; }
+  .nf-branding-block { gap: clamp(4px, 1.5vh, 12px) !important; }
+  .nf-brandmark, .nf-brandmark-ring, .nf-brandmark-img {
+    width: clamp(48px, min(11vh, 22vw), 96px) !important;
+    height: clamp(48px, min(11vh, 22vw), 96px) !important;
+  }
+  .nf-brandmark-glow {
+    width: clamp(70px, min(16vh, 32vw), 140px) !important;
+    height: clamp(70px, min(16vh, 32vw), 140px) !important;
+  }
+  .nf-brand-title { font-size: clamp(14px, min(3.2vh, 4.4vw), 18px) !important; }
+  .nf-brand-subtitle { font-size: clamp(8px, min(1.8vh, 2.4vw), 10px) !important; margin-top: clamp(1px, 0.6vh, 3px) !important; }
+
+  .nf-login-heading-block { margin-bottom: clamp(8px, 2.5vh, 16px) !important; }
+  .nf-login-heading { font-size: clamp(16px, 4vh, 20px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-login-subtext { font-size: clamp(10px, 2.2vh, 12px) !important; }
+  .nf-login-sso-btn { padding: clamp(6px, 1.6vh, 9px) clamp(10px, 3vw, 14px) !important; font-size: clamp(11px, 2.4vh, 13px) !important; }
+  .nf-login-divider { margin: clamp(8px, 2.2vh, 14px) 0 !important; font-size: clamp(10px, 2vh, 11px) !important; }
+  .nf-login-field { margin-bottom: clamp(6px, 1.8vh, 10px) !important; }
+  .nf-login-label { font-size: clamp(10px, 2vh, 11px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-login-input { padding-top: clamp(6px, 1.6vh, 8px) !important; padding-bottom: clamp(6px, 1.6vh, 8px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
+  .nf-login-forgot-row { margin-bottom: clamp(8px, 2vh, 12px) !important; margin-top: 0 !important; }
+  .nf-login-submit { padding: clamp(7px, 1.8vh, 9px) clamp(12px, 3vw, 16px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
+}
+
+/* Employee dashboard — Attendance Calendar -> was built with a hardcoded
+   48px cell size (7 cols * 48px + gaps = 366px fixed width), which exceeds
+   the available width once panel padding is subtracted on narrower phones
+   (~360px and below), forcing the whole calendar to overflow/get cut off
+   instead of shrinking. Every row (nav bar, day-header row, day grid,
+   loading skeleton, legend) had its width pinned to that same fixed value
+   inline via the `gridWidth` JS constant — override all of them to 100% on
+   mobile so the grid itself, not a fixed px box, defines the available
+   space. Columns switch from fixed-px to `1fr` and cells switch from
+   fixed width/height to `aspect-ratio: 1` so each cell's size is purely a
+   function of the (now fluid) container width, scaling continuously with
+   the phone instead of jumping or overflowing. Desktop/tablet keep the
+   original fixed-px sizing set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-atn-cal-panel { padding: clamp(12px, 4vw, 20px) clamp(12px, 4vw, 22px) !important; }
+  .nf-atn-cal-row { width: 100% !important; }
+  .nf-atn-cal-grid { grid-template-columns: repeat(7, 1fr) !important; gap: clamp(3px, 1.4vw, 5px) !important; }
+  .nf-atn-cal-skeleton { width: 100% !important; height: auto !important; aspect-ratio: 7 / 6 !important; }
+  .nf-atn-cal-cell { width: auto !important; height: auto !important; aspect-ratio: 1 / 1 !important; }
+  .nf-atn-cal-cell span:first-child { font-size: clamp(9px, 3.2vw, 12px) !important; }
+}
+
+/* Employee dashboard — Leave Balance donut -> the PieChart was given a
+   literal 160x160 pixel size (Recharts requires numeric px, not CSS,
+   unless wrapped in ResponsiveContainer), so it never adapted to the
+   viewport at all. Wrapping it in the already-imported ResponsiveContainer
+   (see JSX) and switching cx/cy/radii to percentages lets the chart follow
+   its container's actual size; this rule shrinks that container fluidly
+   on mobile instead of staying a fixed 160px regardless of phone width.
+   Desktop/tablet keep the fixed 160px set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-leave-panel { padding: clamp(12px, 4vw, 20px) clamp(12px, 4vw, 22px) !important; }
+  .nf-leave-donut-wrap { width: clamp(120px, 34vw, 160px) !important; height: clamp(120px, 34vw, 160px) !important; }
+}
+
+/* Employee dashboard — Upcoming Holidays (3-card row) -> the cards kept a
+   fixed 44px icon box, fixed card padding, and fixed type sizes inside a
+   3-column grid, so on narrower phones the shrunk 1fr columns didn't leave
+   enough room for the icon + "In N days" badge on one row, squeezing/
+   wrapping them. Scale padding, gaps, icon box, and every type size down
+   fluidly with clamp() so all three cards keep fitting cleanly at any
+   phone width; the icon/badge row is also allowed to wrap as a defensive
+   fallback on the very narrowest phones. Desktop/tablet keep the original
+   fixed sizes set inline, untouched. */
+@media (max-width: 767px) {
+  .nf-holiday-panel { padding: clamp(12px, 4vw, 20px) clamp(12px, 4vw, 22px) !important; }
+  .nf-holiday-grid { gap: clamp(6px, 2vw, 12px) !important; }
+  .nf-holiday-card { padding: clamp(8px, 3vw, 16px) !important; gap: clamp(6px, 2vw, 10px) !important; }
+  .nf-holiday-top-row { flex-wrap: wrap; }
+  .nf-holiday-icon { width: clamp(30px, 11vw, 44px) !important; height: clamp(30px, 11vw, 44px) !important; }
+  .nf-holiday-month { font-size: clamp(6px, 2vw, 8px) !important; }
+  .nf-holiday-day { font-size: clamp(12px, 4vw, 18px) !important; }
+  .nf-holiday-badge { font-size: clamp(7px, 2.2vw, 9.5px) !important; padding: clamp(2px, 0.8vw, 3px) clamp(4px, 1.6vw, 7px) !important; }
+  .nf-holiday-name { font-size: clamp(10px, 3vw, 12.5px) !important; }
+  .nf-holiday-date { font-size: clamp(8px, 2.4vw, 11px) !important; }
+}
+
+/* Profile page (all roles) — avatar/identity card -> the Edit Profile /
+   Cancel + Save Changes button group sat in the same flex row as the
+   avatar + name/email/badges block with no wrap and no shrink guard, so on
+   mobile there wasn't enough room for both: the button group and the
+   identity text squeezed into overlapping space instead of the row simply
+   getting taller. Stack the header into two rows (avatar+identity, then
+   actions) on mobile and give the actions their own full-width row below,
+   so the buttons never share horizontal space with the name/email/badges
+   again. Desktop/tablet keep the original single-row layout, untouched. */
+@media (max-width: 767px) {
+  .nf-profile-header { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; }
+  .nf-profile-actions { width: 100% !important; }
+  .nf-profile-actions button { flex: 1 1 0; justify-content: center; }
+}
+
+/* Attendance page header — "Export selected month" / "Request Regularization".
+   This header is a single component shared verbatim by every role (Employee,
+   Manager, HR Admin, Super Admin all render the exact same AttendancePageInner
+   JSX), so the two buttons already sit in one common place in the markup —
+   this hardens that placement so it also holds at every screen size instead
+   of only looking right at typical desktop widths.
+   Every size below is `clamp(min, calc(px + vw), max)` — a linear function
+   of viewport width, not a plain `Nvw` percentage (same technique used for
+   the sidebar logo elsewhere in this file, for the same reason): a plain
+   `Nvw` clamp saturates at its ceiling by ~700-800px viewport width, so
+   resizing an ordinary desktop/laptop browser window (900-1900px) did
+   nothing at all — only the narrow phone range was ever "live". These
+   formulas instead keep changing continuously from a 320px phone all the
+   way up to a 1600px desktop window, only saturating at the floor/ceiling
+   beyond that, so dragging the window narrower visibly shrinks the buttons
+   at every width, not just below one mobile cutoff. The low end is anchored
+   to match the previous phone-width rendering (no regression there); the
+   high end reaches the original 9px/16px/13px desktop values by ~1600px
+   and holds there for wider monitors, matching the original design.
+   As the viewport narrows, the buttons' own width shrinks (flex-basis
+   clamps down to 90px, well below the labels' un-wrapped text width) rather
+   than only shaving a few px of padding — the label wraps onto a second
+   line instead of truncating or forcing nowrap overflow, the same "wrap,
+   don't truncate/scroll" pattern used for the Documents & Compliance tab
+   labels elsewhere in this file. If the two buttons still can't both fit on
+   one line, the row wraps and they share it equally. */
+.nf-attendance-actions { flex-wrap: wrap; }
+.nf-attendance-action-btn {
+  flex: 1 1 clamp(90px, calc(62.5px + 8.59vw), 200px);
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+  padding: clamp(7px, calc(6.5px + 0.16vw), 9px) clamp(8px, calc(6px + 0.63vw), 16px) !important;
+  font-size: clamp(11px, calc(10.5px + 0.16vw), 13px) !important;
+}
+.nf-attendance-action-icon { flex-shrink: 0; }
+.nf-attendance-action-label { white-space: normal; word-break: break-word; line-height: 1.25; }

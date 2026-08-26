@@ -19,16 +19,30 @@ function authHeaders(token: string) {
 }
 
 export interface DepartmentRow {
-  id: string; name: string; active: boolean; employeeCount: number; createdAt: string;
+  id: string; name: string; active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
 export interface DesignationRow {
   id: string; title: string; grade: string | null; level: string | null;
-  active: boolean; employeeCount: number; createdAt: string;
+  active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
 export interface LocationRow {
   id: string; name: string; city: string | null; state: string | null;
-  country: string | null; holidayRegion: string | null;
-  active: boolean; employeeCount: number; createdAt: string;
+  country: string | null; holidayRegion: string | null; timezone: string | null;
+  active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
+}
+export interface ShiftRow {
+  id: string; name: string; code: string | null; description: string | null;
+  startTime: string; endTime: string; flexible: boolean; breakMinutes: number | null;
+  workingDays: string[]; active: boolean; employeeCount: number; createdAt: string;
+}
+export interface ShiftPayload {
+  name: string; code?: string; description?: string;
+  startTime: string; endTime: string; flexible: boolean;
+  breakMinutes?: number; workingDays?: string[];
+}
+export interface ShiftEmployeeRow {
+  userId: string; employeeCode: string; fullName: string; email: string; departmentName: string | null;
+  active: boolean;
 }
 
 export const orgApi = {
@@ -78,11 +92,11 @@ export const orgApi = {
   listLocations: (token: string) =>
     fetch(`${BASE}/locations`, { headers: authHeaders(token) }).then(r => handle<LocationRow[]>(r)),
 
-  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string }) =>
+  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone?: string }) =>
     fetch(`${BASE}/locations`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<LocationRow>(r)),
 
-  updateLocation: (token: string, id: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string }) =>
+  updateLocation: (token: string, id: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone?: string }) =>
     fetch(`${BASE}/locations/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<LocationRow>(r)),
 
@@ -92,5 +106,29 @@ export const orgApi = {
 
   deleteLocation: (token: string, id: string) =>
     fetch(`${BASE}/locations/${id}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handleEmpty(r)),
+
+  // Shifts — create/edit/delete are Super Admin only, enforced by the backend regardless of
+  // who can reach this UI (see OrgService). Listing itself is open to any authenticated caller.
+  listShifts: (token: string) =>
+    fetch(`${BASE}/shifts`, { headers: authHeaders(token) }).then(r => handle<ShiftRow[]>(r)),
+
+  listShiftEmployees: (token: string, shiftId: string) =>
+    fetch(`${BASE}/shifts/${shiftId}/employees`, { headers: authHeaders(token) }).then(r => handle<ShiftEmployeeRow[]>(r)),
+
+  createShift: (token: string, payload: ShiftPayload) =>
+    fetch(`${BASE}/shifts`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(r => handle<ShiftRow>(r)),
+
+  updateShift: (token: string, id: string, payload: ShiftPayload) =>
+    fetch(`${BASE}/shifts/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(r => handle<ShiftRow>(r)),
+
+  toggleShiftActive: (token: string, id: string) =>
+    fetch(`${BASE}/shifts/${id}/toggle-active`, { method: 'PATCH', headers: authHeaders(token) })
+      .then(r => handle<ShiftRow>(r)),
+
+  deleteShift: (token: string, id: string) =>
+    fetch(`${BASE}/shifts/${id}`, { method: 'DELETE', headers: authHeaders(token) })
       .then(r => handleEmpty(r)),
 };

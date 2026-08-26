@@ -43,6 +43,21 @@ public class User {
     @Column(name = "deleted_at", columnDefinition = "TIMESTAMPTZ")
     private Instant deletedAt;
 
+    @Column(name = "failed_login_attempts", nullable = false)
+    @Builder.Default
+    private int failedLoginAttempts = 0;
+
+    @Column(name = "locked_until", columnDefinition = "TIMESTAMPTZ")
+    private Instant lockedUntil;
+
+    // Bumped whenever a Super Admin changes this user's profile through
+    // UserManagementService#updateUser so any already-issued JWT — which carries the version it
+    // was minted with — fails the check in JwtAuthenticationFilter on this user's very next
+    // request, without needing a session store.
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private int tokenVersion = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

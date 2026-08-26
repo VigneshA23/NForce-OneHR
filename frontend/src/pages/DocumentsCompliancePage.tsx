@@ -205,43 +205,45 @@ function MissingTab({ missing, searchEmpty }: { missing: MissingDocument[]; sear
 
   return (
     <div style={card}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={thS}>Employee</th>
-            <th style={thS}>Missing Document</th>
-            <th style={thS}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {missing.length === 0 ? (
-            <tr><td colSpan={3} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-              {searchEmpty ? 'No results match your search.' : (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                  <Users size={28} color="var(--txt-dim)" />
-                  <span>All employees have submitted their required documents.</span>
-                </div>
-              )}
-            </td></tr>
-          ) : missing.map((m, i) => {
-            const key = `${m.employeeUserId}-${m.documentTypeId}`;
-            return (
-              <tr key={`${key}-${i}`}>
-                <td style={tdS}>
-                  <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{m.employeeName}</div>
-                </td>
-                <td style={{ ...tdS, color: '#ef4444', fontWeight: 600 }}>{m.documentTypeName}</td>
-                <td style={{ ...tdS, width: 48 }}>
-                  <KebabMenu items={[{
-                    label: reminding === key ? 'Sending…' : 'Send Reminder',
-                    onClick: () => doRemind(m),
-                  }]} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="nf-doc-table-scroll">
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={thS}>Employee</th>
+              <th style={thS}>Missing Document</th>
+              <th style={thS}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {missing.length === 0 ? (
+              <tr><td colSpan={3} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                {searchEmpty ? 'No results match your search.' : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                    <Users size={28} color="var(--txt-dim)" />
+                    <span>All employees have submitted their required documents.</span>
+                  </div>
+                )}
+              </td></tr>
+            ) : missing.map((m, i) => {
+              const key = `${m.employeeUserId}-${m.documentTypeId}`;
+              return (
+                <tr key={`${key}-${i}`}>
+                  <td style={tdS}>
+                    <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{m.employeeName}</div>
+                  </td>
+                  <td style={{ ...tdS, color: '#ef4444', fontWeight: 600 }}>{m.documentTypeName}</td>
+                  <td style={{ ...tdS, width: 48 }}>
+                    <KebabMenu items={[{
+                      label: reminding === key ? 'Sending…' : 'Send Reminder',
+                      onClick: () => doRemind(m),
+                    }]} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -341,7 +343,7 @@ export default function DocumentsCompliancePage() {
 
       {/* KPI row */}
       {kpis && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+        <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
           {[
             { label: 'Pending Verification', value: kpis.pendingVerification, color: '#eab308' },
             { label: 'Employees Pending', value: kpis.employeesWithPending, color: '#f97316' },
@@ -357,27 +359,28 @@ export default function DocumentsCompliancePage() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', marginBottom: 14 }}>
-        <button style={tabStyle('pending')} onClick={() => setTab('pending')}>
-          Pending Verification
+      <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', marginBottom: 14 }}>
+        <button className="nf-doc-tab-btn" style={tabStyle('pending')} onClick={() => setTab('pending')}>
+          <span className="nf-doc-tab-label">Pending Verification</span>
           {pending.length > 0 && <span style={{ background: tab === 'pending' ? 'rgba(255,255,255,.25)' : '#eab308', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{pending.length}</span>}
         </button>
-        <button style={tabStyle('verified')} onClick={() => setTab('verified')}>
-          Verified
+        <button className="nf-doc-tab-btn" style={tabStyle('verified')} onClick={() => setTab('verified')}>
+          <span className="nf-doc-tab-label">Verified</span>
           {verified.length > 0 && <span style={{ background: tab === 'verified' ? 'rgba(255,255,255,.25)' : '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{verified.length}</span>}
         </button>
-        <button style={tabStyle('missing')} onClick={() => setTab('missing')}>
-          Not Submitted
+        <button className="nf-doc-tab-btn" style={tabStyle('missing')} onClick={() => setTab('missing')}>
+          <span className="nf-doc-tab-label">Not Submitted</span>
           {missing.length > 0 && <span style={{ background: tab === 'missing' ? 'rgba(255,255,255,.25)' : '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{missing.length}</span>}
         </button>
       </div>
 
       {/* Search + Filter */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative' }}>
+        <div className="nf-search-full-mobile" style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={tab === 'missing' ? 'Search by name, type…' : 'Search by name, type, file…'}
+            className="nf-search-full-mobile-input"
             style={{ paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, outline: 'none', width: 240 }} />
         </div>
         {allDocTypes.length > 1 && (
@@ -392,87 +395,91 @@ export default function DocumentsCompliancePage() {
       {/* ── Pending Verification tab ── */}
       {tab === 'pending' && (
         <div style={card}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={thS}>Employee</th>
-                <th style={thS}>Document Type</th>
-                <th style={thS}>File</th>
-                <th style={thS}>Uploaded</th>
-                <th style={thS}>Expiry</th>
-                <th style={thS}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPending.length === 0 ? (
-                <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                  {q ? 'No results match your search.' : 'No documents pending verification.'}
-                </td></tr>
-              ) : filteredPending.map(d => (
-                <tr key={d.id}>
-                  <td style={tdS}>
-                    <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
-                  </td>
-                  <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
-                  <td style={tdS}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
-                      <Eye size={12} /> {d.fileName}
-                    </span>
-                  </td>
-                  <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
-                  <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
-                  <td style={{ ...tdS, width: 48 }}>
-                    <KebabMenu items={[
-                      { label: 'Review & Verify', onClick: () => setDetailDoc(d) },
-                      { label: 'Review & Reject', onClick: () => setDetailDoc(d), danger: true },
-                    ]} />
-                  </td>
+          <div className="nf-doc-table-scroll">
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thS}>Employee</th>
+                  <th style={thS}>Document Type</th>
+                  <th style={thS}>File</th>
+                  <th style={thS}>Uploaded</th>
+                  <th style={thS}>Expiry</th>
+                  <th style={thS}></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredPending.length === 0 ? (
+                  <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                    {q ? 'No results match your search.' : 'No documents pending verification.'}
+                  </td></tr>
+                ) : filteredPending.map(d => (
+                  <tr key={d.id}>
+                    <td style={tdS}>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                    </td>
+                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
+                    <td style={tdS}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
+                        <Eye size={12} /> {d.fileName}
+                      </span>
+                    </td>
+                    <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={{ ...tdS, width: 48 }}>
+                      <KebabMenu items={[
+                        { label: 'Review & Verify', onClick: () => setDetailDoc(d) },
+                        { label: 'Review & Reject', onClick: () => setDetailDoc(d), danger: true },
+                      ]} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {/* ── Verified tab ── */}
       {tab === 'verified' && (
         <div style={card}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={thS}>Employee</th>
-                <th style={thS}>Document Type</th>
-                <th style={thS}>File</th>
-                <th style={thS}>Verified At</th>
-                <th style={thS}>Expiry</th>
-                <th style={thS}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredVerified.length === 0 ? (
-                <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                  {q ? 'No results match your search.' : 'No verified documents yet.'}
-                </td></tr>
-              ) : filteredVerified.map(d => (
-                <tr key={d.id}>
-                  <td style={tdS}>
-                    <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
-                  </td>
-                  <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
-                  <td style={tdS}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
-                      <Eye size={12} /> {d.fileName}
-                    </span>
-                  </td>
-                  <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '—'}</td>
-                  <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
-                  <td style={{ ...tdS, width: 48 }}>
-                    <KebabMenu items={[{ label: 'View Document', onClick: () => setDetailDoc(d) }]} />
-                  </td>
+          <div className="nf-doc-table-scroll">
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thS}>Employee</th>
+                  <th style={thS}>Document Type</th>
+                  <th style={thS}>File</th>
+                  <th style={thS}>Verified At</th>
+                  <th style={thS}>Expiry</th>
+                  <th style={thS}></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredVerified.length === 0 ? (
+                  <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                    {q ? 'No results match your search.' : 'No verified documents yet.'}
+                  </td></tr>
+                ) : filteredVerified.map(d => (
+                  <tr key={d.id}>
+                    <td style={tdS}>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                    </td>
+                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
+                    <td style={tdS}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
+                        <Eye size={12} /> {d.fileName}
+                      </span>
+                    </td>
+                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={{ ...tdS, width: 48 }}>
+                      <KebabMenu items={[{ label: 'View Document', onClick: () => setDetailDoc(d) }]} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

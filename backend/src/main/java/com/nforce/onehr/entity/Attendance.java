@@ -52,6 +52,14 @@ public class Attendance {
     @Builder.Default
     private String source = "SYSTEM";
 
+    // IANA zone id (e.g. "Australia/Adelaide") the employee's browser/device reported at
+    // Check-In / Web Clock-In — locked in for the whole session so Check-Out, worked-minutes,
+    // and shift-day/grace-window math all stay internally consistent even if the browser's
+    // reported zone later changes (e.g. travel, DST). Null for records predating this column,
+    // or where the browser didn't supply one — see AttendanceService.resolveZone.
+    @Column(name = "timezone", length = 50)
+    private String timezone;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

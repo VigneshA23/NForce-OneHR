@@ -10,10 +10,15 @@ public class CreateDesignationRequest {
 
     @NotBlank(message = "Designation title is required")
     @Size(max = 100, message = "Designation title must be 100 characters or fewer")
-    @Pattern(regexp = "^[^0-9]+$", message = "Designation title cannot contain numbers")
+    @Pattern(
+            regexp = "^(?=.*[A-Za-z])[A-Za-z0-9 \\-/]+$",
+            message = "Designation title must include letters, and may only contain letters, numbers, spaces, - and /")
     private String title;
 
     @Size(max = 50, message = "Grade must be 50 characters or fewer")
+    @Pattern(
+            regexp = "^([A-Za-z][0-9])?$",
+            message = "Grade/Band must contain exactly 1 letter followed by 1 number (e.g. L1)")
     private String grade;
 
     @Size(max = 20)

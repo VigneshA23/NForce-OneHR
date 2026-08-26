@@ -1,27 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
+import { inactiveDimStyle } from '../components/EmployeeStatus';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 const PAGE_SIZE = 25;
 
 /* ── Helpers ──────────────────────────────────────── */
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
-function Avatar({ name, size = 34 }: { name: string; size?: number }) {
+function Avatar({ userId, name, size = 34 }: { userId: string; name: string; size?: number }) {
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'rgba(177,17,22,.18)', color: '#e4373d',
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.33, fontWeight: 700, flexShrink: 0,
-      fontFamily: '"Space Grotesk", sans-serif',
-    }}>
-      {initials(name)}
-    </div>
+    <EmployeeAvatar
+      userId={userId}
+      name={name}
+      size={size}
+      fontSize={size * 0.33}
+      background="rgba(177,17,22,.18)"
+      color="#e4373d"
+      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+    />
   );
 }
 
@@ -51,7 +50,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
   ];
 
   return (
-    <div style={{
+    <div className="nf-drawer-responsive" style={{
       position: 'fixed', top: 0, right: 0, bottom: 0, width: 360,
       background: 'var(--panel)', borderLeft: '1px solid var(--line)',
       boxShadow: '-8px 0 32px rgba(0,0,0,.35)', zIndex: 200,
@@ -67,7 +66,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
       </div>
       <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Avatar name={entry.fullName} size={52} />
+          <Avatar userId={entry.userId} name={entry.fullName} size={52} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{entry.designationName ?? '—'}</div>
@@ -88,7 +87,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
 }
 
 /* ── Sort indicator ───────────────────────────────── */
-type SortKey = 'fullName' | 'departmentName' | 'designationName' | 'locationName' | 'workMode' | 'employmentType';
+type SortKey = 'fullName' | 'email' | 'departmentName' | 'designationName' | 'locationName' | 'workMode' | 'employmentType';
 
 function SortIcon({ col, sortKey, dir }: { col: SortKey; sortKey: SortKey; dir: 'asc' | 'desc' }) {
   if (col !== sortKey) return <ChevronUp size={11} style={{ opacity: 0.3 }} />;
@@ -131,6 +130,7 @@ export default function DirectoryPage() {
   const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('asc');
   const [page, setPage]         = useState(0);
   const [selected, setSelected] = useState<DirectoryEntry | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     directoryApi.list(token)
@@ -138,6 +138,24 @@ export default function DirectoryPage() {
       .catch(e => setLoadError(e instanceof Error ? e.message : 'Failed to load directory'))
       .finally(() => setLoading(false));
   }, [token]);
+
+  // Deep-link support: other pages (e.g. Dashboard's Present Today / On Leave modals) link
+  // here as /directory?userId=<id> to open a specific employee's detail panel directly.
+  useEffect(() => {
+    const userId = searchParams.get('userId');
+    if (!userId || all.length === 0) return;
+    const match = all.find(e => e.userId === userId);
+    if (match) setSelected(match);
+  }, [searchParams, all]);
+
+  function closeDetail() {
+    setSelected(null);
+    if (searchParams.has('userId')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('userId');
+      setSearchParams(next, { replace: true });
+    }
+  }
 
   /* Unique filter options from real data */
   const departments  = useMemo(() => [...new Set(all.map(e => e.departmentName).filter(Boolean))].sort() as string[], [all]);
@@ -294,6 +312,9 @@ export default function DirectoryPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Name <SortIcon col="fullName" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
                       <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Code</th>
+                      <th style={thStyle('email')} onClick={() => handleSort('email')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Email <SortIcon col="email" sortKey={sortKey} dir={sortDir} /></div>
+                      </th>
                       <th style={thStyle('departmentName')} onClick={() => handleSort('departmentName')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Department <SortIcon col="departmentName" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
@@ -302,6 +323,9 @@ export default function DirectoryPage() {
                       </th>
                       <th style={thStyle('locationName')} onClick={() => handleSort('locationName')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Location <SortIcon col="locationName" sortKey={sortKey} dir={sortDir} /></div>
+                      </th>
+                      <th style={thStyle('workMode')} onClick={() => handleSort('workMode')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Work Mode <SortIcon col="workMode" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
                       <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Status</th>
                       <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Manager</th>
@@ -312,20 +336,22 @@ export default function DirectoryPage() {
                       <tr
                         key={e.userId}
                         onClick={() => setSelected(e)}
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'pointer', ...inactiveDimStyle(e.active) }}
                         onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--raised)'; }}
                         onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}
                       >
                         <td style={TD}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Avatar name={e.fullName} />
+                            <Avatar userId={e.userId} name={e.fullName} />
                             <span style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</span>
                           </div>
                         </td>
                         <td style={{ ...TD, color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5 }}>{e.employeeCode}</td>
+                        <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.email ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.departmentName ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.designationName ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.locationName ?? '—'}</td>
+                        <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.workMode?.replace('_', ' ') ?? '—'}</td>
                         <td style={TD}><StatusChip active={e.active} /></td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.managerName ?? '—'}</td>
                       </tr>
@@ -378,8 +404,8 @@ export default function DirectoryPage() {
       {/* Detail drawer */}
       {selected && (
         <>
-          <div onClick={() => setSelected(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 199 }} />
-          <DetailPanel entry={selected} onClose={() => setSelected(null)} />
+          <div onClick={closeDetail} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 199 }} />
+          <DetailPanel entry={selected} onClose={closeDetail} />
         </>
       )}
     </div>

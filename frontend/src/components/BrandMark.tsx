@@ -1,11 +1,12 @@
 import logoUrl from '../assets/nforce-logo.png';
 
 interface BrandMarkProps {
-  size?: 'sm' | 'lg';
+  size?: 'sm' | 'md' | 'lg';
 }
 
 const dimensions = {
   sm: { px: 34, ring: 34, glow: 52 },
+  md: { px: 46, ring: 46, glow: 68 },
   lg: { px: 96, ring: 96, glow: 140 },
 } as const;
 
@@ -16,6 +17,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
     <span
       role="img"
       aria-label="NForce One logo"
+      className="nf-brandmark"
       style={{
         position: 'relative',
         display: 'inline-flex',
@@ -28,6 +30,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
     >
       <span
         aria-hidden="true"
+        className="nf-brandmark-glow"
         style={{
           position: 'absolute',
           inset: 0,
@@ -41,6 +44,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
         }}
       />
       <span
+        className="nf-brandmark-ring"
         style={{
           position: 'relative',
           display: 'flex',
@@ -60,6 +64,7 @@ export function BrandMark({ size = 'sm' }: BrandMarkProps) {
           aria-hidden="true"
           width={px}
           height={px}
+          className="nf-brandmark-img"
           style={{ display: 'block', borderRadius: '50%', objectFit: 'cover' }}
         />
       </span>

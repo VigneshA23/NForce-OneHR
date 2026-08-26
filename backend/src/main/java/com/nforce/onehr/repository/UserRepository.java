@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -26,6 +27,17 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code IN ('HR_ADMIN', 'SUPER_ADMIN') AND u.deletedAt IS NULL")
     Set<UUID> findAdminUserIds();
 
+    // Help Content approver-resolution fallback: the final authority when an author's reporting
+    // chain has no active manager. Ordered by createdAt for a deterministic pick.
+    @Query("SELECT u FROM User u JOIN u.roles r WHERE r.code = 'SUPER_ADMIN' AND u.active = true AND u.deletedAt IS NULL ORDER BY u.createdAt ASC")
+    List<User> findActiveSuperAdmins();
+
+    // Deliberately HR_ADMIN only (not findAdminUserIds, which also includes SUPER_ADMIN) — used
+    // to notify HR of newly-submitted Regularization/WFH/Partial Day requests without also
+    // paging every Super Admin on every single submission.
+    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'HR_ADMIN' AND u.active = true AND u.deletedAt IS NULL")
+    Set<UUID> findActiveHrAdminUserIds();
+
     // Backs audit-log actor/target search: resolves a free-text name/email fragment to candidate
     // user ids without requiring a @ManyToOne join on AuditLog (which has none).
     @Query("""
@@ -36,9 +48,23 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     Set<UUID> findUserIdsByEmailOrFullNameContaining(@Param("q") String q);
 
-    // Mirrors EmployeeService.listEmployees()'s own definition of "employee" — holds the
-    // EMPLOYEE role — so any dashboard filtering by this stays consistent with the
-    // Employee Master page rather than re-deriving its own notion of who counts.
-    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL")
+    // Backs EmployeeService.listPotentialManagers — same rows as plain findAll() (active-only
+    // filtering still happens in the caller's stream, unchanged), just fetch-joined so it's one
+    // query instead of one lazy "load roles" query per row (User.roles is EAGER, but without an
+    // explicit join fetch that still means a secondary select per entity).
+    @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.roles")
+    List<User> findAllWithRoles();
+
+    // Exception Dashboard subjects: accounts holding EMPLOYEE and none of
+    // MANAGER/HR_ADMIN/SUPER_ADMIN. A plain "holds EMPLOYEE" whitelist isn't enough —
+    // some accounts (e.g. an HR Admin or Manager also granted EMPLOYEE so they can
+    // punch in/out themselves) hold EMPLOYEE alongside an admin/manager role, and must
+    // still never appear as exception subjects, company-wide or as a direct report.
+    @Query("""
+            SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL
+            AND u.id NOT IN (
+                SELECT u2.id FROM User u2 JOIN u2.roles r2 WHERE r2.code IN ('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')
+            )
+            """)
     Set<UUID> findEmployeeRoleUserIds();
 }
