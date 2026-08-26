@@ -4846,12 +4846,17 @@ function AttendancePageInner() {
   return (
     <div>
       <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
-        <div>
+        <div style={{ maxWidth: 560 }}>
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700,
             color: 'var(--txt)', margin: 0,
           }}>My Attendance</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
+          {/* minHeight reserves 2 lines regardless of role: the subtitle text length varies by
+              role (Employee's is one line, Manager/HR Admin/Super Admin's wrap to two), and
+              without a reserved height the header block's total height — and therefore the
+              vertical start of the stats row below it — shifted per role, reading as
+              inconsistent alignment across roles even though it's the same shared component. */}
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--txt-mut)', marginTop: 4, minHeight: 'calc(13px * 1.5 * 2)' }}>{subtitle}</p>
         </div>
         <div className="nf-attendance-actions" style={{ display: 'flex', gap: 10 }}>
           <button
