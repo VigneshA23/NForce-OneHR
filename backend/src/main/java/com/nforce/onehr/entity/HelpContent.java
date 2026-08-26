@@ -12,7 +12,10 @@ import java.util.UUID;
  * plain String (see {@link com.nforce.onehr.service.HelpContentType}), matching this codebase's
  * established convention for status/discriminator fields (see {@link HelpdeskTicket#getStatus()},
  * {@link DocumentType}). Attachments live in {@link HelpContentAttachment} (multiple, ordered) —
- * see that class for the byte-in-Postgres storage convention.
+ * see that class for the byte-in-Postgres storage convention. Publish-time audience targeting
+ * (which of EMPLOYEE/MANAGER/HR/ADMIN can see this once published) lives in
+ * {@link HelpContentAudience} — a separate table, not a field here, since it's chosen when
+ * publishing rather than when creating/editing the content itself.
  *
  * <p>{@code status} is the sole lifecycle field — DRAFT | PENDING_APPROVAL | APPROVED |
  * PUBLISHED | UNPUBLISHED | ARCHIVED (see {@code HelpContentService} for the transition rules).
@@ -74,11 +77,6 @@ public class HelpContent {
     @Column(name = "view_count", nullable = false)
     @Builder.Default
     private long viewCount = 0L;
-
-    // Reserved for future role/department targeting — not filtered on yet.
-    @Column(nullable = false, length = 40)
-    @Builder.Default
-    private String audience = "ALL";
 
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;

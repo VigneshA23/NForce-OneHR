@@ -6,6 +6,7 @@ import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, t
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
 import { useToast } from '../context/ToastContext';
+import { PieHoverTooltip } from '../components/PieHoverTooltip';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
@@ -91,6 +92,7 @@ function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
     { name: 'Consumed/Reserved', value: consumed },
   ];
   const isEmptyQuota = total <= 0;
+  const donutRef = useRef<HTMLDivElement>(null);
 
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', justifyContent: 'center', boxSizing: 'border-box' }}>
@@ -118,7 +120,7 @@ function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
         {/* aspect-ratio + ResponsiveContainer (percentage cx/cy/radii), not a fixed pixel
             PieChart — scales with the card instead of relying on a small fixed size, and the 8%
             margin between outerRadius and the container edge means the ring is never clipped. */}
-        <div style={{ position: 'relative', width: '100%', maxWidth: 150, aspectRatio: '1 / 1', margin: '0 auto' }}>
+        <div style={{ position: 'relative', width: '100%', maxWidth: 150, aspectRatio: '1 / 1', margin: '0 auto' }} ref={donutRef}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
@@ -140,8 +142,16 @@ function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
               </Pie>
               {!isEmptyQuota && (
                 <Tooltip
-                  contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }}
-                  formatter={(val, name) => [`${val} day${val === 1 ? '' : 's'}`, name ?? '']}
+                  /* See DashboardPage's LeaveBalancePanel donut — same left/right-aware custom
+                     content, needed because Recharts' own positioning always offsets to the right. */
+                  content={props => (
+                    <PieHoverTooltip
+                      {...props}
+                      containerRef={donutRef}
+                      formatter={(val, name) => [`${val} day${val === 1 ? '' : 's'}`, name]}
+                    />
+                  )}
+                  allowEscapeViewBox={{ x: true, y: true }}
                 />
               )}
             </PieChart>

@@ -46,19 +46,20 @@ public class HelpContentController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return service.listPublished(type, category, search, sort, page, size);
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
+        return service.listPublished(type, category, search, sort, page, size, authentication.getName());
     }
 
     @GetMapping("/{id}")
-    public HelpContentDetailDto getOne(@PathVariable UUID id) {
-        return service.getPublished(id);
+    public HelpContentDetailDto getOne(@PathVariable UUID id, Authentication authentication) {
+        return service.getPublished(id, authentication.getName());
     }
 
     @PostMapping("/{id}/view")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void trackView(@PathVariable UUID id) {
-        service.trackView(id);
+    public void trackView(@PathVariable UUID id, Authentication authentication) {
+        service.trackView(id, authentication.getName());
     }
 
     @GetMapping("/{id}/attachments")

@@ -185,10 +185,21 @@ public class ExceptionService {
                         .map(date -> leave.getEmployeeUserId() + "|" + date))
                 .collect(Collectors.toSet());
 
+        // Was attendanceProperties.getShiftStart() (the org-wide fallback) for every employee
+        // regardless of their own assigned Shift — the LATE_ARRIVAL decision/count themselves
+        // were unaffected (reused correctly from record.getLateByMinutes() below), but the
+        // "expected" time shown/emailed for this exception was wrong for anyone not on the
+        // default shift. Mirrors AttendanceService.resolveShiftStart's own fallback rule.
+        Map<UUID, Employee> employeesById = employeeRepository.findAllByIdWithScheduleDetails(scopeIdList).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+
         for (Attendance record : records) {
             if (record.getLateByMinutes() != null && record.getLateByMinutes() > 0) {
+                Employee employee = employeesById.get(record.getEmployeeUserId());
+                LocalTime expectedShiftStart = employee != null && employee.getShift() != null
+                        ? employee.getShift().getStartTime() : attendanceProperties.getShiftStart();
                 upsertException(record, ExceptionType.LATE_ARRIVAL,
-                        attendanceProperties.getShiftStart(), record.getCheckInAt().toLocalTime(),
+                        expectedShiftStart, record.getCheckInAt().toLocalTime(),
                         record.getLateByMinutes());
             }
             if (record.getCheckInAt() != null && record.getCheckOutAt() == null && record.getWorkDate().isBefore(today)) {

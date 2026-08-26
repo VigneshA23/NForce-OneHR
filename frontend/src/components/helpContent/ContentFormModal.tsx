@@ -16,9 +16,6 @@ const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 
-const TYPE_OPTIONS: HelpContentType[] = ['FAQ', 'QUICK_HELP', 'GUIDE', 'DOCUMENT'];
-const TYPE_LABEL: Record<HelpContentType, string> = { FAQ: 'FAQ', QUICK_HELP: 'Quick Help', GUIDE: 'Guide', DOCUMENT: 'Document' };
-
 export function StatusChip({ label, tone }: { label: string; tone: 'ok' | 'warn' | 'dim' }) {
   const colors = {
     ok: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
@@ -37,7 +34,7 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label style={labelStyle}>{label}</label>{children}</div>;
 }
 
@@ -111,9 +108,12 @@ function fmtSize(bytes: number | null) {
  * the inline Help & Guidance management controls and (for now, still-present but unrouted)
  * HelpContentAdminPage — extracted here so the two don't duplicate the same form.
  *
- * Type is fixed once created (mirrors ticket categories: pick at creation, don't reclassify
- * after). Publish/Archive/Delete/Submit/Withdraw are row-level actions driven by status (see
- * AdminItemControls in HelpDeskPage.tsx) — this modal only edits fields and attachments.
+ * Type is an implementation detail, not a form field: it's derived once from `initialType`
+ * (set by which "Add" button opened this modal — FAQ vs Guide) on create, or from `editing.type`
+ * on edit, and is never shown or user-editable — mirrors the backend, where `type` has no
+ * corresponding field on UpdateHelpContentRequest at all. Publish/Archive/Delete/Submit/Withdraw
+ * are row-level actions driven by status (see AdminItemControls in HelpDeskPage.tsx) — this
+ * modal only edits fields and attachments.
  *
  * Attachment ids captured before this modal opened may not survive the save: editing PUBLISHED
  * content forks a brand-new draft row (see HelpContentService.prepareForEdit), whose cloned
@@ -129,13 +129,17 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
   onSaved: () => void;
 }) {
   const { showToast } = useToast();
-  const [type, setType] = useState<HelpContentType>(editing?.type ?? initialType ?? 'FAQ');
+  // Not user-settable — derived once from whichever "Add" button opened this modal, or from the
+  // content being edited. See the class doc above.
+  const type: HelpContentType = editing?.type ?? initialType ?? 'FAQ';
+  const typeLabel = type === 'FAQ' ? 'FAQ' : 'Guide';
+  const modalTitle = editing ? `Edit ${typeLabel}` : `Add New ${typeLabel}`;
+  const submitLabel = editing ? 'Save Changes' : `Add ${typeLabel}`;
   const [title, setTitle] = useState(editing?.title ?? '');
   const [description, setDescription] = useState(editing?.description ?? '');
   const [body, setBody] = useState(editing?.body ?? '');
   const [category, setCategory] = useState(editing?.category ?? '');
   const [featured, setFeatured] = useState(editing?.featured ?? false);
-  const [displayOrder, setDisplayOrder] = useState(editing?.displayOrder ?? 0);
 
   // Attachment editing state — operates on `editing.attachments` snapshot; applied to the
   // server only on Save (see handleSubmit), same deferred pattern the single-attachment upload
@@ -197,7 +201,7 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
     if (!title.trim()) { setError('Title is required.'); return; }
     setSaving(true); setError(null);
     try {
-      const payload = { title: title.trim(), description: description.trim() || undefined, body: body.trim() || undefined, category: category.trim() || undefined, featured, displayOrder };
+      const payload = { title: title.trim(), description: description.trim() || undefined, body: body.trim() || undefined, category: category.trim() || undefined, featured };
       let current = editing
         ? await hrHelpContentApi.update(editing.id, payload, token)
         : await hrHelpContentApi.create({ type, ...payload }, token);
@@ -243,7 +247,7 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
-        <ModalHeader title={editing ? 'Edit Content' : 'New Content'} onClose={onClose} />
+        <ModalHeader title={modalTitle} onClose={onClose} />
         <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           {editing?.rejectionReason && (
@@ -251,11 +255,6 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
               <strong>Rejected:</strong> {editing.rejectionReason}
             </div>
           )}
-          <Field label="Type *">
-            <select style={inputStyle} value={type} disabled={!!editing} onChange={e => setType(e.target.value as HelpContentType)}>
-              {TYPE_OPTIONS.map(t => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
-            </select>
-          </Field>
           <Field label="Title *">
             <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder={type === 'FAQ' ? 'The question, as an employee would ask it' : 'Title'} />
           </Field>
@@ -267,21 +266,12 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
               <textarea style={{ ...inputStyle, minHeight: 110, resize: 'vertical', fontFamily: 'inherit' }} value={body} onChange={e => setBody(e.target.value)} placeholder="Full content shown when an employee opens this item" />
             </Field>
           )}
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <Field label="Category">
-                <input style={inputStyle} value={category} onChange={e => setCategory(e.target.value)} placeholder="e.g. Leave, Payroll" />
-              </Field>
-            </div>
-            <div style={{ width: 110 }}>
-              <Field label="Order">
-                <input type="number" style={inputStyle} value={displayOrder} onChange={e => setDisplayOrder(Number(e.target.value))} />
-              </Field>
-            </div>
-          </div>
+          <Field label="Category">
+            <input style={inputStyle} value={category} onChange={e => setCategory(e.target.value)} placeholder="e.g. Leave, Payroll" />
+          </Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
             <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} />
-            Featured (boosts ranking in "Top FAQs" / curated view)
+            Featured (gives this content priority over others on the employee-facing Help & Guidance page)
           </label>
 
           <Field label={`Attachments (${totalAttachmentCount}/${MAX_ATTACHMENTS_PER_CONTENT})`}>
@@ -335,7 +325,7 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={saving} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-              {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create'}
+              {saving ? 'Saving…' : submitLabel}
             </button>
           </div>
         </form>

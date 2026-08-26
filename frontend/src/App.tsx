@@ -1,5 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
+import LandingPage from './pages/LandingPage';
+import RoleGuidePage from './pages/RoleGuidePage';
 import Login from './pages/auth/Login';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
@@ -66,6 +68,13 @@ function RequestsRouter() {
     : <MyRequestsPage />;
 }
 
+// Unauthenticated → show landing page. Authenticated → redirect to dashboard.
+function LandingOrDashboard() {
+  const token = useAuthStore((s) => s.token);
+  if (token) return <Navigate to="/dashboard" replace />;
+  return <LandingPage />;
+}
+
 function RequirePasswordChanged({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const user  = useAuthStore((s) => s.user);
@@ -79,7 +88,9 @@ export default function App() {
     <ToastProvider>
     <BrowserRouter>
       <Routes>
-        {/* Public */}
+        {/* Public — landing + role guides */}
+        <Route path="/" element={<LandingOrDashboard />} />
+        <Route path="/role-guide/:role" element={<RoleGuidePage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
@@ -128,7 +139,6 @@ export default function App() {
           <Route path="/audit"          element={<AuditRouter />} />
         </Route>
 
-        <Route path="/"  element={<Navigate to="/dashboard" replace />} />
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

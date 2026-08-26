@@ -25,10 +25,17 @@ public class Shift {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    // @Convert to LocalTimeTextConverter — see its own Javadoc for why: Hibernate's default
+    // java.sql.Time/Calendar-mediated binding for this column is NOT actually independent of
+    // the writing/reading JVM's own default timezone despite hibernate.jdbc.time_zone: UTC,
+    // which silently corrupted this value whenever a non-UTC-default JVM (e.g. any local dev
+    // machine) saved it. A plain string has no timezone semantics for any JVM to skew.
     @Column(name = "start_time", nullable = false)
+    @Convert(converter = LocalTimeTextConverter.class)
     private LocalTime startTime;
 
     @Column(name = "end_time", nullable = false)
+    @Convert(converter = LocalTimeTextConverter.class)
     private LocalTime endTime;
 
     @Column(nullable = false)

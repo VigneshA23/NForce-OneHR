@@ -159,6 +159,15 @@ input[type="date"] {
   }
 }
 
+/* Employee dashboard — Leave Balance + Upcoming Holidays stacked in the
+   Attendance Calendar row's right column (.nf-dash-right-col). The grid row
+   stretches that column to the calendar's height by default; Upcoming
+   Holidays keeps its natural content height and Leave Balance grows to
+   absorb the rest, so the two stacked panels' combined height always
+   matches the calendar's height exactly instead of drifting apart. */
+.nf-dash-right-col > .nf-leave-panel { flex: 1 1 auto; min-height: 0; justify-content: center; }
+.nf-dash-right-col > .nf-holiday-panel { flex: 0 0 auto; }
+
 /* ============================================================
    Responsive — tablet ≤1024px, mobile ≤767px.
    Every rule below is scoped inside a max-width media query,

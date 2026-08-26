@@ -11,6 +11,19 @@ spring:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+    hikari:
+      data-source-properties:
+        # Required for Shift.startTime/endTime's LocalTimeTextConverter (see its own Javadoc):
+        # that converter binds a plain String against a native `TIME WITHOUT TIME ZONE` column
+        # deliberately, to make the value immune to any timezone/Calendar participation at all —
+        # but pgjdbc's default "stringtype=varchar" sends untyped String parameters with an
+        # explicit varchar OID, which Postgres then refuses to implicitly cast to `time` ("column
+        # ... is of type time without time zone but expression is of type character varying").
+        # "unspecified" sends them with no OID instead, letting Postgres resolve the cast itself
+        # from context — exactly how a plain SQL text literal ('15:30:00') already behaves, with
+        # no schema change and no effect on any other typed binding (UUID, timestamptz, int, ...),
+        # which continue to bind with their own explicit types exactly as before.
+        stringtype: unspecified
   jpa:
     hibernate:
       # Override validate — Flyway owns the schema; ddl-auto: validate
