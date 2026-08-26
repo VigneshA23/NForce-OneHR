@@ -185,6 +185,16 @@ function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord):
     : [...managers, updated];
 }
 
+// Same reasoning/shape as getManagersForRole just below: `shifts` (opts.shifts) is fetched once
+// per page load and shared by Add/Edit — an inactive shift must not be a pickable option for a
+// new or changed assignment, but an employee already on a shift that's since been deactivated
+// must still see their own current assignment rendered (not silently blanked out) when the Edit
+// modal opens. `currentShiftId` is `form.shiftId`, so this is a no-op filter for Add (starts
+// undefined) and only keeps the one already-assigned entry for Edit.
+function getShiftOptions(shifts: ShiftRow[], currentShiftId: string | undefined): ShiftRow[] {
+  return shifts.filter(s => s.active !== false || s.id === currentShiftId);
+}
+
 function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
   // `managers` (opts.managers) is fetched once per page load — defensively re-check `active`
   // here too (not just at fetch time) so a manager deactivated later in the same session, before
@@ -437,7 +447,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
               <ShiftSelect
-                shifts={opts.shifts}
+                shifts={getShiftOptions(opts.shifts, form.shiftId)}
                 value={form.shiftId}
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
@@ -615,7 +625,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
               <ShiftSelect
-                shifts={opts.shifts}
+                shifts={getShiftOptions(opts.shifts, form.shiftId)}
                 value={form.shiftId}
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}

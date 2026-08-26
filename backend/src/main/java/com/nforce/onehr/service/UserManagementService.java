@@ -90,8 +90,15 @@ public class UserManagementService {
             emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
         if (req.getLocationId() != null)
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
-        if (req.getShiftId() != null)
-            emp.setShift(shiftRepository.findById(req.getShiftId()).orElse(null));
+        if (req.getShiftId() != null) {
+            Shift shift = shiftRepository.findById(req.getShiftId()).orElse(null);
+            // A brand-new employee can never have a legitimate pre-existing assignment to
+            // preserve, so this is unconditional (unlike updateUser's version below, which only
+            // rejects an actual change to a currently-inactive shift).
+            if (shift != null && !shift.isActive())
+                throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+            emp.setShift(shift);
+        }
 
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
@@ -234,6 +241,11 @@ public class UserManagementService {
             UUID currentShiftId = emp.getShift() != null ? emp.getShift().getId() : null;
             UUID newShiftId = newShift != null ? newShift.getId() : null;
             if (!Objects.equals(currentShiftId, newShiftId)) {
+                // Only guarded on an actual change — re-saving an employee whose existing
+                // assignment already points at a since-deactivated shift (shiftId unchanged)
+                // must keep working untouched, not get blocked by this check.
+                if (newShift != null && !newShift.isActive())
+                    throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
                 emp.setShift(newShift);
                 forceLogoutRequired = true;
             }
