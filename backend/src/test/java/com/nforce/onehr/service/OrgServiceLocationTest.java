@@ -7,8 +7,10 @@ import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.repository.BusinessUnitRepository;
 import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
+import com.nforce.onehr.repository.AssetRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LocationRepository;
 import com.nforce.onehr.repository.ShiftRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,12 +41,14 @@ class OrgServiceLocationTest {
     @Mock private ShiftRepository shiftRepo;
     @Mock private EmployeeRepository employeeRepo;
     @Mock private EmployeeManagerHistoryRepository historyRepo;
+    @Mock private HolidayRepository holidayRepo;
+    @Mock private AssetRepository assetRepo;
 
     private OrgService service;
 
     @BeforeEach
     void setUp() {
-        service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo, employeeRepo, historyRepo);
+        service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo, employeeRepo, historyRepo, holidayRepo, assetRepo);
         lenient().when(locationRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(employeeRepo.countByLocationId(any())).thenReturn(0L);
     }
