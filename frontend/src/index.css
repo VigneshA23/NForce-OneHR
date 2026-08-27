@@ -662,10 +662,18 @@ input[type="date"] {
    line instead of truncating or forcing nowrap overflow, the same "wrap,
    don't truncate/scroll" pattern used for the Documents & Compliance tab
    labels elsewhere in this file. If the two buttons still can't both fit on
-   one line, the row wraps and they share it equally. */
+   one line, the row wraps and they share it equally.
+   The +14px added to the basis formula's constant below (over the original
+   62.5px) is deliberate headroom: at a common "zoomed in a bit" width (a
+   1280px-wide viewport at 110% browser zoom, ~1164px effective) the older
+   62.5px constant put "Request Regularization" a fraction of a pixel short
+   of its own single-line width — an invisible-in-code, knife's-edge wrap
+   that read as "misaligned" purely because the label broke to a second line
+   at an otherwise perfectly ordinary desktop zoom level, not because of any
+   role-specific styling (verified identical at every role at this width). */
 .nf-attendance-actions { flex-wrap: wrap; }
 .nf-attendance-action-btn {
-  flex: 1 1 clamp(90px, calc(62.5px + 8.59vw), 200px);
+  flex: 1 1 clamp(90px, calc(76.5px + 8.59vw), 200px);
   min-width: 0;
   justify-content: center;
   text-align: center;
