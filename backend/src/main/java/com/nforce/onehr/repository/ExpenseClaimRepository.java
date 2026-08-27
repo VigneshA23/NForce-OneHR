@@ -27,6 +27,8 @@ public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID
 
     List<ExpenseClaim> findByStatus(String status);
 
+    List<ExpenseClaim> findByStatusIn(Collection<String> statuses);
+
     long countByEmployeeUserIdInAndStatus(List<UUID> employeeUserIds, String status);
 
     @Query("SELECT COALESCE(SUM(c.amount), 0) FROM ExpenseClaim c " +
