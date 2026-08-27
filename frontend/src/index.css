@@ -688,16 +688,30 @@ input[type="date"] {
    than only shaving a few px of padding — the label wraps onto a second
    line instead of truncating or forcing nowrap overflow, the same "wrap,
    don't truncate/scroll" pattern used for the Documents & Compliance tab
-   labels elsewhere in this file. If the two buttons still can't both fit on
-   one line, the row wraps and they share it equally. */
-.nf-attendance-actions { flex-wrap: wrap; }
+   labels elsewhere in this file.
+   The +14px added to the basis formula's constant below (over the original
+   62.5px) is deliberate headroom: at a common "zoomed in a bit" width (a
+   1280px-wide viewport at 110% browser zoom, ~1164px effective) the older
+   62.5px constant put "Request Regularization" a fraction of a pixel short
+   of its own single-line width — an invisible-in-code, knife's-edge wrap
+   that read as "misaligned" purely because the label broke to a second line
+   at an otherwise perfectly ordinary desktop zoom level, not because of any
+   role-specific styling (verified identical at every role at this width).
+   The two buttons no longer wrap onto separate lines when they can't both
+   fit — AttendancePage.tsx now pins .nf-attendance-actions to an explicit
+   width (2x this same clamp formula) and flex-wrap: nowrap inline, since a
+   flex container's own auto/shrink-to-fit width doesn't reliably compute to
+   its flex-grow children's full basis size in every browser (measured short
+   by ~35px here), which silently starved the buttons of room even with
+   hundreds of spare header pixels next to them and either wrapped a label
+   to two lines or, worse, stacked the whole buttons on separate rows. */
 .nf-attendance-action-btn {
-  flex: 1 1 clamp(90px, calc(62.5px + 8.59vw), 200px);
+  flex: 1 1 clamp(90px, calc(76.5px + 8.59vw), 200px);
   min-width: 0;
   justify-content: center;
   text-align: center;
   padding: clamp(7px, calc(6.5px + 0.16vw), 9px) clamp(8px, calc(6px + 0.63vw), 16px) !important;
-  font-size: clamp(11px, calc(10.5px + 0.16vw), 13px) !important;
+  font-size: clamp(10px, calc(9.5px + 0.16vw), 12px) !important;
 }
 .nf-attendance-action-icon { flex-shrink: 0; }
 .nf-attendance-action-label { white-space: normal; word-break: break-word; line-height: 1.25; }
