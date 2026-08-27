@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -28,4 +29,14 @@ public class BasicInfoConfigDto {
 
     /** "If employee is under notice period, consider all penalties as Loss of Pay." */
     private boolean noticePeriodForcesLopEnabled;
+
+    /**
+     * Section 15: an admin-chosen future effective date for the version being saved. Null (the
+     * default) preserves the original behavior — effective the 1st of the calendar month after
+     * the save date. When provided it must be a genuine future date; see
+     * {@code PenalizationPolicyService#validateBasicInfo}. Not echoed back on the response's own
+     * {@code basicInfo} — the version's actual resolved effective date is
+     * {@link PenalizationPolicyResponse#getEffectiveFrom()} at the top level.
+     */
+    private LocalDate requestedEffectiveFrom;
 }

@@ -27,6 +27,7 @@ public class EmployeeService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
@@ -76,6 +77,8 @@ public class EmployeeService {
                 .createdBy(actor.getId())
                 .build();
 
+        if (req.getBusinessUnitId() != null)
+            emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
         if (req.getDepartmentId() != null)
             emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
         if (req.getDesignationId() != null)
@@ -153,6 +156,8 @@ public class EmployeeService {
             emp.setEmploymentType(req.getEmploymentType());
         if (req.getWorkMode() != null && !req.getWorkMode().isBlank())
             emp.setWorkMode(req.getWorkMode());
+        if (req.getBusinessUnitId() != null)
+            emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
         if (req.getDepartmentId() != null)
             emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
         if (req.getDesignationId() != null)
@@ -188,6 +193,7 @@ public class EmployeeService {
         snapshot.put("fullName", emp.getFullName());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
+        snapshot.put("businessUnit", emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null);
         snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
         snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
         snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
@@ -452,34 +458,30 @@ public class EmployeeService {
 
     /**
      * Batch equivalent of {@link #findCurrentManager} for whole-org listings (listDirectory,
-     * listEmployees, and {@link UserManagementService#listUsers} — package-private specifically
-     * so that class can reuse this instead of keeping a second copy of the same lookup) — those
-     * used to call findCurrentManager once per employee, each doing 3 separate round trips
-     * (history lookup, manager User lookup, manager Employee lookup). For ~90 employees that's
-     * ~270 sequential queries against a remote DB, easily a minute or more. This does the same
-     * lookup in exactly 3 queries total regardless of employee count.
+     * listEmployees, {@link UserManagementService#listUsers}, and the Penalization Policy
+     * Allocation table — package-private specifically so those callers reuse this instead of
+     * keeping a second copy of the same lookup) — calling findCurrentManager once per employee
+     * used to mean 3 separate round trips each (history lookup, manager User lookup, manager
+     * Employee lookup); for ~90 employees that's ~270 sequential queries against a remote DB,
+     * easily a minute or more. This does the same lookup in exactly ONE query, regardless of
+     * employee count, via {@link EmployeeManagerHistoryRepository#findCurrentManagerInfoByEmployeeIds}.
      */
     Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
-        Map<UUID, UUID> managerIdByEmployeeId = historyRepository.findByEffectiveToIsNull().stream()
-                .filter(h -> employeeIds.contains(h.getEmployeeUserId()))
-                .collect(Collectors.toMap(EmployeeManagerHistory::getEmployeeUserId, EmployeeManagerHistory::getManagerUserId));
-
-        Set<UUID> managerIds = new HashSet<>(managerIdByEmployeeId.values());
-        Map<UUID, User> managerUsersById = userRepository.findAllById(managerIds).stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
-        Map<UUID, String> managerNamesById = employeeRepository.findAllById(managerIds).stream()
-                .collect(Collectors.toMap(Employee::getUserId, Employee::getFullName));
-
+        if (employeeIds.isEmpty()) {
+            return Map.of();
+        }
         Map<UUID, EmployeeResponse.ManagerRef> result = new HashMap<>();
-        managerIdByEmployeeId.forEach((employeeId, managerId) -> {
-            User mgr = managerUsersById.get(managerId);
-            if (mgr == null) return;
+        for (Object[] row : historyRepository.findCurrentManagerInfoByEmployeeIds(employeeIds)) {
+            UUID employeeId = (UUID) row[0];
+            UUID managerId = (UUID) row[1];
+            String managerEmail = (String) row[2];
+            String managerFullName = (String) row[3];
             result.put(employeeId, EmployeeResponse.ManagerRef.builder()
-                    .userId(mgr.getId().toString())
-                    .fullName(managerNamesById.getOrDefault(managerId, mgr.getEmail()))
-                    .email(mgr.getEmail())
+                    .userId(managerId.toString())
+                    .fullName(managerFullName != null ? managerFullName : managerEmail)
+                    .email(managerEmail)
                     .build());
-        });
+        }
         return result;
     }
 
@@ -491,6 +493,8 @@ public class EmployeeService {
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
+                .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
+                .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationId(emp.getDesignation() != null ? emp.getDesignation().getId().toString() : null)

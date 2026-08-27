@@ -9,6 +9,7 @@ import java.util.UUID;
 // Manager and role changes are Super-Admin-only via /api/users.
 @Data
 public class UpdateEmployeeRequest {
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID locationId;

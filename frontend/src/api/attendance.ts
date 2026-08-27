@@ -82,6 +82,13 @@ export interface AttendanceStatBucket {
   presentDays: number;
   avgHoursPerDay: number | null;
   onTimeArrivalPercent: number | null;
+  /**
+   * Average expected work hours per working day — the assigned shift's duration, reduced by any
+   * approved hourly/quarter-day leave (see ExpectedWorkHoursService on the backend), the same
+   * calculation the Penalization Policy engine uses. Null when there were no working days in
+   * range or no shift was assigned to compute it from. Never recalculated on the frontend.
+   */
+  expectedHoursPerDay: number | null;
 }
 
 export interface AttendanceStats {

@@ -58,4 +58,9 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
             @Param("status") String status,
             @Param("startDate") LocalDate startDate,
             @Param("endDate") LocalDate endDate);
+
+    // Backs ExpectedWorkHoursService#loadPartialHourLeaveByEmployeeDate: approved HOURLY/
+    // QUARTER_DAY leave overlapping [from, to] for a set of employees.
+    List<LeaveRequest> findByEmployeeUserIdInAndStatusAndDurationTypeInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+            Collection<UUID> employeeUserIds, String status, Collection<String> durationTypes, LocalDate to, LocalDate from);
 }

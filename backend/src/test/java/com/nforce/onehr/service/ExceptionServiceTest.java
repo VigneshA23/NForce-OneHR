@@ -42,9 +42,10 @@ class ExceptionServiceTest {
     @Mock private AttendancePenaltyEvaluationService attendancePenaltyEvaluationService;
     @Mock private EmailService emailService;
     @Mock private WorkingDayService workingDayService;
-    @Mock private PenalizationPolicyVersionRepository penalizationPolicyVersionRepository;
     @Mock private HolidayRepository holidayRepository;
-    @Mock private PenalizationPolicyService penalizationPolicyService;
+    @Mock private PenalizationPolicyResolutionService penalizationPolicyResolutionService;
+    @Mock private ExpectedWorkHoursService expectedWorkHoursService;
+    @Mock private WorkHoursShortageCalculationService workHoursShortageCalculationService;
 
     @InjectMocks private ExceptionService exceptionService;
 

@@ -29,6 +29,7 @@ public class UserManagementService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
@@ -81,14 +82,23 @@ public class UserManagementService {
                 .createdBy(actor.getId())
                 .build();
 
+        if (req.getBusinessUnitId() != null)
+            emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
         if (req.getDepartmentId() != null)
             emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
         if (req.getDesignationId() != null)
             emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
         if (req.getLocationId() != null)
             emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
-        if (req.getShiftId() != null)
-            emp.setShift(shiftRepository.findById(req.getShiftId()).orElse(null));
+        if (req.getShiftId() != null) {
+            Shift shift = shiftRepository.findById(req.getShiftId()).orElse(null);
+            // A brand-new employee can never have a legitimate pre-existing assignment to
+            // preserve, so this is unconditional (unlike updateUser's version below, which only
+            // rejects an actual change to a currently-inactive shift).
+            if (shift != null && !shift.isActive())
+                throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+            emp.setShift(shift);
+        }
 
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
@@ -190,6 +200,15 @@ public class UserManagementService {
             emp.setWorkMode(req.getWorkMode());
             forceLogoutRequired = true;
         }
+        if (req.getBusinessUnitId() != null) {
+            BusinessUnit newBusinessUnit = businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null);
+            UUID currentBusinessUnitId = emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId() : null;
+            UUID newBusinessUnitId = newBusinessUnit != null ? newBusinessUnit.getId() : null;
+            if (!Objects.equals(currentBusinessUnitId, newBusinessUnitId)) {
+                emp.setBusinessUnit(newBusinessUnit);
+                forceLogoutRequired = true;
+            }
+        }
         if (req.getDepartmentId() != null) {
             Department newDepartment = departmentRepository.findById(req.getDepartmentId()).orElse(null);
             UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
@@ -222,6 +241,11 @@ public class UserManagementService {
             UUID currentShiftId = emp.getShift() != null ? emp.getShift().getId() : null;
             UUID newShiftId = newShift != null ? newShift.getId() : null;
             if (!Objects.equals(currentShiftId, newShiftId)) {
+                // Only guarded on an actual change — re-saving an employee whose existing
+                // assignment already points at a since-deactivated shift (shiftId unchanged)
+                // must keep working untouched, not get blocked by this check.
+                if (newShift != null && !newShift.isActive())
+                    throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
                 emp.setShift(newShift);
                 forceLogoutRequired = true;
             }
@@ -342,6 +366,7 @@ public class UserManagementService {
         snapshot.put("fullName", emp.getFullName());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
+        snapshot.put("businessUnit", emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null);
         snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
         snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
         snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
@@ -511,6 +536,8 @@ public class UserManagementService {
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
+                .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
+                .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationId(emp.getDesignation() != null ? emp.getDesignation().getId().toString() : null)

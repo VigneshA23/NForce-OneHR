@@ -40,7 +40,7 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-interface OrgOptions { departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
+interface OrgOptions { businessUnits: any[]; departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
@@ -183,6 +183,16 @@ function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord):
   return managers.some(m => m.userId === updated.userId)
     ? managers.map(m => (m.userId === updated.userId ? updated : m))
     : [...managers, updated];
+}
+
+// Same reasoning/shape as getManagersForRole just below: `shifts` (opts.shifts) is fetched once
+// per page load and shared by Add/Edit — an inactive shift must not be a pickable option for a
+// new or changed assignment, but an employee already on a shift that's since been deactivated
+// must still see their own current assignment rendered (not silently blanked out) when the Edit
+// modal opens. `currentShiftId` is `form.shiftId`, so this is a no-op filter for Add (starts
+// undefined) and only keeps the one already-assigned entry for Edit.
+function getShiftOptions(shifts: ShiftRow[], currentShiftId: string | undefined): ShiftRow[] {
+  return shifts.filter(s => s.active !== false || s.id === currentShiftId);
 }
 
 // Deactivated managers are deliberately kept in this list (not filtered out) so an employee
@@ -395,6 +405,11 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
               {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
             </select>
           </Field>
+          <Field label="Business Unit">
+            <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
+              <option value="">— None —</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </Field>
           <Field label="Department">
             <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
               <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -440,7 +455,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
               <ShiftSelect
-                shifts={opts.shifts}
+                shifts={getShiftOptions(opts.shifts, form.shiftId)}
                 value={form.shiftId}
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
@@ -485,6 +500,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
   const [form, setForm] = useState<UpdateUserPayload>({
     fullName: user.fullName,
     role: user.role,
+    businessUnitId: user.businessUnitId ?? undefined,
     departmentId: user.departmentId ?? undefined,
     designationId: user.designationId ?? undefined,
     locationId: user.locationId ?? undefined,
@@ -559,6 +575,11 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
               {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
             </select>
           </Field>
+          <Field label="Business Unit">
+            <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
+              <option value="">— None —</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
               <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -619,7 +640,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
               <ShiftSelect
-                shifts={opts.shifts}
+                shifts={getShiftOptions(opts.shifts, form.shiftId)}
                 value={form.shiftId}
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
@@ -848,7 +869,7 @@ export default function UserManagementPage() {
   // potential-managers lookup) every single time. A newly-created location/shift from inside
   // either modal is appended straight into this shared state, so it's immediately available to
   // the other modal too without a re-fetch.
-  const [orgOptions, setOrgOptions] = useState<OrgOptions>({ departments: [], designations: [], locations: [], managers: [], shifts: [] });
+  const [orgOptions, setOrgOptions] = useState<OrgOptions>({ businessUnits: [], departments: [], designations: [], locations: [], managers: [], shifts: [] });
 
   // Filters
   const [search, setSearch] = useState('');
@@ -864,12 +885,13 @@ export default function UserManagementPage() {
 
   useEffect(() => {
     Promise.all([
+      orgApi.listBusinessUnits(token),
       orgApi.listDepartments(token),
       orgApi.listDesignations(token),
       orgApi.listLocations(token),
       employeesApi.potentialManagers(token),
       orgApi.listShifts(token),
-    ]).then(([d, des, l, m, sh]) => setOrgOptions({ departments: d, designations: des, locations: l, managers: m, shifts: sh }));
+    ]).then(([bu, d, des, l, m, sh]) => setOrgOptions({ businessUnits: bu, departments: d, designations: des, locations: l, managers: m, shifts: sh }));
   }, [token]);
 
   // Derived filter options from real data

@@ -2118,6 +2118,7 @@ function AttendanceStatsPanel({ token }: { token: string }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
             <span style={{ flex: 1, minWidth: 0 }} />
             <span style={{ width: 84, textAlign: 'right' }}>Avg hrs/day</span>
+            <span style={{ width: 84, textAlign: 'right' }}>Expected hrs/day</span>
             <span style={{ width: 100, textAlign: 'right' }}>On-time %</span>
           </div>
           <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
@@ -2126,6 +2127,9 @@ function AttendanceStatsPanel({ token }: { token: string }) {
             </span>
             <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.me.avgHoursPerDay != null ? `${stats.me.avgHoursPerDay}h` : dash}
+            </span>
+            <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
+              {stats.me.expectedHoursPerDay != null ? `${stats.me.expectedHoursPerDay}h` : dash}
             </span>
             <span style={{ width: 100, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.me.onTimeArrivalPercent != null ? `${stats.me.onTimeArrivalPercent}%` : dash}
@@ -2137,6 +2141,9 @@ function AttendanceStatsPanel({ token }: { token: string }) {
             </span>
             <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.team.avgHoursPerDay != null ? `${stats.team.avgHoursPerDay}h` : dash}
+            </span>
+            <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
+              {stats.team.expectedHoursPerDay != null ? `${stats.team.expectedHoursPerDay}h` : dash}
             </span>
             <span style={{ width: 100, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash}
@@ -2943,7 +2950,12 @@ function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                 <LogIn size={11} /> Check In
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkInAt) ?? missingPunch}</div>
+              {/* sessionStartedAt (not checkInAt) — checkInAt is the day's *original* check-in,
+                  deliberately frozen across a same-day resume, so on a day with more than one
+                  Check-In/Check-Out cycle it showed the first session's time here even though
+                  DayPunchIntervals below correctly lists every session including the latest.
+                  sessionStartedAt updates on every resume, matching the last punch. */}
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.sessionStartedAt ?? info.record.checkInAt) ?? missingPunch}</div>
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
@@ -3589,11 +3601,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                           <LogIn size={11} /> Check In
                         </div>
-                        {/* The day's original check-in — fixed once set. A resumed session
-                            after a break updates sessionStartedAt (used for the Elapsed timer
-                            below) and Check Out, but never replaces this. */}
+                        {/* sessionStartedAt, falling back to the day's original checkInAt when
+                            there's been no resume yet — checkInAt alone would keep showing the
+                            first session's time after a later Check-In → Check-Out → Check-In
+                            again cycle, even though this same panel's Elapsed timer below
+                            already correctly tracks the latest session via sessionStartedAt. */}
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
-                          {formatTime(today.record?.checkInAt ?? null) ?? dash}
+                          {formatTime(today.record?.sessionStartedAt ?? today.record?.checkInAt ?? null) ?? dash}
                         </div>
                       </div>
                       <div>

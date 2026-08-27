@@ -45,6 +45,11 @@ public class PenalisationPolicyManagementController {
         return service.rename(id, request, principal.getName());
     }
 
+    @PatchMapping("/{id}/toggle-active")
+    public PenalisationPolicySummaryDto toggleActive(@PathVariable UUID id, Principal principal) {
+        return service.toggleActive(id, principal.getName());
+    }
+
     @PostMapping("/{id}/clone")
     @ResponseStatus(HttpStatus.CREATED)
     public PenalisationPolicySummaryDto clone(@PathVariable UUID id, @Valid @RequestBody ClonePenalisationPolicyRequest request,

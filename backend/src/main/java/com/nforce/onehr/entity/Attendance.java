@@ -76,4 +76,14 @@ public class Attendance {
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
     }
+
+    /**
+     * The single "missing log" signal — a check-in was recorded but the day never got a matching
+     * check-out. Shared by MISSING_PUNCH detection, Work Hours Shortage's missing-log linkage, and
+     * Late Arrival's caused-by-missing-log check (see ExceptionService/WorkHoursShortageCalculationService)
+     * so "missing log" means exactly one thing everywhere it's used.
+     */
+    public boolean isMissingCheckOut() {
+        return checkInAt != null && checkOutAt == null;
+    }
 }

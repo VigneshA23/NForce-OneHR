@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Outlet, useNavigate, Link } from 'react-router-dom';
 import { Search, Bell, Sun, Moon, Shield, User, LogOut, Menu, X as CloseIcon } from 'lucide-react';
-import { NAV, toShellRole, type Role, type NavItem } from '../lib/nav.config';
+import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
@@ -620,7 +620,7 @@ export function Shell() {
 
         <main className="nf-main-content" style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
           <ComplianceBanner />
-          {current.phase > 1 ? <ComingInPhase label={current.label} phase={current.phase} /> : <Outlet />}
+          {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
         </main>
       </div>
     </div>

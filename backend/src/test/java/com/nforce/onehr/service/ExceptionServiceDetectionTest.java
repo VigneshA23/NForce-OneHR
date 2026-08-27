@@ -50,11 +50,13 @@ class ExceptionServiceDetectionTest {
     @Mock private LeaveTypeRepository leaveTypeRepository;
     @Mock private LeaveBalanceRepository leaveBalanceRepository;
     @Mock private PenalizationPolicyVersionRepository versionRepository;
+    @Mock private PenalizationPolicyAllocationRepository allocationRepository;
     @Mock private PenalizationPolicyWorkHoursTierRepository tierRepository;
     @Mock private PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
     @Mock private PenalisationPolicyRepository penalisationPolicyRepository;
     @Mock private AuditService auditService;
+    @Mock private NotificationService notificationService;
 
     private ExceptionService exceptionService;
 
@@ -82,11 +84,19 @@ class ExceptionServiceDetectionTest {
                 new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService);
         WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
-                lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer, attendanceProperties);
+                lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
+                attendanceProperties, employeeRepository, notificationService);
+        lenient().when(allocationRepository.findEffectiveAt(any(), any())).thenReturn(List.of());
+        PenalizationPolicyResolutionService policyResolutionService =
+                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository);
+        ExpectedWorkHoursService expectedWorkHoursService = new ExpectedWorkHoursService(leaveRequestRepository);
+        WorkHoursShortageCalculationService workHoursShortageCalculationService =
+                new WorkHoursShortageCalculationService(attendanceRepository, expectedWorkHoursService, workingDayService);
         exceptionService = new ExceptionService(userRepository, employeeRepository, historyRepository,
                 attendanceExceptionRepository, attendanceRepository, leaveRequestRepository,
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
-                workingDayService, versionRepository, holidayRepository, penalizationPolicyService);
+                workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
+                workHoursShortageCalculationService);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
@@ -168,6 +178,7 @@ class ExceptionServiceDetectionTest {
                 .workedMinutes(240).lateByMinutes(0).build(); // 4h worked against a 9h shift
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
                 .thenReturn(List.of(shortDay));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, targetDate)).thenReturn(Optional.of(shortDay));
         when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
         lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(shift)));
         PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
@@ -626,6 +637,259 @@ class ExceptionServiceDetectionTest {
         exceptionService.runScheduledPenaltyEvaluation(7);
 
         verify(attendanceRepository, org.mockito.Mockito.never()).findByEmployeeUserIdInAndWorkDateBetween(any(), any(), any());
+    }
+
+    // ── Phase 3: Weekly/Monthly Work Hours Shortage frequency ──────────────────────────────────
+
+    private Employee employeeWithShift(Shift shift) {
+        return Employee.builder().userId(employeeId).user(User.builder().id(employeeId).email("employee@test.com").build())
+                .employeeCode("NF-1").fullName("Test Employee").joiningDate(LocalDate.of(2020, 1, 1)).shift(shift).build();
+    }
+
+    private Attendance fullSpanAttendance(UUID empId, LocalDate date, java.time.LocalTime checkIn, java.time.LocalTime checkOut, int workedMinutes) {
+        return Attendance.builder().employeeUserId(empId).workDate(date)
+                .checkInAt(date.atTime(checkIn)).checkOutAt(date.atTime(checkOut)).workedMinutes(workedMinutes).lateByMinutes(0).build();
+    }
+
+    @Test
+    void weeklyFrequency_evaluatesOnceOnTheCyclesLastDay_appliesOnePenaltyForTheWholeWeek() {
+        // Fixed, far-in-the-past week so it's always safely before "today" — Monday 4 Mar 2024
+        // through Sunday 10 Mar 2024.
+        LocalDate monday = LocalDate.of(2024, 3, 4);
+        LocalDate sunday = monday.plusDays(6);
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        Employee employee = employeeWithShift(shift);
+        List<Attendance> weekRecords = monday.datesUntil(sunday.plusDays(1))
+                .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY)
+                .map(d -> fullSpanAttendance(employeeId, d, java.time.LocalTime.of(9, 0), java.time.LocalTime.of(17, 0), 480))
+                .toList();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), monday, sunday))
+                .thenReturn(weekRecords);
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(monday.minusMonths(1).atStartOfDay())
+                .workHoursShortageEnabled(true).whsDeductionPeriod("WEEK").build();
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(version));
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                PenalizationPolicyWorkHoursTier.builder().thresholdPercent(new java.math.BigDecimal("90"))
+                        .deductionDays(new java.math.BigDecimal("1")).sortOrder(0).build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, monday, sunday);
+
+        // 5 days * 480 worked = 2400; 5 days * 540 expected = 2700 -> 88.9%, below the 90% tier.
+        ArgumentCaptor<AttendancePenalty> captor = ArgumentCaptor.forClass(AttendancePenalty.class);
+        verify(attendancePenaltyRepository, org.mockito.Mockito.times(1)).save(captor.capture());
+        assertEquals(ExceptionType.WORK_HOURS_SHORTAGE, captor.getValue().getDiscrepancyType());
+        assertEquals(sunday, captor.getValue().getIncidentDate(), "the week's single penalty must be dated on the cycle's own last day");
+        assertEquals(new java.math.BigDecimal("1"), captor.getValue().getDeductionDays());
+    }
+
+    @Test
+    void weeklyFrequency_noShortfall_appliesNoPenalty() {
+        LocalDate monday = LocalDate.of(2024, 3, 4);
+        LocalDate sunday = monday.plusDays(6);
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        Employee employee = employeeWithShift(shift);
+        List<Attendance> weekRecords = monday.datesUntil(sunday.plusDays(1))
+                .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY)
+                .map(d -> fullSpanAttendance(employeeId, d, java.time.LocalTime.of(9, 0), java.time.LocalTime.of(18, 0), 540))
+                .toList();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), monday, sunday))
+                .thenReturn(weekRecords);
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(monday.minusMonths(1).atStartOfDay())
+                .workHoursShortageEnabled(true).whsDeductionPeriod("WEEK").build();
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(version));
+        lenient().when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                PenalizationPolicyWorkHoursTier.builder().thresholdPercent(new java.math.BigDecimal("90"))
+                        .deductionDays(new java.math.BigDecimal("1")).sortOrder(0).build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, monday, sunday);
+
+        verify(attendancePenaltyRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void monthlyFrequency_evaluatesOnceOnTheLastCalendarDayOfTheMonth() {
+        LocalDate monthStart = LocalDate.of(2024, 2, 1); // 2024 is a leap year -> Feb has 29 days
+        LocalDate monthEnd = LocalDate.of(2024, 2, 29);
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        Employee employee = employeeWithShift(shift);
+        List<Attendance> monthRecords = monthStart.datesUntil(monthEnd.plusDays(1))
+                .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY)
+                .map(d -> fullSpanAttendance(employeeId, d, java.time.LocalTime.of(9, 0), java.time.LocalTime.of(17, 0), 480))
+                .toList();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), monthStart, monthEnd))
+                .thenReturn(monthRecords);
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(monthStart.minusMonths(2).atStartOfDay())
+                .workHoursShortageEnabled(true).whsDeductionPeriod("MONTH").build();
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(version));
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                PenalizationPolicyWorkHoursTier.builder().thresholdPercent(new java.math.BigDecimal("90"))
+                        .deductionDays(new java.math.BigDecimal("1")).sortOrder(0).build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, monthStart, monthEnd);
+
+        ArgumentCaptor<AttendancePenalty> captor = ArgumentCaptor.forClass(AttendancePenalty.class);
+        verify(attendancePenaltyRepository, org.mockito.Mockito.times(1)).save(captor.capture());
+        assertEquals(monthEnd, captor.getValue().getIncidentDate(), "the month's single penalty must be dated on the calendar month's last day");
+    }
+
+    @Test
+    void weeklyFrequency_midCyclePolicyChange_onlyThisVersionsOwnDatesAreAggregated() {
+        // Monday-Tuesday governed by an OLDER version; Wednesday onward by a NEW version that
+        // takes effect mid-week — the new version's weekly aggregate must not reach back into
+        // Monday/Tuesday (Section 7: no retroactive application to a different version's dates).
+        LocalDate monday = LocalDate.of(2024, 3, 4);
+        LocalDate wednesday = monday.plusDays(2);
+        LocalDate sunday = monday.plusDays(6);
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        Employee employee = employeeWithShift(shift);
+        // Only the new version's own window (Wed-Fri) has attendance worth aggregating; a full
+        // 9h/day means no shortfall if (and only if) Monday/Tuesday are correctly excluded.
+        List<Attendance> records = wednesday.datesUntil(sunday.plusDays(1))
+                .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY)
+                .map(d -> fullSpanAttendance(employeeId, d, java.time.LocalTime.of(9, 0), java.time.LocalTime.of(18, 0), 540))
+                .toList();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), monday, sunday))
+                .thenReturn(records);
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        PenalizationPolicyVersion newVersion = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(2)
+                .effectiveFrom(wednesday.atStartOfDay())
+                .workHoursShortageEnabled(true).whsDeductionPeriod("WEEK").build();
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(newVersion));
+        lenient().when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(newVersion.getId())).thenReturn(List.of(
+                PenalizationPolicyWorkHoursTier.builder().thresholdPercent(new java.math.BigDecimal("90"))
+                        .deductionDays(new java.math.BigDecimal("1")).sortOrder(0).build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, monday, sunday);
+
+        // Wed-Fri: 3 * 540 / 3 * 540 = 100% -> no shortfall, no penalty. Had Monday/Tuesday's
+        // (missing, i.e. absent-from-the-map) contribution been wrongly excluded-as-zero rather
+        // than genuinely excluded, or had the version's own start not been honored, this would
+        // have come out below the tier instead.
+        verify(attendancePenaltyRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    // ── Phase 3: Missing Logs -> Work Hours Shortage linkage ────────────────────────────────
+
+    @Test
+    void missingLogShortageLinkage_disabledByDefault_noPenaltyForMissingCheckoutDay() {
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        Attendance missingCheckout = Attendance.builder().employeeUserId(employeeId).workDate(targetDate)
+                .checkInAt(targetDate.atTime(9, 0)).checkOutAt(null).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(missingCheckout));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(targetDate.minusMonths(1).atStartOfDay())
+                .workHoursShortageEnabled(true).whsPenalizeShortageCausedByMissingLogsEnabled(false).build();
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(version));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        verify(attendancePenaltyRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void missingLogShortageLinkage_enabled_appliesShortagePenaltyForMissingCheckoutDay() {
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        Attendance missingCheckout = Attendance.builder().employeeUserId(employeeId).workDate(targetDate)
+                .checkInAt(targetDate.atTime(9, 0)).checkOutAt(null).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(missingCheckout));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, targetDate)).thenReturn(Optional.of(missingCheckout));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(shift)));
+        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(targetDate.minusMonths(1).atStartOfDay())
+                .workHoursShortageEnabled(true).whsPenalizeShortageCausedByMissingLogsEnabled(true).build();
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(version));
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                PenalizationPolicyWorkHoursTier.builder().thresholdPercent(new java.math.BigDecimal("90"))
+                        .deductionDays(new java.math.BigDecimal("0.5")).sortOrder(0).build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        ArgumentCaptor<AttendancePenalty> captor = ArgumentCaptor.forClass(AttendancePenalty.class);
+        verify(attendancePenaltyRepository, org.mockito.Mockito.times(1)).save(captor.capture());
+        assertEquals(ExceptionType.WORK_HOURS_SHORTAGE, captor.getValue().getDiscrepancyType());
+        assertEquals(new java.math.BigDecimal("0.5"), captor.getValue().getDeductionDays());
+    }
+
+    // ── Phase 3: Effective vs Gross basis, end-to-end ───────────────────────────────────────
+
+    private PenalizationPolicyVersion basisVersion(String basis) {
+        return PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(targetDate.minusMonths(1).atStartOfDay())
+                .workHoursShortageEnabled(true).whsDeductionBasis(basis).build();
+    }
+
+    @Test
+    void effectiveHoursBasis_aLongBreakInsideAFullPunchSpan_stillTriggersShortage() {
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        // 9:00-19:00 punch span (600 min gross) but a long break means only 460 min were actually
+        // effective — Effective basis (460/540 = 85.2%) falls below a 90% tier.
+        Attendance record = Attendance.builder().employeeUserId(employeeId).workDate(targetDate)
+                .checkInAt(targetDate.atTime(9, 0)).checkOutAt(targetDate.atTime(19, 0))
+                .workedMinutes(460).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(record));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, targetDate)).thenReturn(Optional.of(record));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(shift)));
+        PenalizationPolicyVersion version = basisVersion("EFFECTIVE_HOURS");
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(version));
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                PenalizationPolicyWorkHoursTier.builder().thresholdPercent(new java.math.BigDecimal("90"))
+                        .deductionDays(new java.math.BigDecimal("0.5")).sortOrder(0).build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        verify(attendancePenaltyRepository, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    void grossHoursBasis_sameAttendance_thePunchSpanCoversTheWholeShift_noShortage() {
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name("Regular").startTime(java.time.LocalTime.of(9, 0)).endTime(java.time.LocalTime.of(18, 0)).build();
+        // Identical Attendance row to the EFFECTIVE-basis test above — GROSS_HOURS instead counts
+        // the full 9:00-19:00 span (600/540 = 111%), well above any shortage tier, even though
+        // Effective basis would have flagged this exact same day.
+        Attendance record = Attendance.builder().employeeUserId(employeeId).workDate(targetDate)
+                .checkInAt(targetDate.atTime(9, 0)).checkOutAt(targetDate.atTime(19, 0))
+                .workedMinutes(460).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(record));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, targetDate)).thenReturn(Optional.of(record));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(shift)));
+        PenalizationPolicyVersion version = basisVersion("GROSS_HOURS");
+        when(versionRepository.findVersionsEffectiveAt(any())).thenReturn(List.of(version));
+        lenient().when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId())).thenReturn(List.of(
+                PenalizationPolicyWorkHoursTier.builder().thresholdPercent(new java.math.BigDecimal("90"))
+                        .deductionDays(new java.math.BigDecimal("0.5")).sortOrder(0).build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        verify(attendancePenaltyRepository, org.mockito.Mockito.never()).save(any());
     }
 
     private static LocalDate priorMidWeekday() {
