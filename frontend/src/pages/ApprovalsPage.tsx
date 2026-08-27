@@ -13,6 +13,7 @@ import { assetsApi } from '../api/assets';
 import { attendanceRequestApi } from '../api/attendanceRequests';
 import { overtimeRequestApi } from '../api/overtimeRequests';
 import { useToast } from '../context/ToastContext';
+import { formatDurationMinutes } from '../context/TimeFormatContext';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
@@ -441,7 +442,10 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
           {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               <Row label="Date" value={item.attendanceDate} />
-              {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+              {/* partialDayHours is stored as a decimal (e.g. 3.33 for 3h 20m) — round-trip
+                  through minutes so the modal shows a precise "3h 20m" instead of that raw
+                  fraction, matching the duration format used everywhere else in the app. */}
+              {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
               <Row label="Reason" value={item.regularizationReason} />
             </div>
           )}

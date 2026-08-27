@@ -10,8 +10,8 @@ import com.nforce.onehr.entity.PenalizationPolicyLateHoursTier;
 import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.entity.PenalizationPolicyWorkHoursTier;
 import com.nforce.onehr.entity.User;
-import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.PenalisationPolicyRepository;
+import com.nforce.onehr.repository.PenalizationPolicyAllocationRepository;
 import com.nforce.onehr.repository.PenalizationPolicyLateHoursTierRepository;
 import com.nforce.onehr.repository.PenalizationPolicyVersionRepository;
 import com.nforce.onehr.repository.PenalizationPolicyWorkHoursTierRepository;
@@ -20,12 +20,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Organization Masters → Penalization Policy → Policy List (Section 5): CRUD for the
@@ -43,15 +46,46 @@ public class PenalisationPolicyManagementService {
     private final PenalizationPolicyVersionRepository versionRepository;
     private final PenalizationPolicyWorkHoursTierRepository tierRepository;
     private final PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
-    private final EmployeeRepository employeeRepository;
+    private final PenalizationPolicyAllocationRepository allocationRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProperties;
+    private final PenalizationPolicyResolutionService resolutionService;
 
+    private LocalDate today() {
+        return LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
+    }
+
+    /**
+     * Every policy's "Employee Count" here comes from
+     * {@link PenalizationPolicyResolutionService#resolveCurrentEmployeeCountsByPolicy} — the same
+     * authoritative, allocation-aware resolution the Penalization Policy Allocation screen and the
+     * attendance engine use — computed ONCE for the whole list (two bulk queries total) rather
+     * than once per policy, so this scales with employee count, not policy count × employee count.
+     * Likewise, every policy's "current version" (currentVersion/effectiveFrom columns) is fetched
+     * in ONE bulk query up front — {@link #toSummary(PenalisationPolicy, long)} does its own
+     * single-policy lookup for the single-object callers (create/rename/toggleActive/delete),
+     * but calling that per policy here was a genuine N+1 (one findByPolicyIdAndEffectiveToIsNull
+     * round trip per row) that dominated this list's load time.
+     */
     @Transactional(readOnly = true)
     public List<PenalisationPolicySummaryDto> list() {
-        return penalisationPolicyRepository.findAll().stream()
-                .map(this::toSummary)
+        List<PenalisationPolicy> policies = penalisationPolicyRepository.findAll();
+        List<UUID> policyIds = policies.stream().map(PenalisationPolicy::getId).toList();
+        Map<UUID, PenalizationPolicyVersion> currentVersionByPolicyId = policyIds.isEmpty() ? Map.of()
+                : versionRepository.findByPolicyIdInAndEffectiveToIsNull(policyIds).stream()
+                        .collect(Collectors.toMap(PenalizationPolicyVersion::getPolicyId, v -> v));
+        // The org default policy id (oldest by createdAt — same rule as
+        // PenalizationPolicyService#resolveDefaultPolicyId) is derived from the `policies` list
+        // already in hand, instead of letting resolveCurrentEmployeeCountsByPolicy issue its own
+        // separate lookup query for it.
+        UUID defaultPolicyId = policies.stream()
+                .min(Comparator.comparing(PenalisationPolicy::getCreatedAt))
+                .map(PenalisationPolicy::getId).orElse(null);
+        Map<UUID, Long> counts = resolutionService.resolveCurrentEmployeeCountsByPolicy(today(), defaultPolicyId);
+        return policies.stream()
+                .map(p -> toSummary(p, counts.getOrDefault(p.getId(), 0L), currentVersionByPolicyId.get(p.getId())))
                 .sorted(Comparator.comparing(PenalisationPolicySummaryDto::getCreatedAt))
                 .toList();
     }
@@ -66,7 +100,7 @@ public class PenalisationPolicyManagementService {
                 .name(request.getName()).description(request.getDescription())
                 .createdBy(actor.getId()).status("ACTIVE").build());
         auditService.log(actor.getId(), "PENALISATION_POLICY_CREATED", policy.getId());
-        return toSummary(policy);
+        return toSummary(policy, 0L);
     }
 
     @Transactional
@@ -78,14 +112,15 @@ public class PenalisationPolicyManagementService {
                 .ifPresent(existing -> {
                     throw new IllegalStateException("A policy named '" + request.getName() + "' already exists");
                 });
-        String before = policy.getName();
+        String before = auditSnapshot.toJson(Map.of("name", policy.getName()));
         policy.setName(request.getName());
         if (request.getDescription() != null) {
             policy.setDescription(request.getDescription());
         }
         penalisationPolicyRepository.save(policy);
-        auditService.log(actor.getId(), "PENALISATION_POLICY_RENAMED", policy.getId(), before, policy.getName());
-        return toSummary(policy);
+        auditService.log(actor.getId(), "PENALISATION_POLICY_RENAMED", policy.getId(),
+                before, auditSnapshot.toJson(Map.of("name", policy.getName())));
+        return toSummary(policy, resolutionService.resolveCurrentEmployeeCount(policy.getId(), today()));
     }
 
     /**
@@ -122,8 +157,30 @@ public class PenalisationPolicyManagementService {
             }
         });
 
-        auditService.log(actor.getId(), "PENALISATION_POLICY_CLONED", clone.getId(), sourceId.toString(), null);
-        return toSummary(clone);
+        auditService.log(actor.getId(), "PENALISATION_POLICY_CLONED", clone.getId(),
+                auditSnapshot.toJson(Map.of("clonedFromPolicyId", sourceId.toString())), null);
+        return toSummary(clone, 0L);
+    }
+
+    /**
+     * Deactivating a policy removes it from the active allocation/assignment dropdowns (see
+     * {@code PenalisationPolicySummaryDto#getStatus} and the frontend's active-policy filter) —
+     * it does not touch any existing allocation, legacy FK assignment, or historical attendance
+     * result. Reactivating simply flips it back. Employees currently resolving to a deactivated
+     * policy keep resolving to it (deactivation is "don't let anyone else pick this" — retiring an
+     * in-use policy without reassigning first is an explicit admin decision, not something this
+     * toggle does on their behalf).
+     */
+    @Transactional
+    public PenalisationPolicySummaryDto toggleActive(UUID id, String actorEmail) {
+        User actor = resolveActor(actorEmail);
+        PenalisationPolicy policy = findPolicy(id);
+        String before = auditSnapshot.toJson(Map.of("status", policy.getStatus()));
+        policy.setStatus("ACTIVE".equals(policy.getStatus()) ? "INACTIVE" : "ACTIVE");
+        penalisationPolicyRepository.save(policy);
+        auditService.log(actor.getId(), "PENALISATION_POLICY_STATUS_CHANGED", policy.getId(),
+                before, auditSnapshot.toJson(Map.of("status", policy.getStatus())));
+        return toSummary(policy, resolutionService.resolveCurrentEmployeeCount(id, today()));
     }
 
     /**
@@ -134,9 +191,14 @@ public class PenalisationPolicyManagementService {
     public void delete(UUID id, String actorEmail) {
         User actor = resolveActor(actorEmail);
         PenalisationPolicy policy = findPolicy(id);
-        long employeeCount = employeeRepository.countByPenalisationPolicy_Id(id);
+        long employeeCount = resolutionService.resolveCurrentEmployeeCount(id, today());
         if (employeeCount > 0) {
-            throw new IllegalStateException(employeeCount + " employee(s) are assigned to this policy. Reassign them first.");
+            throw new IllegalStateException(employeeCount + " employee(s) are currently assigned to this policy. Reassign them first.");
+        }
+        long allocationCount = allocationRepository.countByPenalisationPolicyId(id);
+        if (allocationCount > 0) {
+            throw new IllegalStateException(allocationCount
+                    + " Penalization Policy Allocation record(s) reference this policy. Remove or reassign them first.");
         }
         if (penalisationPolicyRepository.count() <= 1) {
             throw new IllegalStateException("Cannot delete the organization's only remaining Penalization Policy.");
@@ -147,7 +209,8 @@ public class PenalisationPolicyManagementService {
             versionRepository.delete(version);
         }
         penalisationPolicyRepository.delete(policy);
-        auditService.log(actor.getId(), "PENALISATION_POLICY_DELETED", id, policy.getName(), null);
+        auditService.log(actor.getId(), "PENALISATION_POLICY_DELETED", id,
+                auditSnapshot.toJson(Map.of("name", policy.getName())), null);
     }
 
     private PenalizationPolicyVersion copyVersionFields(PenalizationPolicyVersion source, UUID newPolicyId,
@@ -175,6 +238,8 @@ public class PenalisationPolicyManagementService {
                 .whsDeductionBasis(source.getWhsDeductionBasis()).whsDeductionPeriod(source.getWhsDeductionPeriod())
                 .whsApplyPenaltyForShortageEnabled(source.isWhsApplyPenaltyForShortageEnabled())
                 .whsApplyPenaltyForLateArrivalEnabled(source.isWhsApplyPenaltyForLateArrivalEnabled())
+                .whsExcludeHoursOutsideShiftEnabled(source.isWhsExcludeHoursOutsideShiftEnabled())
+                .whsPenalizeShortageCausedByMissingLogsEnabled(source.isWhsPenalizeShortageCausedByMissingLogsEnabled())
                 .missingLogsEnabled(source.isMissingLogsEnabled()).mlExemptDays(source.getMlExemptDays())
                 .mlExemptPeriod(source.getMlExemptPeriod()).mlDeductionMode(source.getMlDeductionMode())
                 .mlDeductionDays(source.getMlDeductionDays()).mlDeductionPerShifts(source.getMlDeductionPerShifts())
@@ -187,9 +252,15 @@ public class PenalisationPolicyManagementService {
                 .build();
     }
 
-    private PenalisationPolicySummaryDto toSummary(PenalisationPolicy policy) {
-        long employeeCount = employeeRepository.countByPenalisationPolicy_Id(policy.getId());
-        PenalizationPolicyVersion current = versionRepository.findByPolicyIdAndEffectiveToIsNull(policy.getId()).orElse(null);
+    // Single-policy lookup for the single-object callers (create/rename/toggleActive/delete) —
+    // one query is correct here since each only handles one policy per call.
+    private PenalisationPolicySummaryDto toSummary(PenalisationPolicy policy, long employeeCount) {
+        return toSummary(policy, employeeCount, versionRepository.findByPolicyIdAndEffectiveToIsNull(policy.getId()).orElse(null));
+    }
+
+    // Bulk-list variant: the current version is passed in, already resolved in one batched query
+    // by the caller (see #list) — this overload itself never queries.
+    private PenalisationPolicySummaryDto toSummary(PenalisationPolicy policy, long employeeCount, PenalizationPolicyVersion current) {
         return PenalisationPolicySummaryDto.builder()
                 .id(policy.getId()).name(policy.getName()).description(policy.getDescription())
                 .status(policy.getStatus()).employeeCount(employeeCount)

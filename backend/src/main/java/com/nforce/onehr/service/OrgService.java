@@ -2,11 +2,13 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.HierarchyNodeDto;
 import com.nforce.onehr.dto.org.*;
+import com.nforce.onehr.entity.BusinessUnit;
 import com.nforce.onehr.entity.Department;
 import com.nforce.onehr.entity.Designation;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.repository.BusinessUnitRepository;
 import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -30,12 +32,72 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrgService {
 
+    private final BusinessUnitRepository businessUnitRepo;
     private final DepartmentRepository departmentRepo;
     private final DesignationRepository designationRepo;
     private final LocationRepository locationRepo;
     private final ShiftRepository shiftRepo;
     private final EmployeeRepository employeeRepo;
     private final EmployeeManagerHistoryRepository historyRepo;
+
+    // ── Business Units ───────────────────────────────────────────────────────
+
+    /** Same batched-count fix as listDepartments — see that method's own comment. */
+    @Transactional(readOnly = true)
+    public List<BusinessUnitResponse> listBusinessUnits() {
+        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByBusinessUnitId());
+        return businessUnitRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
+                .map(b -> BusinessUnitResponse.from(b, counts.getOrDefault(b.getId(), 0L)))
+                .toList();
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public BusinessUnitResponse createBusinessUnit(CreateBusinessUnitRequest req) {
+        if (businessUnitRepo.existsByNameIgnoreCase(req.getName().trim())) {
+            throw new IllegalArgumentException("A business unit named '" + req.getName().trim() + "' already exists");
+        }
+        BusinessUnit saved = businessUnitRepo.save(
+                BusinessUnit.builder().name(req.getName().trim()).build());
+        return BusinessUnitResponse.from(saved, 0L);
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public BusinessUnitResponse updateBusinessUnit(UUID id, UpdateBusinessUnitRequest req) {
+        BusinessUnit unit = businessUnitRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Business unit not found"));
+        String trimmed = req.getName().trim();
+        if (!unit.getName().equalsIgnoreCase(trimmed) && businessUnitRepo.existsByNameIgnoreCase(trimmed)) {
+            throw new IllegalArgumentException("A business unit named '" + trimmed + "' already exists");
+        }
+        unit.setName(trimmed);
+        long count = employeeRepo.countByBusinessUnitId(id);
+        return BusinessUnitResponse.from(businessUnitRepo.save(unit), count);
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public BusinessUnitResponse toggleBusinessUnitActive(UUID id) {
+        BusinessUnit unit = businessUnitRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Business unit not found"));
+        unit.setActive(!unit.isActive());
+        long count = employeeRepo.countByBusinessUnitId(id);
+        return BusinessUnitResponse.from(businessUnitRepo.save(unit), count);
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public void deleteBusinessUnit(UUID id) {
+        BusinessUnit unit = businessUnitRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Business unit not found"));
+        long count = employeeRepo.countByBusinessUnitId(id);
+        if (count > 0) {
+            throw new IllegalStateException(
+                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this business unit. Deactivate instead.");
+        }
+        businessUnitRepo.delete(unit);
+    }
 
     // ── Departments ──────────────────────────────────────────────────────────
 

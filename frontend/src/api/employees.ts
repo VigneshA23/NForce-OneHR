@@ -20,6 +20,8 @@ export interface EmployeeRecord {
   fullName: string;
   email: string;
   role: string;
+  businessUnitId: string | null;
+  businessUnitName: string | null;
   departmentId: string | null;
   departmentName: string | null;
   designationId: string | null;
@@ -40,6 +42,7 @@ export interface CreateEmployeePayload {
   fullName: string;
   email: string;
   employeeCode?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
@@ -52,6 +55,7 @@ export interface CreateEmployeePayload {
 
 export interface UpdateEmployeePayload {
   fullName?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
@@ -69,6 +73,7 @@ export interface CreateUserPayload extends CreateEmployeePayload {
 export interface UpdateUserPayload {
   fullName?: string;
   role?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;

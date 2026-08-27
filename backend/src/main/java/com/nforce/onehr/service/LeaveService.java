@@ -8,6 +8,7 @@ import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
+import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
@@ -185,6 +186,10 @@ public class LeaveService {
                 .totalDays(totalDays)
                 .status("PENDING")
                 .employeeReason(req.getReason().trim())
+                // is_half_day stays authoritative (unchanged above); duration_type just mirrors it
+                // for the FULL_DAY/HALF_DAY cases this form actually submits — HOURLY/QUARTER_DAY
+                // have no submission UI yet, so submitRequest never produces them.
+                .durationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY)
                 .build();
         request = leaveRequestRepository.save(request);
 

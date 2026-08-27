@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myRequestsApi, type MyRequestItem, type RequestType } from '../api/myRequests';
+import { formatDurationMinutes } from '../context/TimeFormatContext';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
@@ -113,7 +114,7 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
   if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
     return (
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${item.partialDayHours}h` : ''}
+        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${formatDurationMinutes(Math.round(item.partialDayHours * 60))}` : ''}
       </div>
     );
   }
@@ -186,7 +187,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
             {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
               <>
                 <Row label="Date" value={item.attendanceDate} />
-                {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+                {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
                 <Row label="Reason" value={item.regularizationReason} />
               </>
             )}

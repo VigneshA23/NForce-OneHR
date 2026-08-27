@@ -126,13 +126,14 @@ function CreatableLocationSelect({
 function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
   const [form, setForm] = useState<UpdateEmployeePayload>({
     fullName: emp.fullName,
+    businessUnitId: emp.businessUnitId ?? undefined,
     departmentId: emp.departmentId ?? undefined,
     designationId: emp.designationId ?? undefined,
     locationId: emp.locationId ?? undefined,
     employmentType: emp.employmentType,
     workMode: emp.workMode ?? 'ONSITE',
   });
-  const [opts, setOpts] = useState<{ departments: any[]; designations: any[]; locations: any[] }>({ departments: [], designations: [], locations: [] });
+  const [opts, setOpts] = useState<{ businessUnits: any[]; departments: any[]; designations: any[]; locations: any[] }>({ businessUnits: [], departments: [], designations: [], locations: [] });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isInactive = !emp.active;
@@ -140,8 +141,8 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
   const employmentFieldsLocked = isInactive && !confirmInactiveEdit;
 
   useEffect(() => {
-    Promise.all([orgApi.listDepartments(token), orgApi.listDesignations(token), orgApi.listLocations(token)])
-      .then(([d, des, l]) => setOpts({ departments: d, designations: des, locations: l }));
+    Promise.all([orgApi.listBusinessUnits(token), orgApi.listDepartments(token), orgApi.listDesignations(token), orgApi.listLocations(token)])
+      .then(([bu, d, des, l]) => setOpts({ businessUnits: bu, departments: d, designations: des, locations: l }));
   }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -168,6 +169,12 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
               <input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
             </Field>
           </div>
+          <Field label="Business Unit">
+            <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => setForm(f => ({ ...f, businessUnitId: e.target.value || undefined }))}>
+              <option value="">— None —</option>
+              {opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
               <option value="">— None —</option>

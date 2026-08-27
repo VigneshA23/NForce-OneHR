@@ -11,4 +11,9 @@ import java.util.UUID;
 public interface PenalisationPolicyRepository extends JpaRepository<PenalisationPolicy, UUID> {
 
     Optional<PenalisationPolicy> findByName(String name);
+
+    // Backs PenalizationPolicyService#resolveDefaultPolicyId — "the org's original policy" is the
+    // oldest by createdAt. A single ORDER BY ... LIMIT 1 query instead of fetching every policy
+    // row into memory just to find the minimum.
+    Optional<PenalisationPolicy> findFirstByOrderByCreatedAtAsc();
 }

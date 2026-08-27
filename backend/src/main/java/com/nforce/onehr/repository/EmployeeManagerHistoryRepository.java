@@ -4,9 +4,11 @@ import com.nforce.onehr.entity.EmployeeManagerHistory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +19,18 @@ public interface EmployeeManagerHistoryRepository extends JpaRepository<Employee
     Optional<EmployeeManagerHistory> findByEmployeeUserIdAndEffectiveToIsNull(UUID employeeUserId);
 
     List<EmployeeManagerHistory> findByEffectiveToIsNull();
+
+    // Backs EmployeeService#findCurrentManagersBulk in one query instead of three (history, then
+    // a separate findAllById against User and against Employee for the same manager ids) — an
+    // ad-hoc join to User (managerUserId is a plain UUID column here, not a mapped relationship)
+    // plus a LEFT JOIN to Employee, since a manager can have a User row with no Employee row (the
+    // caller falls back to email as the display name in that case — see managerFullName below,
+    // which is null for exactly that case). Returns (employeeUserId, managerUserId, managerEmail,
+    // managerFullName-or-null) for every row in effect for the given employees.
+    @Query("SELECT h.employeeUserId, u.id, u.email, e.fullName "
+         + "FROM EmployeeManagerHistory h JOIN User u ON u.id = h.managerUserId LEFT JOIN Employee e ON e.userId = u.id "
+         + "WHERE h.employeeUserId IN :employeeUserIds AND h.effectiveTo IS NULL")
+    List<Object[]> findCurrentManagerInfoByEmployeeIds(@Param("employeeUserIds") Collection<UUID> employeeUserIds);
 
     List<EmployeeManagerHistory> findByManagerUserIdAndEffectiveToIsNull(UUID managerUserId);
 

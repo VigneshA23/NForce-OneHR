@@ -44,6 +44,7 @@ class UserManagementServiceTest {
     @Mock private DepartmentRepository departmentRepository;
     @Mock private DesignationRepository designationRepository;
     @Mock private LocationRepository locationRepository;
+    @Mock private ShiftRepository shiftRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -67,6 +68,8 @@ class UserManagementServiceTest {
     private final UUID newLocationId = UUID.randomUUID();
     private final UUID currentManagerId = UUID.randomUUID();
     private final UUID newManagerId = UUID.randomUUID();
+    private final UUID activeShiftId = UUID.randomUUID();
+    private final UUID inactiveShiftId = UUID.randomUUID();
 
     private User targetUser;
     private Employee targetEmployee;
@@ -76,6 +79,8 @@ class UserManagementServiceTest {
     private Designation newDesignation;
     private Location currentLocation;
     private Location newLocation;
+    private Shift activeShift;
+    private Shift inactiveShift;
 
     @BeforeEach
     void setUp() {
@@ -106,6 +111,11 @@ class UserManagementServiceTest {
         lenient().when(designationRepository.findById(newDesignationId)).thenReturn(Optional.of(newDesignation));
         lenient().when(locationRepository.findById(currentLocationId)).thenReturn(Optional.of(currentLocation));
         lenient().when(locationRepository.findById(newLocationId)).thenReturn(Optional.of(newLocation));
+
+        activeShift = Shift.builder().id(activeShiftId).name("Day Shift").active(true).build();
+        inactiveShift = Shift.builder().id(inactiveShiftId).name("Retired Shift").active(false).build();
+        lenient().when(shiftRepository.findById(activeShiftId)).thenReturn(Optional.of(activeShift));
+        lenient().when(shiftRepository.findById(inactiveShiftId)).thenReturn(Optional.of(inactiveShift));
     }
 
     private UpdateUserRequest requestWithRole(String roleCode) {
@@ -183,6 +193,49 @@ class UserManagementServiceTest {
         req.setLocationId(newLocationId);
 
         assertForcedLogout(req);
+    }
+
+    @Test
+    void updateUser_shiftChange_forcesLogout() {
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setShiftId(activeShiftId);
+
+        assertForcedLogout(req);
+
+        assertEquals(activeShift, targetEmployee.getShift());
+    }
+
+    // Inactive shifts must not be assignable — see UserManagementService.updateUser's own
+    // shift-change branch. Only guarded on an actual change (the employee had no shift before),
+    // so this also implicitly covers "assigning a genuinely new shift" rather than "re-saving an
+    // already-inactive existing assignment untouched" (see the next test for that case).
+    @Test
+    void updateUser_changingToInactiveShift_throwsAndDoesNotModifyEmployeeOrForceLogout() {
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setShiftId(inactiveShiftId);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> userManagementService.updateUser(targetUserId, req, actorEmail));
+
+        assertNull(targetEmployee.getShift());
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(forceLogoutBroadcaster);
+    }
+
+    // The employee already being on a shift that's since been deactivated (shiftId unchanged in
+    // this request) must keep working — this is a no-op re-save, not a new assignment, and must
+    // never be blocked by the inactive-shift guard above.
+    @Test
+    void updateUser_unchangedShift_evenIfNowInactive_doesNotThrowOrForceLogout() {
+        targetEmployee.setShift(inactiveShift);
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setShiftId(inactiveShiftId);
+
+        userManagementService.updateUser(targetUserId, req, actorEmail);
+
+        assertEquals(inactiveShift, targetEmployee.getShift());
+        assertEquals(3, targetUser.getTokenVersion());
+        verifyNoInteractions(forceLogoutBroadcaster);
     }
 
     @Test
@@ -349,6 +402,30 @@ class UserManagementServiceTest {
                     () -> userManagementService.createUser(req, actorEmail));
 
             verify(employeeRepository, never()).save(any());
+        }
+
+        // A brand-new employee can never have a legitimate pre-existing assignment to an
+        // inactive shift, so unlike updateUser's guard this one is unconditional — see
+        // UserManagementService.createUser's own shiftId branch.
+        @Test
+        void assigningInactiveShift_throwsWithoutPersistingEmployee() {
+            req.setShiftId(inactiveShiftId);
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> userManagementService.createUser(req, actorEmail));
+
+            verify(employeeRepository, never()).save(any());
+        }
+
+        @Test
+        void assigningActiveShift_succeeds() {
+            req.setShiftId(activeShiftId);
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            userManagementService.createUser(req, actorEmail);
+
+            verify(employeeRepository).save(argThat(e -> activeShift.equals(e.getShift())));
         }
     }
 

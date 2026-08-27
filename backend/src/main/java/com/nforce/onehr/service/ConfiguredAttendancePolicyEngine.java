@@ -209,8 +209,12 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         if (!v.isWorkHoursShortageEnabled()) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Work Hours Shortage section is disabled.");
         }
-        if (ctx.getEffectiveHoursPercent() == null) {
-            return configurationRequired(v, "effectiveHoursPercent fact is required to evaluate Work Hours Shortage.");
+        // Phase 3: distinct from effectiveHoursPercent above (which the no-show check just used,
+        // deliberately unchanged) — this fact already honors the version's configured basis
+        // (Effective/Gross), shift-exclusion, and daily/weekly/monthly frequency (see
+        // WorkHoursShortageCalculationService). The engine itself still never derives it.
+        if (ctx.getWorkHoursShortagePercent() == null) {
+            return configurationRequired(v, "workHoursShortagePercent fact is required to evaluate Work Hours Shortage.");
         }
         if (ctx.isLateArrivalAlsoOccurredSameDay() && !v.isWhsApplyPenaltyForShortageEnabled()) {
             return noMatch(v.getPolicyId(), v.getVersion(),
@@ -219,19 +223,19 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
 
         List<PenalizationPolicyWorkHoursTier> tiers = tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(v.getId());
         Optional<PenalizationPolicyWorkHoursTier> matched = tiers.stream()
-                .filter(t -> ctx.getEffectiveHoursPercent() < t.getThresholdPercent().doubleValue())
+                .filter(t -> ctx.getWorkHoursShortagePercent() < t.getThresholdPercent().doubleValue())
                 // Most severe matching tier (lowest threshold) — an employee below 50% also
                 // qualifies for the "less than 90%" tier but the stricter one governs.
                 .min(Comparator.comparing(PenalizationPolicyWorkHoursTier::getThresholdPercent));
         if (matched.isEmpty()) {
-            return noMatch(v.getPolicyId(), v.getVersion(), "Effective hours percent does not fall below any configured tier.");
+            return noMatch(v.getPolicyId(), v.getVersion(), "Work hours shortage percent does not fall below any configured tier.");
         }
         if (isRegularized(ctx)) {
             return exempt(v, "A pending or approved regularization covers this date.");
         }
         // The matched tier's own deduction, not a version-level field — a "less than 50%" match
         // deducts that tier's amount, not the "less than 90%" tier's.
-        return decideApplyPenalty(v, ctx, matched.get().getDeductionDays(), "Effective hours percent is below a configured shortage tier.");
+        return decideApplyPenalty(v, ctx, matched.get().getDeductionDays(), "Work hours shortage percent is below a configured shortage tier.");
     }
 
     private PolicyDecision evaluateMissingLogs(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
@@ -246,10 +250,39 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
                 && ctx.getMissingLogCountInPeriod() <= v.getMlExemptDays()) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Missing-log occurrence is within the exempt days for this period.");
         }
+        if (!isMissingLogDeductionDueThisOccurrence(v, ctx)) {
+            return noMatch(v.getPolicyId(), v.getVersion(),
+                    "Missing-log occurrence does not fall on a configured deduction interval.");
+        }
         if (isRegularized(ctx)) {
             return exempt(v, "A pending or approved regularization covers this date.");
         }
         return decideApplyPenalty(v, ctx, v.getMlDeductionDays(), "Missing-log occurrences exceed the configured exempt days for this period.");
+    }
+
+    /**
+     * Consumes {@code mlDeductionMode}/{@code mlDeductionPerShifts} — previously stored and
+     * versioned but never read by this engine. {@code IRRESPECTIVE} applies the configured
+     * deduction exactly once per period, on the first occurrence past the exempt count;
+     * {@code PER_SHIFT} (default, {@code deductionPerShifts} defaulting to 1) batches the
+     * deduction every N occurrences past the exempt count — with N=1 this is identical to every
+     * pre-existing policy's behavior (a deduction on every occurrence past the exempt count),
+     * preserving backward compatibility for policies saved before this distinction existed.
+     */
+    private boolean isMissingLogDeductionDueThisOccurrence(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        if (ctx.getMissingLogCountInPeriod() == null) {
+            return true; // no count fact available — fall back to the pre-existing "every occurrence" behavior
+        }
+        int exempt = v.getMlExemptDays() != null ? v.getMlExemptDays() : 0;
+        int occurrencesPastExempt = ctx.getMissingLogCountInPeriod() - exempt;
+        if (occurrencesPastExempt <= 0) {
+            return false;
+        }
+        if ("IRRESPECTIVE".equals(v.getMlDeductionMode())) {
+            return occurrencesPastExempt == 1;
+        }
+        int perShifts = v.getMlDeductionPerShifts() != null && v.getMlDeductionPerShifts() > 0 ? v.getMlDeductionPerShifts() : 1;
+        return occurrencesPastExempt % perShifts == 0;
     }
 
     private boolean isRegularized(PolicyEvaluationContext ctx) {

@@ -23,6 +23,7 @@ public class CreateEmployeeRequest {
 
     private String employeeCode;
 
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID locationId;
