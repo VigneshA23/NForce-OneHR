@@ -670,7 +670,7 @@ input[type="date"] {
   justify-content: center;
   text-align: center;
   padding: clamp(7px, calc(6.5px + 0.16vw), 9px) clamp(8px, calc(6px + 0.63vw), 16px) !important;
-  font-size: clamp(11px, calc(10.5px + 0.16vw), 13px) !important;
+  font-size: clamp(10px, calc(9.5px + 0.16vw), 12px) !important;
 }
 .nf-attendance-action-icon { flex-shrink: 0; }
 .nf-attendance-action-label { white-space: normal; word-break: break-word; line-height: 1.25; }
