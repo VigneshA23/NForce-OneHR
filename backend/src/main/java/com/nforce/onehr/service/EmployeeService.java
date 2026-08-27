@@ -199,19 +199,37 @@ public class EmployeeService {
      */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listPotentialManagers() {
+        // Deactivated (active=false, deletedAt still null — "deactivate, never delete" per
+        // User's own column comment) is deliberately NOT excluded here: an employee who already
+        // reports to a since-deactivated manager needs that manager to still appear (the frontend
+        // renders it disabled/non-selectable via the `active` flag on this response) so the
+        // existing assignment stays visible and explicable instead of silently vanishing from the
+        // list. Only a genuinely deleted user (deletedAt set — UserManagementService's delete path
+        // always sets both deletedAt and active=false together) is excluded outright, since that
+        // account no longer exists as a real reporting-line candidate at all.
         List<User> eligible = userRepository.findAllWithRoles().stream()
-                .filter(u -> u.isActive() && u.getRoles().stream()
+                .filter(u -> u.getDeletedAt() == null && u.getRoles().stream()
                         .anyMatch(r -> Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN").contains(r.getCode())))
                 .toList();
         if (eligible.isEmpty()) {
             return List.of();
         }
-        // One batch lookup for full names instead of an employeeRepository.findById per user —
-        // same fallback-to-email behavior as before for a User with no Employee row.
+        // One batch lookup for full names instead of an employeeRepository.findById per user.
         Set<UUID> ids = eligible.stream().map(User::getId).collect(Collectors.toSet());
         Map<UUID, String> namesByUserId = employeeRepository.findNamesByUserIds(ids).stream()
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        // ONEHR bug report: a User row with an eligible role and no Employee row (e.g. a signup
+        // that never completed onboarding, or a manually-created auth-only test account) used to
+        // fall back to showing up here under its raw email — appearing as a selectable Reporting
+        // Manager even though it doesn't exist anywhere else in the app (not in
+        // UserManagementService.listUsers, which is driven by employeeRepository.findAllWithDetails,
+        // not the users table — so these accounts were literally invisible everywhere except this
+        // one dropdown, with no way to find or deactivate them through normal UI). A user with no
+        // real Employee profile isn't a legitimate reporting-line candidate, so exclude anyone not
+        // present in namesByUserId (i.e. without an actual Employee row) instead of falling back to
+        // their email.
         return eligible.stream()
+                .filter(u -> namesByUserId.containsKey(u.getId()))
                 .map(u -> EmployeeResponse.builder()
                         .userId(u.getId())
                         .email(u.getEmail())

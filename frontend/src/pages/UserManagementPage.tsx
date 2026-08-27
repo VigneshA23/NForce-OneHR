@@ -185,14 +185,15 @@ function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord):
     : [...managers, updated];
 }
 
+// Deactivated managers are deliberately kept in this list (not filtered out) so an employee
+// already reporting to one still shows that name in the dropdown instead of it silently
+// vanishing — the option is rendered disabled (see the two <option> call sites below) rather
+// than excluded, so it can't be picked for a NEW assignment. A genuinely deleted manager is
+// excluded server-side already (EmployeeService.listPotentialManagers), so nothing to do here
+// for that case.
 function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
-  // `managers` (opts.managers) is fetched once per page load — defensively re-check `active`
-  // here too (not just at fetch time) so a manager deactivated later in the same session, before
-  // this cached list gets refreshed, can't still be picked. `!== false` so a record that simply
-  // omits the field isn't wrongly excluded.
-  const eligible = managers.filter(m => m.active !== false);
-  if (role === 'EMPLOYEE') return eligible.filter(m => m.role === 'MANAGER');
-  return eligible.filter(m => m.role === 'SUPER_ADMIN');
+  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER');
+  return managers.filter(m => m.role === 'SUPER_ADMIN');
 }
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
@@ -418,7 +419,14 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
-                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                    {/* Deactivated managers stay in the list (see getManagersForRole) but as a
+                        disabled option, so they can't be picked for a new assignment — they're
+                        only shown to explain an EXISTING selection that already points at one. */}
+                    {mgrList.map((m: any) => (
+                      <option key={m.userId} value={m.userId} disabled={m.active === false}>
+                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                      </option>
+                    ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
@@ -590,7 +598,14 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
-                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                    {/* Deactivated managers stay in the list (see getManagersForRole) but as a
+                        disabled option, so they can't be picked for a new assignment — they're
+                        only shown to explain an EXISTING selection that already points at one. */}
+                    {mgrList.map((m: any) => (
+                      <option key={m.userId} value={m.userId} disabled={m.active === false}>
+                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                      </option>
+                    ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
