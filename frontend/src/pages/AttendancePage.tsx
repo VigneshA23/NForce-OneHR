@@ -3519,7 +3519,14 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* Attendance Stats / Today's Timings / Quick Actions */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+      {/* minmax floor is 260px, not 280px: at a common "zoomed in a bit" width (~1164px
+          effective, e.g. a 1280px display at 110% browser zoom) the grid needed 868px to hold
+          Attendance Stats/Today's Timings/Actions in one row at 280px each but only had ~861px
+          — a ~7px shortfall that silently dropped Actions to its own row and read as a
+          role-specific layout bug. Same knife's-edge pattern as the header button fix above;
+          verified this reflow happens identically for every role at that width, since all roles
+          render this exact same grid. 260px still comfortably fits each card's content. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
         <AttendanceStatsPanel token={token} />
         <TodaysTimingsPanel today={today} config={config} workedMinutesToday={workedMinutesToday} />
         <QuickActionsPanel
