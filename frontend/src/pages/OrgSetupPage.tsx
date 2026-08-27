@@ -1152,16 +1152,24 @@ export default function OrgSetupPage() {
       )}
 
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-        {/* Tab bar + search + add */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', padding: '0 4px', alignItems: 'center' }}>
-          <div style={{ display: 'flex', flex: 1 }}>
+        {/* Tab bar + search + add. flexWrap so the search/add block (fixed-width input + button,
+            never shrinks) drops to its own line once there isn't room for it alongside the tabs,
+            instead of squeezing the tabs' flex:1 box toward zero width — that squeeze is what
+            made the tab bar disappear before. justifyContent: flex-end keeps that block
+            right-aligned whether it's sharing the line with the tabs or sitting alone below. */}
+        <div className="nf-org-toolbar" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', borderBottom: '1px solid var(--line)', padding: '0 4px', alignItems: 'center' }}>
+          {/* minWidth: 0 lets this flex item actually shrink below its tabs' combined natural
+              width instead of forcing the row wider than the panel — overflowX then scrolls the
+              tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
+              squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
+          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto' }}>
             {(Object.keys(TABS) as OrgTab[]).map(key => {
               const T = TABS[key];
               const TabIcon = T.icon;
               const isActive = activeTab === key;
               return (
                 <button key={key} onClick={() => setActiveTab(key)} style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
+                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, whiteSpace: 'nowrap',
                   padding: '11px 14px', background: 'transparent', border: 'none',
                   cursor: 'pointer', fontSize: 12.5,
                   fontWeight: isActive ? 600 : 400,
@@ -1176,13 +1184,17 @@ export default function OrgSetupPage() {
             })}
           </div>
           {activeTab !== 'penalization' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-              <div style={{ position: 'relative' }}>
+            // 8px vertical padding (was 0) gives this block breathing room from the tabs above
+            // it on the narrow widths where flexWrap drops it to its own line; harmless on the
+            // shared line, where alignItems: center still governs its vertical position.
+            <div className="nf-org-toolbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+              <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
                 <Search size={12} aria-hidden="true" style={{
                   position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
                   color: 'var(--txt-dim)', pointerEvents: 'none',
                 }} />
                 <input
+                  className="nf-org-search-input"
                   type="search" value={search} onChange={e => setSearch(e.target.value)}
                   placeholder={`Search ${tab.label.toLowerCase()}…`}
                   aria-label={`Search ${tab.label}`}

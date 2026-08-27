@@ -358,6 +358,33 @@ input[type="date"] {
   .nf-search-full-mobile-input { width: 100% !important; box-sizing: border-box; }
 }
 
+/* Organization Structure / Organization Masters toolbar -> the search bar and Add button
+   always move onto their own row below the section selector (Business Units / Departments /
+   Designations / …) on mobile, rather than only wrapping down when the two happen not to fit
+   (see .nf-org-toolbar's flexWrap for that desktop/tablet behavior) — a narrow phone always has
+   too little room for both, so this forces the stack instead of relying on the fit check. The
+   search input also grows to fill its row instead of staying a fixed 196px. */
+@media (max-width: 767px) {
+  .nf-org-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+  }
+  /* Explicit full-width + scroll, rather than leaning on flexbox's implicit cross-axis stretch
+     from align-items above to size this row — same overflow-x/-webkit-overflow-scrolling
+     pairing used for the other mobile-scrollable strips in this file (e.g. .nf-hierarchy-actions'
+     siblings around line 417). Keeps the section selector (Business Units / Departments / …)
+     horizontally scrollable on its own full-width row once it's stacked above the actions block. */
+  .nf-org-toolbar-tabs {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-org-toolbar-actions { width: 100%; box-sizing: border-box; }
+  .nf-org-search-wrap { flex: 1; min-width: 0; }
+  .nf-org-search-input { width: 100% !important; box-sizing: border-box; }
+}
+
 /* Policies & Announcements stat tiles -> stay a 3-column row on mobile (no
    layout change, no scroll) but let the tile padding and type sizes scale
    down fluidly with `clamp()` so all three keep fitting cleanly at any

@@ -50,7 +50,7 @@ export function SidebarNav({ role, currentKey, onNavigate }: SidebarNavProps) {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 0' }}>
       {tree.map((node) => (
         <NavRow
           key={node.type === 'item' ? node.item.key : node.key}
