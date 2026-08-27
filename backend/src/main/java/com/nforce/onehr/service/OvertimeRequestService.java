@@ -10,6 +10,7 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.OvertimeRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -245,6 +246,10 @@ public class OvertimeRequestService {
                 .map(User::getEmail).orElse("");
         String reviewerName = req.getReviewedBy() == null ? null
                 : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
+        String reviewerRole = req.getReviewedBy() == null ? null
+                : userRepository.findById(req.getReviewedBy())
+                        .map(u -> RoleUtils.primaryRoleCode(u.getRoles(), null))
+                        .orElse(null);
         String assignedApproverName = req.getAssignedApproverId() == null ? null
                 : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
         String notifyUserName = req.getNotifyUserId() == null ? null
@@ -268,6 +273,7 @@ public class OvertimeRequestService {
                 .notifyUserId(req.getNotifyUserId())
                 .notifyUserName(notifyUserName)
                 .reviewedByName(reviewerName)
+                .reviewedByRole(reviewerRole)
                 .reviewedAt(req.getReviewedAt())
                 .reviewComment(req.getReviewComment())
                 .createdAt(req.getCreatedAt())

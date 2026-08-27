@@ -4415,6 +4415,32 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
   );
 }
 
+/** Next Approver column: who still needs to act — blank once the request is already decided
+ * (there's no "next" step left), matching the Keka reference this was modeled after, where that
+ * column is empty for a resolved row. Separate from "Last Action By" (OvertimeLastActionCell)
+ * below, which is the complementary half Keka splits into its own column instead of collapsing
+ * both into one cell. */
+function OvertimeNextApproverCell({ r }: { r: OvertimeRequestRecord }) {
+  if (r.status !== 'PENDING') return <>{dash}</>;
+  return <>{r.assignedApproverName ?? dash}</>;
+}
+
+/** Last Action By: who actually approved/rejected, plus the CAPACITY they acted in — HR Admin or
+ * Super Admin can decide a manager-stage request too (see OvertimeRequestService's approver
+ * override), so "who approved" alone doesn't say whether it was the employee's actual manager or
+ * an HR/SA override step in; reviewedByRole (backend-resolved at response time) makes that
+ * explicit, e.g. "Rohit Shivramwar (Manager)". Blank while still pending — nobody has acted yet. */
+function OvertimeLastActionCell({ r }: { r: OvertimeRequestRecord }) {
+  if (!r.reviewedByName) return <>{dash}</>;
+  const roleLabel = r.reviewedByRole ? toShellRole(r.reviewedByRole) : null;
+  return (
+    <>
+      {r.reviewedByName}
+      {roleLabel && <div style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 1 }}>{roleLabel}</div>}
+    </>
+  );
+}
+
 const dropdownMenuItemStyle: React.CSSProperties = {
   display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', fontSize: 12,
   background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt)',
@@ -4663,17 +4689,32 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
                     reasoning in AttendanceRequestsSection.renderTable. The "..." Actions column is
                     always present (every row can at least be viewed), unlike the old Approve/
                     Reject buttons that only appeared in the approvals table. */}
-                <tr>{[...(showApprovalActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Approver', 'Status', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{[...(showApprovalActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
                     {showApprovalActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
-                    <td style={tdStyle}>{formatDuration(r.requestedMinutes) ?? dash}</td>
+                    <td style={tdStyle}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        {formatDuration(r.requestedMinutes) ?? dash}
+                        {/* Opens the same detail drawer's Applied/Approved hours breakdown —
+                            matches the Keka reference's info icon next to the hours value,
+                            reusing the drawer instead of a second tooltip implementation. */}
+                        <button
+                          onClick={() => setDrawer({ request: r, mode: 'VIEW' })}
+                          aria-label="Hours detail"
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}
+                        >
+                          <Info size={12} />
+                        </button>
+                      </span>
+                    </td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                    <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
                     <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    <td style={tdStyle}><OvertimeLastActionCell r={r} /></td>
+                    <td style={tdStyle}><OvertimeNextApproverCell r={r} /></td>
                     <td style={tdStyle}>
                       <OvertimeActionMenu
                         request={r}
