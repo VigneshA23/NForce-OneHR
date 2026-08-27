@@ -5094,7 +5094,22 @@ function AttendancePageInner() {
   return (
     <div>
       <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
-        <div style={{ maxWidth: 560 }}>
+        {/* flex-basis is an explicit 300px, not left as content-driven "auto": the subtitle text
+            length differs by role (Employee's is one short sentence, Manager/HR Admin/Super
+            Admin's are longer), and an auto-width flex item claims only as much row space as its
+            own text needs — so Employee's shorter subtitle left more room for the header's action
+            buttons than the other roles' longer ones did, making the header wrap to a second row
+            (buttons below the title) at a different viewport width per role. A fixed basis makes
+            every role claim the identical footprint regardless of its own subtitle's length, so
+            the header wraps at the same breakpoint for all four roles.
+            Grow is 0, not 1: a growing title would expand to fill any spare header width (up to
+            the maxWidth cap) *at the actions column's expense*, since actions itself has no grow
+            of its own and only gets whatever width is left over — that starved the two buttons of
+            the room their own internal flex-basis needed even on an ordinary 1440px desktop
+            width, wrapping them onto separate lines where they used to sit side by side. Without
+            grow, title only ever claims its basis (or less, via shrink, on very narrow screens),
+            leaving all spare width for the buttons, matching the original layout's intent. */}
+        <div style={{ flex: '0 1 300px', maxWidth: 560 }}>
           <h1 style={{
             fontFamily: '"Space Grotesk", sans-serif', fontSize: 18, fontWeight: 700,
             color: 'var(--txt)', margin: 0,
@@ -5106,7 +5121,16 @@ function AttendancePageInner() {
               inconsistent alignment across roles even though it's the same shared component. */}
           <p style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--txt-mut)', marginTop: 4, minHeight: 'calc(13px * 1.5 * 2)' }}>{subtitle}</p>
         </div>
-        <div className="nf-attendance-actions" style={{ display: 'flex', gap: 10 }}>
+        {/* width is computed explicitly (2x the button clamp formula from index.css, + the 10px
+            gap) rather than left as "auto": a flex container's own auto/shrink-to-fit width, when
+            its children are flex-grow items, does not reliably compute to those children's full
+            unshrunk (flex-basis) size in every browser — measured here at ~375px vs. the ~410px
+            the two buttons actually want at their basis — so leaving it implicit silently starved
+            both buttons and either wrapped their labels or stacked them despite the header having
+            hundreds of spare pixels right next to them (justify-content: space-between spends
+            that slack as the GAP between title and actions, never by growing actions itself, so
+            there was never any implicit fallback that would have caught this). */}
+        <div className="nf-attendance-actions" style={{ display: 'flex', gap: 10, flexWrap: 'nowrap', width: 'calc(2 * clamp(90px, 76.5px + 8.59vw, 200px) + 10px)' }}>
           <button
             className="nf-attendance-action-btn"
             onClick={() => myAttendanceRef.current?.exportMonth()}
