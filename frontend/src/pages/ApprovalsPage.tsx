@@ -409,7 +409,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
 
           {item.requestType === 'EXPENSE' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Final clearance (HR/Admin)' : 'Manager approval'} />
+              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Pending Final Approval (HR/Admin)' : 'Pending Manager Review'} />
               <Row label="Category" value={item.expenseCategoryName} />
               <Row label="Amount" value={fmtCurrency(item.expenseAmount ?? 0)} />
               <Row label="Expense Date" value={fmtDate(item.expenseDate)} />
@@ -808,7 +808,19 @@ export default function ApprovalsPage() {
                           style={{ cursor: 'pointer', accentColor: 'var(--brand)' }}
                         />
                       </td>
-                      <td style={tdStyle}><TypeBadge type={item.requestType} /></td>
+                      <td style={tdStyle}>
+                        <TypeBadge type={item.requestType} />
+                        {/* Expense claims now surface to HR/SA before Manager approval too (see
+                            ApprovalCenterController's expense branch) — this makes that stage
+                            visible at a glance in the queue itself, not just inside the detail
+                            modal's "Stage" row, so admins can tell a not-yet-manager-approved
+                            claim apart from one that's actually ready for their own final call. */}
+                        {item.requestType === 'EXPENSE' && item.approvalStage === 'MANAGER' && (
+                          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--txt-dim)', marginTop: 4, whiteSpace: 'nowrap' }}>
+                            Pending Manager Review
+                          </div>
+                        )}
+                      </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{item.employeeName}</td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{requestedDates}</td>
                       <td style={tdStyle}>

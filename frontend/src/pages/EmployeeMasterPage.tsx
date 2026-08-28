@@ -27,8 +27,17 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
   );
 }
 
+// Department/Designation/Location dropdowns must only offer records still assignable for a NEW
+// selection — a deactivated (not deleted) master row shouldn't be pickable going forward. A
+// hard-deleted row never reaches here at all: it's physically gone from what the list endpoint
+// returns. `currentId` keeps this employee's EXISTING value visible/selected even if it was since
+// deactivated, rather than silently dropping it from the options.
+function assignableOptions<T extends { id: string; active?: boolean }>(rows: T[], currentId: string | null | undefined): T[] {
+  return rows.filter(r => r.active !== false || r.id === currentId);
+}
+
 // ─── Creatable Location Select ────────────────────────────────────────────────
-interface Location { id: string; name: string; }
+interface Location { id: string; name: string; active?: boolean; }
 
 function CreatableLocationSelect({
   locations, value, onChange, token,
@@ -178,13 +187,13 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
           <Field label="Department">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
               <option value="">— None —</option>
-              {opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              {assignableOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
               <option value="">— None —</option>
-              {opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              {assignableOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <Field label="Employment Type">

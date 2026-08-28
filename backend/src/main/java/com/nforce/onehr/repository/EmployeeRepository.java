@@ -3,6 +3,7 @@ package com.nforce.onehr.repository;
 import com.nforce.onehr.entity.Employee;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -148,4 +149,29 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
          + "LEFT JOIN e.penalisationPolicy pp "
          + "WHERE e.userId IN :ids")
     List<com.nforce.onehr.dto.penalization.EmployeeAllocationProjection> findAllocationProjectionsByIds(@Param("ids") Collection<UUID> ids);
+
+    // Backs OrgService's hard-delete of a Department/Designation/Location/Shift master row —
+    // called only after countBy*Id above has already confirmed 0 *active* (non-deleted)
+    // employees remain. Any employee row still pointing at the id being deleted at that point is
+    // therefore necessarily a soft-deleted (terminated) one — deleting a user never clears their
+    // Employee row's own department/designation/location/shift columns (see
+    // UserManagementService.deleteUser), so a stale FK is all that's left blocking the master
+    // row's real removal. These null out that already-nullable column (same "— None —" state the
+    // UI already supports) rather than touching the employee row itself or any Attendance/audit
+    // table — no historical data is deleted or reassigned, only a now-dangling reference cleared.
+    @Modifying
+    @Query("UPDATE Employee e SET e.department = NULL WHERE e.department.id = :id")
+    void clearDepartmentReferences(@Param("id") UUID id);
+
+    @Modifying
+    @Query("UPDATE Employee e SET e.designation = NULL WHERE e.designation.id = :id")
+    void clearDesignationReferences(@Param("id") UUID id);
+
+    @Modifying
+    @Query("UPDATE Employee e SET e.location = NULL WHERE e.location.id = :id")
+    void clearLocationReferences(@Param("id") UUID id);
+
+    @Modifying
+    @Query("UPDATE Employee e SET e.shift = NULL WHERE e.shift.id = :id")
+    void clearShiftReferences(@Param("id") UUID id);
 }

@@ -61,7 +61,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ─── Creatable Location Select ────────────────────────────────────────────────
-interface Location { id: string; name: string; }
+interface Location { id: string; name: string; active?: boolean; }
 
 function CreatableLocationSelect({ locations, value, onChange, token }: { locations: Location[]; value: string | undefined; onChange: (id: string | undefined) => void; token: string }) {
   const [query, setQuery] = useState('');
@@ -195,14 +195,29 @@ function getShiftOptions(shifts: ShiftRow[], currentShiftId: string | undefined)
   return shifts.filter(s => s.active !== false || s.id === currentShiftId);
 }
 
+// Same reasoning/shape as getShiftOptions just above, for the 3 other master-data dropdowns that
+// were still handing out every row (including deactivated ones) unfiltered.
+function getDepartmentOptions(departments: any[], currentId: string | undefined): any[] {
+  return departments.filter(d => d.active !== false || d.id === currentId);
+}
+
+function getDesignationOptions(designations: any[], currentId: string | undefined): any[] {
+  return designations.filter(d => d.active !== false || d.id === currentId);
+}
+
+function getLocationOptions(locations: Location[], currentId: string | undefined): Location[] {
+  return locations.filter(l => l.active !== false || l.id === currentId);
+}
+
+// Deactivated managers are deliberately kept in this list (not filtered out) so an employee
+// already reporting to one still shows that name in the dropdown instead of it silently
+// vanishing — the option is rendered disabled (see the two <option> call sites below) rather
+// than excluded, so it can't be picked for a NEW assignment. A genuinely deleted manager is
+// excluded server-side already (EmployeeService.listPotentialManagers), so nothing to do here
+// for that case.
 function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
-  // `managers` (opts.managers) is fetched once per page load — defensively re-check `active`
-  // here too (not just at fetch time) so a manager deactivated later in the same session, before
-  // this cached list gets refreshed, can't still be picked. `!== false` so a record that simply
-  // omits the field isn't wrongly excluded.
-  const eligible = managers.filter(m => m.active !== false);
-  if (role === 'EMPLOYEE') return eligible.filter(m => m.role === 'MANAGER');
-  return eligible.filter(m => m.role === 'SUPER_ADMIN');
+  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER');
+  return managers.filter(m => m.role === 'SUPER_ADMIN');
 }
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
@@ -282,20 +297,21 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
       const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: trimmedCode || undefined }, token);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
+      // The account is already fully created at this point — show the success screen right away
+      // instead of making the user wait on a second, unrelated request. Starting onboarding is a
+      // genuinely separate concern (its own checklist rows, its own "soft failure is fine, retry
+      // from the Onboarding page" story below) that doesn't need to block navigation; it now runs
+      // in the background and just updates the outcome banner in place once it settles.
+      setCreated(emp);
       if (startOnboarding) {
-        try {
-          await onboardingApi.start({ employeeUserId: emp.userId }, token);
-          setOnboardingOutcome('started');
-        } catch {
-          // Account is already created and safe either way — onboarding can
-          // always be started later from the Onboarding page, so this is a
-          // soft failure, not a blocker.
-          setOnboardingOutcome('failed');
-        }
+        onboardingApi.start({ employeeUserId: emp.userId }, token)
+          .then(() => setOnboardingOutcome('started'))
+          // Account is already created and safe either way — onboarding can always be started
+          // later from the Onboarding page, so this is a soft failure, not a blocker.
+          .catch(() => setOnboardingOutcome('failed'));
       } else {
         setOnboardingOutcome('skipped');
       }
-      setCreated(emp);
     } catch (err) {
       // The backend rejects a submitted Employee ID that's already in use (or was just taken by
       // a concurrent request) with this exact message — surfaced as its own banner with a
@@ -326,6 +342,11 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 <b style={{ color: 'var(--txt)' }}>Role:</b> {created.role}
               </div>
             </div>
+            {onboardingOutcome === null && (
+              <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: 'var(--txt-mut)' }}>
+                Starting onboarding checklist…
+              </div>
+            )}
             {onboardingOutcome === 'started' && (
               <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#4C8DD6' }}>
                 Onboarding checklist started — find it under Onboarding → Active.
@@ -411,17 +432,17 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           </Field>
           <Field label="Department">
             <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
-              <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">— None —</option>{opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              <option value="">— None —</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Location *">
-              <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
+              <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
@@ -433,7 +454,14 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
-                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                    {/* Deactivated managers stay in the list (see getManagersForRole) but as a
+                        disabled option, so they can't be picked for a new assignment — they're
+                        only shown to explain an EXISTING selection that already points at one. */}
+                    {mgrList.map((m: any) => (
+                      <option key={m.userId} value={m.userId} disabled={m.active === false}>
+                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                      </option>
+                    ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
@@ -574,12 +602,12 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
-              <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">— None —</option>{opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              <option value="">— None —</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <Field label="Date of Joining">
@@ -599,7 +627,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           )}
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Location">
-              <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
+              <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
@@ -611,7 +639,14 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
-                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                    {/* Deactivated managers stay in the list (see getManagersForRole) but as a
+                        disabled option, so they can't be picked for a new assignment — they're
+                        only shown to explain an EXISTING selection that already points at one. */}
+                    {mgrList.map((m: any) => (
+                      <option key={m.userId} value={m.userId} disabled={m.active === false}>
+                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                      </option>
+                    ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>

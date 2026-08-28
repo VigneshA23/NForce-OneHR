@@ -474,7 +474,10 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
           <Field label="Location *">
             <select style={inputStyle} value={locationId} onChange={e => setLocationId(e.target.value)}>
               <option value="">Select a location…</option>
-              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              {/* Active-only for a NEW selection — a deactivated (not deleted) location shouldn't
+                  be pickable going forward; `locationId` keeps this holiday's existing location
+                  visible/selected if it was assigned before that location was deactivated. */}
+              {locations.filter(l => l.active !== false || l.id === locationId).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </Field>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
