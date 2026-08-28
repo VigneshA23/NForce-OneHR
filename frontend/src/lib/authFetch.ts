@@ -35,8 +35,13 @@ export function installAuthFetch(): void {
         if (bodyText.trim().length === 0) {
           handledSessionInvalidation = true;
           useAuthStore.getState().clearAuth();
-          sessionStorage.setItem(SESSION_MESSAGE_KEY, SESSION_INVALIDATED_MESSAGE);
+          // Only ever write the message immediately before the redirect that consumes it —
+          // if we're already on /login there's no reload left in this page load to read it
+          // back, and an unconsumed key would leak sessionStorage-inheriting tabs (a
+          // reopened-closed tab, a duplicated tab, a crash/session restore) into showing a
+          // phantom banner for a session invalidation that isn't theirs.
           if (window.location.pathname !== '/login') {
+            sessionStorage.setItem(SESSION_MESSAGE_KEY, SESSION_INVALIDATED_MESSAGE);
             window.location.href = '/login';
           }
         }

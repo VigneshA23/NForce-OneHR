@@ -8,11 +8,13 @@ import com.nforce.onehr.entity.Designation;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.repository.AssetRepository;
 import com.nforce.onehr.repository.BusinessUnitRepository;
 import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LocationRepository;
 import com.nforce.onehr.repository.ShiftRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +41,8 @@ public class OrgService {
     private final ShiftRepository shiftRepo;
     private final EmployeeRepository employeeRepo;
     private final EmployeeManagerHistoryRepository historyRepo;
+    private final HolidayRepository holidayRepo;
+    private final AssetRepository assetRepo;
 
     // ── Business Units ───────────────────────────────────────────────────────
 
@@ -149,6 +153,9 @@ public class OrgService {
         return DepartmentResponse.from(departmentRepo.save(dept), count);
     }
 
+    // Hard delete: permanently removes the row once no *current* (non-terminated) employee is
+    // assigned to it — any leftover employee FK at this point can only belong to an already
+    // soft-deleted employee (see clearDepartmentReferences's own comment below).
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
     @Transactional
     public void deleteDepartment(UUID id) {
@@ -157,8 +164,14 @@ public class OrgService {
         long count = employeeRepo.countByDepartmentId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this department. Deactivate instead.");
+                    "Cannot delete this department because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        // No active employee references it — any employees row still pointing at this id belongs
+        // to a soft-deleted (terminated) employee; clear that stale, already-nullable FK so the
+        // permanent delete below doesn't fail on it. Their own employee/attendance records are
+        // untouched.
+        employeeRepo.clearDepartmentReferences(id);
         departmentRepo.delete(dept);
     }
 
@@ -222,8 +235,10 @@ public class OrgService {
         long count = employeeRepo.countByDesignationId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this designation. Deactivate instead.");
+                    "Cannot delete this designation because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        employeeRepo.clearDesignationReferences(id);
         designationRepo.delete(desig);
     }
 
@@ -309,8 +324,15 @@ public class OrgService {
         long count = employeeRepo.countByLocationId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this location. Deactivate instead.");
+                    "Cannot delete this location because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        employeeRepo.clearLocationReferences(id);
+        // holidays.location_id is NOT NULL (location-owned calendar config, not employee
+        // attendance/audit history) — delete rather than null. assets.location_id is nullable —
+        // detach instead, preserving the asset record itself.
+        holidayRepo.deleteByLocationId(id);
+        assetRepo.clearLocationReferences(id);
         locationRepo.delete(loc);
     }
 
@@ -444,8 +466,10 @@ public class OrgService {
         long count = employeeRepo.countByShiftId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this shift. Deactivate instead.");
+                    "Cannot delete this shift because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        employeeRepo.clearShiftReferences(id);
         shiftRepo.delete(shift);
     }
 

@@ -1,26 +1,37 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import {
   Users, User, Clock, FileText, Package, Shield, GitBranch, AlertTriangle,
-  MessageCircle, BarChart2, FileCheck, CheckSquare, Building2, LogIn,
-  ChevronRight, Menu, X, Bot, MapPin, Check,
+  MessageCircle, FileCheck, CheckSquare, Building2, LogIn,
+  ChevronRight, ChevronDown, Bot, MapPin, Check,
 } from 'lucide-react';
+import * as NavigationMenu from '@radix-ui/react-navigation-menu';
+import * as Popover from '@radix-ui/react-popover';
 import { BrandMark } from '../components/BrandMark';
 import './LandingPage.css';
 
+// ── Section-level reveal (whole section rises as one unit — Keka pattern) ────
+function SectionReveal({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 56 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '0px 0px -80px 0px' }}
+      transition={{ duration: 0.72, ease: [0.22, 1, 0.36, 1], delay }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 // ── Scroll reveal ────────────────────────────────────────────────────────────
-type FadeVariant = 'up' | 'left' | 'right';
+type FadeVariant = 'up' | 'left' | 'right' | 'scale';
 
 function FadeIn({
-  children,
-  delay = 0,
-  style,
-  variant = 'up',
+  children, delay = 0, style, variant = 'up',
 }: {
-  children: React.ReactNode;
-  delay?: number;
-  style?: React.CSSProperties;
-  variant?: FadeVariant;
+  children: React.ReactNode; delay?: number; style?: React.CSSProperties; variant?: FadeVariant;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -28,36 +39,50 @@ function FadeIn({
     if (!el) return;
     const ob = new IntersectionObserver(
       ([e]) => { if (e.isIntersecting) { el.classList.add('lp-visible'); ob.unobserve(el); } },
-      { threshold: 0.04, rootMargin: '0px 0px -32px 0px' }
+      { threshold: 0.08, rootMargin: '0px 0px -48px 0px' }
     );
     ob.observe(el);
     return () => ob.disconnect();
   }, []);
-  const cls = variant === 'left' ? 'lp-fade-left' : variant === 'right' ? 'lp-fade-right' : 'lp-fade';
+  const cls = variant === 'left' ? 'lp-fade-left' : variant === 'right' ? 'lp-fade-right' : variant === 'scale' ? 'lp-fade-scale' : 'lp-fade';
   return (
-    <div
-      ref={ref}
-      className={cls}
-      style={{ transitionDelay: delay ? `${delay}ms` : undefined, ...style }}
-    >
+    <div ref={ref} className={cls} style={{ transitionDelay: delay ? `${delay}ms` : undefined, ...style }}>
       {children}
     </div>
   );
 }
 
+// ── Animated hamburger icon ───────────────────────────────────────────────────
+function HamburgerIcon({ open }: { open: boolean }) {
+  return (
+    <div className="lp-hamburger" data-open={open ? 'true' : 'false'}>
+      <span /><span /><span />
+    </div>
+  );
+}
+
+// ── Features data (used in nav mega-menu + features section) ─────────────────
+const NAV_FEATURES = [
+  { icon: Users,       title: 'People & Org',       desc: 'Find anyone, see the full org tree.' },
+  { icon: Clock,       title: 'Attendance & Leave',  desc: 'Clock in anywhere, balances auto-update.' },
+  { icon: CheckSquare, title: 'Approvals',            desc: 'All requests in one queue.' },
+  { icon: FileText,    title: 'Documents',            desc: 'Track expirations and compliance.' },
+  { icon: Package,     title: 'Assets & Expenses',   desc: "Who has what, what's pending." },
+  { icon: Shield,      title: 'Audit & Security',    desc: 'Every action logged and attributed.' },
+];
+
 // ── Nav ──────────────────────────────────────────────────────────────────────
-const NAV_LINKS = [
-  { label: 'Features',    href: '#features' },
-  { label: 'AI Agents',   href: '#ai-agents' },
-  { label: 'Platform',    href: '#platform' },
-  { label: 'How it Works',href: '#how-it-works' },
-  { label: 'Pricing',     href: '#pricing' },
+const OTHER_NAV = [
+  { label: 'Role Guides',  href: '#role-guides' },
+  { label: 'Platform',     href: '#platform' },
+  { label: 'How it Works', href: '#how-it-works' },
+  { label: 'Pricing',      href: '#pricing' },
 ];
 
 function LandingNav() {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 24);
@@ -66,382 +91,396 @@ function LandingNav() {
   }, []);
 
   function scrollTo(id: string) {
-    setOpen(false);
+    setMobileOpen(false);
     document.querySelector(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   return (
     <nav className={`lp-nav${scrolled ? ' lp-nav-scrolled' : ''}`}>
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 28px', height: 76, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+
         {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-          <BrandMark size="sm" />
-          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--txt)', letterSpacing: '-0.02em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', flexShrink: 0 }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+          <BrandMark size="md" />
+          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 19, color: 'var(--txt)', letterSpacing: '-0.025em' }}>
             NForce <span style={{ color: 'var(--brand-bright)' }}>OneHR</span>
           </span>
         </div>
-        {/* Desktop links */}
-        <div className="lp-nav-links-desktop" style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-          {NAV_LINKS.map(l => (
-            <button
-              key={l.label}
-              onClick={() => scrollTo(l.href)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 14, fontFamily: 'inherit', fontWeight: 500, padding: 0, transition: 'color 0.15s' }}
-              onMouseEnter={e => (e.currentTarget.style.color = 'var(--txt)')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'var(--txt-mut)')}
-            >{l.label}</button>
-          ))}
-        </div>
-        {/* CTAs */}
-        <div className="lp-nav-links-desktop" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+        {/* Desktop navigation using Radix NavigationMenu */}
+        <NavigationMenu.Root className="lp-nav-root lp-nav-desktop" style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <NavigationMenu.List className="lp-nav-list" style={{ display: 'flex', alignItems: 'center', gap: 4, listStyle: 'none', margin: 0, padding: 0 }}>
+
+            {/* Features — with mega-menu */}
+            <NavigationMenu.Item>
+              <NavigationMenu.Trigger className="lp-nav-trigger">
+                Features <ChevronDown size={12} className="lp-nav-chevron" />
+              </NavigationMenu.Trigger>
+              <NavigationMenu.Content className="lp-nav-content">
+                <div style={{ padding: '20px 20px 16px', width: 520 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0 0 14px 2px' }}>Product Features</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                    {NAV_FEATURES.map(f => {
+                      const Icon = f.icon;
+                      return (
+                        <button
+                          key={f.title}
+                          onClick={() => scrollTo('#features')}
+                          className="lp-nav-feature-item"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', borderRadius: 8, textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 12 }}
+                        >
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(177,17,22,0.1)', border: '1px solid rgba(177,17,22,0.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                            <Icon size={14} color="var(--brand-bright)" />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', fontFamily: "'Space Grotesk', sans-serif", marginBottom: 2, lineHeight: 1.3 }}>{f.title}</div>
+                            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', lineHeight: 1.4 }}>{f.desc}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </NavigationMenu.Content>
+            </NavigationMenu.Item>
+
+            {/* Remaining nav links */}
+            {OTHER_NAV.map(l => (
+              <NavigationMenu.Item key={l.label}>
+                <NavigationMenu.Link asChild>
+                  <button
+                    onClick={() => scrollTo(l.href)}
+                    className="lp-nav-link-btn"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 13.5, fontFamily: 'inherit', fontWeight: 500, padding: '6px 10px', borderRadius: 6, transition: 'color 0.15s, background 0.15s' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt)'; (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-mut)'; (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                  >{l.label}</button>
+                </NavigationMenu.Link>
+              </NavigationMenu.Item>
+            ))}
+
+          </NavigationMenu.List>
+
+          {/* Viewport — where dropdown content renders */}
+          <div className="lp-nav-viewport-wrap">
+            <NavigationMenu.Viewport className="lp-nav-viewport" />
+          </div>
+        </NavigationMenu.Root>
+
+        {/* Desktop CTA buttons */}
+        <div className="lp-nav-desktop" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <a
+            href="mailto:demo@nforceone.com?subject=NForce%20OneHR%20Demo%20Request"
+            className="lp-btn-shimmer"
+            style={{ background: 'var(--brand-bright)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13.5, fontFamily: 'inherit', fontWeight: 700, padding: '7px 18px', cursor: 'pointer', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity 0.15s', boxShadow: '0 0 24px rgba(228,55,61,0.35), inset 0 1px 0 rgba(255,255,255,0.15)' }}
+            onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = '0.88')}
+            onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = '1')}
+          >
+            Book Demo
+          </a>
           <button
             onClick={() => navigate('/login')}
-            style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 8, color: 'var(--txt)', fontSize: 14, fontFamily: 'inherit', fontWeight: 500, padding: '7px 16px', cursor: 'pointer', transition: 'border-color 0.15s' }}
-            onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--brand-bright)')}
-            onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--line2)')}
-          >Sign In</button>
-          <button
-            onClick={() => scrollTo('#early-access')}
-            style={{ background: 'var(--brand)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontFamily: 'inherit', fontWeight: 600, padding: '7px 16px', cursor: 'pointer', transition: 'background 0.15s' }}
-            onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--brand-bright)')}
-            onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--brand)')}
-          >Request Early Access</button>
+            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.11)', borderRadius: 8, color: 'var(--txt)', fontSize: 13.5, fontFamily: 'inherit', fontWeight: 500, padding: '7px 18px', cursor: 'pointer', transition: 'background 0.15s, border-color 0.15s, box-shadow 0.15s', display: 'flex', alignItems: 'center', gap: 6, backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+            onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = 'rgba(255,255,255,0.1)'; b.style.borderColor = 'rgba(255,255,255,0.18)'; b.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.1), 0 0 0 1px rgba(255,255,255,0.06)'; }}
+            onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = 'rgba(255,255,255,0.06)'; b.style.borderColor = 'rgba(255,255,255,0.11)'; b.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)'; }}
+          >
+            <LogIn size={13} /> Sign In
+          </button>
         </div>
-        {/* Mobile hamburger */}
-        <button className="lp-mobile-menu-btn" onClick={() => setOpen(!open)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt)', padding: 4 }}>
-          {open ? <X size={20} /> : <Menu size={20} />}
-        </button>
+
+        {/* Mobile hamburger + Radix Popover */}
+        <Popover.Root open={mobileOpen} onOpenChange={setMobileOpen}>
+          <Popover.Trigger asChild>
+            <button
+              className="lp-mobile-menu-btn"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6 }}
+              aria-label="Menu"
+            >
+              <HamburgerIcon open={mobileOpen} />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              className="lp-mobile-nav"
+              align="end"
+              sideOffset={10}
+              style={{ zIndex: 200 }}
+            >
+              {/* Features section */}
+              <div style={{ padding: '4px 0 12px', borderBottom: '1px solid var(--line)', marginBottom: 8 }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0 0 8px 4px' }}>Features</p>
+                {NAV_FEATURES.map(f => {
+                  const Icon = f.icon;
+                  return (
+                    <button key={f.title} onClick={() => scrollTo('#features')} style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', padding: '7px 4px', color: 'var(--txt-mut)', fontSize: 13, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 10, borderRadius: 6 }}>
+                      <Icon size={14} color="var(--txt-dim)" /> {f.title}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Other nav links */}
+              {OTHER_NAV.map(l => (
+                <button key={l.label} onClick={() => scrollTo(l.href)} style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', padding: '9px 4px', color: 'var(--txt-mut)', fontSize: 14, fontFamily: 'inherit', fontWeight: 500, borderRadius: 6 }}>{l.label}</button>
+              ))}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <a href="mailto:demo@nforceone.com?subject=NForce%20OneHR%20Demo%20Request" onClick={() => setMobileOpen(false)} style={{ background: 'var(--brand-bright)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontFamily: 'inherit', fontWeight: 700, padding: '10px', cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, textDecoration: 'none', boxSizing: 'border-box', boxShadow: '0 0 16px rgba(228,55,61,0.3)' }}>
+                  Book Demo
+                </a>
+                <button onClick={() => { setMobileOpen(false); navigate('/login'); }} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'var(--txt)', fontSize: 14, fontFamily: 'inherit', fontWeight: 500, padding: '10px', cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <LogIn size={14} /> Sign In
+                </button>
+              </div>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+
       </div>
-      {open && (
-        <div style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {NAV_LINKS.map(l => (
-            <button key={l.label} onClick={() => scrollTo(l.href)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 15, fontFamily: 'inherit', fontWeight: 500, padding: '10px 0', textAlign: 'left' }}>{l.label}</button>
-          ))}
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexDirection: 'column' }}>
-            <button onClick={() => navigate('/login')} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, color: 'var(--txt)', fontSize: 14, fontFamily: 'inherit', fontWeight: 500, padding: '10px', cursor: 'pointer' }}>Sign In</button>
-            <button onClick={() => { setOpen(false); scrollTo('#early-access'); }} style={{ background: 'var(--brand)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontFamily: 'inherit', fontWeight: 600, padding: '10px', cursor: 'pointer' }}>Request Early Access</button>
-          </div>
-        </div>
-      )}
     </nav>
   );
 }
 
 // ── Hero ─────────────────────────────────────────────────────────────────────
 function LandingHero() {
-  const navigate = useNavigate();
-  function scrollTo(id: string) {
-    document.querySelector(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+  function scrollTo(id: string) { document.querySelector(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   return (
-    <section style={{ position: 'relative', padding: '144px 24px 96px', overflow: 'hidden' }}>
+    <section style={{ position: 'relative', padding: '120px 24px 100px', overflow: 'hidden' }}>
       {/* Ambient mesh */}
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 80% 55% at 50% 0%, rgba(177,17,22,0.13) 0%, transparent 68%)' }} />
-        <div className="lp-blob-1" style={{ position: 'absolute', width: 680, height: 680, borderRadius: '50%', background: 'radial-gradient(circle, rgba(177,17,22,0.11) 0%, transparent 70%)', left: '58%', top: '-18%' }} />
-        <div className="lp-blob-2" style={{ position: 'absolute', width: 480, height: 480, borderRadius: '50%', background: 'radial-gradient(circle, rgba(228,55,61,0.06) 0%, transparent 70%)', right: '68%', top: '28%' }} />
-        <div className="lp-blob-3" style={{ position: 'absolute', width: 560, height: 560, borderRadius: '50%', background: 'radial-gradient(circle, rgba(122,12,16,0.09) 0%, transparent 70%)', left: '42%', bottom: '-8%' }} />
+        <div className="lp-blob-1 lp-aurora" style={{ position: 'absolute', width: 720, height: 720, borderRadius: '50%', background: 'radial-gradient(circle, rgba(177,17,22,0.13) 0%, transparent 70%)', left: '55%', top: '-20%' }} />
+        <div className="lp-blob-2" style={{ position: 'absolute', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(228,55,61,0.07) 0%, transparent 70%)', right: '66%', top: '24%' }} />
+        <div className="lp-blob-3" style={{ position: 'absolute', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(122,12,16,0.1) 0%, transparent 70%)', left: '40%', bottom: '-10%' }} />
         <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.013) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.013) 1px, transparent 1px)', backgroundSize: '52px 52px' }} />
       </div>
 
-      <div style={{ maxWidth: 880, margin: '0 auto', position: 'relative', textAlign: 'center' }}>
-        {/* Badge */}
-        <FadeIn>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 36 }}>
-            <span style={{ background: 'rgba(228,55,61,0.1)', border: '1px solid rgba(228,55,61,0.22)', borderRadius: 999, padding: '3px 14px 3px 6px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ background: 'var(--brand-bright)', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em' }}>NOW LIVE</span>
-              <span style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Built for NForce. Opening up to the world.</span>
-            </span>
-          </div>
-        </FadeIn>
+      <div className="lp-hero-grid" style={{ maxWidth: 1200, margin: '0 auto', position: 'relative' }}>
+        {/* Left — text */}
+        <div>
+          <FadeIn>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 32 }}>
+              <span style={{ background: 'rgba(228,55,61,0.1)', border: '1px solid rgba(228,55,61,0.22)', borderRadius: 999, padding: '3px 14px 3px 6px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ background: 'var(--brand-bright)', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em' }}>NEW</span>
+                <span style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Full-stack HR platform — built for teams of every size.</span>
+              </span>
+            </div>
+          </FadeIn>
 
-        {/* Headline */}
-        <FadeIn delay={70}>
-          <h1 style={{
-            fontFamily: "'Space Grotesk', sans-serif",
-            fontWeight: 700,
-            fontSize: 'clamp(3rem, 7.8vw, 6rem)',
-            lineHeight: 1.04,
-            letterSpacing: '-0.045em',
-            margin: '0 0 28px',
-            background: 'linear-gradient(172deg, #ffffff 0%, rgba(255,255,255,0.68) 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-          }}>
-            Put AI agents to work<br />
-            for your{' '}
-            <span style={{ WebkitTextFillColor: 'var(--brand-bright)', color: 'var(--brand-bright)' }}>
-              HR team.
-            </span>
-          </h1>
-        </FadeIn>
+          <FadeIn delay={70}>
+            <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2.6rem, 5.5vw, 4.8rem)', lineHeight: 1.06, letterSpacing: '-0.043em', margin: '0 0 24px', background: 'linear-gradient(172deg, #ffffff 0%, rgba(255,255,255,0.68) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              Put AI agents<br />to work for your{' '}
+              <span style={{ WebkitTextFillColor: 'var(--brand-bright)', color: 'var(--brand-bright)' }}>HR team.</span>
+            </h1>
+          </FadeIn>
 
-        {/* Sub */}
-        <FadeIn delay={150}>
-          <p style={{ color: 'var(--txt-mut)', fontSize: 'clamp(1rem, 2.2vw, 1.18rem)', lineHeight: 1.68, margin: '0 auto 44px', maxWidth: 520 }}>
-            Attendance, leave, approvals, documents, and your entire org chart
-            — in one platform your team will actually want to use.
-            AI agents are joining the team soon.
-          </p>
-        </FadeIn>
+          <FadeIn delay={150}>
+            <p style={{ color: 'var(--txt-mut)', fontSize: 'clamp(0.95rem, 1.8vw, 1.12rem)', lineHeight: 1.68, margin: '0 0 40px', maxWidth: 460 }}>
+              Attendance, leave, approvals, documents, and your full org chart — all in one place.
+              AI agents are joining the team soon.
+            </p>
+          </FadeIn>
 
-        {/* CTAs */}
-        <FadeIn delay={230}>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 60 }}>
-            <button
-              onClick={() => navigate('/login')}
-              className="lp-btn-primary"
-              style={{ background: 'var(--brand)', border: 'none', borderRadius: 10, color: '#fff', fontSize: 15, fontFamily: 'inherit', fontWeight: 600, padding: '14px 30px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-            >
-              <LogIn size={16} /> Sign In
-            </button>
-            <button
-              onClick={() => scrollTo('#platform')}
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: 'var(--txt)', fontSize: 15, fontFamily: 'inherit', fontWeight: 500, padding: '14px 30px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'background 0.15s, border-color 0.15s' }}
-              onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = 'rgba(255,255,255,0.09)'; b.style.borderColor = 'rgba(255,255,255,0.18)'; }}
-              onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = 'rgba(255,255,255,0.05)'; b.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-            >
-              See the platform <ChevronRight size={16} />
-            </button>
-          </div>
-        </FadeIn>
+          <FadeIn delay={230}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => scrollTo('#ai-agents')}
+                className="lp-btn-primary lp-btn-shimmer"
+                style={{ background: 'var(--brand)', border: 'none', borderRadius: 10, color: '#fff', fontSize: 15, fontFamily: 'inherit', fontWeight: 600, padding: '14px 30px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 0 28px rgba(228,55,61,0.4), inset 0 1px 0 rgba(255,255,255,0.12)' }}
+              >
+                <Bot size={16} /> Explore Agents
+              </button>
+              <button
+                onClick={() => scrollTo('#platform')}
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: 'var(--txt)', fontSize: 15, fontFamily: 'inherit', fontWeight: 500, padding: '14px 30px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'background 0.15s, border-color 0.15s', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}
+                onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = 'rgba(255,255,255,0.09)'; b.style.borderColor = 'rgba(255,255,255,0.18)'; }}
+                onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = 'rgba(255,255,255,0.05)'; b.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+              >
+                See the platform <ChevronRight size={16} />
+              </button>
+            </div>
+          </FadeIn>
+        </div>
 
-        {/* Trust */}
-        <FadeIn delay={310}>
-          <p style={{ color: 'var(--txt-dim)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block', boxShadow: '0 0 6px rgba(47,182,124,0.5)' }} />
-            Currently powering HR for NForce's own team
-          </p>
-        </FadeIn>
-      </div>
-
-      {/* Product frame with glow */}
-      <FadeIn delay={420} style={{ marginTop: 72 }}>
-        <div style={{ maxWidth: 1020, margin: '0 auto', position: 'relative' }}>
-          <div style={{
-            position: 'absolute', left: '50%', top: '-14%',
-            transform: 'translateX(-50%)',
-            width: '82%', height: '58%',
-            background: 'radial-gradient(ellipse at 50% 65%, rgba(228,55,61,0.26) 0%, rgba(177,17,22,0.11) 42%, transparent 68%)',
-            filter: 'blur(60px)',
-            animation: 'lp-glow-breathe 6s ease-in-out infinite',
-            zIndex: 0,
-          }} />
-          <div style={{ position: 'relative', zIndex: 1, borderRadius: 14, border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 52px 120px rgba(0,0,0,0.72)', overflow: 'hidden' }}>
-            {/* Browser chrome */}
-            <div style={{ background: 'rgba(16,18,22,0.99)', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {['#FF5F57','#FFBD2E','#28C840'].map(c => <div key={c} style={{ width: 11, height: 11, borderRadius: '50%', background: c }} />)}
+        {/* Right — image cluster */}
+        <div className="lp-hero-img-cluster">
+          <FadeIn delay={100} variant="right">
+            <div style={{ position: 'relative', height: 460 }}>
+              {/* Primary image */}
+              <div style={{ position: 'absolute', top: 0, right: 0, width: '90%', borderRadius: 18, overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.65)', transform: 'rotate(1.8deg)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <img src="/assets/photos/hr-team.jpg" alt="HR team collaboration" style={{ width: '100%', height: 300, objectFit: 'cover', display: 'block' }} />
               </div>
-              <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: '4px 12px', fontSize: 11, color: 'var(--txt-dim)', textAlign: 'center', fontFamily: "'JetBrains Mono', monospace" }}>
-                app.nforceone.com/dashboard
+              {/* Secondary image */}
+              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '58%', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 56px rgba(0,0,0,0.55)', transform: 'rotate(-2.2deg)', border: '2px solid rgba(255,255,255,0.06)' }}>
+                <img src="/assets/photos/hr-professionals.jpg" alt="HR professionals" style={{ width: '100%', height: 190, objectFit: 'cover', display: 'block' }} />
+              </div>
+              {/* Floating live stat chip */}
+              <div className="lp-glass-chip" style={{ position: 'absolute', top: '42%', left: '-2%', zIndex: 10 }}>
+                <div style={{ fontSize: 10, color: 'var(--brand-bright)', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', boxShadow: '0 0 6px rgba(228,55,61,0.7)', display: 'inline-block', animation: 'lp-cta-pulse 2.5s ease-in-out infinite' }} />
+                  ENTERPRISE READY
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1.1 }}>4 Roles. One Platform.</div>
+                <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 }}>Every team member, covered</div>
               </div>
             </div>
-            {/* App shell */}
-            <div style={{ display: 'grid', gridTemplateColumns: '188px 1fr', background: 'var(--shell)', minHeight: 370 }}>
-              {/* Sidebar */}
-              <div style={{ background: 'var(--panel)', borderRight: '1px solid var(--line)', padding: '14px 0' }}>
-                <div style={{ padding: '0 12px 14px', borderBottom: '1px solid var(--line)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 7, background: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif" }}>NF</span>
+          </FadeIn>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Product showcase — tabbed switcher ────────────────────────────────────────
+const SHOWCASE_TABS = [
+  {
+    label: 'Super Admin',
+    view: 'Dashboard',
+    src: '/assets/screenshots/fresh/real-dashboard-live.png',
+    desc: "Super Admin home: live attendance banner, module tiles (User Management, Org Masters, Audit & Security, Approval Center), real-time org stats.",
+  },
+  {
+    label: 'Org Hierarchy',
+    view: 'Organization',
+    src: '/assets/screenshots/fresh/fresh-superadmin-hierarchy.png',
+    desc: '21 direct reports under the Chief Executive. Every reporting line, every role — navigable in seconds.',
+  },
+  {
+    label: 'HR Admin',
+    view: 'HR Dashboard',
+    src: '/assets/screenshots/fresh/fresh-hradmin-dashboard.png',
+    desc: '95 employees, org-wide active count, and a live employee list — all on the first screen after login.',
+  },
+];
+
+function LandingProductShowcase() {
+  const [active, setActive] = useState(0);
+  const sectionRef = useRef<HTMLDivElement>(null);
+
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ['start 0.9', 'start 0.2'],
+  });
+
+  const rotateX = useTransform(scrollYProgress, [0, 1], [20, 0]);
+  const scale = useTransform(scrollYProgress, [0, 1], [0.84, 1]);
+  const translateY = useTransform(scrollYProgress, [0, 1], [52, 0]);
+  const opacity = useTransform(scrollYProgress, [0, 0.6], [0.55, 1]);
+
+  return (
+    <section ref={sectionRef} id="platform" style={{ padding: '96px 24px', background: 'var(--shell)' }}>
+      <SectionReveal>
+      <div style={{ maxWidth: 1060, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 48 }}>
+          <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>SEE IT IN ACTION</p></FadeIn>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 2.9rem)', letterSpacing: '-0.035em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
+            This is what your team actually sees.
+          </h2></FadeIn>
+          <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15.5, maxWidth: 480, margin: '0 auto', lineHeight: 1.6 }}>
+            Three roles. One platform. Every screen built around what that person actually needs.
+          </p></FadeIn>
+        </div>
+
+        {/* Tab bar */}
+        <FadeIn delay={80}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 28, flexWrap: 'wrap' }}>
+            {SHOWCASE_TABS.map((t, i) => (
+              <button
+                key={i}
+                onClick={() => setActive(i)}
+                className={`lp-tab${active === i ? ' lp-tab-active' : ''}`}
+              >
+                <span style={{ fontSize: 9.5, display: 'block', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2, color: active === i ? 'var(--brand-bright)' : 'var(--txt-dim)', transition: 'color 0.2s' }}>{t.label}</span>
+                {t.view}
+              </button>
+            ))}
+          </div>
+        </FadeIn>
+
+        {/* Browser frame — Container Scroll Animation (Aceternity-style 3D reveal) */}
+        <div style={{ perspective: '1200px', perspectiveOrigin: '50% -20%' }}>
+          <motion.div style={{ rotateX, scale, translateY, opacity, transformOrigin: 'top center' }}>
+            <div style={{ position: 'relative' }}>
+              {/* Glow behind */}
+              <div style={{ position: 'absolute', left: '50%', top: '-8%', transform: 'translateX(-50%)', width: '75%', height: '40%', background: 'radial-gradient(ellipse at 50% 65%, rgba(228,55,61,0.2) 0%, rgba(177,17,22,0.08) 42%, transparent 68%)', filter: 'blur(50px)', zIndex: 0 }} />
+              <div style={{ position: 'relative', zIndex: 1, borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 40px 100px rgba(0,0,0,0.7)', overflow: 'hidden' }}>
+                {/* Browser chrome */}
+                <div style={{ background: 'rgba(14,16,20,0.99)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {['#FF5F57','#FFBD2E','#28C840'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt)', fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1.2 }}>NForce OneHR</div>
-                    <div style={{ fontSize: 9, color: 'var(--txt-dim)' }}>Super Admin</div>
-                  </div>
+                  <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 5, padding: '3.5px 12px', fontSize: 10.5, color: 'var(--txt-dim)', textAlign: 'center', fontFamily: "'JetBrains Mono', monospace" }}>app.nforceone.com</div>
                 </div>
-                {[
-                  { label: 'Dashboard', active: true },
-                  { label: 'My Team', active: false },
-                  { label: 'Attendance', active: false },
-                  { label: 'Leave & Holidays', active: false },
-                  { label: 'Approvals', active: false },
-                  { label: 'Employees', active: false },
-                  { label: 'Documents', active: false },
-                ].map(item => (
-                  <div
-                    key={item.label}
-                    style={{
-                      padding: '7px 10px', margin: '0 8px 2px', borderRadius: 6, fontSize: 12,
-                      fontWeight: item.active ? 600 : 400,
-                      color: item.active ? 'var(--txt)' : 'var(--txt-mut)',
-                      background: item.active ? 'var(--raised)' : 'transparent',
-                      cursor: 'default', display: 'flex', alignItems: 'center', gap: 7,
-                    }}
-                  >
-                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: item.active ? 'var(--brand-bright)' : 'transparent', flexShrink: 0 }} />
-                    {item.label}
-                  </div>
-                ))}
-              </div>
-              {/* Main */}
-              <div style={{ padding: '22px 24px', background: 'var(--shell)' }}>
-                <div style={{ marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17, margin: '0 0 2px', color: 'var(--txt)' }}>Dashboard</h2>
-                    <p style={{ fontSize: 11, color: 'var(--txt-dim)', margin: 0 }}>Monday, 25 Aug 2026</p>
-                  </div>
-                  <div style={{ width: 30, height: 17, background: 'var(--raised)', borderRadius: 999, position: 'relative' }}>
-                    <div style={{ position: 'absolute', right: 2, top: 2, width: 13, height: 13, borderRadius: '50%', background: 'var(--brand-bright)' }} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 9, marginBottom: 18 }}>
-                  {[
-                    { val: '142', label: 'Present Today', color: 'var(--ok)' },
-                    { val: '8',   label: 'On Leave',      color: 'var(--info)' },
-                    { val: '3',   label: 'Pending',       color: 'var(--warn)' },
-                    { val: '7.5h',label: 'Avg Hours',     color: 'var(--brand-bright)' },
-                  ].map(s => (
-                    <div key={s.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 9, padding: '11px 13px' }}>
-                      <div style={{ fontSize: 19, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: s.color, marginBottom: 2 }}>{s.val}</div>
-                      <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', lineHeight: 1.3 }}>{s.label}</div>
-                    </div>
+                {/* Crossfade screenshots */}
+                <div style={{ position: 'relative', height: 500, background: 'var(--shell)' }}>
+                  {SHOWCASE_TABS.map((t, i) => (
+                    <img
+                      key={i}
+                      src={t.src}
+                      alt={`${t.label} — ${t.view}`}
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', opacity: active === i ? 1 : 0, transition: 'opacity 0.45s ease' }}
+                    />
                   ))}
                 </div>
-                <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 9, padding: '13px 15px' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 9 }}>Attendance Overview — This Week</div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7, height: 60 }}>
-                    {[72, 88, 64, 94, 81, 42, 0].map((h, i) => (
-                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                        {h > 0 && (
-                          <div style={{ width: '100%', background: i === 3 ? 'var(--brand-bright)' : 'var(--raised2)', borderRadius: '3px 3px 0 0', height: `${h * 0.65}%` }} />
-                        )}
-                        <div style={{ fontSize: 8, color: 'var(--txt-dim)' }}>{['M','T','W','T','F','S','S'][i]}</div>
-                      </div>
+                {/* Caption */}
+                <div style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+                  <div>
+                    <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 13.5, color: 'var(--txt)', display: 'block', marginBottom: 3 }}>{SHOWCASE_TABS[active].label} — {SHOWCASE_TABS[active].view}</span>
+                    <span style={{ fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>{SHOWCASE_TABS[active].desc}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    {SHOWCASE_TABS.map((_, i) => (
+                      <button key={i} onClick={() => setActive(i)} style={{ width: active === i ? 20 : 6, height: 6, borderRadius: 999, background: active === i ? 'var(--brand-bright)' : 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', transition: 'all 0.3s ease', padding: 0 }} />
                     ))}
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </FadeIn>
-    </section>
-  );
-}
-
-// ── Stats strip ───────────────────────────────────────────────────────────────
-const STATS = [
-  { val: '15+',  label: 'HR modules built',         note: 'Phase 1 complete' },
-  { val: '4',    label: 'Role-based experiences',    note: 'Employee → Super Admin' },
-  { val: '100%', label: 'Real-time data',            note: 'No daily exports' },
-  { val: '0',    label: 'Spreadsheets needed',       note: 'All consolidated here' },
-];
-
-function LandingStats() {
-  return (
-    <div style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 0 }}>
-        {STATS.map((s, i) => (
-          <FadeIn key={s.val} delay={i * 55}>
-            <div style={{ padding: '36px 28px', textAlign: 'center', borderRight: i < STATS.length - 1 ? '1px solid var(--line)' : 'none' }}>
-              <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2.2rem, 4vw, 3rem)', letterSpacing: '-0.05em', color: 'var(--txt)', marginBottom: 6, lineHeight: 1 }}>{s.val}</div>
-              <div style={{ fontSize: 14, color: 'var(--txt-mut)', marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontSize: 11, color: 'var(--brand-bright)', fontWeight: 600 }}>{s.note}</div>
-            </div>
-          </FadeIn>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Product showcase ──────────────────────────────────────────────────────────
-const SHOWCASE_ITEMS = [
-  {
-    src: '/assets/screenshots/app-dashboard.png',
-    label: 'Real-time Dashboard',
-    desc: 'Attendance stats, pending approvals, and team pulse — live, on one screen.',
-    pos: 'top center',
-  },
-  {
-    src: '/assets/screenshots/app-ai-agents.png',
-    label: 'AI Agents Section',
-    desc: 'Named AI agents designed for specific HR workflows — routing, detecting, predicting.',
-    pos: 'top center',
-  },
-];
-
-function LandingProductShowcase() {
-  return (
-    <section id="platform" style={{ padding: '100px 24px 112px', background: 'var(--shell)' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <FadeIn>
-          <div style={{ textAlign: 'center', marginBottom: 64 }}>
-            <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>SEE IT IN ACTION</p>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 2.9rem)', letterSpacing: '-0.035em', margin: '0 0 16px', color: 'var(--txt)', lineHeight: 1.1 }}>
-              Built for the way your team actually works.
-            </h2>
-            <p style={{ color: 'var(--txt-mut)', fontSize: 16, maxWidth: 480, margin: '0 auto', lineHeight: 1.6 }}>
-              Every screen designed for speed — no training manual required.
-            </p>
-          </div>
-        </FadeIn>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 28 }}>
-          {SHOWCASE_ITEMS.map((s, i) => (
-            <FadeIn key={s.label} delay={i * 90} variant={i % 2 === 0 ? 'left' : 'right'}>
-              <div className="lp-showcase-frame">
-                <div style={{ background: 'rgba(14,16,20,0.99)', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ display: 'flex', gap: 5 }}>
-                    {['#FF5F57','#FFBD2E','#28C840'].map(c => <div key={c} style={{ width: 9, height: 9, borderRadius: '50%', background: c }} />)}
-                  </div>
-                  <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 4, padding: '3px 10px', fontSize: 10, color: 'var(--txt-dim)', fontFamily: "'JetBrains Mono', monospace" }}>
-                    app.nforceone.com
-                  </div>
-                </div>
-                <div style={{ overflow: 'hidden', height: 300 }}>
-                  <img
-                    src={s.src}
-                    alt={s.label}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: s.pos, display: 'block' }}
-                  />
-                </div>
-                <div style={{ padding: '18px 20px', background: 'var(--panel)', borderTop: '1px solid var(--line)' }}>
-                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)', marginBottom: 5 }}>{s.label}</div>
-                  <div style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.55 }}>{s.desc}</div>
-                </div>
-              </div>
-            </FadeIn>
-          ))}
+          </motion.div>
         </div>
       </div>
+      </SectionReveal>
     </section>
   );
 }
 
 // ── Features ──────────────────────────────────────────────────────────────────
 const FEATURES = [
-  { icon: Users,       title: 'People Directory & Org Hierarchy', desc: 'See your entire company structure at a glance, navigate reporting lines instantly, and find anyone in seconds.' },
-  { icon: Clock,       title: 'Attendance & Leave',               desc: 'Check in from anywhere, track hours automatically, and manage leave balances without a single spreadsheet.' },
-  { icon: CheckSquare, title: 'Approvals & Workflows',            desc: "Every decision — leave, expenses, asset requests — lives in one Approval Center, so nothing gets lost in email." },
-  { icon: FileText,    title: 'Documents & Compliance',           desc: 'Track required documents and policy acknowledgments automatically, with reminders before anything expires.' },
-  { icon: Package,     title: 'Assets & Expenses',                desc: "From laptop assignments to expense claims, track what's owned, who has it, and what's pending approval." },
-  { icon: Shield,      title: 'Audit & Security',                 desc: "A full, searchable history of every sensitive action — role changes, approvals, account changes — for real accountability." },
+  { icon: Users,       title: 'People Directory & Org Hierarchy', desc: "Search any employee, see their manager, team, and reporting chain. The org chart updates automatically when anyone moves roles — no manual diagram to maintain." },
+  { icon: Clock,       title: 'Attendance & Leave',               desc: 'Employees clock in from the browser. Hours log automatically. Leave balances update the moment a request is approved. Nobody calls HR to ask how many days they have left.' },
+  { icon: CheckSquare, title: 'Approvals & Workflows',            desc: "Leave, expenses, and asset requests all land in one queue. The person responsible sees what needs a decision, with the relevant context already there." },
+  { icon: FileText,    title: 'Documents & Compliance',           desc: 'Track which employees have signed which policies, and when each document expires. The system flags what\'s overdue before you have to chase it.' },
+  { icon: Package,     title: 'Assets & Expenses',                desc: "Log who has which laptop or device, track expense claims from submission to reimbursement, and keep the full history without touching a shared sheet." },
+  { icon: Shield,      title: 'Audit & Security',                 desc: "Every role change, password reset, and approval action is logged with the exact time and person responsible. If something goes wrong, you know exactly where to look." },
 ];
+
 
 function LandingFeatures() {
   return (
-    <section id="features" style={{ padding: '112px 24px 100px', background: 'var(--panel)' }}>
+    <section id="features" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
+      <SectionReveal>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <FadeIn>
-          <div style={{ marginBottom: 68, maxWidth: 580 }}>
-            <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>WHAT'S INSIDE</p>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.038em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
-              Everything your team already needs — built in, not bolted on.
-            </h2>
-            <p style={{ color: 'var(--txt-mut)', fontSize: 16, lineHeight: 1.65, margin: 0 }}>
-              No more spreadsheets, email threads, or a dozen disconnected tools.
-            </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center', marginBottom: 64 }} className="lp-features-header">
+          <div>
+            <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>WHAT'S INSIDE</p></FadeIn>
+            <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.038em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
+              Everything HR runs on — all in one place.
+            </h2></FadeIn>
+            <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 16, lineHeight: 1.65, margin: 0 }}>
+              Pick any HR process your team currently manages across multiple tools or email threads. It's probably already here.
+            </p></FadeIn>
           </div>
-        </FadeIn>
+          <FadeIn delay={120} variant="right">
+            <div style={{ borderRadius: 16, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <img src="/assets/photos/hr-meeting.jpg" alt="HR team" style={{ width: '100%', height: 260, objectFit: 'cover', display: 'block' }} />
+            </div>
+          </FadeIn>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: 1, background: 'var(--line)' }}>
           {FEATURES.map((f, i) => {
             const Icon = f.icon;
             return (
               <FadeIn key={f.title} delay={Math.floor(i / 2) * 70 + (i % 2) * 35}>
                 <div className="lp-feature-card" style={{ background: 'var(--panel)', padding: '36px 30px', height: '100%', boxSizing: 'border-box' }}>
-                  <div style={{ width: 46, height: 46, borderRadius: 11, background: 'rgba(177,17,22,0.11)', border: '1px solid rgba(177,17,22,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+                  <div className="lp-icon-glow" style={{ width: 46, height: 46, borderRadius: 11, background: 'rgba(177,17,22,0.11)', border: '1px solid rgba(177,17,22,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
                     <Icon size={20} color="var(--brand-bright)" />
                   </div>
                   <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 15.5, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.3 }}>{f.title}</h3>
@@ -452,183 +491,153 @@ function LandingFeatures() {
           })}
         </div>
       </div>
+      </SectionReveal>
     </section>
   );
 }
 
-// ── AI Agents — editorial layout ──────────────────────────────────────────────
-const SIDE_AGENTS = [
+// ── AI Agents — editorial numbered layout ─────────────────────────────────────
+const AGENT_LIST = [
   {
-    verb: 'Answers',
+    verb: 'ANSWERS',
     name: 'HR Assistant Agent',
     icon: MessageCircle,
-    desc: "Employees ask anything — leave balances, policy rules, benefits — in plain language. Responds instantly, accurately, without a helpdesk ticket.",
-    eta: 'Q4 2026',
+    img: '/assets/photos/hr-agent-person.jpg',
+    desc: "Your HR inbox has 20 questions that come back every month: 'How many leaves do I have?' 'What's the WFH policy for Fridays?' 'Do I need a receipt for this amount?' This agent handles those — immediately, correctly — so your team spends time on things that actually need HR judgment.",
   },
   {
-    verb: 'Monitors',
+    verb: 'MONITORS',
     name: 'Compliance Guardian',
     icon: FileCheck,
-    desc: 'Tracks every document expiry and policy acknowledgment gap company-wide. Alerts HR before anything lapses — not after an audit finds it.',
-    eta: '2027',
+    img: '/assets/photos/hr-compliance.jpg',
+    desc: "Document expiry dates don't announce themselves. This agent tracks every form, acknowledgment, and certification across your whole team, and flags what's about to lapse in time for someone to actually do something about it — not after an audit already found it.",
   },
-];
-
-const BOTTOM_AGENTS = [
   {
-    verb: 'Detects',
-    name: 'Anomaly Sentinel',
+    verb: 'TRACKS',
+    name: 'Attendance Monitor',
     icon: AlertTriangle,
-    desc: "Automatically surfaces irregular attendance patterns — missed punches, unusual hours, chronic lateness — before they become real problems.",
-    eta: 'Q4 2026',
+    img: '/assets/photos/hr-ai-team.jpg',
+    desc: "A manager shouldn't need to run a report to notice someone has been clocking in 45 minutes late every Monday for six weeks. This agent tracks those patterns — inconsistent clock-ins, early exits, hours that don't line up with approved WFH — and flags them early.",
   },
   {
-    verb: 'Predicts',
-    name: 'Workforce Forecaster',
-    icon: BarChart2,
-    desc: "Projects headcount gaps, attrition risk, and leave coverage shortfalls before you need the report. Know what's coming, not just what happened.",
-    eta: '2027',
-  },
-  {
-    verb: 'Maps',
+    verb: 'MAPS',
     name: 'Org Development Agent',
     icon: Building2,
-    desc: 'Analyzes reporting structure, span-of-control depth, and headcount distribution to surface org design recommendations proactively.',
-    eta: '2027',
+    img: '/assets/photos/hr-professionals.jpg',
+    desc: "When one manager has 14 direct reports and another has 3, it usually surfaces as a performance issue before anyone realizes the structure underneath is the problem. This agent maps span-of-control across the org and flags where the reporting structure is working against people.",
   },
 ];
 
 function LandingAI() {
   return (
-    <section id="ai-agents" style={{ position: 'relative', padding: '120px 0 128px', overflow: 'hidden', background: 'var(--shell)' }}>
-      {/* Red ambient + grid */}
+    <section id="ai-agents" style={{ position: 'relative', padding: '96px 0', overflow: 'hidden', background: 'var(--shell)' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 75% 65% at 50% 45%, rgba(177,17,22,0.08) 0%, transparent 72%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(228,55,61,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(228,55,61,0.025) 1px, transparent 1px)', backgroundSize: '72px 72px', pointerEvents: 'none' }} />
 
+      <SectionReveal>
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
         {/* Header */}
         <FadeIn>
-          <div style={{ marginBottom: 60 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 22, background: 'rgba(228,55,61,0.07)', border: '1px solid rgba(228,55,61,0.18)', borderRadius: 999, padding: '5px 14px 5px 10px' }}>
+          <div style={{ marginBottom: 56 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 20, background: 'rgba(228,55,61,0.07)', border: '1px solid rgba(228,55,61,0.18)', borderRadius: 999, padding: '5px 14px 5px 10px' }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', boxShadow: '0 0 8px rgba(228,55,61,0.7)', display: 'inline-block', animation: 'lp-cta-pulse 2.5s ease-in-out infinite' }} />
               <span style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' }}>Roadmap — Actively Being Built</span>
             </div>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2.3rem, 5.5vw, 3.8rem)', letterSpacing: '-0.043em', margin: '0 0 20px', color: 'var(--txt)', lineHeight: 1.03 }}>
-              Meet the AI agents<br />coming to NForce OneHR.
+            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2.3rem, 5.5vw, 3.8rem)', letterSpacing: '-0.043em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.03 }}>
+              Meet the agents<br />joining your HR team.
             </h2>
-            <p style={{ color: 'var(--txt-mut)', fontSize: 17, lineHeight: 1.68, maxWidth: 560, margin: 0 }}>
-              Not chatbots. Autonomous agents that work alongside your HR team — routing, detecting, predicting, and acting on the decisions your team makes every day.
+            <p style={{ color: 'var(--txt-mut)', fontSize: 17, lineHeight: 1.68, maxWidth: 540, margin: 0 }}>
+              Not chatbots. Agents that watch for specific things, take defined actions, and only escalate when something actually needs a human.
             </p>
           </div>
         </FadeIn>
 
-        {/* Featured agent + 2 side agents */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 330px', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
-          {/* Featured — large editorial */}
-          <FadeIn variant="left">
-            <div className="lp-featured-agent" style={{ height: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-                <div style={{ width: 52, height: 52, borderRadius: 13, background: 'rgba(228,55,61,0.14)', border: '1px solid rgba(228,55,61,0.26)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <GitBranch size={24} color="var(--brand-bright)" />
+        {/* Featured — The Approvals Agent */}
+        <FadeIn>
+          <div className="lp-featured-agent" style={{ marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 0, alignItems: 'stretch' }}>
+              {/* Text side */}
+              <div style={{ padding: '0 32px 0 0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22 }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(228,55,61,0.14)', border: '1px solid rgba(228,55,61,0.26)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <GitBranch size={22} color="var(--brand-bright)" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 2 }}>ROUTES</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', fontWeight: 500 }}>Featured Agent</div>
+                  </div>
+                  <span style={{ marginLeft: 'auto', background: 'rgba(224,169,59,0.1)', color: 'var(--warn)', border: '1px solid rgba(224,169,59,0.2)', borderRadius: 999, padding: '5px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0 }}>COMING SOON</span>
                 </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 2 }}>ROUTES</div>
-                  <div style={{ fontSize: 12, color: 'var(--txt-dim)', fontWeight: 500 }}>Featured Agent</div>
-                </div>
+                <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.45rem, 2.8vw, 2rem)', color: 'var(--txt)', margin: '0 0 16px', lineHeight: 1.18, letterSpacing: '-0.028em' }}>The Approvals Agent</h3>
+                <p style={{ color: 'var(--txt-mut)', fontSize: 15, lineHeight: 1.72, margin: 0 }}>
+                  Right now, every request — leave, expense, WFH — lands in someone's inbox and waits until they decide whether it needs attention. This agent reads the request, checks the policy, the employee's history, and team leave coverage, then clears low-risk ones automatically. The ones that do reach you already have the full context — so what used to take 30 minutes takes 30 seconds.
+                </p>
               </div>
-              <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.55rem, 3vw, 2.1rem)', color: 'var(--txt)', margin: '0 0 18px', lineHeight: 1.18, letterSpacing: '-0.028em' }}>
-                The Approvals Agent
-              </h3>
-              <p style={{ color: 'var(--txt-mut)', fontSize: 15.5, lineHeight: 1.72, margin: '0 0 32px' }}>
-                Reviews every incoming request and routes only what genuinely needs a human decision.
-                Routine low-risk approvals move automatically — with full context already surfaced
-                for the ones that reach you.
-              </p>
-              <div style={{ marginTop: 'auto' }}>
-                <span style={{ background: 'rgba(224,169,59,0.1)', color: 'var(--warn)', border: '1px solid rgba(224,169,59,0.2)', borderRadius: 999, padding: '5px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em' }}>
-                  COMING SOON — Q4 2026
-                </span>
-              </div>
-              {/* Decorative bg icon */}
-              <div style={{ position: 'absolute', bottom: -8, right: 0, opacity: 0.03, pointerEvents: 'none' }}>
-                <GitBranch size={160} />
+              {/* Image side */}
+              <div style={{ margin: '-28px -28px -28px 0', borderLeft: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                <img src="/assets/photos/hr-analytics.jpg" alt="HR analytics" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', minHeight: 240 }} />
               </div>
             </div>
-          </FadeIn>
-
-          {/* 2 stacked side agents */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {SIDE_AGENTS.map((agent, i) => {
-              const Icon = agent.icon;
-              return (
-                <FadeIn key={agent.name} delay={100 + i * 80} variant="right">
-                  <div className="lp-agent-card" style={{ padding: '24px', background: 'rgba(22,24,29,0.85)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-                      <div style={{ width: 38, height: 38, borderRadius: 9, background: 'rgba(228,55,61,0.1)', border: '1px solid rgba(228,55,61,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Icon size={16} color="var(--brand-bright)" />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>{agent.verb}</div>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 13.5, color: 'var(--txt)', marginBottom: 8 }}>{agent.name}</div>
-                        <p style={{ color: 'var(--txt-mut)', fontSize: 12.5, lineHeight: 1.62, margin: '0 0 12px' }}>{agent.desc}</p>
-                        <span style={{ background: 'rgba(224,169,59,0.07)', color: 'var(--warn)', border: '1px solid rgba(224,169,59,0.14)', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 600 }}>Coming {agent.eta}</span>
-                      </div>
-                    </div>
-                  </div>
-                </FadeIn>
-              );
-            })}
           </div>
-        </div>
+        </FadeIn>
 
-        {/* Bottom row — 3 supporting agents */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 16 }}>
-          {BOTTOM_AGENTS.map((agent, i) => {
+        {/* Numbered editorial list */}
+        <div>
+          {AGENT_LIST.map((agent, i) => {
             const Icon = agent.icon;
             return (
-              <FadeIn key={agent.name} delay={200 + i * 70}>
-                <div className="lp-agent-card" style={{ padding: '26px 28px', background: 'rgba(22,24,29,0.85)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(228,55,61,0.1)', border: '1px solid rgba(228,55,61,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Icon size={18} color="var(--brand-bright)" />
-                    </div>
+              <FadeIn key={agent.name} delay={i * 70}>
+                <div className="lp-agent-row">
+                  {/* Large faint number */}
+                  <div className="lp-agent-number">
+                    {String(i + 1).padStart(2, '0')}
+                  </div>
+                  {/* Content */}
+                  <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'start' }}>
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{agent.verb}</div>
-                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)' }}>{agent.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(228,55,61,0.1)', border: '1px solid rgba(228,55,61,0.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Icon size={14} color="var(--brand-bright)" />
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{agent.verb}</span>
+                      </div>
+                      <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.2 }}>{agent.name}</h3>
+                      <p style={{ color: 'var(--txt-mut)', fontSize: 14, lineHeight: 1.68, margin: 0 }}>{agent.desc}</p>
+                    </div>
+                    {/* Agent photo thumbnail */}
+                    <div style={{ width: 120, height: 88, borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }} className="lp-agent-thumb">
+                      <img src={agent.img} alt={agent.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     </div>
                   </div>
-                  <p style={{ color: 'var(--txt-mut)', fontSize: 13.5, lineHeight: 1.65, margin: '0 0 14px' }}>{agent.desc}</p>
-                  <span style={{ background: 'rgba(224,169,59,0.07)', color: 'var(--warn)', border: '1px solid rgba(224,169,59,0.14)', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 600 }}>Coming {agent.eta}</span>
                 </div>
               </FadeIn>
             );
           })}
         </div>
 
-        {/* Why agents footnote */}
-        <FadeIn delay={380} style={{ marginTop: 52 }}>
-          <div style={{ padding: '22px 28px', background: 'rgba(22,24,29,0.7)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            <Bot size={20} color="var(--brand-bright)" style={{ flexShrink: 0, marginTop: 2 }} />
+        {/* Why agents */}
+        <FadeIn delay={300} style={{ marginTop: 48 }}>
+          <div style={{ padding: '20px 26px', background: 'rgba(18,20,25,0.75)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, display: 'flex', alignItems: 'flex-start', gap: 14, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.3)' }}>
+            <Bot size={18} color="var(--brand-bright)" style={{ flexShrink: 0, marginTop: 2 }} />
             <p style={{ color: 'var(--txt-dim)', fontSize: 13.5, lineHeight: 1.65, margin: 0 }}>
-              <strong style={{ color: 'var(--txt-mut)', fontWeight: 600 }}>Why agents, not features? </strong>
-              Traditional HR software makes your team do the work. These agents take on the routine decisions
-              — routing, detecting, predicting — so your HR team focuses on what only humans should do.
-              Workday calls their orchestrator "Sana." Ours are purpose-built for mid-market HR teams.
+              <strong style={{ color: 'var(--txt-mut)', fontWeight: 600 }}>Why agents, not features?&nbsp;</strong>
+              Traditional HR software helps your team do the work faster. These agents handle specific tasks themselves — so your HR people spend time on the decisions only people should make.
             </p>
           </div>
         </FadeIn>
       </div>
+      </SectionReveal>
     </section>
   );
 }
 
-// ── Brand moment — NForce office photo ────────────────────────────────────────
+// ── Brand moment ──────────────────────────────────────────────────────────────
 function LandingBrandMoment() {
   return (
     <section className="lp-brand-section" style={{ minHeight: 400, display: 'flex', alignItems: 'center' }}>
       <img
         src="/assets/brand/nforce-office.webp"
-        alt="NForce One office, Hyderabad"
+        alt="NForce One office"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', zIndex: 0 }}
       />
       <div className="lp-brand-overlay" />
@@ -636,19 +645,18 @@ function LandingBrandMoment() {
         <FadeIn variant="left">
           <div style={{ maxWidth: 560 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, color: 'var(--brand-bright)', fontSize: 12, fontWeight: 600 }}>
-              <MapPin size={13} />
-              Hyderabad · Dallas
+              <MapPin size={13} /> Hyderabad · Dallas
             </div>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.036em', margin: '0 0 20px', color: 'var(--txt)', lineHeight: 1.1 }}>
+            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.036em', margin: '0 0 28px', color: 'var(--txt)', lineHeight: 1.1 }}>
               Built by NForce One.<br />
-              <span style={{ color: 'var(--brand-bright)' }}>Scale at Speed.</span>
+              <span style={{ color: 'var(--brand-bright)' }}>Used by NForce One.</span>
             </h2>
-            <p style={{ color: 'var(--txt-mut)', fontSize: 15.5, lineHeight: 1.7, margin: '0 0 30px' }}>
-              NForce OneHR started as an internal tool — built by our own team to solve real HR headaches.
-              Now we're opening it up. Be among the first companies to use it.
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <img src="/assets/brand/nforce-logo.png" alt="NForce One" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img
+                src="/assets/brand/nforce-logo.png"
+                alt="NForce One"
+                style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}
+              />
               <div>
                 <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>NForce One</div>
                 <div style={{ fontSize: 12, color: 'var(--brand-bright)', fontWeight: 600 }}>Let's Do IT!</div>
@@ -663,36 +671,33 @@ function LandingBrandMoment() {
 
 // ── Roles ─────────────────────────────────────────────────────────────────────
 const ROLES = [
-  { slug: 'employee',   label: 'Employee',   icon: User,     color: '#2FB67C', bg: 'rgba(47,182,124,0.1)',  desc: 'Manage your own attendance, leave, documents, and requests.' },
-  { slug: 'manager',    label: 'Manager',    icon: Users,    color: '#4C8DD6', bg: 'rgba(76,141,214,0.1)',  desc: 'Everything your team needs, plus approvals and team-wide visibility.' },
-  { slug: 'hr-admin',   label: 'HR Admin',   icon: Building2,color: '#E0A93B', bg: 'rgba(224,169,59,0.1)', desc: 'Run HR operations — employee records, documents, policies, and compliance.' },
-  { slug: 'super-admin',label: 'Super Admin',icon: Shield,   color: '#E4373D', bg: 'rgba(228,55,61,0.1)',  desc: 'Full system access — users, organization structure, security, and audit.' },
+  { slug: 'employee',    label: 'Employee',    icon: User,      color: '#2FB67C', bg: 'rgba(47,182,124,0.1)',  desc: 'Clock in, check your leave balance, submit requests, and track your own documents — without asking HR every time.' },
+  { slug: 'manager',     label: 'Manager',     icon: Users,     color: '#4C8DD6', bg: 'rgba(76,141,214,0.1)',  desc: "Your team's attendance, pending leave requests, and outstanding approvals — visible from your dashboard without digging through reports." },
+  { slug: 'hr-admin',    label: 'HR Admin',    icon: Building2, color: '#E0A93B', bg: 'rgba(224,169,59,0.1)', desc: 'Manage employee records, run compliance checks, process documents, and enforce policies — with the full context you need to make good calls.' },
+  { slug: 'super-admin', label: 'Super Admin', icon: Shield,    color: '#E4373D', bg: 'rgba(228,55,61,0.1)',  desc: 'Full access to every user, every role assignment, every audit trail, and every system setting — with nothing hidden.' },
 ];
 
 function LandingRoles() {
   const navigate = useNavigate();
   return (
-    <section id="role-guides" style={{ padding: '112px 24px 100px', background: 'var(--panel)' }}>
+    <section id="role-guides" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
+      <SectionReveal>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <FadeIn>
-          <div style={{ textAlign: 'center', marginBottom: 60 }}>
-            <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>ROLE GUIDES</p>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
-              See exactly what your role can do.
-            </h2>
-            <p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0 }}>Every role in NForce OneHR has its own set of tools. Pick yours.</p>
-          </div>
-        </FadeIn>
+        <div style={{ textAlign: 'center', marginBottom: 56 }}>
+          <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>ROLE GUIDES</p></FadeIn>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
+            Pick your role and see exactly what you can do.
+          </h2></FadeIn>
+          <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0, maxWidth: 500, marginLeft: 'auto', marginRight: 'auto' }}>
+            Every role has its own tailored view. What an employee sees is completely different from what HR Admin sees — intentionally.
+          </p></FadeIn>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16 }}>
           {ROLES.map((r, i) => {
             const Icon = r.icon;
             return (
               <FadeIn key={r.slug} delay={i * 60}>
-                <div
-                  className="lp-role-card"
-                  onClick={() => navigate(`/role-guide/${r.slug}`)}
-                  style={{ padding: '28px 24px 24px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14 }}
-                >
+                <div className="lp-role-card" onClick={() => navigate(`/role-guide/${r.slug}`)} style={{ padding: '28px 24px 24px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14 }}>
                   <div style={{ width: 48, height: 48, borderRadius: 12, background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                     <Icon size={22} color={r.color} />
                   </div>
@@ -707,29 +712,29 @@ function LandingRoles() {
           })}
         </div>
       </div>
+      </SectionReveal>
     </section>
   );
 }
 
 // ── How it works ──────────────────────────────────────────────────────────────
 const STEPS = [
-  { n: 1, icon: Building2,   title: 'Your admin sets up your organization',         desc: 'Departments, designations, locations, and reporting lines — configured once, applied everywhere.' },
-  { n: 2, icon: LogIn,       title: 'Everyone signs in and gets to work',           desc: "Each employee sees exactly what's relevant to their role — nothing more, nothing less." },
-  { n: 3, icon: CheckSquare, title: 'Approvals and requests just flow',             desc: 'Leave, expenses, and asset requests move through one clear Approval Center — no more chasing people down.' },
+  { n: 1, icon: Building2,   title: 'Admin sets up the organization',       desc: 'Departments, designations, locations, and reporting lines — configured once. Every person who logs in inherits that structure automatically.' },
+  { n: 2, icon: LogIn,       title: 'Everyone signs in to their own view',  desc: "Each person sees their role's screen on first login — their attendance, their pending tasks, their team. Nothing to configure per user." },
+  { n: 3, icon: CheckSquare, title: 'Requests and approvals just flow',     desc: 'A leave request submitted by an employee shows up in their manager\'s queue instantly. Both sides can see the status without anyone sending a follow-up.' },
 ];
 
 function LandingHowItWorks() {
   return (
-    <section id="how-it-works" style={{ padding: '112px 24px 100px', background: 'var(--shell)' }}>
+    <section id="how-it-works" style={{ padding: '96px 24px', background: 'var(--shell)' }}>
+      <SectionReveal>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <FadeIn>
-          <div style={{ textAlign: 'center', marginBottom: 72 }}>
-            <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>HOW IT WORKS</p>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: 0, color: 'var(--txt)', lineHeight: 1.1 }}>
-              Up and running in minutes, not months.
-            </h2>
-          </div>
-        </FadeIn>
+        <div style={{ textAlign: 'center', marginBottom: 72 }}>
+          <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>HOW IT WORKS</p></FadeIn>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: 0, color: 'var(--txt)', lineHeight: 1.1 }}>
+            Running in a day. No consultants needed.
+          </h2></FadeIn>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 32, position: 'relative' }}>
           {STEPS.map((s, i) => {
             const Icon = s.icon;
@@ -738,12 +743,10 @@ function LandingHowItWorks() {
                 <div style={{ textAlign: 'center', position: 'relative' }}>
                   {i < STEPS.length - 1 && <div className="lp-step-connector lp-hide-mobile" />}
                   <div style={{ position: 'relative', display: 'inline-block', marginBottom: 20 }}>
-                    <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'var(--panel)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                    <div className="lp-step-circle" style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(22,24,29,0.8)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
                       <Icon size={24} color="var(--brand-bright)" />
                     </div>
-                    <div style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: "'Space Grotesk', sans-serif" }}>
-                      {s.n}
-                    </div>
+                    <div style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: "'Space Grotesk', sans-serif" }}>{s.n}</div>
                   </div>
                   <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 16, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.3 }}>{s.title}</h3>
                   <p style={{ color: 'var(--txt-mut)', fontSize: 14, lineHeight: 1.65, margin: 0 }}>{s.desc}</p>
@@ -752,67 +755,46 @@ function LandingHowItWorks() {
             );
           })}
         </div>
+
+        {/* Photo strip — real office imagery */}
+        <FadeIn delay={200} style={{ marginTop: 64 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, borderRadius: 18, overflow: 'hidden', boxShadow: '0 24px 72px rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <img src="/assets/photos/hr-discussion.jpg" alt="Team in discussion" style={{ width: '100%', height: 240, objectFit: 'cover', display: 'block' }} />
+            <img src="/assets/photos/hr-office.jpg" alt="Modern office" style={{ width: '100%', height: 240, objectFit: 'cover', display: 'block' }} />
+          </div>
+        </FadeIn>
       </div>
+      </SectionReveal>
     </section>
   );
 }
 
 // ── Pricing ───────────────────────────────────────────────────────────────────
 const TIERS = [
-  {
-    name: 'Starter',
-    target: 'For small teams getting started',
-    highlight: false,
-    features: ['Core HR modules', 'People directory & org chart', 'Attendance & leave', 'Up to 25 employees'],
-  },
-  {
-    name: 'Growth',
-    target: 'For growing companies with multiple departments',
-    highlight: true,
-    features: ['Everything in Starter', 'Multi-department workflows', 'Approval center', 'Documents & compliance', 'Unlimited employees'],
-  },
-  {
-    name: 'Enterprise',
-    target: 'For large organizations with complex structures',
-    highlight: false,
-    features: ['Everything in Growth', 'Custom integrations', 'Advanced audit & security', 'Dedicated support', 'SLA guarantee'],
-  },
+  { name: 'Starter',    target: 'Small teams that need the basics working right',    highlight: false, features: ['Core HR modules', 'People directory & org chart', 'Attendance & leave', 'Up to 25 employees'] },
+  { name: 'Growth',     target: 'Growing companies with multiple departments',        highlight: true,  features: ['Everything in Starter', 'Multi-department workflows', 'Approval Center', 'Documents & compliance', 'Unlimited employees'] },
+  { name: 'Enterprise', target: 'Large organizations with complex structures',        highlight: false, features: ['Everything in Growth', 'Custom integrations', 'Advanced audit & security', 'Dedicated support', 'SLA guarantee'] },
 ];
 
 function LandingPricing() {
-  function scrollTo(id: string) { document.querySelector(id)?.scrollIntoView({ behavior: 'smooth' }); }
   return (
-    <section id="pricing" style={{ padding: '112px 24px 100px', background: 'var(--panel)' }}>
+    <section id="pricing" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
+      <SectionReveal>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <FadeIn>
-          <div style={{ textAlign: 'center', marginBottom: 64 }}>
-            <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>PRICING</p>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
-              Simple pricing, coming soon.
-            </h2>
-            <p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0 }}>
-              NForce OneHR is in early access. Reach out and we'll find the right fit for your team.
-            </p>
-          </div>
-        </FadeIn>
+        <div style={{ textAlign: 'center', marginBottom: 60 }}>
+          <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>PRICING</p></FadeIn>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
+            Pricing that doesn't punish growth.
+          </h2></FadeIn>
+          <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0 }}>
+            We're figuring out the right numbers. Get in touch and we'll find something that works.
+          </p></FadeIn>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
           {TIERS.map((t, i) => (
             <FadeIn key={t.name} delay={i * 70}>
-              <div
-                className="lp-pricing-card"
-                style={{
-                  padding: '32px 28px',
-                  background: t.highlight ? 'var(--raised)' : 'var(--panel)',
-                  border: `1px solid ${t.highlight ? 'rgba(228,55,61,0.35)' : 'var(--line)'}`,
-                  borderRadius: 14,
-                  position: 'relative',
-                }}
-              >
-                {t.highlight && (
-                  <div style={{ position: 'absolute', top: -1, left: '50%', transform: 'translateX(-50%)', background: 'var(--brand)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 14px', borderRadius: '0 0 8px 8px', letterSpacing: '0.06em' }}>
-                    MOST POPULAR
-                  </div>
-                )}
+              <div className={`lp-pricing-card${t.highlight ? ' lp-pricing-highlight' : ''}`} style={{ padding: '32px 28px', background: t.highlight ? 'var(--raised)' : 'var(--panel)', border: `1px solid ${t.highlight ? 'rgba(228,55,61,0.35)' : 'var(--line)'}`, borderRadius: 14, position: 'relative' }}>
+                {t.highlight && <div style={{ position: 'absolute', top: -1, left: '50%', transform: 'translateX(-50%)', background: 'var(--brand)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 14px', borderRadius: '0 0 8px 8px', letterSpacing: '0.06em' }}>MOST POPULAR</div>}
                 <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--txt)', margin: '0 0 6px' }}>{t.name}</h3>
                 <p style={{ color: 'var(--txt-mut)', fontSize: 13, margin: '0 0 20px', lineHeight: 1.5 }}>{t.target}</p>
                 <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 26, color: 'var(--txt)', marginBottom: 24 }}>Contact us</div>
@@ -824,96 +806,78 @@ function LandingPricing() {
                     </div>
                   ))}
                 </div>
-                <button
-                  onClick={() => scrollTo('#early-access')}
-                  style={{
-                    width: '100%', padding: '12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit', fontWeight: 600, cursor: 'pointer',
-                    background: t.highlight ? 'var(--brand)' : 'var(--raised)',
-                    border: t.highlight ? 'none' : '1px solid var(--line2)',
-                    color: t.highlight ? '#fff' : 'var(--txt)',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => { if (t.highlight) (e.currentTarget as HTMLButtonElement).style.background = 'var(--brand-bright)'; }}
-                  onMouseLeave={e => { if (t.highlight) (e.currentTarget as HTMLButtonElement).style.background = 'var(--brand)'; }}
-                >Get early access</button>
+                <a href={`mailto:hr@nforceone.com?subject=NForce%20OneHR%20${encodeURIComponent(t.name)}%20Pricing`} style={{ display: 'block', textAlign: 'center', boxSizing: 'border-box', width: '100%', padding: '12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit', fontWeight: 600, textDecoration: 'none', background: t.highlight ? 'var(--brand)' : 'var(--raised)', border: t.highlight ? 'none' : '1px solid var(--line2)', color: t.highlight ? '#fff' : 'var(--txt)', transition: 'opacity 0.15s' }}
+                  onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = '0.85')}
+                  onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = '1')}
+                >Get in touch</a>
               </div>
             </FadeIn>
           ))}
         </div>
       </div>
+      </SectionReveal>
     </section>
   );
 }
 
-// ── Early access ──────────────────────────────────────────────────────────────
-function LandingEarlyAccess() {
-  return (
-    <section id="early-access" style={{ padding: '112px 24px 100px', background: 'var(--shell)', textAlign: 'center' }}>
-      <FadeIn>
-        <div style={{ maxWidth: 580, margin: '0 auto' }}>
-          <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>EARLY ACCESS</p>
-          <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4.5vw, 3.2rem)', letterSpacing: '-0.04em', margin: '0 0 20px', color: 'var(--txt)', lineHeight: 1.08 }}>
-            Built by an HR team, for HR teams.
-          </h2>
-          <p style={{ color: 'var(--txt-mut)', fontSize: 15.5, lineHeight: 1.7, margin: '0 0 36px' }}>
-            NForce OneHR started as an internal tool to solve our own team's real HR headaches —
-            now we're opening it up. Be among the first companies to use it.
-          </p>
-          <a
-            href="mailto:hr@nforceone.com?subject=NForce%20OneHR%20Early%20Access"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              background: 'var(--brand)', color: '#fff', borderRadius: 10, fontFamily: 'inherit',
-              fontWeight: 600, fontSize: 15, padding: '14px 32px', textDecoration: 'none',
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.background = 'var(--brand-bright)')}
-            onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.background = 'var(--brand)')}
-          >
-            Request Early Access
-          </a>
-        </div>
-      </FadeIn>
-    </section>
-  );
-}
-
-// ── CTA Banner ────────────────────────────────────────────────────────────────
-function LandingCTABanner() {
+// ── Sign-in section ───────────────────────────────────────────────────────────
+function LandingSignIn() {
   const navigate = useNavigate();
-  function scrollTo(id: string) { document.querySelector(id)?.scrollIntoView({ behavior: 'smooth' }); }
   return (
-    <section style={{ padding: '0 24px 0', background: 'var(--panel)' }}>
+    <section style={{ padding: '96px 24px', background: 'var(--shell)', textAlign: 'center' }}>
+      <SectionReveal>
+      <div style={{ maxWidth: 500, margin: '0 auto' }}>
+          <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>ALREADY INSIDE</p></FadeIn>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4.5vw, 3rem)', letterSpacing: '-0.04em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
+            Your team is already here.
+          </h2></FadeIn>
+          <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15.5, lineHeight: 1.7, margin: '0 0 32px' }}>
+            Attendance records, approval queues, org charts, documents — live and updated right now. Sign in and see what's happening with your team today.
+          </p></FadeIn>
+          <FadeIn delay={240}><button
+            onClick={() => navigate('/login')}
+            className="lp-btn-primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--brand)', color: '#fff', borderRadius: 10, fontFamily: 'inherit', fontWeight: 600, fontSize: 15, padding: '14px 32px', cursor: 'pointer', border: 'none', transition: 'background 0.15s' }}
+            onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--brand-bright)')}
+            onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--brand)')}
+          >
+            <LogIn size={16} /> Sign In
+          </button>
+          <p style={{ color: 'var(--txt-dim)', fontSize: 12, marginTop: 18 }}>New to NForce OneHR? Your admin handles account setup.</p></FadeIn>
+        </div>
+      </SectionReveal>
+    </section>
+  );
+}
+
+// ── Connect With Us ───────────────────────────────────────────────────────────
+function LandingConnect() {
+  return (
+    <section style={{ padding: '72px 24px', background: 'var(--panel)', borderTop: '1px solid var(--line)', textAlign: 'center' }}>
       <FadeIn>
-        <div style={{
-          maxWidth: 1100, margin: '0 auto',
-          background: 'linear-gradient(135deg, var(--brand) 0%, rgba(122,12,16,0.95) 100%)',
-          borderRadius: 20, padding: '64px 48px', textAlign: 'center', position: 'relative', overflow: 'hidden',
-        }}>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '40px 40px', borderRadius: 20 }} />
-          <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: 600, height: 300, background: 'radial-gradient(ellipse, rgba(255,255,255,0.1) 0%, transparent 70%)', borderRadius: '50%' }} />
-          <div style={{ position: 'relative' }}>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.8rem, 4vw, 2.8rem)', letterSpacing: '-0.035em', margin: '0 0 16px', color: '#fff', lineHeight: 1.1 }}>
-              Ready to see NForce OneHR in action?
-            </h2>
-            <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 16, margin: '0 0 36px', lineHeight: 1.6 }}>
-              Your team is already doing this work. Let's make it easier.
-            </p>
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => navigate('/login')} style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 10, color: '#fff', fontSize: 15, fontFamily: 'inherit', fontWeight: 600, padding: '13px 28px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'background 0.15s' }}
-                onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.22)')}
-                onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)')}
-              >
-                <LogIn size={16} /> Sign In
-              </button>
-              <button onClick={() => scrollTo('#early-access')} style={{ background: '#fff', border: 'none', borderRadius: 10, color: 'var(--brand)', fontSize: 15, fontFamily: 'inherit', fontWeight: 700, padding: '13px 28px', cursor: 'pointer', transition: 'opacity 0.15s' }}
-                onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.opacity = '0.9')}
-                onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.opacity = '1')}
-              >
-                Request Early Access
-              </button>
-            </div>
-          </div>
+        <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 12px' }}>CONNECT</p>
+        <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.4rem, 3vw, 2rem)', letterSpacing: '-0.03em', color: 'var(--txt)', margin: '0 0 32px', lineHeight: 1.2 }}>
+          Find us online.
+        </h3>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 20, alignItems: 'center' }}>
+          {/* Instagram */}
+          <a href="https://www.instagram.com/nforce_one/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-ig" aria-label="NForce One on Instagram">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+              <circle cx="12" cy="12" r="4" />
+              <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" />
+            </svg>
+            <span>Instagram</span>
+          </a>
+          {/* LinkedIn */}
+          <a href="https://www.linkedin.com/company/nforceone/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-li" aria-label="NForce One on LinkedIn">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+              <rect x="2" y="9" width="4" height="12" />
+              <circle cx="4" cy="4" r="2" />
+            </svg>
+            <span>LinkedIn</span>
+          </a>
         </div>
       </FadeIn>
     </section>
@@ -930,44 +894,27 @@ const FOOTER_LINKS = {
 
 function LandingFooter() {
   function scrollTo(id: string) { document.querySelector(id)?.scrollIntoView({ behavior: 'smooth' }); }
-  const sectionMap: Record<string, string> = {
-    'Features': '#features', 'AI Agents': '#ai-agents',
-    'How it Works': '#how-it-works', 'Pricing': '#pricing',
-  };
+  const sectionMap: Record<string, string> = { 'Features': '#features', 'AI Agents': '#ai-agents', 'How it Works': '#how-it-works', 'Pricing': '#pricing' };
   return (
-    <footer style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '72px 24px 40px', marginTop: 0 }}>
+    <footer style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '72px 24px 40px' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '260px repeat(4, 1fr)', gap: 48, marginBottom: 56 }}>
-          {/* Brand column */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <BrandMark size="sm" />
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-                NForce <span style={{ color: 'var(--brand-bright)' }}>OneHR</span>
-              </span>
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>NForce <span style={{ color: 'var(--brand-bright)' }}>OneHR</span></span>
             </div>
-            <p style={{ color: 'var(--txt-dim)', fontSize: 13, lineHeight: 1.65, margin: '0 0 12px' }}>
-              The all-in-one HR platform, built from the inside out.
-            </p>
+            <p style={{ color: 'var(--txt-dim)', fontSize: 13, lineHeight: 1.65, margin: '0 0 12px' }}>The HR platform your team actually uses.</p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-dim)', fontSize: 12, marginBottom: 18 }}>
               <MapPin size={11} /> Hyderabad · Dallas
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {['Li', 'Tw'].map(s => (
-                <div key={s} style={{ width: 30, height: 30, borderRadius: 7, background: 'var(--raised)', border: '1px solid var(--line2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--txt-mut)', fontWeight: 700, cursor: 'pointer' }}>{s}</div>
-              ))}
-            </div>
           </div>
-          {/* Link columns */}
           {Object.entries(FOOTER_LINKS).map(([col, links]) => (
             <div key={col}>
               <h4 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 12, color: 'var(--txt)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{col}</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {links.map(l => (
-                  <button
-                    key={l}
-                    onClick={() => sectionMap[l] ? scrollTo(sectionMap[l]) : undefined}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 13.5, fontFamily: 'inherit', padding: 0, textAlign: 'left', transition: 'color 0.15s' }}
+                  <button key={l} onClick={() => sectionMap[l] ? scrollTo(sectionMap[l]) : undefined} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 13.5, fontFamily: 'inherit', padding: 0, textAlign: 'left', transition: 'color 0.15s' }}
                     onMouseEnter={e => (e.currentTarget.style.color = 'var(--txt)')}
                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--txt-mut)')}
                   >{l}</button>
@@ -988,26 +935,25 @@ function LandingFooter() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
   return (
-    <div data-theme="dark" style={{ background: 'var(--shell)', color: 'var(--txt)', minHeight: '100vh', overflowX: 'hidden' }}>
+    <div data-theme="dark" style={{ background: 'var(--shell)', color: 'var(--txt)', minHeight: '100vh', overflowX: 'clip' }}>
       <LandingNav />
-      <div style={{ paddingTop: 60 }}>
+      <div style={{ paddingTop: 76 }}>
         <LandingHero />
-        <LandingStats />
         <LandingProductShowcase />
-        <div className="lp-divider" style={{ margin: '0' }} />
+        <div className="lp-divider" />
         <LandingFeatures />
-        <div className="lp-divider" style={{ margin: '0' }} />
+        <div className="lp-divider" />
         <LandingAI />
-        <div className="lp-divider" style={{ margin: '0' }} />
+        <div className="lp-divider" />
         <LandingBrandMoment />
-        <div className="lp-divider" style={{ margin: '0' }} />
+        <div className="lp-divider" />
         <LandingRoles />
-        <div className="lp-divider" style={{ margin: '0' }} />
+        <div className="lp-divider" />
         <LandingHowItWorks />
-        <div className="lp-divider" style={{ margin: '0' }} />
+        <div className="lp-divider" />
         <LandingPricing />
-        <LandingEarlyAccess />
-        <LandingCTABanner />
+        <LandingSignIn />
+        <LandingConnect />
         <LandingFooter />
       </div>
     </div>

@@ -84,12 +84,26 @@ public class UserManagementService {
 
         if (req.getBusinessUnitId() != null)
             emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        if (req.getDepartmentId() != null) {
+            Department dept = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            // A brand-new employee can never have a legitimate pre-existing assignment to
+            // preserve, so this is unconditional — same reasoning as the Shift check below.
+            if (dept != null && !dept.isActive())
+                throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
+            emp.setDepartment(dept);
+        }
+        if (req.getDesignationId() != null) {
+            Designation desig = designationRepository.findById(req.getDesignationId()).orElse(null);
+            if (desig != null && !desig.isActive())
+                throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
+            emp.setDesignation(desig);
+        }
+        if (req.getLocationId() != null) {
+            Location loc = locationRepository.findById(req.getLocationId()).orElse(null);
+            if (loc != null && !loc.isActive())
+                throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");
+            emp.setLocation(loc);
+        }
         if (req.getShiftId() != null) {
             Shift shift = shiftRepository.findById(req.getShiftId()).orElse(null);
             // A brand-new employee can never have a legitimate pre-existing assignment to
@@ -214,6 +228,11 @@ public class UserManagementService {
             UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
             UUID newDepartmentId = newDepartment != null ? newDepartment.getId() : null;
             if (!Objects.equals(currentDepartmentId, newDepartmentId)) {
+                // Only guarded on an actual change — re-saving an employee whose existing
+                // assignment already points at a since-deactivated department (departmentId
+                // unchanged) must keep working untouched, not get blocked by this check.
+                if (newDepartment != null && !newDepartment.isActive())
+                    throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
                 emp.setDepartment(newDepartment);
                 forceLogoutRequired = true;
             }
@@ -223,6 +242,8 @@ public class UserManagementService {
             UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
             UUID newDesignationId = newDesignation != null ? newDesignation.getId() : null;
             if (!Objects.equals(currentDesignationId, newDesignationId)) {
+                if (newDesignation != null && !newDesignation.isActive())
+                    throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
                 emp.setDesignation(newDesignation);
                 forceLogoutRequired = true;
             }
@@ -232,6 +253,8 @@ public class UserManagementService {
             UUID currentLocationId = emp.getLocation() != null ? emp.getLocation().getId() : null;
             UUID newLocationId = newLocation != null ? newLocation.getId() : null;
             if (!Objects.equals(currentLocationId, newLocationId)) {
+                if (newLocation != null && !newLocation.isActive())
+                    throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");
                 emp.setLocation(newLocation);
                 forceLogoutRequired = true;
             }

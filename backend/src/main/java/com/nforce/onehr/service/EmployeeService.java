@@ -79,12 +79,28 @@ public class EmployeeService {
 
         if (req.getBusinessUnitId() != null)
             emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        // A brand-new employee has no legitimate pre-existing assignment to preserve, so this is
+        // unconditional (unlike updateEmployee's version below, which only rejects an actual
+        // change to a currently-inactive record) — mirrors UserManagementService.createUser's
+        // identical Department/Designation/Location/Shift checks.
+        if (req.getDepartmentId() != null) {
+            Department dept = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            if (dept != null && !dept.isActive())
+                throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
+            emp.setDepartment(dept);
+        }
+        if (req.getDesignationId() != null) {
+            Designation desig = designationRepository.findById(req.getDesignationId()).orElse(null);
+            if (desig != null && !desig.isActive())
+                throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
+            emp.setDesignation(desig);
+        }
+        if (req.getLocationId() != null) {
+            Location loc = locationRepository.findById(req.getLocationId()).orElse(null);
+            if (loc != null && !loc.isActive())
+                throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");
+            emp.setLocation(loc);
+        }
 
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
@@ -158,12 +174,44 @@ public class EmployeeService {
             emp.setWorkMode(req.getWorkMode());
         if (req.getBusinessUnitId() != null)
             emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        // Only a genuine CHANGE of department/designation/location is checked against the
+        // active/inactive rule — an employee already sitting on a since-deactivated master row
+        // (active when originally assigned) must stay saveable for unrelated edits (name,
+        // employment type, a different field entirely) without being forced off it. Resubmitting
+        // the SAME id already on the employee is therefore never rejected, no matter its current
+        // active state; only a request that actually moves onto a *different* inactive record is
+        // — mirrors UserManagementService.updateUser's identical Department/Designation/Location/
+        // Shift checks.
+        if (req.getDepartmentId() != null) {
+            Department newDepartment = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+            UUID newDepartmentId = newDepartment != null ? newDepartment.getId() : null;
+            if (!Objects.equals(currentDepartmentId, newDepartmentId)) {
+                if (newDepartment != null && !newDepartment.isActive())
+                    throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
+                emp.setDepartment(newDepartment);
+            }
+        }
+        if (req.getDesignationId() != null) {
+            Designation newDesignation = designationRepository.findById(req.getDesignationId()).orElse(null);
+            UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+            UUID newDesignationId = newDesignation != null ? newDesignation.getId() : null;
+            if (!Objects.equals(currentDesignationId, newDesignationId)) {
+                if (newDesignation != null && !newDesignation.isActive())
+                    throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
+                emp.setDesignation(newDesignation);
+            }
+        }
+        if (req.getLocationId() != null) {
+            Location newLocation = locationRepository.findById(req.getLocationId()).orElse(null);
+            UUID currentLocationId = emp.getLocation() != null ? emp.getLocation().getId() : null;
+            UUID newLocationId = newLocation != null ? newLocation.getId() : null;
+            if (!Objects.equals(currentLocationId, newLocationId)) {
+                if (newLocation != null && !newLocation.isActive())
+                    throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");
+                emp.setLocation(newLocation);
+            }
+        }
 
         emp = employeeRepository.save(emp);
         String after = auditSnapshot.toJson(employeeSnapshot(emp));
