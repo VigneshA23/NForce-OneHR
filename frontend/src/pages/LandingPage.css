@@ -229,6 +229,25 @@
   background: rgba(228, 55, 61, 0.07) !important;
 }
 
+/* ── Nav logo — fluid resize with viewport width ──────────────────────────
+   BrandMark sets fixed px width/height via inline style, so only an
+   !important rule can override it. clamp() here (vw-driven, since this
+   sits in a horizontal nav bar — unlike the auth page's vh-driven brand
+   mark) shrinks smoothly instead of snapping at a single breakpoint, and
+   naturally settles back at the original 46px/68px past ~650px wide. */
+.lp-nav-logo .nf-brandmark,
+.lp-nav-logo .nf-brandmark-ring,
+.lp-nav-logo .nf-brandmark-img {
+  width: clamp(30px, calc(20px + 4vw), 46px) !important;
+  height: clamp(30px, calc(20px + 4vw), 46px) !important;
+}
+.lp-nav-logo .nf-brandmark-glow {
+  width: clamp(44px, calc(30px + 6vw), 68px) !important;
+  height: clamp(44px, calc(30px + 6vw), 68px) !important;
+}
+.lp-nav-logo { gap: clamp(8px, 2vw, 12px) !important; }
+.lp-nav-logo-text { font-size: clamp(15px, calc(12px + 1.8vw), 19px) !important; }
+
 /* ── Hamburger morph ─────────────────────────────────────────────────────── */
 .lp-hamburger {
   width: 22px;
@@ -290,6 +309,48 @@
 }
 @media (min-width: 769px) {
   .lp-mobile-menu-btn { display: none !important; }
+}
+
+/* ── Hero mobile CTA — Book Demo / Sign In, between the badge and headline ──
+   Desktop already has these two in the nav bar, so this only exists below
+   the hamburger breakpoint. Stacked 2x1 (one button per row, each full
+   width) rather than side by side. */
+.lp-hero-mobile-cta { display: none; }
+@media (max-width: 768px) {
+  .lp-hero-mobile-cta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* Narrower than full width and centered, but still tracks the viewport
+       (70% of the available width) up to a 260px cap, instead of a fixed
+       px value that wouldn't shrink further on smaller phones. */
+    width: min(70%, 260px);
+    margin: 0 auto 24px;
+  }
+  .lp-hero-mobile-cta > * {
+    width: 100%;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+  }
+}
+
+/* ── "Explore Agents" / "See the platform" — stay side by side on mobile ────
+   Their original fixed 30px horizontal padding + 15px text made the pair
+   wider than a phone screen, so flex-wrap kicked in and stacked them. Below
+   768px they instead split the row evenly (flex: 1 1 0) with smaller
+   padding/font, so they resize together with the viewport and never wrap. */
+@media (max-width: 768px) {
+  .lp-hero-cta-row {
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+  }
+  .lp-hero-cta-btn {
+    flex: 1 1 0;
+    min-width: 0 !important;
+    padding: 12px 14px !important;
+    font-size: 13px !important;
+    white-space: nowrap;
+  }
 }
 
 /* ── Screenshot tab switcher ─────────────────────────────────────────────── */
@@ -662,6 +723,30 @@
   .lp-agent-thumb {
     display: none;
   }
+  /* Features intro (text + photo) stacks instead of squeezing into 2 columns */
+  .lp-features-header {
+    grid-template-columns: 1fr !important;
+    gap: 32px !important;
+    margin-bottom: 40px !important;
+  }
+  /* Featured Approvals Agent card: text over image instead of fixed 340px rail */
+  .lp-featured-agent-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .lp-featured-agent-grid > div:first-child {
+    padding: 0 0 24px !important;
+  }
+  .lp-featured-agent-grid > div:last-child {
+    margin: 0 -28px -28px !important;
+    border-left: none !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+    min-height: 200px !important;
+  }
+  /* Footer: 5-column grid → 2 columns */
+  .lp-footer-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 32px 24px !important;
+  }
 }
 
 @media (max-width: 768px) {
@@ -669,6 +754,61 @@
   .lp-featured-agent    { padding: 28px 24px !important; }
   .lp-agent-number      { font-size: 36px !important; width: 48px !important; }
   .lp-agent-row         { gap: 16px !important; }
+  .lp-showcase-caption {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  /* The 3D scroll-tilt (rotateX/scale/translateY/opacity, driven by
+     useScroll+useTransform in LandingProductShowcase) reads as a jarring
+     tilt-and-fade on small screens where the section fills almost the
+     whole viewport. framer-motion re-sets these as plain inline styles
+     every scroll frame, so an !important override here still wins the
+     cascade every time and the three screenshots just render normally. */
+  .lp-showcase-scroll-anim {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .lp-tab {
+    min-width: 104px !important;
+    padding: 8px 14px !important;
+    font-size: 12.5px !important;
+  }
+  /* Two side-by-side office photos are too cramped on narrow screens */
+  .lp-photo-strip {
+    grid-template-columns: 1fr !important;
+  }
+  .lp-photo-strip img {
+    height: 200px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .lp-hero-section { padding: 76px 20px 56px !important; }
+  #platform, #features, #ai-agents, #role-guides, #how-it-works, #pricing,
+  .lp-signin-section, .lp-connect-section {
+    padding: 64px 20px !important;
+  }
+  .lp-footer { padding: 56px 20px 32px !important; }
+}
+
+@media (max-width: 480px) {
+  /* Hero eyebrow pill: let the copy wrap instead of overflowing the viewport */
+  .lp-hero-badge {
+    white-space: normal !important;
+    max-width: 100%;
+  }
+  /* Drop the forced line break so the headline reflows to the actual width */
+  .lp-hero-break { display: none; }
+  .lp-hero-section h1 { font-size: 2.15rem !important; }
+  /* auto-fit minmax grids that are still wider than a small phone viewport */
+  .lp-features-grid,
+  .lp-pricing-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .lp-footer-grid {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 /* ── Glassmorphism chip — hero floating stat ─────────────────────────────── */
