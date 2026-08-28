@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import {
   Users, User, Clock, FileText, Package, Shield, GitBranch, AlertTriangle,
   MessageCircle, FileCheck, CheckSquare, Building2, LogIn,
@@ -241,7 +241,6 @@ function LandingNav() {
 
 // ── Hero ─────────────────────────────────────────────────────────────────────
 function LandingHero() {
-  const navigate = useNavigate();
   function scrollTo(id: string) { document.querySelector(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   return (
     <section style={{ position: 'relative', padding: '120px 24px 100px', overflow: 'hidden' }}>
@@ -453,14 +452,6 @@ const FEATURES = [
   { icon: Shield,      title: 'Audit & Security',                 desc: "Every role change, password reset, and approval action is logged with the exact time and person responsible. If something goes wrong, you know exactly where to look." },
 ];
 
-const FEATURE_IMAGES = [
-  '/assets/photos/hr-team.jpg',
-  '/assets/photos/hr-discussion.jpg',
-  '/assets/photos/hr-meeting.jpg',
-  '/assets/photos/hr-compliance.jpg',
-  '/assets/photos/hr-office.jpg',
-  '/assets/photos/hr-professionals.jpg',
-];
 
 function LandingFeatures() {
   return (
