@@ -14,7 +14,7 @@ import {
 } from '../utils/passwordPolicy';
 
 type FormValues = {
-  currentPassword: string;
+  currentPassword?: string;
   newPassword: string;
   confirmPassword: string;
 };
@@ -108,6 +108,13 @@ export default function ChangePasswordPage() {
 
   const [loading, setLoading] = useState(false);
 
+  // Forced flow: user just signed in with a temp/reset password and must set a new one before
+  // continuing (see Login.tsx and App.tsx's RequirePasswordChanged guard). They already proved
+  // they know the current password by using it to log in, so it isn't collected again here.
+  // Voluntary flow (My Profile → Change Password): mustChangePassword is false, so all three
+  // fields render as before.
+  const isForcedFlow = !!user?.mustChangePassword;
+
   const {
     register,
     handleSubmit,
@@ -131,7 +138,7 @@ export default function ChangePasswordPage() {
 
     let invalid = false;
 
-    if (!data.currentPassword) {
+    if (!isForcedFlow && !data.currentPassword) {
       setError('currentPassword', { message: 'Current password is required' });
       invalid = true;
     }
@@ -158,7 +165,7 @@ export default function ChangePasswordPage() {
     const timeoutId = setTimeout(() => controller.abort(), 13000);
     try {
       const res = await authApi.changePassword(
-        data.currentPassword,
+        isForcedFlow ? undefined : data.currentPassword,
         data.newPassword,
         data.confirmPassword,
         token,
@@ -209,11 +216,12 @@ export default function ChangePasswordPage() {
             className="text-2xl font-semibold mb-2"
             style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}
           >
-            Set your password
+            {isForcedFlow ? 'Set your password' : 'Change your password'}
           </h2>
           <p className="text-sm leading-relaxed" style={{ color: '#5a5a5a' }}>
-            For security, you must set a new password before you can access the platform.
-            This step cannot be skipped.
+            {isForcedFlow
+              ? 'For security, you must set a new password before you can access the platform. This step cannot be skipped.'
+              : 'Enter your current password and choose a new one.'}
           </p>
         </div>
 
@@ -233,14 +241,16 @@ export default function ChangePasswordPage() {
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <PasswordField
-            id="currentPassword"
-            label="Current password"
-            required
-            registration={register('currentPassword')}
-            error={errors.currentPassword?.message}
-            autoComplete="current-password"
-          />
+          {!isForcedFlow && (
+            <PasswordField
+              id="currentPassword"
+              label="Current password"
+              required
+              registration={register('currentPassword')}
+              error={errors.currentPassword?.message}
+              autoComplete="current-password"
+            />
+          )}
 
           {/* New password with strength meter */}
           <div className="mb-4">
@@ -372,8 +382,10 @@ export default function ChangePasswordPage() {
                 </svg>
                 Updating password…
               </span>
-            ) : (
+            ) : isForcedFlow ? (
               'Set password & continue'
+            ) : (
+              'Update password'
             )}
           </button>
         </form>
@@ -388,13 +400,20 @@ export default function ChangePasswordPage() {
         <div className="mt-6 text-center">
           <button
             type="button"
-            onClick={() => { clearAuth(); navigate('/login', { replace: true }); }}
+            onClick={() => {
+              if (isForcedFlow) {
+                clearAuth();
+                navigate('/login', { replace: true });
+              } else {
+                navigate('/profile');
+              }
+            }}
             className="text-sm cursor-pointer"
             style={{ background: 'none', border: 'none', color: '#8a8a8a', textDecoration: 'underline', textUnderlineOffset: '3px', padding: 0 }}
             onMouseEnter={(e) => (e.currentTarget.style.color = '#d0d0d0')}
             onMouseLeave={(e) => (e.currentTarget.style.color = '#8a8a8a')}
           >
-            Back to Sign In
+            {isForcedFlow ? 'Back to Sign In' : 'Back to Profile'}
           </button>
         </div>
       </div>
