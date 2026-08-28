@@ -511,18 +511,17 @@ public class UserManagementService {
      * Rejects any manager assignment that would create a circular reporting chain.
      * Walks the proposed manager's ancestor chain; if it reaches employeeId at any point
      * the assignment would form a cycle and is rejected with a clear error.
+     *
+     * Walks one link at a time via findByEmployeeUserIdAndEffectiveToIsNull instead of loading
+     * every currently-open manager-history row org-wide into memory (the previous approach) —
+     * this call runs synchronously inside createUser/updateUser whenever a manager is assigned,
+     * so its cost used to scale with total headcount on every single hire. It now scales with
+     * the reporting chain's depth instead, which is what actually bounds a real org hierarchy.
      */
     private void validateNoCycle(UUID employeeId, UUID proposedManagerId) {
         if (proposedManagerId == null) return;
         if (proposedManagerId.equals(employeeId))
             throw new IllegalArgumentException("Cannot assign a user as their own manager.");
-
-        Map<UUID, UUID> empToMgr = historyRepository.findByEffectiveToIsNull()
-                .stream()
-                .collect(Collectors.toMap(
-                        h -> h.getEmployeeUserId(),
-                        h -> h.getManagerUserId(),
-                        (a, b) -> a));
 
         UUID cur = proposedManagerId;
         Set<UUID> visited = new HashSet<>();
@@ -532,7 +531,9 @@ public class UserManagementService {
                 throw new IllegalArgumentException(
                         "Cannot assign this manager: it would create a circular reporting chain. " +
                         "The proposed manager is already a direct or indirect report of this user.");
-            cur = empToMgr.get(cur);
+            cur = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(cur)
+                    .map(EmployeeManagerHistory::getManagerUserId)
+                    .orElse(null);
         }
     }
 

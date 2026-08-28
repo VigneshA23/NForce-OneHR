@@ -247,7 +247,12 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
           <div>
             <div style={labelStyle}>Today's attendance</div>
             <Row label="Status" value={STATUS_LABEL[status]} />
-            <Row label="Actual check-in" value={fmtTime(record?.checkInAt)} />
+            {/* sessionStartedAt reflects the latest check-in of the day (checkInAt is fixed to
+                the day's very first one and never updated on a same-day checkout+checkin resume
+                — see AttendanceService.checkIn) — same fallback AttendanceHeroBanner/
+                AttendancePage already use, so a direct report's most recent check-in shows here
+                too instead of a frozen original time. */}
+            <Row label="Actual check-in" value={fmtTime(record?.sessionStartedAt ?? record?.checkInAt)} />
             <Row label="Actual check-out" value={fmtTime(record?.checkOutAt)} />
             {/* record.timezone is the employee's OWN effective timezone (locked in at their
                 check-in — see Attendance.timezone), not the viewer's. Labeled explicitly so it's

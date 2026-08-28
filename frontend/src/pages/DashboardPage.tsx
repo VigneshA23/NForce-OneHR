@@ -390,7 +390,10 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{r.employeeCode}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.checkInAt) ?? '—'}</div>
+                {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to the
+                    day's first one and never updated on a same-day checkout+checkin resume — see
+                    AttendanceService.checkIn. Same fallback as AttendanceHeroBanner/AttendancePage. */}
+                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.sessionStartedAt ?? r.checkInAt) ?? '—'}</div>
                 {r.status === 'LATE' && (
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
                     Late{r.lateByMinutes ? ` by ${formatWorkedMinutes(r.lateByMinutes)}` : ''}

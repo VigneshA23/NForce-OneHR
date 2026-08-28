@@ -1241,7 +1241,11 @@ function RosterTable({ rows, loading, emptyMessage }: {
                   <tr key={r.employeeUserId}>
                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11.5 }}>{r.employeeCode}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
-                    <td style={tdStyle}>{formatTime(r.checkInAt) ?? dash}</td>
+                    {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to
+                        the day's first one and never updated on a same-day checkout+checkin
+                        resume — see AttendanceService.checkIn. Same fallback as
+                        AttendanceHeroBanner/the employee's own view. */}
+                    <td style={tdStyle}>{formatTime(r.sessionStartedAt ?? r.checkInAt) ?? dash}</td>
                     <td style={tdStyle}>{formatTime(r.checkOutAt) ?? dash}</td>
                     {/* r.timezone is this employee's OWN effective timezone (locked in at their
                         check-in), not the viewer's — shown explicitly so an HR/Admin/Manager
