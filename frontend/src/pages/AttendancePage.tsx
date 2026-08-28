@@ -4306,15 +4306,21 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable.
-                    Attachments/Reason have no backing field in this schema (only a single free-text
-                    `reason`, shown under Note) — kept as placeholder columns to match the Keka layout. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Attachments', 'Note', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                    Reason has no backing field in this schema (only a single free-text `reason`,
+                    shown under Note) — kept as a placeholder column to match the Keka layout. */}
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Note', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {groups.map((group) => {
                   const first = group[0];
                   const status = wfhGroupStatus(group);
                   const lastAction = wfhGroupLastAction(group);
+                  // Only worth showing if there's still someone left to act, and it isn't just
+                  // repeating the name already shown in Last Action By (a batch can be PENDING
+                  // overall while some of its dates are already decided by that same approver).
+                  const nextApprover = status === 'PENDING' && first.assignedApproverName !== lastAction?.reviewedByName
+                    ? (first.assignedApproverName ?? dash)
+                    : dash;
                   return (
                     <tr key={first.id}>
                       {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{first.employeeName}</td>}
@@ -4329,7 +4335,6 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                         <div>{formatDay(first.createdAt.slice(0, 10))}</div>
                         <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>by {first.employeeName}</div>
                       </td>
-                      <td style={tdStyle}>{dash}</td>
                       <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={first.reason} /></td>
                       <td style={tdStyle}>{dash}</td>
                       <td style={tdStyle}><RegularizationStatusPill status={status} /></td>
@@ -4341,7 +4346,7 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                           </>
                         ) : dash}
                       </td>
-                      <td style={tdStyle}>{status === 'PENDING' ? (first.assignedApproverName ?? dash) : dash}</td>
+                      <td style={tdStyle}>{nextApprover}</td>
                       <td style={tdStyle}>
                         <WfhActionMenu
                           group={group}
