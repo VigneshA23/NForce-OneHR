@@ -4305,10 +4305,8 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable.
-                    Reason has no backing field in this schema (only a single free-text `reason`,
-                    shown under Note) — kept as a placeholder column to match the Keka layout. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Note', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable. */}
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {groups.map((group) => {
@@ -4336,7 +4334,6 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                         <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>by {first.employeeName}</div>
                       </td>
                       <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={first.reason} /></td>
-                      <td style={tdStyle}>{dash}</td>
                       <td style={tdStyle}><RegularizationStatusPill status={status} /></td>
                       <td style={tdStyle}>
                         {lastAction ? (
