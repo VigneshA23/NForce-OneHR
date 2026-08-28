@@ -40,4 +40,19 @@ public class EmployeeCodeSequenceRepository {
                 .getSingleResult())
                 .longValue();
     }
+
+    /**
+     * Bumps the sequence up so its next {@link #nextValue()} will be at least
+     * {@code minValue + 1} — a no-op if the sequence is already past {@code minValue}. Used when
+     * an admin hand-types (or accepts a suggestion for) an Employee ID whose numeric suffix is
+     * higher than what the sequence itself has reached, so the next preview continues from that
+     * higher value instead of leaving it behind. Per {@code employee_code_seq}'s own contract
+     * (V132), this only ever moves the sequence forward, never back.
+     */
+    public void advanceAtLeastTo(long minValue) {
+        entityManager
+                .createNativeQuery("SELECT setval('employee_code_seq', GREATEST(?1, (SELECT last_value FROM employee_code_seq)), true)")
+                .setParameter(1, minValue)
+                .getSingleResult();
+    }
 }
