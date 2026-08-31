@@ -321,7 +321,10 @@ export function AttendanceHeroBanner() {
       const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
       const refreshed = await attendanceApi.today(token);
       setToday(refreshed);
-      const at = formatClockTime(kind === 'in' ? refreshed.serverNow : record.checkOutAt);
+      // Use the check-in/check-out record's own timestamp, not `refreshed.serverNow` — that comes
+      // from a second, later `/today` call and picks up whatever latency that round trip has,
+      // making the toast read later than the moment the employee actually punched in.
+      const at = formatClockTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
