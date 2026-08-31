@@ -79,13 +79,13 @@ export default function LoginPage() {
           <div className="flex items-center gap-3 mb-16">
             <div
               className="w-8 h-8 rounded flex items-center justify-center text-white text-sm font-bold"
-              style={{ background: '#b11116', fontFamily: 'Space Grotesk, system-ui' }}
+              style={{ background: '#b11116', fontFamily: 'Inter, system-ui, sans-serif' }}
             >
               N
             </div>
             <span
               className="text-lg font-semibold tracking-tight"
-              style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}
+              style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
             >
               NForce
             </span>
@@ -93,7 +93,7 @@ export default function LoginPage() {
 
           <h1
             className="text-4xl font-bold leading-tight mb-4"
-            style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}
+            style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
           >
             OneHR
           </h1>
@@ -112,7 +112,7 @@ export default function LoginPage() {
               />
             ))}
           </div>
-          <p className="text-xs" style={{ color: '#3a3a3a', fontFamily: 'JetBrains Mono, monospace' }}>
+          <p className="text-xs" style={{ color: '#3a3a3a', fontFamily: 'Inter, sans-serif' }}>
             Confidential — internal use only
           </p>
         </div>
@@ -125,13 +125,13 @@ export default function LoginPage() {
           <div className="flex items-center gap-2 mb-10 lg:hidden">
             <div
               className="w-7 h-7 rounded flex items-center justify-center text-white text-xs font-bold"
-              style={{ background: '#b11116', fontFamily: 'Space Grotesk, system-ui' }}
+              style={{ background: '#b11116', fontFamily: 'Inter, system-ui, sans-serif' }}
             >
               N
             </div>
             <span
               className="text-base font-semibold"
-              style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}
+              style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
             >
               NForce OneHR
             </span>
@@ -140,7 +140,7 @@ export default function LoginPage() {
           <div className="mb-8">
             <h2
               className="text-2xl font-semibold mb-1"
-              style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}
+              style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
             >
               Sign in
             </h2>

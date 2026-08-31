@@ -69,6 +69,22 @@ public class JwtTokenProvider {
         return false;
     }
 
+    // Only meaningful after validateToken(token) has already returned false — distinguishes
+    // "expired" (session timeout: the 8h expiry in generateToken elapsed) from every other
+    // rejection reason (malformed, unsigned, bad signature). JwtAuthenticationFilter uses this
+    // to flag session-timeout 403s so the frontend can show a message specific to that case
+    // instead of the generic "sign in again" one used for password/role invalidation.
+    public boolean isExpired(String token) {
+        try {
+            parseClaims(token);
+            return false;
+        } catch (ExpiredJwtException e) {
+            return true;
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(signingKey())

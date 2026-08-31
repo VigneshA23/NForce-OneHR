@@ -204,7 +204,7 @@ export default function ChangePasswordPage() {
           <BrandMark size="sm" />
           <span
             className="text-base font-semibold"
-            style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}
+            style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
           >
             NForce OneHR
           </span>
@@ -214,7 +214,7 @@ export default function ChangePasswordPage() {
         <div className="mb-6">
           <h2
             className="text-2xl font-semibold mb-2"
-            style={{ fontFamily: 'Space Grotesk, system-ui', color: '#f0f0f0' }}
+            style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
           >
             {isForcedFlow ? 'Set your password' : 'Change your password'}
           </h2>
@@ -392,7 +392,7 @@ export default function ChangePasswordPage() {
 
         <p className="mt-5 text-xs text-center" style={{ color: '#3a3a3a' }}>
           Signed in as{' '}
-          <span style={{ fontFamily: 'JetBrains Mono, monospace', color: '#5a5a5a' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', color: '#5a5a5a' }}>
             {user?.email}
           </span>
         </p>

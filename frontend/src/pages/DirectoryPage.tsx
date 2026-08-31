@@ -19,7 +19,7 @@ function Avatar({ userId, name, size = 34 }: { userId: string; name: string; siz
       fontSize={size * 0.33}
       background="rgba(177,17,22,.18)"
       color="#e4373d"
-      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+      style={{ fontFamily: 'Inter, sans-serif' }}
     />
   );
 }
@@ -57,7 +57,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
       display: 'flex', flexDirection: 'column', overflowY: 'auto',
     }}>
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Employee Details
         </span>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 4, borderRadius: 6, display: 'grid', placeItems: 'center' }}>
@@ -68,7 +68,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <Avatar userId={entry.userId} name={entry.fullName} size={52} />
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{entry.designationName ?? '—'}</div>
             <StatusChip active={entry.active} />
           </div>
@@ -229,7 +229,7 @@ export default function DirectoryPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             People Directory
           </h1>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>
@@ -346,7 +346,7 @@ export default function DirectoryPage() {
                             <span style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</span>
                           </div>
                         </td>
-                        <td style={{ ...TD, color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5 }}>{e.employeeCode}</td>
+                        <td style={{ ...TD, color: 'var(--txt-mut)', fontFamily: 'Inter, sans-serif', fontSize: 11.5 }}>{e.employeeCode}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.email ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.departmentName ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.designationName ?? '—'}</td>

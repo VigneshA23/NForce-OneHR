@@ -180,6 +180,7 @@ public class AuthService {
         // their very next API call fails auth. The token minted just below carries this new
         // version, so the session performing the change stays logged in.
         user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(user);
 
         auditService.log(user.getId(), "PASSWORD_CHANGED", user.getId());
@@ -218,6 +219,7 @@ public class AuthService {
         user.setMustChangePassword(true);
         // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
         user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(user);
 
         String fullName = employeeRepository.findById(user.getId())
