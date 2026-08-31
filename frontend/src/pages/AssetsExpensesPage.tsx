@@ -23,6 +23,7 @@ import {
   type ExpenseTileHR,
   type ExpenseTileManager,
 } from '../api/expenses';
+import { employeesApi } from '../api/employees';
 
 // ── Shared styles ─────────────────────────────────────────
 
@@ -1127,16 +1128,19 @@ function AssignAssetModal({ asset, token, mode, onClose, onDone }: { asset: Asse
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch('/api/employees', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then((data: { userId: string; fullName?: string; firstName?: string; lastName?: string; active?: boolean }[]) =>
+    let cancelled = false;
+    employeesApi.list(token)
+      .then(data => {
+        if (cancelled) return;
         setEmployees(
           data
-            .filter(e => e.active !== false)
-            .map(e => ({ id: e.userId, name: e.fullName ?? `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim() }))
-        )
-      ).catch(() => {});
-  }, [token]);
+            .filter(e => e.active !== false && e.role !== 'SUPER_ADMIN')
+            .map(e => ({ id: e.userId, name: e.fullName }))
+        );
+      })
+      .catch(() => { if (!cancelled) showToast('error', 'Could not load employees'); });
+    return () => { cancelled = true; };
+  }, [token, showToast]);
 
   async function submit() {
     if (!employeeUserId) return;

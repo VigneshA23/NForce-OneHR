@@ -1546,7 +1546,7 @@ function SuperAdminDashboardView() {
       auditApi.stats({}, token).catch(() => null),
       auditApi.list({}, 0, 8, token).catch(() => ({ content: [] as AuditLogEntry[] })),
       getAdminKpis(token).catch(() => null),
-      assetsApi.listAll(token).catch(() => [] as import('../api/assets').AssetResponse[]),
+      assetsApi.count(token).catch(() => ({ count: 0 })),
       auditApi.list({ action: 'PASSWORD_RESET', from: monthStartStr }, 0, 1, token).catch(() => ({ totalElements: 0 })),
       auditApi.exportAll({ action: 'USER_UPDATED', from: monthStartStr }, token).catch(() => [] as AuditLogEntry[]),
     ]).then(([users, attn, pending, stats, auditPage, kpis, assets, pwResetPage, userUpdated]) => {
@@ -1556,7 +1556,7 @@ function SuperAdminDashboardView() {
       setAuditStats(stats as AuditLogStats | null);
       setRecentAudit((auditPage as { content: AuditLogEntry[] }).content);
       setDocKpis(kpis as DocumentAdminKpi | null);
-      setTotalAssets((assets as import('../api/assets').AssetResponse[]).length);
+      setTotalAssets((assets as { count: number }).count);
       setPasswordResetsMonth((pwResetPage as { totalElements: number }).totalElements);
       const roleChanges = (userUpdated as AuditLogEntry[]).filter(e => {
         try {

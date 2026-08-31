@@ -16,25 +16,45 @@ import java.util.UUID;
 @Repository
 public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID> {
 
-    List<LeaveRequest> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
+    // JOIN FETCH r.leaveType so LeaveService#listMyRequests's mapping of every row through
+    // toRequestResponse (which reads r.getLeaveType().getCode()/getName()) doesn't lazily
+    // hit the DB once per row — leaveType is @ManyToOne(LAZY) (see LeaveRequest.java).
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.employeeUserId = :employeeUserId "
+            + "ORDER BY r.createdAt DESC")
+    List<LeaveRequest> findByEmployeeUserIdOrderByCreatedAtDesc(@Param("employeeUserId") UUID employeeUserId);
 
     // Backs audit-log target search — resolves which leave requests belong to a set of employees.
     @Query("SELECT r.id FROM LeaveRequest r WHERE r.employeeUserId IN :employeeUserIds")
     Set<UUID> findIdsByEmployeeUserIdIn(Collection<UUID> employeeUserIds);
 
-    List<LeaveRequest> findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(Collection<UUID> employeeUserIds, String status);
+    // JOIN FETCH r.leaveType — backs LeaveService#listPendingApprovals's non-override branch,
+    // same N+1 rationale as findByEmployeeUserIdOrderByCreatedAtDesc above.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.employeeUserId IN :employeeUserIds "
+            + "AND r.status = :status ORDER BY r.createdAt ASC")
+    List<LeaveRequest> findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(
+            @Param("employeeUserIds") Collection<UUID> employeeUserIds, @Param("status") String status);
 
+    // JOIN FETCH r.leaveType — backs LeaveService#listTeamLeave and #listPeerLeave, same N+1
+    // rationale as findByEmployeeUserIdOrderByCreatedAtDesc above.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.employeeUserId IN :employeeUserIds "
+            + "AND r.status = :status AND r.startDate <= :to AND r.endDate >= :from")
     List<LeaveRequest> findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-            Collection<UUID> employeeUserIds, String status, LocalDate to, LocalDate from);
+            @Param("employeeUserIds") Collection<UUID> employeeUserIds, @Param("status") String status,
+            @Param("to") LocalDate to, @Param("from") LocalDate from);
 
     // Organization-wide equivalent of the above — no employeeUserId scoping. Backs the HR
-    // dashboard's "On Leave" KPI (see LeaveService#listOrgLeave).
+    // dashboard's "On Leave" KPI (see LeaveService#listOrgLeave). JOIN FETCH r.leaveType for the
+    // same N+1 reason as the other list-backing queries in this file.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.status = :status "
+            + "AND r.startDate <= :to AND r.endDate >= :from")
     List<LeaveRequest> findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-            String status, LocalDate to, LocalDate from);
+            @Param("status") String status, @Param("to") LocalDate to, @Param("from") LocalDate from);
 
     // Organization-wide pending queue, no employeeUserId scoping — backs HR_ADMIN/SUPER_ADMIN
     // visibility in Approval Center (see LeaveService#listPendingApprovals's override branch).
-    List<LeaveRequest> findByStatusOrderByCreatedAtAsc(String status);
+    // JOIN FETCH r.leaveType for the same N+1 reason as the other list-backing queries in this file.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.status = :status ORDER BY r.createdAt ASC")
+    List<LeaveRequest> findByStatusOrderByCreatedAtAsc(@Param("status") String status);
 
     // Backs LeaveService#submitRequest's overlapping-request guard: true if the employee already
     // has a request in one of the given statuses (PENDING/APPROVED) whose date range overlaps the

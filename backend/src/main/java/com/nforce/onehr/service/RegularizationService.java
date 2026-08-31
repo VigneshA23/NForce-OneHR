@@ -32,6 +32,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Attendance Regularization: employee-submitted corrections for missed/wrong punches,
@@ -361,15 +363,15 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listAll(UUID employeeUserId, UUID approverUserId,
                                                  UUID departmentId, String month, String status) {
-        return regularizationRepository.findAll().stream()
+        List<RegularizationRequest> filtered = regularizationRepository.findAll().stream()
                 .filter(r -> employeeUserId == null || employeeUserId.equals(r.getEmployeeUserId()))
                 .filter(r -> approverUserId == null || approverUserId.equals(r.getAssignedApproverId()))
                 .filter(r -> status == null || status.equalsIgnoreCase(r.getStatus()))
                 .filter(r -> month == null || r.getAttendanceDate().toString().startsWith(month))
                 .filter(r -> departmentId == null || departmentId.equals(departmentIdOf(r.getEmployeeUserId())))
                 .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
-                .map(this::toResponse)
                 .toList();
+        return toResponses(filtered);
     }
 
     private UUID departmentIdOf(UUID employeeUserId) {
@@ -392,15 +394,13 @@ public class RegularizationService {
                 && !historyRepository.findCurrentDirectReportIds(actor.getId()).contains(employeeUserId)) {
             throw new AccessDeniedException("You can only view regularization history for your direct reports");
         }
-        return regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(employeeUserId, attendanceDate)
-                .stream().map(this::toResponse).toList();
+        return toResponses(regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(employeeUserId, attendanceDate));
     }
 
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listMine(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return regularizationRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId())
-                .stream().map(this::toResponse).toList();
+        return toResponses(regularizationRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()));
     }
 
     /**
@@ -431,7 +431,7 @@ public class RegularizationService {
                         .forEach(r -> queue.put(r.getId(), r));
             }
         }
-        return queue.values().stream().map(this::toResponse).toList();
+        return toResponses(new ArrayList<>(queue.values()));
     }
 
     /**
@@ -446,16 +446,14 @@ public class RegularizationService {
         List<RegularizationRequest> all = regularizationRepository.findAll();
 
         if (hasOverrideRole(actor)) {
-            return all.stream()
+            return toResponses(all.stream()
                     .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
-                    .map(this::toResponse)
-                    .toList();
+                    .toList());
         }
-        return all.stream()
+        return toResponses(all.stream()
                 .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
                 .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
-                .map(this::toResponse)
-                .toList();
+                .toList());
     }
 
     /**
@@ -771,34 +769,86 @@ public class RegularizationService {
     }
 
     private RegularizationResponse toResponse(RegularizationRequest req) {
-        Employee employee = employeeRepository.findById(req.getEmployeeUserId()).orElse(null);
+        return toResponses(List.of(req)).get(0);
+    }
+
+    /**
+     * Batch equivalent of {@link #toResponse} — every list-returning caller (listMine,
+     * listPendingForApprover, listForApprover, listAll, getHistoryForManager) funnels through
+     * here instead of mapping row-by-row. Previously each row cost up to 7 round trips
+     * (employee, email, reviewer, assignedApprover, approvedBy, finalApprovedBy, plus one
+     * findById per approval-history entry); this collects every distinct user id referenced
+     * across the whole batch — including every history row's actionBy — and resolves them with
+     * exactly one approval-history query and one name-lookup query total, regardless of how many
+     * requests are being mapped. Output fields/values are unchanged.
+     */
+    private List<RegularizationResponse> toResponses(List<RegularizationRequest> requests) {
+        if (requests.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> requestIds = requests.stream().map(RegularizationRequest::getId).toList();
+        Map<UUID, List<RegularizationApproval>> historyByRequest = regularizationApprovalRepository
+                .findByRequestIdInOrderByActionDateDesc(requestIds).stream()
+                .collect(Collectors.groupingBy(RegularizationApproval::getRequestId));
+
+        Set<UUID> allUserIds = new LinkedHashSet<>();
+        for (RegularizationRequest req : requests) {
+            allUserIds.add(req.getEmployeeUserId());
+            addIfNotNull(allUserIds, req.getReviewedBy());
+            addIfNotNull(allUserIds, req.getAssignedApproverId());
+            addIfNotNull(allUserIds, req.getApprovedBy());
+            addIfNotNull(allUserIds, req.getFinalApprovedBy());
+        }
+        for (List<RegularizationApproval> history : historyByRequest.values()) {
+            for (RegularizationApproval a : history) {
+                addIfNotNull(allUserIds, a.getActionBy());
+            }
+        }
+
+        Map<UUID, String> nameById = employeeRepository.findNamesByUserIds(allUserIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        Map<UUID, Employee> employeeById = employeeRepository.findAllByIdWithDepartment(allUserIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+        Map<UUID, String> emailById = userRepository.findAllById(allUserIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getEmail));
+
+        return requests.stream().map(req -> toResponse(req, nameById, employeeById, emailById, historyByRequest)).toList();
+    }
+
+    private static void addIfNotNull(Set<UUID> ids, UUID id) {
+        if (id != null) {
+            ids.add(id);
+        }
+    }
+
+    private RegularizationResponse toResponse(RegularizationRequest req, Map<UUID, String> nameById,
+                                               Map<UUID, Employee> employeeById, Map<UUID, String> emailById,
+                                               Map<UUID, List<RegularizationApproval>> historyByRequest) {
+        Employee employee = employeeById.get(req.getEmployeeUserId());
         String employeeName = employee != null ? employee.getFullName() : "Unknown";
         String departmentName = employee != null && employee.getDepartment() != null
                 ? employee.getDepartment().getName() : null;
-        String employeeEmail = userRepository.findById(req.getEmployeeUserId())
-                .map(User::getEmail).orElse("");
-        String reviewerName = req.getReviewedBy() == null ? null
-                : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
+        String employeeEmail = emailById.getOrDefault(req.getEmployeeUserId(), "");
+        String reviewerName = req.getReviewedBy() == null ? null : nameById.get(req.getReviewedBy());
         String assignedApproverName = req.getAssignedApproverId() == null ? null
-                : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
+                : nameById.get(req.getAssignedApproverId());
         Long totalMinutes = (req.getRequestedCheckIn() != null && req.getRequestedCheckOut() != null)
                 ? Duration.between(req.getRequestedCheckIn(), req.getRequestedCheckOut()).toMinutes()
                 : null;
-        List<ApprovalHistoryEntryDto> history = regularizationApprovalRepository
-                .findByRequestIdOrderByActionDateDesc(req.getId()).stream()
+        List<ApprovalHistoryEntryDto> history = historyByRequest
+                .getOrDefault(req.getId(), List.of()).stream()
                 .map(a -> ApprovalHistoryEntryDto.builder()
                         .actionType(a.getActionType())
-                        .actorName(employeeRepository.findById(a.getActionBy())
-                                .map(Employee::getFullName).orElse("Unknown"))
+                        .actorName(nameById.getOrDefault(a.getActionBy(), "Unknown"))
                         .actorRole(a.getActorRole())
                         .comments(a.getComments())
                         .actionDate(a.getActionDate())
                         .build())
                 .toList();
-        String approvedByName = req.getApprovedBy() == null ? null
-                : employeeRepository.findById(req.getApprovedBy()).map(Employee::getFullName).orElse(null);
+        String approvedByName = req.getApprovedBy() == null ? null : nameById.get(req.getApprovedBy());
         String finalApprovedByName = req.getFinalApprovedBy() == null ? null
-                : employeeRepository.findById(req.getFinalApprovedBy()).map(Employee::getFullName).orElse(null);
+                : nameById.get(req.getFinalApprovedBy());
 
         return RegularizationResponse.builder()
                 .id(req.getId())

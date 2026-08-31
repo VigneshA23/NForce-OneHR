@@ -180,7 +180,17 @@ public class AssetService {
     @Transactional(readOnly = true)
     public List<AssetResponse> listAllAssets(String actorEmail) {
         requireAdmin(actorEmail);
-        return assetRepo.findAll().stream().map(this::toAssetResponse).collect(Collectors.toList());
+        List<Asset> assets = assetRepo.findAllWithDetails();
+        return toAssetResponses(assets);
+    }
+
+    // Lightweight count for callers (e.g. the admin dashboard's asset count tile) that only
+    // need the total number of assets and would otherwise pay for listAllAssets's full
+    // category/location/assignment/assignee hydration just to read assets.length.
+    @Transactional(readOnly = true)
+    public long countAssets(String actorEmail) {
+        requireAdmin(actorEmail);
+        return assetRepo.count();
     }
 
     @Transactional
@@ -454,8 +464,7 @@ public class AssetService {
     @Transactional(readOnly = true)
     public List<AssetResponse> availableByCategory(Integer categoryId, String actorEmail) {
         requireAdmin(actorEmail);
-        return assetRepo.findByCategoryIdAndStatus(categoryId, "AVAILABLE")
-                .stream().map(this::toAssetResponse).collect(Collectors.toList());
+        return toAssetResponses(assetRepo.findByCategoryIdAndStatus(categoryId, "AVAILABLE"));
     }
 
     // ── Guards ────────────────────────────────────────────
@@ -534,6 +543,62 @@ public class AssetService {
                 .createdAt(a.getCreatedAt())
                 .updatedAt(a.getUpdatedAt())
                 .build();
+    }
+
+    // Batch mapper for AssetResponse lists (listAllAssets, availableByCategory) — resolves
+    // current assignments and assignee names for the whole batch in 2 queries total instead of
+    // toAssetResponse's 1-2 queries PER asset (findByAssetIdAndEffectiveToIsNull +
+    // employeeName's employeeRepo/userRepo lookup). Category/location are still resolved off
+    // whatever the caller's query already fetched (JOIN FETCH for listAllAssets; a same-category
+    // filter for availableByCategory, which the session's first-level cache dedupes).
+    private List<AssetResponse> toAssetResponses(List<Asset> assets) {
+        if (assets.isEmpty()) return List.of();
+
+        List<Long> assetIds = assets.stream().map(Asset::getId).collect(Collectors.toList());
+        Map<Long, AssetAssignment> currentByAssetId = assignmentRepo.findByAssetIdInAndEffectiveToIsNull(assetIds)
+                .stream()
+                .collect(Collectors.toMap(AssetAssignment::getAssetId, a -> a));
+
+        Set<UUID> employeeIds = currentByAssetId.values().stream()
+                .map(AssetAssignment::getEmployeeUserId)
+                .collect(Collectors.toSet());
+        Map<UUID, String> namesByEmployeeId = employeeIds.isEmpty() ? Map.of()
+                : employeeRepo.findNamesByUserIds(employeeIds).stream()
+                        .collect(Collectors.toMap(r -> (UUID) r[0], r -> (String) r[1]));
+
+        return assets.stream().map(a -> {
+            AssetAssignment current = currentByAssetId.get(a.getId());
+            String custodianName = null;
+            String custodianId = null;
+            if (current != null) {
+                custodianId = current.getEmployeeUserId().toString();
+                // Fall back to the same per-id resolution toAssetResponse uses (employee-or-user
+                // lookup) for the rare id findNamesByUserIds' Employee-only query doesn't cover.
+                custodianName = namesByEmployeeId.containsKey(current.getEmployeeUserId())
+                        ? namesByEmployeeId.get(current.getEmployeeUserId())
+                        : employeeName(current.getEmployeeUserId());
+            }
+            return AssetResponse.builder()
+                    .id(a.getId())
+                    .assetTag(a.getAssetTag())
+                    .categoryId(a.getCategory().getId())
+                    .categoryName(a.getCategory().getName())
+                    .brand(a.getBrand())
+                    .model(a.getModel())
+                    .serialNumber(a.getSerialNumber())
+                    .purchaseDate(a.getPurchaseDate())
+                    .purchaseCost(a.getPurchaseCost())
+                    .warrantyExpiry(a.getWarrantyExpiry())
+                    .condition(a.getCondition())
+                    .status(a.getStatus())
+                    .locationId(a.getLocation() != null ? a.getLocation().getId() : null)
+                    .locationName(a.getLocation() != null ? a.getLocation().getName() : null)
+                    .currentCustodianName(custodianName)
+                    .currentCustodianUserId(custodianId)
+                    .createdAt(a.getCreatedAt())
+                    .updatedAt(a.getUpdatedAt())
+                    .build();
+        }).collect(Collectors.toList());
     }
 
     private AssetAssignmentResponse toAssignmentResponse(AssetAssignment a, boolean includeAsset) {

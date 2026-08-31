@@ -2128,7 +2128,6 @@ function AttendanceStatsPanel({ token }: { token: string }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
             <span style={{ flex: 1, minWidth: 0 }} />
             <span style={{ width: 84, textAlign: 'right' }}>Avg hrs/day</span>
-            <span style={{ width: 84, textAlign: 'right' }}>Expected hrs/day</span>
             <span style={{ width: 100, textAlign: 'right' }}>On-time %</span>
           </div>
           <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
@@ -2137,9 +2136,6 @@ function AttendanceStatsPanel({ token }: { token: string }) {
             </span>
             <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.me.avgHoursPerDay != null ? `${stats.me.avgHoursPerDay}h` : dash}
-            </span>
-            <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
-              {stats.me.expectedHoursPerDay != null ? `${stats.me.expectedHoursPerDay}h` : dash}
             </span>
             <span style={{ width: 100, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.me.onTimeArrivalPercent != null ? `${stats.me.onTimeArrivalPercent}%` : dash}
@@ -2151,9 +2147,6 @@ function AttendanceStatsPanel({ token }: { token: string }) {
             </span>
             <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.team.avgHoursPerDay != null ? `${stats.team.avgHoursPerDay}h` : dash}
-            </span>
-            <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
-              {stats.team.expectedHoursPerDay != null ? `${stats.team.expectedHoursPerDay}h` : dash}
             </span>
             <span style={{ width: 100, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
               {stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash}

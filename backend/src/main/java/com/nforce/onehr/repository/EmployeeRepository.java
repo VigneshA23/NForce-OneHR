@@ -34,6 +34,12 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
          + "LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department LEFT JOIN FETCH e.shift WHERE e.userId IN :ids")
     List<Employee> findAllByIdWithScheduleDetails(@Param("ids") Collection<UUID> ids);
 
+    // Backs EmployeeService#getManagerDashboard — joins the associations that method reads
+    // (user, designation, department) in one query instead of one findById (plus lazy-loads
+    // of each association) per direct report.
+    @Query("SELECT e FROM Employee e JOIN FETCH e.user LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
+    List<Employee> findAllByIdWithUserDetails(@Param("ids") Collection<UUID> ids);
+
     // Backs the shift/weekly-off import (ONEHR-108) — rows are addressed by employee code, not id.
     Optional<Employee> findByEmployeeCode(String employeeCode);
 
@@ -102,6 +108,12 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
 
     @Query("SELECT e.userId, e.fullName FROM Employee e WHERE e.userId IN :ids")
     List<Object[]> findNamesByUserIds(@Param("ids") Set<UUID> ids);
+
+    // Batch employee + department fetch backing RegularizationService/WebClockInService's list
+    // responses — one query for every row's employee name + department name instead of one
+    // findById per row (department is LAZY, so a plain findAllById would still N+1 on it).
+    @Query("SELECT e FROM Employee e LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
+    List<Employee> findAllByIdWithDepartment(@Param("ids") Collection<UUID> ids);
 
     // Backs ShiftSeedCorrector's startup backfill for employees created after V95's one-time
     // "assign everyone the Regular Shift" migration ran (e.g. anyone onboarded since).

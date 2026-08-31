@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -54,6 +55,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // explicit join fetch that still means a secondary select per entity).
     @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.roles")
     List<User> findAllWithRoles();
+
+    // Batch equivalent of findById(id).getRoles() for a known set of ids — used to resolve e.g.
+    // a reviewer's primary role for several rows in one query instead of one lazy "load roles"
+    // query per distinct reviewer (User.roles is EAGER, so a plain findAllById would still incur
+    // one roles select per returned row without this explicit join fetch).
+    @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.roles WHERE u.id IN :ids")
+    List<User> findAllByIdWithRoles(@Param("ids") Collection<UUID> ids);
 
     // Exception Dashboard subjects: accounts holding EMPLOYEE and none of
     // MANAGER/HR_ADMIN/SUPER_ADMIN. A plain "holds EMPLOYEE" whitelist isn't enough —

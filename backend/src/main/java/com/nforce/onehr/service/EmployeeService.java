@@ -331,40 +331,60 @@ public class EmployeeService {
         User manager = userRepository.findByEmail(managerEmail)
                 .orElseThrow(() -> new IllegalStateException("User not found"));
 
-        List<ManagerDashboardDto.DirectReport> reports = historyRepository
-                .findByManagerUserIdAndEffectiveToIsNull(manager.getId())
-                .stream()
-                .flatMap(rel -> employeeRepository.findById(rel.getEmployeeUserId())
-                        .map(emp -> ManagerDashboardDto.DirectReport.builder()
-                                .userId(emp.getUserId().toString())
-                                .employeeCode(emp.getEmployeeCode())
-                                .fullName(emp.getFullName())
-                                .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
-                                .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
-                                .active(emp.getUser().isActive())
-                                .build())
-                        .stream())
-                .collect(Collectors.toList());
+        List<EmployeeManagerHistory> directReportRels = historyRepository
+                .findByManagerUserIdAndEffectiveToIsNull(manager.getId());
 
         // Trailing 12 calendar months (including the current one), matching the dashboard
         // chart's own bucketing window. Every history row in that window counts as its own
         // join event, even if that employee has since been reassigned away from this manager —
         // "who joined the team when" should survive a later reassignment/removal.
         LocalDateTime since = LocalDate.now().withDayOfMonth(1).minusMonths(11).atStartOfDay();
-        List<ManagerDashboardDto.TeamJoiner> teamJoiners = historyRepository
-                .findByManagerUserIdAndEffectiveFromGreaterThanEqual(manager.getId(), since)
+        List<EmployeeManagerHistory> teamJoinerRels = historyRepository
+                .findByManagerUserIdAndEffectiveFromGreaterThanEqual(manager.getId(), since);
+
+        // Both lists' employees are fetched once, in a single batch query (with their user/
+        // designation/department associations already joined), instead of one findById
+        // (plus per-association lazy loads) per row across the two loops below.
+        Set<UUID> employeeIds = new LinkedHashSet<>();
+        directReportRels.forEach(rel -> employeeIds.add(rel.getEmployeeUserId()));
+        teamJoinerRels.forEach(rel -> employeeIds.add(rel.getEmployeeUserId()));
+        Map<UUID, Employee> employeesById = employeeRepository
+                .findAllByIdWithUserDetails(employeeIds)
                 .stream()
-                .flatMap(rel -> employeeRepository.findById(rel.getEmployeeUserId())
-                        .map(emp -> ManagerDashboardDto.TeamJoiner.builder()
-                                .userId(emp.getUserId().toString())
-                                .employeeCode(emp.getEmployeeCode())
-                                .fullName(emp.getFullName())
-                                .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
-                                .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
-                                .active(emp.getUser().isActive())
-                                .joinedTeamOn(rel.getEffectiveFrom().toLocalDate().toString())
-                                .build())
-                        .stream())
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+
+        List<ManagerDashboardDto.DirectReport> reports = directReportRels
+                .stream()
+                .map(rel -> employeesById.get(rel.getEmployeeUserId()))
+                .filter(Objects::nonNull)
+                .map(emp -> ManagerDashboardDto.DirectReport.builder()
+                        .userId(emp.getUserId().toString())
+                        .employeeCode(emp.getEmployeeCode())
+                        .fullName(emp.getFullName())
+                        .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                        .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                        .active(emp.getUser().isActive())
+                        .build())
+                .collect(Collectors.toList());
+
+        List<ManagerDashboardDto.TeamJoiner> teamJoiners = teamJoinerRels
+                .stream()
+                .map(rel -> {
+                    Employee emp = employeesById.get(rel.getEmployeeUserId());
+                    if (emp == null) {
+                        return null;
+                    }
+                    return ManagerDashboardDto.TeamJoiner.builder()
+                            .userId(emp.getUserId().toString())
+                            .employeeCode(emp.getEmployeeCode())
+                            .fullName(emp.getFullName())
+                            .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                            .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                            .active(emp.getUser().isActive())
+                            .joinedTeamOn(rel.getEffectiveFrom().toLocalDate().toString())
+                            .build();
+                })
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         return ManagerDashboardDto.builder()

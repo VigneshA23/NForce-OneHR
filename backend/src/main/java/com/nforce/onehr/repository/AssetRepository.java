@@ -21,6 +21,13 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
 
     boolean existsByAssetTag(String assetTag);
 
+    // Backs AssetService#listAllAssets — fetches category and location alongside the assets in
+    // one query instead of one lazy-load per row per association (2 extra round trips per asset
+    // otherwise). LEFT JOIN for location since it's nullable; category is NOT NULL so an inner
+    // join is safe and won't drop any rows.
+    @Query("SELECT a FROM Asset a JOIN FETCH a.category LEFT JOIN FETCH a.location")
+    List<Asset> findAllWithDetails();
+
     // Backs OrgService.deleteLocation — assets.location_id is nullable, so a location being
     // permanently deleted just detaches from any assets still pointing at it (preserving the
     // asset records themselves) rather than blocking deletion or deleting inventory data.

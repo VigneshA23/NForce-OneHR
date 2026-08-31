@@ -30,6 +30,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -201,8 +203,10 @@ public class LeaveService {
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listMyRequests(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()).stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId());
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById))
                 .collect(Collectors.toList());
     }
 
@@ -222,9 +226,12 @@ public class LeaveService {
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
         if (hasOverrideRole(actor)) {
-            return leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+            List<LeaveRequest> requests = leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
                     .filter(r -> isVisibleToOverrideActor(r, actor))
-                    .map(this::toRequestResponse)
+                    .collect(Collectors.toList());
+            Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+            return requests.stream()
+                    .map(r -> toRequestResponse(r, namesById))
                     .collect(Collectors.toList());
         }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
@@ -233,8 +240,10 @@ public class LeaveService {
         if (reportIds.isEmpty()) {
             return List.of();
         }
-        return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING").stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING");
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById))
                 .collect(Collectors.toList());
     }
 
@@ -256,10 +265,11 @@ public class LeaveService {
         if (reportIds.isEmpty()) {
             return List.of();
         }
-        return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById))
                 .collect(Collectors.toList());
     }
 
@@ -270,10 +280,11 @@ public class LeaveService {
      */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listOrgLeave(LocalDate from, LocalDate to) {
-        return leaveRequestRepository
-                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById))
                 .collect(Collectors.toList());
     }
 
@@ -295,10 +306,11 @@ public class LeaveService {
         // need to add actor.getId() again here.
         List<UUID> teamIds = historyRepository.findCurrentPeerIds(actor.getId());
 
-        return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById))
                 .collect(Collectors.toList());
     }
 
@@ -502,6 +514,39 @@ public class LeaveService {
     }
 
     /**
+     * Batch counterpart of {@link #employeeName(UUID)} for list-mapping call sites
+     * (listMyRequests/listPendingApprovals/listTeamLeave/listOrgLeave/listPeerLeave): resolves
+     * every id in one {@link EmployeeRepository#findNamesByUserIds} call instead of one query per
+     * row, falling back to a single batch {@code userRepository.findAllById} (email) for any ids
+     * Employee doesn't cover — same two-tier fallback as {@link #employeeName(UUID)}, just batched.
+     */
+    private Map<UUID, String> namesByUserIds(Set<UUID> ids) {
+        if (ids.isEmpty()) return Map.of();
+        Map<UUID, String> namesById = new HashMap<>();
+        for (Object[] row : employeeRepository.findNamesByUserIds(ids)) {
+            namesById.put((UUID) row[0], (String) row[1]);
+        }
+        Set<UUID> missing = new HashSet<>(ids);
+        missing.removeAll(namesById.keySet());
+        if (!missing.isEmpty()) {
+            for (User u : userRepository.findAllById(missing)) {
+                namesById.put(u.getId(), u.getEmail());
+            }
+        }
+        return namesById;
+    }
+
+    /** Collects the distinct ids {@link #toRequestResponse(LeaveRequest, Map)} needs a name for. */
+    private Set<UUID> collectNameIds(Collection<LeaveRequest> requests) {
+        Set<UUID> ids = new HashSet<>();
+        for (LeaveRequest r : requests) {
+            ids.add(r.getEmployeeUserId());
+            if (r.getDecidedBy() != null) ids.add(r.getDecidedBy());
+        }
+        return ids;
+    }
+
+    /**
      * Single source of truth for "available" balance, shared by {@link #submitRequest} (what may
      * a new request consume) and {@link #toBalanceResponse} (what the balance API — and the Leave
      * page's pie chart — reports as available). Status-aware: APPROVED is already reflected in
@@ -571,6 +616,32 @@ public class LeaveService {
                 .employeeReason(r.getEmployeeReason())
                 .decisionReason(r.getDecisionReason())
                 .decidedByName(r.getDecidedBy() != null ? employeeName(r.getDecidedBy()) : null)
+                .decidedAt(r.getDecidedAt())
+                .createdAt(r.getCreatedAt())
+                .build();
+    }
+
+    /**
+     * List-mapping variant of {@link #toRequestResponse(LeaveRequest)}: looks employeeName/
+     * decidedByName up in a pre-built map (from {@link #namesByUserIds}) instead of issuing a
+     * query per row. Falls back to "Unknown" for an id absent from the map, matching
+     * {@link #employeeName(UUID)}'s own fallback.
+     */
+    private LeaveRequestResponse toRequestResponse(LeaveRequest r, Map<UUID, String> namesById) {
+        return LeaveRequestResponse.builder()
+                .id(r.getId())
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(namesById.getOrDefault(r.getEmployeeUserId(), "Unknown"))
+                .leaveTypeCode(r.getLeaveType().getCode())
+                .leaveTypeName(r.getLeaveType().getName())
+                .startDate(r.getStartDate())
+                .endDate(r.getEndDate())
+                .halfDay(r.isHalfDay())
+                .totalDays(r.getTotalDays())
+                .status(r.getStatus())
+                .employeeReason(r.getEmployeeReason())
+                .decisionReason(r.getDecisionReason())
+                .decidedByName(r.getDecidedBy() != null ? namesById.getOrDefault(r.getDecidedBy(), "Unknown") : null)
                 .decidedAt(r.getDecidedAt())
                 .createdAt(r.getCreatedAt())
                 .build();
