@@ -311,7 +311,6 @@ export default function DirectoryPage() {
                       <th style={thStyle('fullName')} onClick={() => handleSort('fullName')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Name <SortIcon col="fullName" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
-                      <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Code</th>
                       <th style={thStyle('email')} onClick={() => handleSort('email')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Email <SortIcon col="email" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
@@ -343,10 +342,12 @@ export default function DirectoryPage() {
                         <td style={TD}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <Avatar userId={e.userId} name={e.fullName} />
-                            <span style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</span>
+                            <div>
+                              <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</div>
+                              <div style={{ fontSize: 10, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 1 }}>{e.employeeCode}</div>
+                            </div>
                           </div>
                         </td>
-                        <td style={{ ...TD, color: 'var(--txt-mut)', fontFamily: 'Inter, sans-serif', fontSize: 11.5 }}>{e.employeeCode}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.email ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.departmentName ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.designationName ?? '—'}</td>
