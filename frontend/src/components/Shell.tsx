@@ -428,7 +428,7 @@ export function Shell() {
         }}
       >
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
-        <Link to="/" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Link to="/dashboard" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size="sm" />
           <div>
             <div className="nf-sidebar-logo-title" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: '#E8EAED', letterSpacing: '0.01em' }}>NForce OneHR</div>
