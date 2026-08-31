@@ -428,7 +428,7 @@ export function Shell() {
         }}
       >
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
-        <div className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Link to="/" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size="sm" />
           <div>
             <div className="nf-sidebar-logo-title" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: '#E8EAED', letterSpacing: '0.01em' }}>NForce OneHR</div>
@@ -436,7 +436,7 @@ export function Shell() {
               {toRoleTagline(role)}
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
