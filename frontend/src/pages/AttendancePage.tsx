@@ -3516,12 +3516,16 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       const record = kind === 'in'
         ? await attendanceApi.checkIn(token)
         : await attendanceApi.checkOut(token);
-      const refreshed = await refreshTodayAndMonth();
+      await refreshTodayAndMonth();
 
       // record.checkInAt is the day's *original* check-in (deliberately never updated on a
       // lunch-break resume, see AttendanceService.checkIn) — not what just happened on a
-      // repeat check-in. checkOutAt is always the latest checkout, so it's fine as-is.
-      const at = formatTime(kind === 'in' ? refreshed.serverNow : record.checkOutAt);
+      // repeat check-in, so use sessionStartedAt (updates on every check-in, including a
+      // resume) instead. checkOutAt is always the latest checkout, so it's fine as-is.
+      // Note: this used to read refreshed.serverNow, but that comes from a second, later
+      // /today call and picks up whatever latency that round trip has, making the toast read
+      // later than the moment the employee actually punched in.
+      const at = formatTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
