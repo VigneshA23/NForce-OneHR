@@ -89,7 +89,7 @@ function PolicyBlockView({ block }: { block: PolicyBlock }) {
       <h3
         className="nf-attpolicy-heading"
         style={{
-          fontFamily: '"Space Grotesk", sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)',
+          fontFamily: 'Inter, sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)',
           margin: '32px 0 12px', paddingBottom: 10, borderBottom: '1px solid var(--line)',
         }}
       >
@@ -153,7 +153,7 @@ export function AttendancePolicyModal({ onClose }: { onClose: () => void }) {
       {/* Header + tabs stay pinned while the long policy text scrolls beneath them. */}
       <div className="nf-attpolicy-sticky" style={{ position: 'sticky', top: 0, background: 'var(--shell)', borderBottom: '1px solid var(--line)', zIndex: 1 }}>
         <div className="nf-attpolicy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 32px' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 20, color: 'var(--txt)' }}>Attendance Policy</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 20, color: 'var(--txt)' }}>Attendance Policy</span>
           <button
             onClick={onClose}
             aria-label="Close"

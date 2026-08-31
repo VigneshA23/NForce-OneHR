@@ -24,8 +24,8 @@
 
   /* Fonts */
   --font-sans: 'Inter', system-ui, sans-serif;
-  --font-heading: 'Space Grotesk', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-heading: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Inter', system-ui, sans-serif;
 }
 
 *,
@@ -105,6 +105,36 @@ body {
   --warn:        #896010;
   --risk:        #C81A1F;
   --info:        #1A5FAA;
+}
+
+/* Scrollbars — thin, low-contrast, theme-aware (replaces the default
+   opaque/white browser scrollbar, which stood out too much against the
+   dark/light panels). Uses the existing --line2/--txt-dim tokens so the
+   thumb color already tracks light/dark theme switches automatically;
+   track stays transparent so no background box shows up around it. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--line2);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--txt-dim);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 @keyframes glow-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
@@ -378,6 +408,7 @@ input[type="date"] {
   .nf-org-toolbar-tabs {
     width: 100%;
     overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
   }
   .nf-org-toolbar-actions { width: 100%; box-sizing: border-box; }

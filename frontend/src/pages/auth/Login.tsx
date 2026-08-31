@@ -166,7 +166,7 @@ export default function Login() {
     >
       <motion.div variants={reduced ? undefined : containerVariants} initial={reduced ? undefined : 'hidden'} animate={reduced ? undefined : 'show'}>
         <motion.div className="nf-login-heading-block" variants={reduced ? undefined : itemVariants} style={{ marginBottom: 28 }}>
-          <h1 className="nf-login-heading" style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
+          <h1 className="nf-login-heading" style={{ fontFamily: 'Inter, sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
             Welcome back
           </h1>
         </motion.div>

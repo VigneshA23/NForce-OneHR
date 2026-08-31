@@ -45,7 +45,7 @@ function NamePromptModal({ title, initialName, initialDescription, confirmLabel,
     }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '22px 26px', width: 420, maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,.4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}><X size={16} /></button>
         </div>
         {error && (
@@ -95,7 +95,7 @@ function ConfirmDeleteModal({ policy, onClose, onConfirm }: { policy: Penalisati
       background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)',
     }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '22px 26px', width: 420, maxWidth: '95vw' }}>
-        <h2 style={{ margin: '0 0 10px', fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>Delete "{policy.name}"?</h2>
+        <h2 style={{ margin: '0 0 10px', fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>Delete "{policy.name}"?</h2>
         <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--txt-mut)' }}>
           {policy.employeeCount > 0
             ? `${policy.employeeCount} employee(s) are still assigned to this policy — reassign them first.`
@@ -155,7 +155,7 @@ function EditPolicyModal({ policy: initialPolicy, token, onClose }: { policy: Pe
     }} onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '22px 26px', width: 900, maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,.4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{policy.name}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{policy.name}</h2>
           <button onClick={requestClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}><X size={16} /></button>
         </div>
 

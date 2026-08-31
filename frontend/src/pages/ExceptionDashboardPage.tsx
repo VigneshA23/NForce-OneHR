@@ -102,7 +102,7 @@ export default function ExceptionDashboardPage() {
   return (
     <div>
       <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Exception Dashboard</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Exception Dashboard</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
       </div>
 

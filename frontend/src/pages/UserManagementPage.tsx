@@ -50,7 +50,7 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -360,7 +360,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             {created.tempPassword && (
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password — share once, store nowhere</div>
-                <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'monospace', userSelect: 'all' }}>{created.tempPassword}</code>
+                <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{created.tempPassword}</code>
               </div>
             )}
             <button onClick={onClose} style={{ marginTop: 20, width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
@@ -734,7 +734,7 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
             <>
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>New temp password — share once, store nowhere</div>
-                <code style={{ fontSize: 15, color: 'var(--txt)', fontFamily: 'monospace', userSelect: 'all' }}>{result.tempPassword}</code>
+                <code style={{ fontSize: 15, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{result.tempPassword}</code>
               </div>
               <button onClick={onClose} style={{ width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
             </>
@@ -856,7 +856,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
             spellCheck={false}
           />
           <p style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 20, marginTop: 4 }}>
-            Must match exactly: <code style={{ fontFamily: 'monospace', color: 'var(--txt-mut)' }}>{user.email}</code>
+            Must match exactly: <code style={{ fontFamily: 'Inter, sans-serif', color: 'var(--txt-mut)' }}>{user.email}</code>
           </p>
           {error && <div style={{ color: 'var(--risk)', marginBottom: 12, fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -960,7 +960,7 @@ export default function UserManagementPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage access, roles, and account status for all users.</p>
         </div>
         <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -972,19 +972,19 @@ export default function UserManagementPage() {
       {!loading && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
           <div style={tileStyle('#9BA1AC')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{total}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{total}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Total Users</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>
               {Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')}
             </div>
           </div>
           <div style={tileStyle('#2FB67C')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#2FB67C', fontFamily: '"Space Grotesk", sans-serif' }}>{active}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#2FB67C', fontFamily: 'Inter, sans-serif' }}>{active}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Active</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((active / total) * 100) : 0}% of total</div>
           </div>
           <div style={tileStyle('#E4373D')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#E4373D', fontFamily: '"Space Grotesk", sans-serif' }}>{inactive}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#E4373D', fontFamily: 'Inter, sans-serif' }}>{inactive}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Inactive</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((inactive / total) * 100) : 0}% of total</div>
           </div>
@@ -1052,7 +1052,7 @@ export default function UserManagementPage() {
                     <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
-                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{u.employeeCode}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{u.employeeCode}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{u.fullName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                       <td style={tdStyle}><RoleBadge role={u.role} /></td>

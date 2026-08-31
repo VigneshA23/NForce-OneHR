@@ -62,7 +62,7 @@ function Kpi({ icon, label, value, note, danger }: { icon: React.ReactNode; labe
         <span style={{ color: 'var(--brand)' }}>{icon}</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: danger ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
     </div>
   );
@@ -77,7 +77,7 @@ function Section({ icon, title, count, children }: { icon: React.ReactNode; titl
     <div style={{ ...card, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '12px 18px', borderBottom: '1px solid var(--line)', background: 'var(--raised)' }}>
         <span style={{ color: 'var(--brand)' }}>{icon}</span>
-        <h3 style={{ fontSize: 13, flex: 1, color: 'var(--txt)', margin: 0, fontFamily: '"Space Grotesk", sans-serif' }}>{title}</h3>
+        <h3 style={{ fontSize: 13, flex: 1, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{title}</h3>
         {count && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{count}</span>}
       </div>
       {children}
@@ -198,13 +198,13 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
             size={46}
             fontSize={15}
             background="var(--brand)"
-            style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+            style={{ fontFamily: 'Inter, sans-serif' }}
           />
           <div>
-            <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: '"Space Grotesk", sans-serif' }}>{detail.employeeName}</h2>
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{detail.employeeName}</h2>
             <div style={{ color: 'var(--txt-mut)', fontSize: 12.5, marginTop: 3 }}>
               {[detail.designationName, detail.departmentName, detail.locationName].filter(Boolean).join(' · ')}
-              {' · '}<span style={{ fontFamily: '"JetBrains Mono", monospace' }}>{detail.employeeCode}</span>
+              {' · '}<span style={{ fontFamily: 'Inter, sans-serif' }}>{detail.employeeCode}</span>
             </div>
             <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 12, color: 'var(--txt-dim)', flexWrap: 'wrap' }}>
               <span><Calendar size={12} style={{ verticalAlign: -1.5, marginRight: 3 }} /> Joining <b style={{ color: 'var(--txt)' }}>{fmtDate(detail.joiningDate)}</b></span>
@@ -215,7 +215,7 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
         <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, minWidth: 150, flexShrink: 0 }}>
           <StatusPill status={detail.status} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{pct}%</span>
+            <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{pct}%</span>
             <div style={{ width: 80, height: 6, borderRadius: 20, background: 'var(--raised2)', overflow: 'hidden' }}>
               <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? '#2FB67C' : 'var(--brand)' }} />
             </div>
@@ -297,7 +297,7 @@ function StepBadge({ n, label, state }: { n: number; label: string; state: 'acti
   const bg = state === 'done' ? '#2FB67C' : state === 'active' ? 'var(--brand)' : 'var(--shell)';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 120, flexShrink: 0 }}>
-      <div style={{ width: 26, height: 26, borderRadius: '50%', border: `2px solid ${filled ? bg : 'var(--line2)'}`, background: bg, color: filled ? '#fff' : 'var(--txt-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif' }}>
+      <div style={{ width: 26, height: 26, borderRadius: '50%', border: `2px solid ${filled ? bg : 'var(--line2)'}`, background: bg, color: filled ? '#fff' : 'var(--txt-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, fontFamily: 'Inter, sans-serif' }}>
         {n}
       </div>
       <div style={{ fontSize: 11, color: state === 'active' ? 'var(--txt)' : 'var(--txt-dim)', fontWeight: state === 'active' ? 600 : 400, textAlign: 'center' }}>{label}</div>
@@ -308,7 +308,7 @@ function StepBadge({ n, label, state }: { n: number; label: string; state: 'acti
 function PreviewRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '4px 0', color: 'var(--txt)' }}>
-      <span>{label}</span><b style={{ fontFamily: '"Space Grotesk", sans-serif' }}>{value}</b>
+      <span>{label}</span><b style={{ fontFamily: 'Inter, sans-serif' }}>{value}</b>
     </div>
   );
 }
@@ -366,7 +366,7 @@ function StartOnboardingModal({ onClose, onCreated }: { onClose: () => void; onC
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: '40px 16px' }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', padding: 26, boxSizing: 'border-box' }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Start onboarding</h2>
+        <h2 style={{ fontSize: 16, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Start onboarding</h2>
         <p style={{ color: 'var(--txt-mut)', fontSize: 12.5, margin: '0 0 18px' }}>
           Pick a new hire already in Employee Master. We'll generate their pre-boarding, document and setup checklist automatically.
         </p>
@@ -424,7 +424,7 @@ function StartOnboardingModal({ onClose, onCreated }: { onClose: () => void; onC
                 size={38}
                 fontSize={13}
                 background="var(--brand)"
-                style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+                style={{ fontFamily: 'Inter, sans-serif' }}
               />
               <div>
                 <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13.5 }}>{selectedEmployee?.fullName ?? '—'}</div>
@@ -500,7 +500,7 @@ export default function OnboardingPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: '"Space Grotesk", sans-serif' }}>Onboarding</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Onboarding</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>Every great career starts with NForceOne.</p>
         </div>
         <button onClick={() => setShowModal(true)} style={{ ...btnPrimaryStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -559,7 +559,7 @@ export default function OnboardingPage() {
                         <EmployeeAvatar userId={r.employeeUserId} name={r.employeeName} size={30} fontSize={11} background="var(--brand)" />
                         <div>
                           <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</div>
-                          <div style={{ color: 'var(--txt-dim)', fontSize: 11.5, fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+                          <div style={{ color: 'var(--txt-dim)', fontSize: 11.5, fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</div>
                         </div>
                       </div>
                     </td>

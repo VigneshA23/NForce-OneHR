@@ -102,7 +102,7 @@ function LandingNav() {
         {/* Logo */}
         <div className="lp-nav-logo" style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', flexShrink: 0 }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
           <BrandMark size="md" />
-          <span className="lp-nav-logo-text" style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 19, color: 'var(--txt)', letterSpacing: '-0.025em' }}>
+          <span className="lp-nav-logo-text" style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 19, color: 'var(--txt)', letterSpacing: '-0.025em' }}>
             NForce <span style={{ color: 'var(--brand-bright)' }}>OneHR</span>
           </span>
         </div>
@@ -133,7 +133,7 @@ function LandingNav() {
                             <Icon size={14} color="var(--brand-bright)" />
                           </div>
                           <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', fontFamily: "'Space Grotesk', sans-serif", marginBottom: 2, lineHeight: 1.3 }}>{f.title}</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', fontFamily: "Inter, sans-serif", marginBottom: 2, lineHeight: 1.3 }}>{f.title}</div>
                             <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', lineHeight: 1.4 }}>{f.desc}</div>
                           </div>
                         </button>
@@ -280,7 +280,7 @@ function LandingHero() {
           </FadeIn>
 
           <FadeIn delay={70}>
-            <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2.6rem, 5.5vw, 4.8rem)', lineHeight: 1.06, letterSpacing: '-0.043em', margin: '0 0 24px', background: 'linear-gradient(172deg, #ffffff 0%, rgba(255,255,255,0.68) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+            <h1 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2.6rem, 5.5vw, 4.8rem)', lineHeight: 1.06, letterSpacing: '-0.043em', margin: '0 0 24px', background: 'linear-gradient(172deg, #ffffff 0%, rgba(255,255,255,0.68) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               Put AI agents<br className="lp-hero-break" />to work for your{' '}
               <span style={{ WebkitTextFillColor: 'var(--brand-bright)', color: 'var(--brand-bright)' }}>HR team.</span>
             </h1>
@@ -333,7 +333,7 @@ function LandingHero() {
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', boxShadow: '0 0 6px rgba(228,55,61,0.7)', display: 'inline-block', animation: 'lp-cta-pulse 2.5s ease-in-out infinite' }} />
                   ENTERPRISE READY
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1.1 }}>4 Roles. One Platform.</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: "Inter, sans-serif", lineHeight: 1.1 }}>4 Roles. One Platform.</div>
                 <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 }}>Every team member, covered</div>
               </div>
             </div>
@@ -386,7 +386,7 @@ function LandingProductShowcase() {
       <div style={{ maxWidth: 1060, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>SEE IT IN ACTION</p></FadeIn>
-          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 2.9rem)', letterSpacing: '-0.035em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 2.9rem)', letterSpacing: '-0.035em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
             This is what your team actually sees.
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15.5, maxWidth: 480, margin: '0 auto', lineHeight: 1.6 }}>
@@ -422,7 +422,7 @@ function LandingProductShowcase() {
                   <div style={{ display: 'flex', gap: 6 }}>
                     {['#FF5F57','#FFBD2E','#28C840'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
                   </div>
-                  <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 5, padding: '3.5px 12px', fontSize: 10.5, color: 'var(--txt-dim)', textAlign: 'center', fontFamily: "'JetBrains Mono', monospace" }}>app.nforceone.com</div>
+                  <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 5, padding: '3.5px 12px', fontSize: 10.5, color: 'var(--txt-dim)', textAlign: 'center', fontFamily: "Inter, sans-serif" }}>app.nforceone.com</div>
                 </div>
                 {/* Crossfade screenshots — aspect-ratio (not a fixed height) keeps this a
                     landscape frame at every viewport width instead of drifting toward a
@@ -440,7 +440,7 @@ function LandingProductShowcase() {
                 {/* Caption */}
                 <div className="lp-showcase-caption" style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
                   <div>
-                    <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 13.5, color: 'var(--txt)', display: 'block', marginBottom: 3 }}>{SHOWCASE_TABS[active].label} — {SHOWCASE_TABS[active].view}</span>
+                    <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: 'var(--txt)', display: 'block', marginBottom: 3 }}>{SHOWCASE_TABS[active].label} — {SHOWCASE_TABS[active].view}</span>
                     <span style={{ fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>{SHOWCASE_TABS[active].desc}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -478,7 +478,7 @@ function LandingFeatures() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center', marginBottom: 64 }} className="lp-features-header">
           <div>
             <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>WHAT'S INSIDE</p></FadeIn>
-            <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.038em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
+            <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.038em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
               Everything HR runs on — all in one place.
             </h2></FadeIn>
             <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 16, lineHeight: 1.65, margin: 0 }}>
@@ -500,7 +500,7 @@ function LandingFeatures() {
                   <div className="lp-icon-glow" style={{ width: 46, height: 46, borderRadius: 11, background: 'rgba(177,17,22,0.11)', border: '1px solid rgba(177,17,22,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
                     <Icon size={20} color="var(--brand-bright)" />
                   </div>
-                  <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 15.5, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.3 }}>{f.title}</h3>
+                  <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 15.5, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.3 }}>{f.title}</h3>
                   <p style={{ color: 'var(--txt-mut)', fontSize: 13.5, lineHeight: 1.68, margin: 0 }}>{f.desc}</p>
                 </div>
               </FadeIn>
@@ -560,7 +560,7 @@ function LandingAI() {
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', boxShadow: '0 0 8px rgba(228,55,61,0.7)', display: 'inline-block', animation: 'lp-cta-pulse 2.5s ease-in-out infinite' }} />
               <span style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' }}>Roadmap — Actively Being Built</span>
             </div>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2.3rem, 5.5vw, 3.8rem)', letterSpacing: '-0.043em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.03 }}>
+            <h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2.3rem, 5.5vw, 3.8rem)', letterSpacing: '-0.043em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.03 }}>
               Meet the agents<br />joining your HR team.
             </h2>
             <p style={{ color: 'var(--txt-mut)', fontSize: 17, lineHeight: 1.68, maxWidth: 540, margin: 0 }}>
@@ -585,7 +585,7 @@ function LandingAI() {
                   </div>
                   <span style={{ marginLeft: 'auto', background: 'rgba(224,169,59,0.1)', color: 'var(--warn)', border: '1px solid rgba(224,169,59,0.2)', borderRadius: 999, padding: '5px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0 }}>COMING SOON</span>
                 </div>
-                <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.45rem, 2.8vw, 2rem)', color: 'var(--txt)', margin: '0 0 16px', lineHeight: 1.18, letterSpacing: '-0.028em' }}>The Approvals Agent</h3>
+                <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.45rem, 2.8vw, 2rem)', color: 'var(--txt)', margin: '0 0 16px', lineHeight: 1.18, letterSpacing: '-0.028em' }}>The Approvals Agent</h3>
                 <p style={{ color: 'var(--txt-mut)', fontSize: 15, lineHeight: 1.72, margin: 0 }}>
                   Right now, every request — leave, expense, WFH — lands in someone's inbox and waits until they decide whether it needs attention. This agent reads the request, checks the policy, the employee's history, and team leave coverage, then clears low-risk ones automatically. The ones that do reach you already have the full context — so what used to take 30 minutes takes 30 seconds.
                 </p>
@@ -618,7 +618,7 @@ function LandingAI() {
                         </div>
                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{agent.verb}</span>
                       </div>
-                      <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.2 }}>{agent.name}</h3>
+                      <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.2 }}>{agent.name}</h3>
                       <p style={{ color: 'var(--txt-mut)', fontSize: 14, lineHeight: 1.68, margin: 0 }}>{agent.desc}</p>
                     </div>
                     {/* Agent photo thumbnail */}
@@ -664,7 +664,7 @@ function LandingBrandMoment() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, color: 'var(--brand-bright)', fontSize: 12, fontWeight: 600 }}>
               <MapPin size={13} /> Hyderabad · Dallas
             </div>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.036em', margin: '0 0 28px', color: 'var(--txt)', lineHeight: 1.1 }}>
+            <h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.036em', margin: '0 0 28px', color: 'var(--txt)', lineHeight: 1.1 }}>
               Built by NForce One.<br />
               <span style={{ color: 'var(--brand-bright)' }}>Used by NForce One.</span>
             </h2>
@@ -675,7 +675,7 @@ function LandingBrandMoment() {
                 style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}
               />
               <div>
-                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>NForce One</div>
+                <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>NForce One</div>
                 <div style={{ fontSize: 12, color: 'var(--brand-bright)', fontWeight: 600 }}>Let's Do IT!</div>
               </div>
             </div>
@@ -702,7 +702,7 @@ function LandingRoles() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 56 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>ROLE GUIDES</p></FadeIn>
-          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
             Pick your role and see exactly what you can do.
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0, maxWidth: 500, marginLeft: 'auto', marginRight: 'auto' }}>
@@ -718,7 +718,7 @@ function LandingRoles() {
                   <div style={{ width: 48, height: 48, borderRadius: 12, background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                     <Icon size={22} color={r.color} />
                   </div>
-                  <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--txt)', margin: '0 0 10px' }}>{r.label}</h3>
+                  <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--txt)', margin: '0 0 10px' }}>{r.label}</h3>
                   <p style={{ color: 'var(--txt-mut)', fontSize: 13.5, lineHeight: 1.58, margin: '0 0 20px' }}>{r.desc}</p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: r.color, fontSize: 13, fontWeight: 600 }}>
                     See role guide <ChevronRight size={14} />
@@ -748,7 +748,7 @@ function LandingHowItWorks() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 72 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>HOW IT WORKS</p></FadeIn>
-          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: 0, color: 'var(--txt)', lineHeight: 1.1 }}>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: 0, color: 'var(--txt)', lineHeight: 1.1 }}>
             Running in a day. No consultants needed.
           </h2></FadeIn>
         </div>
@@ -763,9 +763,9 @@ function LandingHowItWorks() {
                     <div className="lp-step-circle" style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(22,24,29,0.8)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
                       <Icon size={24} color="var(--brand-bright)" />
                     </div>
-                    <div style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: "'Space Grotesk', sans-serif" }}>{s.n}</div>
+                    <div style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: "Inter, sans-serif" }}>{s.n}</div>
                   </div>
-                  <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 16, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.3 }}>{s.title}</h3>
+                  <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 16, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.3 }}>{s.title}</h3>
                   <p style={{ color: 'var(--txt-mut)', fontSize: 14, lineHeight: 1.65, margin: 0 }}>{s.desc}</p>
                 </div>
               </FadeIn>
@@ -800,7 +800,7 @@ function LandingPricing() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 60 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>PRICING</p></FadeIn>
-          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
             Pricing that doesn't punish growth.
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0 }}>
@@ -812,9 +812,9 @@ function LandingPricing() {
             <FadeIn key={t.name} delay={i * 70}>
               <div className={`lp-pricing-card${t.highlight ? ' lp-pricing-highlight' : ''}`} style={{ padding: '32px 28px', background: t.highlight ? 'var(--raised)' : 'var(--panel)', border: `1px solid ${t.highlight ? 'rgba(228,55,61,0.35)' : 'var(--line)'}`, borderRadius: 14, position: 'relative' }}>
                 {t.highlight && <div style={{ position: 'absolute', top: -1, left: '50%', transform: 'translateX(-50%)', background: 'var(--brand)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 14px', borderRadius: '0 0 8px 8px', letterSpacing: '0.06em' }}>MOST POPULAR</div>}
-                <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--txt)', margin: '0 0 6px' }}>{t.name}</h3>
+                <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--txt)', margin: '0 0 6px' }}>{t.name}</h3>
                 <p style={{ color: 'var(--txt-mut)', fontSize: 13, margin: '0 0 20px', lineHeight: 1.5 }}>{t.target}</p>
-                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 26, color: 'var(--txt)', marginBottom: 24 }}>Contact us</div>
+                <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 26, color: 'var(--txt)', marginBottom: 24 }}>Contact us</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
                   {t.features.map(f => (
                     <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -845,7 +845,7 @@ function LandingSignIn() {
       <SectionReveal>
       <div style={{ maxWidth: 500, margin: '0 auto' }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>ALREADY INSIDE</p></FadeIn>
-          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4.5vw, 3rem)', letterSpacing: '-0.04em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
+          <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4.5vw, 3rem)', letterSpacing: '-0.04em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
             Your team is already here.
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15.5, lineHeight: 1.7, margin: '0 0 32px' }}>
@@ -873,7 +873,7 @@ function LandingConnect() {
     <section className="lp-connect-section" style={{ padding: '72px 24px', background: 'var(--panel)', borderTop: '1px solid var(--line)', textAlign: 'center' }}>
       <FadeIn>
         <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 12px' }}>CONNECT</p>
-        <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.4rem, 3vw, 2rem)', letterSpacing: '-0.03em', color: 'var(--txt)', margin: '0 0 32px', lineHeight: 1.2 }}>
+        <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.4rem, 3vw, 2rem)', letterSpacing: '-0.03em', color: 'var(--txt)', margin: '0 0 32px', lineHeight: 1.2 }}>
           Find us online.
         </h3>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 20, alignItems: 'center' }}>
@@ -919,7 +919,7 @@ function LandingFooter() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <BrandMark size="sm" />
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>NForce <span style={{ color: 'var(--brand-bright)' }}>OneHR</span></span>
+              <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>NForce <span style={{ color: 'var(--brand-bright)' }}>OneHR</span></span>
             </div>
             <p style={{ color: 'var(--txt-dim)', fontSize: 13, lineHeight: 1.65, margin: '0 0 12px' }}>The HR platform your team actually uses.</p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-dim)', fontSize: 12, marginBottom: 18 }}>
@@ -928,7 +928,7 @@ function LandingFooter() {
           </div>
           {Object.entries(FOOTER_LINKS).map(([col, links]) => (
             <div key={col}>
-              <h4 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 12, color: 'var(--txt)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{col}</h4>
+              <h4 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12, color: 'var(--txt)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{col}</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {links.map(l => (
                   <button key={l} onClick={() => sectionMap[l] ? scrollTo(sectionMap[l]) : undefined} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 13.5, fontFamily: 'inherit', padding: 0, textAlign: 'left', transition: 'color 0.15s' }}

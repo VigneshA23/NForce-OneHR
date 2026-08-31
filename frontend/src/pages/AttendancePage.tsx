@@ -511,7 +511,7 @@ function SectionHeading({ title, hint }: { title: string; hint?: string }) {
   return (
     <div style={{ marginBottom: 10 }}>
       <h2 style={{
-        fontFamily: '"Space Grotesk", sans-serif', fontSize: 13, fontWeight: 700,
+        fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700,
         color: 'var(--txt)', margin: 0,
       }}>{title}</h2>
       {hint && <p style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3 }}>{hint}</p>}
@@ -526,7 +526,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -1239,7 +1239,7 @@ function RosterTable({ rows, loading, emptyMessage }: {
               <tbody>
                 {paged.map((r) => (
                   <tr key={r.employeeUserId}>
-                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11.5 }}>{r.employeeCode}</td>
+                    <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 11.5 }}>{r.employeeCode}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
                     {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to
                         the day's first one and never updated on a same-day checkout+checkin
@@ -1309,7 +1309,7 @@ function MonthStatTile({ label, value, hint }: { label: string; value: string; h
       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 7 }}>
         {label}
       </div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
         {value}
       </div>
       <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 5 }}>{hint}</div>
@@ -1391,7 +1391,7 @@ function MonthCalendar({
   return (
     <div style={panelStyle}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
-        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--txt)' }}>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--txt)' }}>
           {calendarMonthLabel(year, month)}
         </span>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -3568,7 +3568,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           sibling components with their own state. */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
-          <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Logs & Requests</h2>
+          <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Logs & Requests</h2>
           <TimeFormatToggle />
         </div>
         <LogsTabBar value={logsTab} onChange={onLogsTabChange} />
@@ -4714,7 +4714,7 @@ function WfhDetailDrawer({ group, mode, comment, setComment, submitting, onClose
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 600 }} />
       <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 100vw)', background: 'var(--panel)', borderLeft: '1px solid var(--line)', boxShadow: '-12px 0 32px rgba(0,0,0,.4)', zIndex: 601, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Work From Home Request Details</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Work From Home Request Details</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
         </div>
 
@@ -4832,7 +4832,7 @@ function OvertimeDetailDrawer({ request, mode, comment, setComment, submitting, 
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 600 }} />
       <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 100vw)', background: 'var(--panel)', borderLeft: '1px solid var(--line)', boxShadow: '-12px 0 32px rgba(0,0,0,.4)', zIndex: 601, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Overtime Request Details</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Overtime Request Details</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
         </div>
 
@@ -5457,7 +5457,7 @@ function AttendancePageInner() {
             leaving all spare width for the buttons, matching the original layout's intent. */}
         <div style={{ flex: '0 1 300px', maxWidth: 560 }}>
           <h1 style={{
-            fontFamily: '"Space Grotesk", sans-serif', fontSize: 18, fontWeight: 700,
+            fontFamily: 'Inter, sans-serif', fontSize: 18, fontWeight: 700,
             color: 'var(--txt)', margin: 0,
           }}>My Attendance</h1>
           {/* minHeight reserves 2 lines regardless of role: the subtitle text length varies by

@@ -21,7 +21,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -277,7 +277,7 @@ export default function EmployeeMasterPage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage employee records. New hires, role and access are added from Super Admin → User Management.</p>
         </div>
       </div>
@@ -340,7 +340,7 @@ export default function EmployeeMasterPage() {
                       style={inactiveDimStyle(emp.active)}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
-                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{emp.employeeCode}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{emp.employeeCode}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{emp.fullName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{emp.email}</td>
                       <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>

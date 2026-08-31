@@ -309,6 +309,7 @@ public class UserManagementService {
             // their very next API call fails auth under the old token even if their open tab
             // misses the SSE push.
             target.setTokenVersion(target.getTokenVersion() + 1);
+            target.setTokenVersionReason("PROFILE_UPDATED");
             userRepository.save(target);
         }
 
@@ -424,6 +425,7 @@ public class UserManagementService {
         target.setMustChangePassword(true);
         // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
         target.setTokenVersion(target.getTokenVersion() + 1);
+        target.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(target);
         String after = auditSnapshot.toJson(Map.of("mustChangePassword", true));
 

@@ -138,7 +138,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {config.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{config.subtitle}</p>
