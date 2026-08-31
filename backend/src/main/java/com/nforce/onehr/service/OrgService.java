@@ -43,6 +43,7 @@ public class OrgService {
     private final EmployeeManagerHistoryRepository historyRepo;
     private final HolidayRepository holidayRepo;
     private final AssetRepository assetRepo;
+    private final AttendanceService attendanceService;
 
     // ── Business Units ───────────────────────────────────────────────────────
 
@@ -438,6 +439,7 @@ public class OrgService {
         if (req.getBreakMinutes() != null && req.getBreakMinutes() < 0) {
             throw new IllegalArgumentException("Break duration cannot be negative");
         }
+        boolean startTimeChanged = !shift.getStartTime().equals(req.getStartTime());
         shift.setName(trimmedName);
         shift.setCode(trimmedCode);
         shift.setDescription(blankToNull(req.getDescription()));
@@ -446,8 +448,17 @@ public class OrgService {
         shift.setFlexible(req.isFlexible());
         shift.setBreakMinutes(req.getBreakMinutes());
         shift.setWorkingDays(normalizeWorkingDays(req.getWorkingDays()));
+        Shift saved = shiftRepo.save(shift);
         long count = employeeRepo.countByShiftId(id);
-        return ShiftResponse.from(shiftRepo.save(shift), count);
+        // Attendance.lateByMinutes/status are computed once at check-in and stored (see
+        // AttendanceService.checkIn) — without this, every record already checked in under
+        // this shift's old start time keeps showing its stale "Xh late" figure even after the
+        // correction, including a same-day resume/re-check-in made after the edit (see
+        // AttendanceService.recomputeLateArrivalsForShift's own doc comment).
+        if (startTimeChanged) {
+            attendanceService.recomputeLateArrivalsForShift(saved);
+        }
+        return ShiftResponse.from(saved, count);
     }
 
     @PreAuthorize("hasRole('SUPER_ADMIN')")

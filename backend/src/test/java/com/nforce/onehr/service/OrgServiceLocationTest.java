@@ -43,12 +43,13 @@ class OrgServiceLocationTest {
     @Mock private EmployeeManagerHistoryRepository historyRepo;
     @Mock private HolidayRepository holidayRepo;
     @Mock private AssetRepository assetRepo;
+    @Mock private AttendanceService attendanceService;
 
     private OrgService service;
 
     @BeforeEach
     void setUp() {
-        service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo, employeeRepo, historyRepo, holidayRepo, assetRepo);
+        service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo, employeeRepo, historyRepo, holidayRepo, assetRepo, attendanceService);
         lenient().when(locationRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(employeeRepo.countByLocationId(any())).thenReturn(0L);
     }

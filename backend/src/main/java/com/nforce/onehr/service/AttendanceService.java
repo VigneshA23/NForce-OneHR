@@ -249,6 +249,65 @@ public class AttendanceService {
     }
 
     /**
+     * Re-derives lateByMinutes/status for every already-checked-in attendance record belonging
+     * to an employee currently assigned this shift, using its now-current start time.
+     *
+     * <p>{@code Attendance.lateByMinutes}/{@code status} are computed once, at check-in time
+     * (see {@link #checkIn}), and stored — never re-derived afterwards. So when a Super Admin
+     * edits a shift's timing through the UI (OrgService.updateShift), every record already
+     * checked in under that shift keeps showing its stale "Xh late" figure forever, even for a
+     * check-in made *after* the correction, because a same-day resume/re-check-in
+     * (see {@code checkIn}'s {@code existing.isPresent()} branch) deliberately reuses the day's
+     * original check-in time/late status rather than recomputing them. Call this right after
+     * saving the shift's new timing so those figures reflect reality immediately, instead of
+     * only ever getting fixed by {@code ShiftSeedCorrector}'s one-time startup pass.
+     *
+     * <p>Same math as {@link #checkIn}: isLate is grace-aware (past shiftStart + grace, by even
+     * one second), lateByMinutes is not (raw minutes past shiftStart, ceiling-rounded, employee-
+     * facing display only). Only PRESENT/LATE rows get their status flipped — HALF_DAY overrides
+     * LATE at checkout (see {@link #checkOut}) and must keep that classification even though its
+     * lateByMinutes is still corrected, same precedent as {@code ShiftSeedCorrector}.
+     */
+    @Transactional
+    public void recomputeLateArrivalsForShift(Shift shift) {
+        List<Employee> assigned = employeeRepository.findByShiftIdWithDetails(shift.getId());
+        if (assigned.isEmpty()) {
+            return;
+        }
+        List<UUID> employeeIds = assigned.stream().map(Employee::getUserId).toList();
+        List<Attendance> toFix = new ArrayList<>();
+        for (Attendance record : attendanceRepository.findByEmployeeUserIdIn(employeeIds)) {
+            if (record.getCheckInAt() == null) {
+                continue;
+            }
+            LocalDateTime checkInAt = record.getCheckInAt();
+            LocalDateTime shiftStartAt = LocalDateTime.of(record.getWorkDate(), shift.getStartTime());
+            LocalDateTime deadlineAt = shiftStartAt.plusMinutes(props.getLateGraceMinutes());
+            boolean isLate = checkInAt.isAfter(deadlineAt);
+            int lateByMinutes = checkInAt.isAfter(shiftStartAt)
+                    ? (int) Math.ceil(Duration.between(shiftStartAt, checkInAt).getSeconds() / 60.0)
+                    : 0;
+
+            String newStatus = record.getStatus();
+            if (STATUS_PRESENT.equals(newStatus) || STATUS_LATE.equals(newStatus)) {
+                newStatus = isLate ? STATUS_LATE : STATUS_PRESENT;
+            }
+
+            if (!Integer.valueOf(lateByMinutes).equals(record.getLateByMinutes()) || !newStatus.equals(record.getStatus())) {
+                record.setLateByMinutes(lateByMinutes);
+                record.setStatus(newStatus);
+                toFix.add(record);
+            }
+        }
+
+        if (!toFix.isEmpty()) {
+            log.warn("Recomputing lateByMinutes for {} attendance record(s) of shift '{}' after its timing was updated",
+                    toFix.size(), shift.getName());
+            attendanceRepository.saveAll(toFix);
+        }
+    }
+
+    /**
      * Always empty today — see AttendanceExceptionResponse's Javadoc. Passive read only, no
      * detection logic added here.
      */

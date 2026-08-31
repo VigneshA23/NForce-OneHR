@@ -53,6 +53,12 @@ public interface AttendanceRepository extends JpaRepository<Attendance, UUID> {
 
     List<Attendance> findByEmployeeUserIdInAndWorkDateBetween(List<UUID> employeeUserIds, LocalDate from, LocalDate to);
 
+    // Backs AttendanceService.recomputeLateArrivalsForShift — every attendance record (any
+    // date, not just today) belonging to employees currently on a shift whose timing a Super
+    // Admin just edited, so previously-checked-in "Xh late" figures get corrected too instead
+    // of only newly-created check-ins reflecting the fixed shift.
+    List<Attendance> findByEmployeeUserIdIn(List<UUID> employeeUserIds);
+
     // Backs the periodic sweep that finalizes HALF_DAY (or confirms PRESENT/LATE) once a shift
     // has actually ended for a day closeSession/WebClockInService.checkOut deliberately left
     // un-finalized at checkout time — see AttendanceService.closeSession's own comment. Scoped
