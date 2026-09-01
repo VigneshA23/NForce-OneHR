@@ -116,7 +116,8 @@ public class HelpdeskService {
         Specification<HelpdeskTicket> spec = Specification
                 .allOf(HelpdeskTicketSpecifications.statusIn(statuses),
                         HelpdeskTicketSpecifications.assignedTo(assignedTo),
-                        HelpdeskTicketSpecifications.searchText(search));
+                        HelpdeskTicketSpecifications.searchText(search),
+                        HelpdeskTicketSpecifications.requesterNotDeleted());
         return ticketRepo.findAll(spec, PageRequest.of(page, size, Sort.by("createdAt").descending()))
                 .map(this::toSummary);
     }

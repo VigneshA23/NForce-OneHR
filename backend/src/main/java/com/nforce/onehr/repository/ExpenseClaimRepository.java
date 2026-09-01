@@ -3,6 +3,7 @@ package com.nforce.onehr.repository;
 import com.nforce.onehr.entity.ExpenseClaim;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
@@ -25,9 +26,17 @@ public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID
 
     List<ExpenseClaim> findByEmployeeUserIdInOrderByCreatedAtDesc(List<UUID> employeeUserIds);
 
-    List<ExpenseClaim> findByStatus(String status);
+    // Both of the below back company-wide (not manager-scoped) HR/Finance queues — final-approver
+    // pending, cleared-for-payroll, and the payroll-pending count — so, unlike the employeeUserId-
+    // scoped queries above (which are reached only through an already-filtered report list),
+    // these need their own User join to exclude soft-deleted requesters' claims.
+    @Query("SELECT c FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
+         + "WHERE c.status = :status AND u.deletedAt IS NULL")
+    List<ExpenseClaim> findByStatus(@Param("status") String status);
 
-    List<ExpenseClaim> findByStatusIn(Collection<String> statuses);
+    @Query("SELECT c FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
+         + "WHERE c.status IN :statuses AND u.deletedAt IS NULL")
+    List<ExpenseClaim> findByStatusIn(@Param("statuses") Collection<String> statuses);
 
     long countByEmployeeUserIdInAndStatus(List<UUID> employeeUserIds, String status);
 

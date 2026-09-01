@@ -363,7 +363,7 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listAll(UUID employeeUserId, UUID approverUserId,
                                                  UUID departmentId, String month, String status) {
-        List<RegularizationRequest> filtered = regularizationRepository.findAll().stream()
+        List<RegularizationRequest> filtered = regularizationRepository.findAllWithActiveRequester().stream()
                 .filter(r -> employeeUserId == null || employeeUserId.equals(r.getEmployeeUserId()))
                 .filter(r -> approverUserId == null || approverUserId.equals(r.getAssignedApproverId()))
                 .filter(r -> status == null || status.equalsIgnoreCase(r.getStatus()))
@@ -443,7 +443,7 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
-        List<RegularizationRequest> all = regularizationRepository.findAll();
+        List<RegularizationRequest> all = regularizationRepository.findAllWithActiveRequester();
 
         if (hasOverrideRole(actor)) {
             return toResponses(all.stream()

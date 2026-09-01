@@ -2,6 +2,8 @@ package com.nforce.onehr.repository;
 
 import com.nforce.onehr.entity.AttendanceRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -13,7 +15,12 @@ public interface AttendanceRequestRepository extends JpaRepository<AttendanceReq
 
     List<AttendanceRequest> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
 
-    List<AttendanceRequest> findByStatus(String status);
+    // Backs AttendanceRequestService#listPendingForApprover's company-wide (not manager-scoped)
+    // HR/Super Admin branch — joins User to exclude soft-deleted requesters' WFH/Partial Day
+    // requests.
+    @Query("SELECT r FROM AttendanceRequest r JOIN User u ON u.id = r.employeeUserId "
+         + "WHERE r.status = :status AND u.deletedAt IS NULL")
+    List<AttendanceRequest> findByStatus(@Param("status") String status);
 
     // Backs the Partial Day monthly-hours cap — see AttendanceRequestService.resolvePartialDayHours.
     List<AttendanceRequest> findByEmployeeUserIdAndRequestTypeAndRequestDateBetween(
