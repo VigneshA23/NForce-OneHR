@@ -215,8 +215,14 @@ function getLocationOptions(locations: Location[], currentId: string | undefined
 // than excluded, so it can't be picked for a NEW assignment. A genuinely deleted manager is
 // excluded server-side already (EmployeeService.listPotentialManagers), so nothing to do here
 // for that case.
+//
+// An Employee can report to a Manager or an HR Admin; a Manager can report to an HR Admin or a
+// Super Admin; HR Admin/Super Admin still only report to a Super Admin. HR Admin was previously
+// excluded from every tier even though EmployeeService.listPotentialManagers already treats it
+// as an eligible manager role.
 function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
-  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER');
+  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER' || m.role === 'HR_ADMIN');
+  if (role === 'MANAGER') return managers.filter(m => m.role === 'HR_ADMIN' || m.role === 'SUPER_ADMIN');
   return managers.filter(m => m.role === 'SUPER_ADMIN');
 }
 
@@ -449,7 +455,9 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             {(() => {
               const isSA = form.role === 'SUPER_ADMIN';
               const mgrList = getManagersForRole(form.role, opts.managers);
-              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager or HR Admin'
+                : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
+                : 'Super Admin';
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
@@ -465,7 +473,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel}-role users found — add one first.
+                      No {mgrRoleLabel} users found — add one first.
                     </div>
                   )}
                 </Field>
@@ -634,7 +642,9 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
             {(() => {
               const isSA = form.role === 'SUPER_ADMIN';
               const mgrList = getManagersForRole(form.role ?? 'EMPLOYEE', opts.managers).filter(m => m.userId !== user.userId);
-              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager or HR Admin'
+                : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
+                : 'Super Admin';
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
@@ -650,7 +660,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel}-role users found — add one first.
+                      No {mgrRoleLabel} users found — add one first.
                     </div>
                   )}
                 </Field>
