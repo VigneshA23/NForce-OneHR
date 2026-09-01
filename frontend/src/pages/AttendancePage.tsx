@@ -3083,43 +3083,6 @@ function ArrivalCell({ record, graceMinutes, config }: {
   );
 }
 
-/** Last 6 months as quick-jump pill buttons, matching the reference UI's month shortcuts row. */
-function MonthShortcuts({ viewYear, viewMonth, onSelect }: {
-  viewYear: number; viewMonth: number; onSelect: (year: number, month: number) => void;
-}) {
-  const months = useMemo(() => {
-    const now = new Date();
-    const out: { year: number; month: number; label: string }[] = [];
-    for (let i = 0; i < 6; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      out.push({ year: d.getFullYear(), month: d.getMonth(), label: d.toLocaleDateString(undefined, { month: 'short' }) });
-    }
-    return out;
-  }, []);
-
-  return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {months.map((m) => {
-        const active = m.year === viewYear && m.month === viewMonth;
-        return (
-          <button
-            key={`${m.year}-${m.month}`}
-            onClick={() => onSelect(m.year, m.month)}
-            style={{
-              background: active ? 'var(--brand)' : 'var(--raised)',
-              color: active ? '#fff' : 'var(--txt-mut)',
-              border: `1px solid ${active ? 'var(--brand)' : 'var(--line2)'}`,
-              borderRadius: 6, padding: '5px 11px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase',
-            }}
-          >
-            {m.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Logs & Requests tab bar ────────────────────────────────────────────────────
 // One flat row of 4 tabs (Keka reference: nforceone.keka.com/#/me/attendance/logs) — the
 // active tab gets a bordered "chip", inactive tabs stay plain text. Calendar/Attendance Log
@@ -3245,6 +3208,16 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   // Nothing before this date is ever shown (Attendance Log rows, Calendar cells) — a day
   // before the employee joined was never expected to have attendance of any kind.
   const [joiningDate, setJoiningDate] = useState<string | null>(null);
+
+  // ── Attendance Log tab: date picker + pagination (replaces the old month-shortcut pills) ──
+  // The underlying data is still fetched one calendar month at a time (see refreshMonth below),
+  // so picking a date outside the currently-loaded month triggers goToMonth to fetch that
+  // month, then this jumps straight to the page containing the picked date once its row shows
+  // up in logRows.
+  const LOG_PAGE_SIZE = 10;
+  const [logPage, setLogPage] = useState(0);
+  const [logPickedIso, setLogPickedIso] = useState(todayIsoDate());
+  const [logJumpIso, setLogJumpIso] = useState<string | null>(null);
 
   // Holidays / leaves / regularizations / attendance requests are fetched once — the calendar
   // filters them per month.
@@ -3404,6 +3377,31 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     }
     return rows.reverse();
   }, [viewYear, viewMonth, getDayInfo]);
+
+  // Reset to page 1 whenever the month changes (new row set) — mirrors RosterTable's own
+  // page-reset-on-new-rows behavior.
+  useEffect(() => { setLogPage(0); }, [viewYear, viewMonth]);
+
+  // Once the picked date's month has loaded (or was already loaded), land on the page that
+  // actually contains that day instead of leaving the user on page 1.
+  useEffect(() => {
+    if (!logJumpIso) return;
+    const idx = logRows.findIndex((r) => r.iso === logJumpIso);
+    if (idx >= 0) setLogPage(Math.floor(idx / LOG_PAGE_SIZE));
+    setLogJumpIso(null);
+  }, [logRows, logJumpIso]);
+
+  /** Attendance Log's date picker — jumps months only when the picked date actually falls
+   * outside the one currently loaded, then pages straight to that day's row. */
+  function handleLogDatePick(iso: string) {
+    setLogPickedIso(iso);
+    const [y, m] = iso.split('-').map(Number);
+    if (y !== viewYear || m - 1 !== viewMonth) goToMonth(y, m - 1);
+    setLogJumpIso(iso);
+  }
+
+  const logTotalPages = Math.ceil(logRows.length / LOG_PAGE_SIZE);
+  const logPaged = logRows.slice(logPage * LOG_PAGE_SIZE, (logPage + 1) * LOG_PAGE_SIZE);
 
   // Real per-day punches (for the Attendance Log's multi-segment timeline + break calc, and for
   // DayPunchIntervals in the View/details side panel), fetched once per punched day and cached
@@ -3679,7 +3677,17 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
         <div style={{ marginTop: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)' }}>{calendarMonthLabel(viewYear, viewMonth)}</div>
-            <MonthShortcuts viewYear={viewYear} viewMonth={viewMonth} onSelect={goToMonth} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--txt-mut)' }}>
+              Date
+              <input
+                type="date"
+                value={logPickedIso}
+                min={joiningDate ?? undefined}
+                max={today?.workDate ?? todayIsoDate()}
+                onChange={(e) => e.target.value && handleLogDatePick(e.target.value)}
+                style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 9px', color: 'var(--txt)', fontSize: 12 }}
+              />
+            </label>
           </div>
           <div style={panelStyle}>
             {monthLoading ? (
@@ -3687,6 +3695,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
             ) : logRows.length === 0 ? (
               <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>No days to show for this month.</div>
             ) : (
+              <>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
@@ -3695,7 +3704,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                     ))}</tr>
                   </thead>
                   <tbody>
-                    {logRows.map((info) => {
+                    {logPaged.map((info) => {
                       const punches = punchesByDate.get(info.iso);
                       const punchesLoading = !!info.record?.checkInAt && !punches;
                       const metrics = computeRowMetrics(info, punches, workedMinutesToday, today?.workDate);
@@ -3728,6 +3737,43 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                   </tbody>
                 </table>
               </div>
+
+              {logTotalPages > 1 && (
+                <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+                    Showing {logPage * LOG_PAGE_SIZE + 1}–{Math.min((logPage + 1) * LOG_PAGE_SIZE, logRows.length)} of {logRows.length}
+                  </span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      disabled={logPage === 0}
+                      onClick={() => setLogPage((p) => p - 1)}
+                      style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: logPage === 0 ? 'not-allowed' : 'pointer', opacity: logPage === 0 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+                    >
+                      <ChevronLeft size={13} />
+                    </button>
+                    {Array.from({ length: Math.min(logTotalPages, 7) }, (_, i) => {
+                      const p = logTotalPages <= 7 ? i : logPage <= 3 ? i : logPage >= logTotalPages - 4 ? logTotalPages - 7 + i : logPage - 3 + i;
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => setLogPage(p)}
+                          style={{ padding: '5px 10px', minWidth: 32, background: logPage === p ? 'var(--brand)' : 'var(--raised)', border: `1px solid ${logPage === p ? 'var(--brand)' : 'var(--line2)'}`, borderRadius: 5, cursor: 'pointer', color: logPage === p ? '#fff' : 'var(--txt)', fontSize: 11.5, fontWeight: logPage === p ? 700 : 400 }}
+                        >
+                          {p + 1}
+                        </button>
+                      );
+                    })}
+                    <button
+                      disabled={logPage === logTotalPages - 1}
+                      onClick={() => setLogPage((p) => p + 1)}
+                      style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: logPage === logTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: logPage === logTotalPages - 1 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+                    >
+                      <ChevronRight size={13} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              </>
             )}
           </div>
         </div>
@@ -3922,7 +3968,12 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
     () => approvalStatusFilter === 'ALL' ? pending : pending.filter((r) => r.status === approvalStatusFilter),
     [pending, approvalStatusFilter],
   );
-  const pendingMonths = useMemo(() => groupByMonth(filteredPending), [filteredPending]);
+  // Flat, newest-first (not grouped into one table per month — see date picker/pagination
+  // below instead) — same sort groupByMonth used internally, just without the month buckets.
+  const sortedPending = useMemo(
+    () => [...filteredPending].sort((a, b) => b.attendanceDate.localeCompare(a.attendanceDate)),
+    [filteredPending],
+  );
   // Selections don't carry across an unrelated filter change — avoids acting on a row the
   // user can no longer see.
   useEffect(() => { setSelectedIds(new Set()); }, [approvalStatusFilter]);
@@ -3930,6 +3981,21 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
     () => new Set(myRequests.filter((r) => r.status === 'APPROVED').map((r) => r.attendanceDate)),
     [myRequests],
   );
+
+  // Pending Approvals: date picker + pagination (replaces the old "one table per month,
+  // stacked forever" layout). Data stays a flat sortedPending list — the picker just jumps to
+  // whichever page contains the nearest request on or before the chosen date.
+  const APPROVALS_PAGE_SIZE = 10;
+  const [approvalsPage, setApprovalsPage] = useState(0);
+  const [approvalsPickedIso, setApprovalsPickedIso] = useState(todayIsoDate());
+  useEffect(() => { setApprovalsPage(0); }, [sortedPending]);
+  function handleApprovalsDatePick(iso: string) {
+    setApprovalsPickedIso(iso);
+    const idx = sortedPending.findIndex((r) => r.attendanceDate <= iso);
+    setApprovalsPage(idx >= 0 ? Math.floor(idx / APPROVALS_PAGE_SIZE) : 0);
+  }
+  const approvalsTotalPages = Math.ceil(sortedPending.length / APPROVALS_PAGE_SIZE);
+  const approvalsPaged = sortedPending.slice(approvalsPage * APPROVALS_PAGE_SIZE, (approvalsPage + 1) * APPROVALS_PAGE_SIZE);
 
   // Exposed to the page header's "Request Regularization" button — opens the exact same
   // create-mode modal the section's own flow uses.
@@ -4003,13 +4069,26 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
         )}
       </div>
 
-      {/* Pending Approvals — Manager / HR Admin / Super Admin only, grouped by month.
-          Status tabs filter across every status the reviewer can see (not just PENDING). */}
+      {/* Pending Approvals — Manager / HR Admin / Super Admin only. Flat, newest-first list with
+          a date picker (jumps to whichever page holds the nearest request on/before that date)
+          and pagination, instead of one table stacked per month. Status tabs filter across
+          every status the reviewer can see (not just PENDING). */}
       {canApprove && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
             <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>Pending Approvals</h3>
-            <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--txt-mut)' }}>
+                Date
+                <input
+                  type="date"
+                  value={approvalsPickedIso}
+                  onChange={(e) => e.target.value && handleApprovalsDatePick(e.target.value)}
+                  style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 9px', color: 'var(--txt)', fontSize: 12 }}
+                />
+              </label>
+              <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} />
+            </div>
           </div>
           {selectedIds.size > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 13px' }}>
@@ -4025,82 +4104,115 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
             <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>
               No {STATUS_FILTER_TABS.find((t) => t.value === approvalStatusFilter)?.label.toLowerCase()} requests.
             </div>
-          ) : (
-            pendingMonths.map(([monthKey, rows]) => {
-              const selectableIds = rows.filter(r => isActionableRequest(r, isManager)).map(r => r.id);
-              const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedIds.has(id));
-              const someSelected = !allSelected && selectableIds.some(id => selectedIds.has(id));
-              return (
-              <div key={monthKey}>
-                <MonthGroupHeading monthKey={monthKey} />
-                <div style={panelStyle}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ ...thStyle, width: 34 }}>
-                            {selectableIds.length > 0 && (
-                              <input
-                                type="checkbox"
-                                checked={allSelected}
-                                ref={el => { if (el) el.indeterminate = someSelected; }}
-                                onChange={() => setSelectedIds(prev => {
-                                  const next = new Set(prev);
-                                  if (allSelected) selectableIds.forEach(id => next.delete(id));
-                                  else selectableIds.forEach(id => next.add(id));
-                                  return next;
-                                })}
-                              />
-                            )}
-                          </th>
-                          {['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map(r => (
-                          <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
-                            <td style={tdStyle} onClick={e => e.stopPropagation()}>
-                              {isActionableRequest(r, isManager) && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedIds.has(r.id)}
-                                  onChange={() => setSelectedIds(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
-                                    return next;
-                                  })}
-                                />
-                              )}
-                            </td>
-                            <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                              {r.employeeName}
-                              <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
-                            </td>
-                            <td style={tdStyle}>{r.attendanceDate}</td>
-                            <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
-                            <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
-                            <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
-                            <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                            <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                            <td style={tdStyle}><ReviewerCell r={r} /></td>
-                            <td style={tdStyle}>
-                              {isActionableRequest(r, isManager) ? (
-                                <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-                                  <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
-                                  <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
-                                </div>
-                              ) : dash}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+          ) : (() => {
+            // Select-all is scoped to the current page, same as any other paginated table's
+            // header checkbox — not every filtered row across every page.
+            const selectableIds = approvalsPaged.filter(r => isActionableRequest(r, isManager)).map(r => r.id);
+            const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedIds.has(id));
+            const someSelected = !allSelected && selectableIds.some(id => selectedIds.has(id));
+            return (
+            <div style={panelStyle}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, width: 34 }}>
+                        {selectableIds.length > 0 && (
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            ref={el => { if (el) el.indeterminate = someSelected; }}
+                            onChange={() => setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (allSelected) selectableIds.forEach(id => next.delete(id));
+                              else selectableIds.forEach(id => next.add(id));
+                              return next;
+                            })}
+                          />
+                        )}
+                      </th>
+                      {['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {approvalsPaged.map(r => (
+                      <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
+                        <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                          {isActionableRequest(r, isManager) && (
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(r.id)}
+                              onChange={() => setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
+                                return next;
+                              })}
+                            />
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                          {r.employeeName}
+                          <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
+                        </td>
+                        <td style={tdStyle}>{r.attendanceDate}</td>
+                        <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
+                        <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
+                        <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                        <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
+                        <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
+                        <td style={tdStyle}><ReviewerCell r={r} /></td>
+                        <td style={tdStyle}>
+                          {isActionableRequest(r, isManager) ? (
+                            <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+                              <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
+                              <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
+                            </div>
+                          ) : dash}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {approvalsTotalPages > 1 && (
+                <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+                    Showing {approvalsPage * APPROVALS_PAGE_SIZE + 1}–{Math.min((approvalsPage + 1) * APPROVALS_PAGE_SIZE, sortedPending.length)} of {sortedPending.length}
+                  </span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      disabled={approvalsPage === 0}
+                      onClick={() => setApprovalsPage((p) => p - 1)}
+                      style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: approvalsPage === 0 ? 'not-allowed' : 'pointer', opacity: approvalsPage === 0 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+                    >
+                      <ChevronLeft size={13} />
+                    </button>
+                    {Array.from({ length: Math.min(approvalsTotalPages, 7) }, (_, i) => {
+                      const p = approvalsTotalPages <= 7 ? i : approvalsPage <= 3 ? i : approvalsPage >= approvalsTotalPages - 4 ? approvalsTotalPages - 7 + i : approvalsPage - 3 + i;
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => setApprovalsPage(p)}
+                          style={{ padding: '5px 10px', minWidth: 32, background: approvalsPage === p ? 'var(--brand)' : 'var(--raised)', border: `1px solid ${approvalsPage === p ? 'var(--brand)' : 'var(--line2)'}`, borderRadius: 5, cursor: 'pointer', color: approvalsPage === p ? '#fff' : 'var(--txt)', fontSize: 11.5, fontWeight: approvalsPage === p ? 700 : 400 }}
+                        >
+                          {p + 1}
+                        </button>
+                      );
+                    })}
+                    <button
+                      disabled={approvalsPage === approvalsTotalPages - 1}
+                      onClick={() => setApprovalsPage((p) => p + 1)}
+                      style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: approvalsPage === approvalsTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: approvalsPage === approvalsTotalPages - 1 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+                    >
+                      <ChevronRight size={13} />
+                    </button>
                   </div>
                 </div>
-              </div>
-              );
-            })
-          )}
+              )}
+            </div>
+            );
+          })()}
         </div>
       )}
       {bulkConfirm && (
