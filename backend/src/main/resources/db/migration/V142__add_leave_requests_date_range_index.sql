@@ -1,4 +1,4 @@
--- NForce OneHR — Flyway Migration V141
+-- NForce OneHR — Flyway Migration V142
 -- Performance only: adds an index to speed up the "who's on leave in [from,to]" queries
 -- (LeaveService.listTeamLeave/listOrgLeave/listPeerLeave) that filter
 -- "status = 'APPROVED' AND start_date <= :to AND end_date >= :from" — previously only
