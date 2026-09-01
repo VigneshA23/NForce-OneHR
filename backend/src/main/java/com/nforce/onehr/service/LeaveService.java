@@ -205,8 +205,9 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId());
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(Set.of(actor.getId()));
         return requests.stream()
-                .map(r -> toRequestResponse(r, namesById))
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -230,8 +231,9 @@ public class LeaveService {
                     .filter(r -> isVisibleToOverrideActor(r, actor))
                     .collect(Collectors.toList());
             Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+            Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
             return requests.stream()
-                    .map(r -> toRequestResponse(r, namesById))
+                    .map(r -> toRequestResponse(r, namesById, codesById))
                     .collect(Collectors.toList());
         }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
@@ -242,8 +244,9 @@ public class LeaveService {
         }
         List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING");
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
         return requests.stream()
-                .map(r -> toRequestResponse(r, namesById))
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -268,8 +271,9 @@ public class LeaveService {
         List<LeaveRequest> requests = leaveRequestRepository
                 .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from);
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
         return requests.stream()
-                .map(r -> toRequestResponse(r, namesById))
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -283,8 +287,9 @@ public class LeaveService {
         List<LeaveRequest> requests = leaveRequestRepository
                 .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from);
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
         return requests.stream()
-                .map(r -> toRequestResponse(r, namesById))
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -309,8 +314,9 @@ public class LeaveService {
         List<LeaveRequest> requests = leaveRequestRepository
                 .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from);
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
         return requests.stream()
-                .map(r -> toRequestResponse(r, namesById))
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -513,6 +519,12 @@ public class LeaveService {
                 .orElseGet(() -> userRepository.findById(userId).map(User::getEmail).orElse("Unknown"));
     }
 
+    /** Employee code for the single-record {@link #toRequestResponse(LeaveRequest)} path — null
+     * for a User with no Employee row (auth-only account), same as the batched variant below. */
+    private String employeeCode(UUID userId) {
+        return employeeRepository.findById(userId).map(Employee::getEmployeeCode).orElse(null);
+    }
+
     /**
      * Batch counterpart of {@link #employeeName(UUID)} for list-mapping call sites
      * (listMyRequests/listPendingApprovals/listTeamLeave/listOrgLeave/listPeerLeave): resolves
@@ -536,7 +548,7 @@ public class LeaveService {
         return namesById;
     }
 
-    /** Collects the distinct ids {@link #toRequestResponse(LeaveRequest, Map)} needs a name for. */
+    /** Collects the distinct ids {@link #toRequestResponse(LeaveRequest, Map, Map)} needs a name for. */
     private Set<UUID> collectNameIds(Collection<LeaveRequest> requests) {
         Set<UUID> ids = new HashSet<>();
         for (LeaveRequest r : requests) {
@@ -544,6 +556,26 @@ public class LeaveService {
             if (r.getDecidedBy() != null) ids.add(r.getDecidedBy());
         }
         return ids;
+    }
+
+    /** Distinct requester ids only — the input {@link #codesByUserIds} needs, narrower than
+     * {@link #collectNameIds} since decidedBy has no code to resolve. */
+    private Set<UUID> collectEmployeeIds(Collection<LeaveRequest> requests) {
+        return requests.stream().map(LeaveRequest::getEmployeeUserId).collect(Collectors.toSet());
+    }
+
+    /**
+     * Batch counterpart of {@link #employeeCode(UUID)} — only ever needed for the requester
+     * (unlike {@link #collectNameIds}, decidedBy has no code to resolve), so this takes the plain
+     * employeeUserId set rather than duplicating collectNameIds' broader id collection.
+     */
+    private Map<UUID, String> codesByUserIds(Set<UUID> employeeIds) {
+        if (employeeIds.isEmpty()) return Map.of();
+        Map<UUID, String> codesById = new HashMap<>();
+        for (Object[] row : employeeRepository.findCodesByUserIds(employeeIds)) {
+            codesById.put((UUID) row[0], (String) row[1]);
+        }
+        return codesById;
     }
 
     /**
@@ -606,6 +638,7 @@ public class LeaveService {
                 .id(r.getId())
                 .employeeUserId(r.getEmployeeUserId())
                 .employeeName(employeeName(r.getEmployeeUserId()))
+                .employeeCode(employeeCode(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
                 .startDate(r.getStartDate())
@@ -625,13 +658,17 @@ public class LeaveService {
      * List-mapping variant of {@link #toRequestResponse(LeaveRequest)}: looks employeeName/
      * decidedByName up in a pre-built map (from {@link #namesByUserIds}) instead of issuing a
      * query per row. Falls back to "Unknown" for an id absent from the map, matching
-     * {@link #employeeName(UUID)}'s own fallback.
+     * {@link #employeeName(UUID)}'s own fallback. employeeCode comes from a second pre-built map
+     * ({@link #codesByUserIds}) — null (not "Unknown") for a missing id, matching
+     * {@link #employeeCode(UUID)}'s own fallback, since it's a secondary display detail rather
+     * than the primary identity label.
      */
-    private LeaveRequestResponse toRequestResponse(LeaveRequest r, Map<UUID, String> namesById) {
+    private LeaveRequestResponse toRequestResponse(LeaveRequest r, Map<UUID, String> namesById, Map<UUID, String> codesById) {
         return LeaveRequestResponse.builder()
                 .id(r.getId())
                 .employeeUserId(r.getEmployeeUserId())
                 .employeeName(namesById.getOrDefault(r.getEmployeeUserId(), "Unknown"))
+                .employeeCode(codesById.get(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
                 .startDate(r.getStartDate())

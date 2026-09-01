@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -59,9 +60,13 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
 
+  // Deep-link support: the Super Admin dashboard's "Audit Events Today" tile links here as
+  // /audit?from=<today>&to=<today> to pre-apply today's date filter — same pattern as
+  // DirectoryPage's ?userId= deep link from the Present Today/On Leave modals.
+  const [searchParams] = useSearchParams();
   const [targetSearch, setTargetSearch] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState(() => searchParams.get('from') ?? '');
+  const [to, setTo] = useState(() => searchParams.get('to') ?? '');
   const [activeGroup, setActiveGroup] = useState<ActionGroup | 'ALL'>('ALL');
   const [page, setPage] = useState(0);
   const [pageData, setPageData] = useState<PagedAuditLogs | null>(null);
