@@ -486,6 +486,11 @@ public class UserManagementService {
         target.setDeletedAt(Instant.now());
         target.setActive(false);
         userRepository.save(target);
+        // Close out the employee's open manager-history row so they immediately stop being
+        // anyone's "current" direct report/peer — without this, every screen that resolves a
+        // manager's team via findCurrentDirectReportIds/findCurrentPeerIds keeps surfacing the
+        // deleted user forever, since a soft delete otherwise never touches this table.
+        historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
         String after = auditSnapshot.toJson(Map.of("deletedAt", target.getDeletedAt().toString(), "active", false));
         auditService.log(actor.getId(), "USER_SOFT_DELETED", userId, before, after);
     }
