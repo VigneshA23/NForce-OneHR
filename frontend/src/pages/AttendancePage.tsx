@@ -485,8 +485,11 @@ function PunchHistoryList({ date, token, refreshKey }: { date: string; token: st
   }
   if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
 
-  const officeSessions = punches.filter(p => p.source !== 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
-  const webSessions = punches.filter(p => p.source === 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
+  // Oldest first, matching the Keka reference (earliest punch at top, latest at bottom) — the
+  // API doesn't guarantee an order, so this is display-only, not a data change.
+  const sortedPunches = [...punches].sort((a, b) => a.checkInAt.localeCompare(b.checkInAt));
+  const officeSessions = sortedPunches.filter(p => p.source !== 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
+  const webSessions = sortedPunches.filter(p => p.source === 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
 
   return (
     <div>
@@ -2881,6 +2884,10 @@ function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] 
         ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: record.source === 'WEB_REMOTE' ? 'WEB_REMOTE' : 'SYSTEM' }]
         : [];
 
+  // Oldest first, matching the Keka reference (earliest punch at top, latest at bottom) — the
+  // API doesn't guarantee an order, so this is display-only, not a data change.
+  sessions.sort((a, b) => a.checkInAt.localeCompare(b.checkInAt));
+
   if (sessions.length === 0) {
     return <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>No punches recorded for this day.</div>;
   }
@@ -3496,6 +3503,14 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     serverOffsetMs.current = wallClockMs(refreshed.serverNow) - Date.now();
     setToday(refreshed);
     setPunchVersion((v) => v + 1);
+    // The Attendance Details modal (View button + calendar side panel) reads
+    // punchesByDate.get(iso) — that map's own effect only ever fetches a date once (see its
+    // comment), so without this a fresh Check-In/Check-Out/Web Check-In here wouldn't show up
+    // there until something else forced logRows to change or the page was reloaded. Not
+    // awaited — this is a followup refresh, no reason to hold up the toast/UI on it.
+    attendanceApi.punches(refreshed.workDate, token)
+      .then((p) => setPunchesByDate((prev) => new Map(prev).set(refreshed.workDate, p)))
+      .catch(() => {});
     return refreshed;
   }, [token, refreshMonth]);
 
