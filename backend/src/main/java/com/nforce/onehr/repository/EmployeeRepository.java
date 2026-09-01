@@ -109,6 +109,13 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     @Query("SELECT e.userId, e.fullName FROM Employee e WHERE e.userId IN :ids")
     List<Object[]> findNamesByUserIds(@Param("ids") Set<UUID> ids);
 
+    // Backs LeaveService's batched employee-card rendering (Dashboard's Present Today/On Leave
+    // widgets show avatar + name + code, Directory-row style) — same shape/usage as
+    // findNamesByUserIds above, kept as its own method rather than widening that one's shared
+    // 2-column shape, which many unrelated call sites already depend on.
+    @Query("SELECT e.userId, e.employeeCode FROM Employee e WHERE e.userId IN :ids")
+    List<Object[]> findCodesByUserIds(@Param("ids") Set<UUID> ids);
+
     // Batch employee + department fetch backing RegularizationService/WebClockInService's list
     // responses — one query for every row's employee name + department name instead of one
     // findById per row (department is LAZY, so a plain findAllById would still N+1 on it).

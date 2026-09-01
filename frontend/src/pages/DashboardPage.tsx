@@ -28,6 +28,7 @@ import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -347,14 +348,30 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
   );
 }
 
-function EmployeeLink({ userId, name }: { userId: string; name: string }) {
+// Same avatar + bold name + employee code identity block People Directory's table rows use
+// (see DirectoryPage's Avatar/row-cell styling) — replaces the plain underlined-red name link
+// this used to be, so an employee "card" here reads the same way it does everywhere else in the
+// app. Still navigates to the same Directory detail-panel deep link on click.
+function EmployeeCard({ userId, name, code }: { userId: string; name: string; code?: string | null }) {
   const navigate = useNavigate();
   return (
     <button
       onClick={() => navigate(`/directory?userId=${userId}`)}
-      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left', fontSize: 13, fontWeight: 600, color: 'var(--brand)', textDecoration: 'underline' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
     >
-      {name}
+      <EmployeeAvatar
+        userId={userId}
+        name={name}
+        size={34}
+        fontSize={34 * 0.33}
+        background="rgba(177,17,22,.18)"
+        color="#e4373d"
+        style={{ fontFamily: 'Inter, sans-serif' }}
+      />
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{name}</div>
+        {code && <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 1 }}>{code}</div>}
+      </div>
     </button>
   );
 }
@@ -385,10 +402,7 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one has checked in yet today.</div>
           ) : present.map(r => (
             <div key={r.employeeUserId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <EmployeeLink userId={r.employeeUserId} name={r.fullName} />
-                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{r.employeeCode}</div>
-              </div>
+              <EmployeeCard userId={r.employeeUserId} name={r.fullName} code={r.employeeCode} />
               <div style={{ textAlign: 'right' }}>
                 {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to the
                     day's first one and never updated on a same-day checkout+checkin resume — see
@@ -423,8 +437,8 @@ function LeaveSection({ title, accent, rows }: { title: string; accent: string; 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {rows.map(r => (
             <div key={r.id} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
-              <EmployeeLink userId={r.employeeUserId} name={r.employeeName} />
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>
+              <EmployeeCard userId={r.employeeUserId} name={r.employeeName} code={r.employeeCode} />
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 6 }}>
                 {r.leaveTypeName} · {new Date(r.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 {r.startDate !== r.endDate ? ` – ${new Date(r.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
               </div>
@@ -1519,7 +1533,11 @@ function SuperAdminDashboardView() {
   const firstName = user?.fullName ?? user?.email?.split('@')[0] ?? 'there';
 
   const [allUsers,           setAllUsers]           = useState<EmployeeRecord[]>([]);
-  const [todayRecords,       setTodayRecords]       = useState<{ checkInAt: string | null }[]>([]);
+  // attendanceApi.day already returns full AttendanceRecord rows (same call TeamDashboardView's
+  // useTeamAttendanceToday makes for scope 'hr') — widened from the checkInAt-only shape this
+  // used to be typed as, so the Present Today tile can open the same PresentTodayModal.
+  const [todayRecords,       setTodayRecords]       = useState<AttendanceRecord[]>([]);
+  const [showPresentModal,   setShowPresentModal]   = useState(false);
   const [pendingItems,       setPendingItems]       = useState<ApprovalItem[]>([]);
   const [auditStats,         setAuditStats]         = useState<AuditLogStats | null>(null);
   const [recentAudit,        setRecentAudit]        = useState<AuditLogEntry[]>([]);
@@ -1551,7 +1569,7 @@ function SuperAdminDashboardView() {
       auditApi.exportAll({ action: 'USER_UPDATED', from: monthStartStr }, token).catch(() => [] as AuditLogEntry[]),
     ]).then(([users, attn, pending, stats, auditPage, kpis, assets, pwResetPage, userUpdated]) => {
       setAllUsers(users as EmployeeRecord[]);
-      setTodayRecords(attn as { checkInAt: string | null }[]);
+      setTodayRecords(attn as AttendanceRecord[]);
       setPendingItems(pending as ApprovalItem[]);
       setAuditStats(stats as AuditLogStats | null);
       setRecentAudit((auditPage as { content: AuditLogEntry[] }).content);
@@ -1621,29 +1639,36 @@ function SuperAdminDashboardView() {
       icon: <Users size={16} />,
       label: 'Total Users',
       value: loading ? '—' : String(allUsers.length),
-      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive`,
+      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
       accent: '#4E9EE8',
+      onClick: () => navigate('/directory'),
     },
     {
       icon: <UserCheck size={16} />,
       label: 'Present Today',
       value: loading ? '—' : `${presentCount}/${todayRecords.length}`,
-      sub: 'org-wide check-ins',
+      sub: 'org-wide check-ins · view list →',
       accent: '#2FB67C',
+      onClick: () => setShowPresentModal(true),
     },
     {
       icon: <Package size={16} />,
       label: 'Total Assets',
       value: loading ? '—' : totalAssets === null ? '—' : String(totalAssets),
-      sub: 'company-wide inventory',
+      sub: 'company-wide inventory · view inventory →',
       accent: '#F97316',
+      onClick: () => navigate('/assets'),
     },
     {
       icon: <ShieldCheck size={16} />,
       label: 'Audit Events Today',
       value: loading ? '—' : auditStats ? String(auditStats.todayCount) : '—',
-      sub: 'security events logged',
+      sub: 'security events logged · view log →',
       accent: '#B11116',
+      onClick: () => {
+        const today = todayIsoDate();
+        navigate(`/audit?from=${today}&to=${today}`);
+      },
     },
   ];
 
@@ -1673,10 +1698,14 @@ function SuperAdminDashboardView() {
 
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
 
-      {/* Row 2 — Stat tiles */}
+      {/* Row 2 — Stat tiles, each clickable through to its detail view */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        {statTiles.map(({ icon, label, value, sub, accent }) => (
-          <div key={label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
+        {statTiles.map(({ icon, label, value, sub, accent, onClick }) => (
+          <button
+            key={label}
+            onClick={onClick}
+            style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
+          >
             <div style={{
               width: 34, height: 34, borderRadius: 8, marginBottom: 12,
               background: `color-mix(in srgb, ${accent} 12%, var(--raised2))`,
@@ -1692,7 +1721,7 @@ function SuperAdminDashboardView() {
             </div>
             <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 500, marginBottom: 2 }}>{label}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{sub}</div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -1962,6 +1991,15 @@ function SuperAdminDashboardView() {
           View all in Audit & Security →
         </button>
       </div>
+
+      {showPresentModal && (
+        <PresentTodayModal
+          records={todayRecords}
+          loading={loading}
+          scopeLabel="Organization"
+          onClose={() => setShowPresentModal(false)}
+        />
+      )}
     </div>
   );
 }

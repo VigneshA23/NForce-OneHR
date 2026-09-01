@@ -3,6 +3,7 @@ package com.nforce.onehr.repository;
 import com.nforce.onehr.entity.WebClockInRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -21,7 +22,11 @@ public interface WebClockInRequestRepository extends JpaRepository<WebClockInReq
     @Query("SELECT r.id FROM WebClockInRequest r WHERE r.employeeUserId IN :employeeUserIds")
     Set<UUID> findIdsByEmployeeUserIdIn(Collection<UUID> employeeUserIds);
 
-    List<WebClockInRequest> findByStatus(String status);
+    // Backs WebClockInService#listPendingForApprover's company-wide (not manager-scoped) HR/
+    // Super Admin branch — joins User to exclude soft-deleted requesters' web clock-in requests.
+    @Query("SELECT r FROM WebClockInRequest r JOIN User u ON u.id = r.employeeUserId "
+         + "WHERE r.status = :status AND u.deletedAt IS NULL")
+    List<WebClockInRequest> findByStatus(@Param("status") String status);
 
     // Every Web Clock-In cycle for the day, oldest first — an employee can Web Clock-In and
     // Web Clock-Out more than once per day (see WebClockInService#submit), so this is a List,
