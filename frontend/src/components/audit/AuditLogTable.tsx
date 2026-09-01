@@ -120,7 +120,7 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <ActionBadge group={entry.actionGroup} />
-            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
               Audit Event Details
             </span>
           </div>
@@ -176,7 +176,7 @@ export function AuditLogTable({ rows }: Props) {
         <tbody>
           {rows.map(r => (
             <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setViewing(r)}>
-              <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
+              <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
                 {fmtDateTime(r.occurredAt)}
               </td>
               <td style={{ ...tdStyle, color: 'var(--txt-mut)' }}>{r.targetLabel}</td>

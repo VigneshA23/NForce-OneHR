@@ -87,7 +87,7 @@ function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
       onMouseEnter={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--brand)') : undefined}
       onMouseLeave={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--line)') : undefined}
     >
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{value}</div>
       <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3, fontWeight: 600 }}>{label}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{sub}</div>}
       {clickable && onClick && clickHint && <div style={{ fontSize: 10, color: 'var(--brand)', marginTop: 6, fontWeight: 600 }}>{clickHint}</div>}
@@ -98,7 +98,7 @@ function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
 function SectionHead({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{title}</h2>
+      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
       {action}
     </div>
   );
@@ -119,7 +119,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>
         </div>
         <div style={{ padding: 20 }}>{children}</div>
@@ -396,7 +396,7 @@ function EmployeeView({ token }: { token: string }) {
       {ackTarget && (
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 440 }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Acknowledge Asset Receipt</div>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Acknowledge Asset Receipt</div>
             <div style={{ padding: 20 }}>
               <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
                 <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px' }}>
@@ -1332,7 +1332,7 @@ export default function AssetsExpensesPage() {
   return (
     <div>
       <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
             : role === 'HR Admin' || role === 'Super Admin' ? 'Manage company inventory, expense policies, and payroll-ready claims.'

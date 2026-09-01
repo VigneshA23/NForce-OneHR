@@ -111,7 +111,7 @@ function StatusBadge({ active }: { active: boolean }) {
 function CountBadge({ count }: { count: number }) {
   return (
     <span style={{
-      fontFamily: '"JetBrains Mono", monospace', fontSize: 12,
+      fontFamily: 'Inter, sans-serif', fontSize: 12,
       color: count > 0 ? 'var(--txt-mut)' : 'var(--txt-dim)',
     }}>
       {count}
@@ -163,7 +163,7 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
             {title}
           </h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
@@ -335,7 +335,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
             {modalTitle}
           </h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
@@ -1147,7 +1147,7 @@ export default function OrgSetupPage() {
       )}
 
       <div>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
           {copy.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
@@ -1178,7 +1178,7 @@ export default function OrgSetupPage() {
               width instead of forcing the row wider than the panel — overflowX then scrolls the
               tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
               squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
-          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto' }}>
+          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
             {(Object.keys(TABS) as OrgTab[]).map(key => {
               const T = TABS[key];
               const TabIcon = T.icon;
@@ -1350,7 +1350,7 @@ export default function OrgSetupPage() {
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{d.title}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', fontFamily: '"JetBrains Mono", monospace', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={d.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -1377,13 +1377,19 @@ export default function OrgSetupPage() {
                 visibleShifts.map(s => (
                   <tr key={s.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{s.name}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 12 }}>{s.code ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{s.code ?? '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{fmtShiftTime(s.startTime)} – {fmtShiftTime(s.endTime)}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.flexible ? 'Flexible' : 'Fixed'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.breakMinutes != null ? `${s.breakMinutes}m` : '—'}</td>
                     <td style={{ padding: '10px 16px' }}>
+                      {/* Fixed-width wrapper around the count so the "view employees" button
+                          beside it lands at the same x position on every row — CountBadge's own
+                          width is just its digit text (1-4+ chars), so without this the button
+                          crept right/left as the employee count varied row to row. */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <CountBadge count={s.employeeCount} />
+                        <span style={{ display: 'inline-block', minWidth: 26, flexShrink: 0 }}>
+                          <CountBadge count={s.employeeCount} />
+                        </span>
                         <button
                           onClick={() => setShiftEmployeesRow(s)}
                           disabled={s.employeeCount === 0}

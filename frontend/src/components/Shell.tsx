@@ -9,6 +9,7 @@ import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
 import { publishNewNotifications } from '../lib/notificationEvents';
 import { authApi } from '../api/auth';
+import { stashSessionMessageForLogin, SESSION_PROFILE_UPDATED_MESSAGE } from '../lib/authFetch';
 import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
 import { SidebarNav } from './SidebarNav';
@@ -37,7 +38,7 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
         color: 'var(--txt-mut)',
       }}
     >
-      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 17, color: 'var(--txt)', marginBottom: 6 }}>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 17, color: 'var(--txt)', marginBottom: 6 }}>
         {label}
       </div>
       <div style={{ fontSize: 13 }}>
@@ -312,7 +313,12 @@ export function Shell() {
         eventSource.addEventListener('FORCE_LOGOUT', () => {
           eventSource?.close();
           clearAuth();
-          navigate('/login', { replace: true });
+          // Hard redirect (not the SPA navigate() used elsewhere in this file) — required so the
+          // message below survives to the Login page: consumeSessionMessage (authFetch.ts) only
+          // reads sessionStorage once, at module import, which a client-side route change would
+          // bypass entirely since this module is already loaded.
+          stashSessionMessageForLogin(SESSION_PROFILE_UPDATED_MESSAGE);
+          window.location.href = '/login';
         });
         eventSource.onerror = () => {
           // The ticket is single-use — EventSource's built-in auto-retry would reuse a now-dead
@@ -422,15 +428,15 @@ export function Shell() {
         }}
       >
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
-        <div className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Link to="/" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size="sm" />
           <div>
-            <div className="nf-sidebar-logo-title" style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 13, color: '#E8EAED', letterSpacing: '0.01em' }}>NForce OneHR</div>
+            <div className="nf-sidebar-logo-title" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: '#E8EAED', letterSpacing: '0.01em' }}>NForce OneHR</div>
             <div className="nf-sidebar-logo-sub" style={{ fontSize: 8, color: '#6B7280', letterSpacing: '.12em', textTransform: 'uppercase', marginTop: 1 }}>
               {toRoleTagline(role)}
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />

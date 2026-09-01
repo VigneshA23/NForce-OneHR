@@ -40,7 +40,7 @@ const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -107,7 +107,7 @@ function ContactHRModal({ categories, token, initialDescription, onClose, onCrea
           <ModalHeader title="Contact HR Support" onClose={onClose} />
           <div style={{ padding: '32px 24px', textAlign: 'center' }}>
             <CheckCircle2 size={40} style={{ color: 'var(--ok)', marginBottom: 12 }} />
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>
               Request Submitted
             </div>
             <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 18 }}>
@@ -116,7 +116,7 @@ function ContactHRModal({ categories, token, initialDescription, onClose, onCrea
             <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ textAlign: 'left' }}>
                 <div style={labelStyle}>Ticket Number</div>
-                <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{created.ticketNumber}</div>
+                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{created.ticketNumber}</div>
               </div>
               <StatusBadge status={created.status} />
             </div>
@@ -251,8 +251,8 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
           <div>
-            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
           </div>
           <StatusBadge status={ticket.status} />
         </div>
@@ -537,7 +537,7 @@ function SectionHeader({ title, description, action }: { title: string; descript
   return (
     <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
       <div>
-        <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{title}</h2>
+        <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{title}</h2>
         {description && <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4, marginBottom: 0 }}>{description}</p>}
       </div>
       {action}
@@ -1121,7 +1121,7 @@ export default function HelpDeskPage() {
     return (
       <div>
         <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         </div>
         <TicketDetailView ticketId={selectedId} token={token} onBack={() => { setSelectedId(null); loadTickets(); }} onChanged={loadTickets} />
       </div>
@@ -1134,7 +1134,7 @@ export default function HelpDeskPage() {
     <div>
       {/* 1. Header */}
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
           Find an answer yourself, or reach HR directly — all from one place.
         </p>
@@ -1288,7 +1288,7 @@ export default function HelpDeskPage() {
                 <tbody>
                   {visibleTickets.map(t => (
                     <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedId(t.id)}>
-                      <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
                       <td style={tdStyle}>{t.categoryName}</td>
                       <td style={tdStyle}><StatusBadge status={t.status} /></td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDateTime(t.updatedAt)}</td>

@@ -68,7 +68,7 @@ function NavItemRow({ item }: { item: NavItem }) {
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)' }}>
             {item.label}
           </span>
           {isPhase2 && (
@@ -155,7 +155,7 @@ export default function RoleGuidePage() {
             <span style={{ color: 'var(--line2)', fontSize: 18 }}>|</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <BrandMark size="sm" />
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 15, color: 'var(--txt)' }}>
+              <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 15, color: 'var(--txt)' }}>
                 NForce OneHR
               </span>
             </div>
@@ -184,7 +184,7 @@ export default function RoleGuidePage() {
                 <p style={{ color: 'var(--txt-dim)', fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 4px' }}>
                   Role Guide
                 </p>
-                <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 'clamp(1.6rem, 4vw, 2.4rem)', letterSpacing: '-0.03em', margin: 0, color: 'var(--txt)' }}>
+                <h1 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.6rem, 4vw, 2.4rem)', letterSpacing: '-0.03em', margin: 0, color: 'var(--txt)' }}>
                   {role}
                 </h1>
               </div>
@@ -202,7 +202,7 @@ export default function RoleGuidePage() {
           {/* Phase 1 — Live features */}
           <div style={{ marginBottom: 48 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-              <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Available now
               </h2>
               <span style={{ background: 'rgba(47,182,124,0.12)', color: 'var(--ok)', border: '1px solid rgba(47,182,124,0.2)', borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>
@@ -218,7 +218,7 @@ export default function RoleGuidePage() {
           {phase2.length > 0 && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-                <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14, color: 'var(--txt)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   On the roadmap
                 </h2>
                 <span style={{ background: 'rgba(224,169,59,0.12)', color: 'var(--warn)', border: '1px solid rgba(224,169,59,0.22)', borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>

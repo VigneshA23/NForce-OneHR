@@ -89,7 +89,7 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const panelHeadStyle: React.CSSProperties = { padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
-const panelTitleStyle: React.CSSProperties = { fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' };
+const panelTitleStyle: React.CSSProperties = { fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' };
 const panelCountStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '2px 8px', borderRadius: 20 };
 
 const TYPE_LABELS: Record<'LEAVE' | 'REGULARIZATION', string> = { LEAVE: 'Leave', REGULARIZATION: 'Attendance Reg.' };
@@ -113,7 +113,7 @@ function Avatar({ userId, name, size = 34 }: { userId?: string | null; name: str
       fontSize={size * 0.33}
       background="rgba(177,17,22,.18)"
       color="#e4373d"
-      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+      style={{ fontFamily: 'Inter, sans-serif' }}
     />
   );
 }
@@ -237,9 +237,9 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
           <Avatar userId={dr.userId} name={dr.fullName} size={40} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{dr.designationName ?? '—'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{dr.employeeCode}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{dr.employeeCode}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
         </div>
@@ -310,7 +310,7 @@ function KpiCard({ icon, iconColor, label, value, note, onView }: { icon: React.
         {icon}
         <span style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--txt-mut)' }}>{label}</span>
       </div>
-      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
       {onView && (
         <button onClick={onView} style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
@@ -922,7 +922,7 @@ function AssignmentsTab({ token }: { token: string }) {
       {bulkModal && (
         <div style={overlayStyle} onClick={() => !bulkBusy && setBulkModal(null)}>
           <div style={{ ...modalStyle, maxWidth: 380 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>
               {bulkModal === 'shift' ? 'Update Shift' : bulkModal === 'weeklyOff' ? 'Update Weekly Off' : 'Update Penalisation Policy'}
             </div>
             <div style={{ padding: 18 }}>
@@ -945,7 +945,7 @@ function AssignmentsTab({ token }: { token: string }) {
       {importOpen && (
         <div style={overlayStyle} onClick={() => !importBusy && setImportOpen(false)}>
           <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
                 CSV with columns <code>employee_code,shift_name,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched.
@@ -1027,7 +1027,7 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
     <div style={overlayStyle} onClick={onClose}>
       <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{card.title}</span>
+          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
         </div>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1198,7 +1198,7 @@ function KudosModal({ target, token, onClose }: { target: KudosTarget | null; to
           <Avatar userId={target.userId} name={target.name} size={36} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>Appreciating</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
         </div>
@@ -1588,7 +1588,7 @@ function RegularizationHistoryModal({ employeeUserId, employeeName, attendanceDa
       <div style={{ ...modalStyle, maxWidth: 520 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
           <div>
-            <div style={{ fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>Regularization History</div>
+            <div style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Regularization History</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{employeeName} · {fmtDateShort(attendanceDate)}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
@@ -1789,7 +1789,7 @@ function PenaltiesTab({ token }: { token: string }) {
                     <Avatar userId={r.employeeUserId} name={r.fullName} size={26} />
                     <div>
                       <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.fullName}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</div>
                     </div>
                   </div>
                 </td>
@@ -1811,7 +1811,7 @@ function PenaltiesTab({ token }: { token: string }) {
       {cancelOpen && (
         <div style={overlayStyle} onClick={() => !cancelBusy && setCancelOpen(false)}>
           <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>
               Cancel {selected.size} {selected.size === 1 ? 'Penalty' : 'Penalties'}
             </div>
             <div style={{ padding: 18 }}>
@@ -2010,7 +2010,7 @@ export default function MyTeamPage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
             {viewMode === 'direct'
               ? "Attendance, leave, and open requests for your direct reports — one place, so you don't have to check four separate pages to know how your team is doing today."
@@ -2223,7 +2223,7 @@ export default function MyTeamPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.dr.fullName}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.dr.designationName ?? '—'}</div>
-                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{row.dr.employeeCode}</div>
+                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{row.dr.employeeCode}</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 22 }}>

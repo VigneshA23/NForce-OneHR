@@ -19,7 +19,7 @@ const readOnlyStyle: React.CSSProperties = { width: '100%', background: 'var(--s
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -126,7 +126,7 @@ export function ReviewPublishModal({ item, token, onClose, onEdit, onPublished }
              panel, not just another Field, since this is the one thing this modal actually
              changes. */}
           <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: 16 }}>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--txt)', marginBottom: 4 }}>Publish To</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--txt)', marginBottom: 4 }}>Publish To</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 12 }}>Choose who should be able to see this content.</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {AUDIENCE_OPTIONS.map(a => (

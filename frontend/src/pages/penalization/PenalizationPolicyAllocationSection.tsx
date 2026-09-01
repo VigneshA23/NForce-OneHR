@@ -72,7 +72,7 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '22px 26px', width: 420, maxWidth: '95vw' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)' }}><X size={16} /></button>
         </div>
         <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.55 }}>{body}</p>
@@ -141,7 +141,7 @@ function AllocateModal({ title, employeeCount, policies, initial, allowRemoveOpt
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '24px 26px', width: 440, maxWidth: '95vw' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)' }}><X size={16} /></button>
         </div>
         <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--txt-mut)' }}>
@@ -812,7 +812,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
                       <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{row.fullName}</div>
                       <div style={{ color: 'var(--txt-mut)', fontSize: 11 }}>{row.designationTitle ?? '—'}</div>
                     </td>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5 }}>{row.employeeCode}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)', fontFamily: 'Inter, sans-serif', fontSize: 11.5 }}>{row.employeeCode}</td>
                     <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.departmentName ?? '—'}</td>
                     <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.locationName ?? '—'}</td>
                     <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.businessUnitName ?? '—'}</td>

@@ -45,7 +45,7 @@ export function AuditStatCards({ stats, showAccess }: Props) {
               {c.label}
             </span>
           </div>
-          <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             {c.value}
           </div>
         </div>

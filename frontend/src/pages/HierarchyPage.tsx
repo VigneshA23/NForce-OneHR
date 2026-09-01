@@ -87,7 +87,7 @@ function Avatar({ card, size = 42, isFocus = false }: { card: PersonCard; size?:
       background={isFocus ? '#B11116' : c.bg}
       color={isFocus ? '#fff' : c.fg}
       border={isFocus ? '2px solid rgba(228,55,61,.6)' : `1.5px solid ${c.border}44`}
-      style={{ fontFamily: '"Space Grotesk", sans-serif' }}
+      style={{ fontFamily: 'Inter, sans-serif' }}
     />
   );
 }
@@ -126,7 +126,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
         display: 'flex', flexDirection: 'column',
       }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Person Details</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Person Details</span>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', display: 'grid', placeItems: 'center', padding: 4, borderRadius: 5 }}>
             <X size={14} />
           </button>
@@ -135,7 +135,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Avatar card={card} size={48} isFocus={card.isFocus} />
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 2 }}>{card.name}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 2 }}>{card.name}</div>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{card.designation ?? '—'}</div>
             </div>
           </div>
@@ -230,7 +230,7 @@ function OrgCard({
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{
               fontSize: 11.5, fontWeight: 700, color: 'var(--txt)',
-              fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1.3,
+              fontFamily: 'Inter, sans-serif', lineHeight: 1.3,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
               {card.name}
@@ -314,7 +314,7 @@ function RootsPicker({ roots, onPick, onClose }: {
         width: 'min(340px, calc(100vw - 32px))', maxHeight: '70vh', display: 'flex', flexDirection: 'column',
       }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>View from the top</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>View from the top</span>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', display: 'grid', placeItems: 'center', padding: 4 }}>
             <X size={14} />
           </button>
@@ -619,7 +619,7 @@ export default function HierarchyPage() {
     }
 
     gfx.fillStyle = '#E8EAED';
-    gfx.font = 'bold 24px "Space Grotesk", system-ui, sans-serif';
+    gfx.font = 'bold 24px "Inter", system-ui, sans-serif';
     const titleX = logoImg.naturalWidth > 0
       ? 24 + (HEADER * 0.55 * logoImg.naturalWidth / logoImg.naturalHeight) + 20
       : 24;
@@ -703,7 +703,7 @@ export default function HierarchyPage() {
 
       {/* Page title */}
       <div>
-        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Org Hierarchy
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>

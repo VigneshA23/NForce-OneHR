@@ -24,8 +24,8 @@
 
   /* Fonts */
   --font-sans: 'Inter', system-ui, sans-serif;
-  --font-heading: 'Space Grotesk', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-heading: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Inter', system-ui, sans-serif;
 }
 
 *,
@@ -105,6 +105,36 @@ body {
   --warn:        #896010;
   --risk:        #C81A1F;
   --info:        #1A5FAA;
+}
+
+/* Scrollbars — thin, low-contrast, theme-aware (replaces the default
+   opaque/white browser scrollbar, which stood out too much against the
+   dark/light panels). Uses the existing --line2/--txt-dim tokens so the
+   thumb color already tracks light/dark theme switches automatically;
+   track stays transparent so no background box shows up around it. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--line2);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--txt-dim);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 @keyframes glow-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
@@ -378,6 +408,7 @@ input[type="date"] {
   .nf-org-toolbar-tabs {
     width: 100%;
     overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
   }
   .nf-org-toolbar-actions { width: 100%; box-sizing: border-box; }
@@ -567,29 +598,34 @@ input[type="date"] {
    scrolling. Desktop/tablet keep the original fixed sizes set inline,
    untouched. */
 @media (max-width: 900px) {
-  .nf-auth-mobile-brand { margin-bottom: clamp(10px, 3vh, 22px) !important; }
-  .nf-branding-block { gap: clamp(4px, 1.5vh, 12px) !important; }
-  .nf-brandmark, .nf-brandmark-ring, .nf-brandmark-img {
+  /* Scoped to .nf-auth-shell (the auth/login page root) — .nf-brandmark,
+     .nf-brand-title etc. are the same classes BrandMark renders everywhere
+     (e.g. the landing page nav), so leaving these selectors bare here would
+     hijack every other page's logo sizing with vh-based clamps meant only
+     for this vertically-stacked login layout. */
+  .nf-auth-shell .nf-auth-mobile-brand { margin-bottom: clamp(10px, 3vh, 22px) !important; }
+  .nf-auth-shell .nf-branding-block { gap: clamp(4px, 1.5vh, 12px) !important; }
+  .nf-auth-shell .nf-brandmark, .nf-auth-shell .nf-brandmark-ring, .nf-auth-shell .nf-brandmark-img {
     width: clamp(48px, min(11vh, 22vw), 96px) !important;
     height: clamp(48px, min(11vh, 22vw), 96px) !important;
   }
-  .nf-brandmark-glow {
+  .nf-auth-shell .nf-brandmark-glow {
     width: clamp(70px, min(16vh, 32vw), 140px) !important;
     height: clamp(70px, min(16vh, 32vw), 140px) !important;
   }
-  .nf-brand-title { font-size: clamp(14px, min(3.2vh, 4.4vw), 18px) !important; }
-  .nf-brand-subtitle { font-size: clamp(8px, min(1.8vh, 2.4vw), 10px) !important; margin-top: clamp(1px, 0.6vh, 3px) !important; }
+  .nf-auth-shell .nf-brand-title { font-size: clamp(14px, min(3.2vh, 4.4vw), 18px) !important; }
+  .nf-auth-shell .nf-brand-subtitle { font-size: clamp(8px, min(1.8vh, 2.4vw), 10px) !important; margin-top: clamp(1px, 0.6vh, 3px) !important; }
 
-  .nf-login-heading-block { margin-bottom: clamp(8px, 2.5vh, 16px) !important; }
-  .nf-login-heading { font-size: clamp(16px, 4vh, 20px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
-  .nf-login-subtext { font-size: clamp(10px, 2.2vh, 12px) !important; }
-  .nf-login-sso-btn { padding: clamp(6px, 1.6vh, 9px) clamp(10px, 3vw, 14px) !important; font-size: clamp(11px, 2.4vh, 13px) !important; }
-  .nf-login-divider { margin: clamp(8px, 2.2vh, 14px) 0 !important; font-size: clamp(10px, 2vh, 11px) !important; }
-  .nf-login-field { margin-bottom: clamp(6px, 1.8vh, 10px) !important; }
-  .nf-login-label { font-size: clamp(10px, 2vh, 11px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
-  .nf-login-input { padding-top: clamp(6px, 1.6vh, 8px) !important; padding-bottom: clamp(6px, 1.6vh, 8px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
-  .nf-login-forgot-row { margin-bottom: clamp(8px, 2vh, 12px) !important; margin-top: 0 !important; }
-  .nf-login-submit { padding: clamp(7px, 1.8vh, 9px) clamp(12px, 3vw, 16px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
+  .nf-auth-shell .nf-login-heading-block { margin-bottom: clamp(8px, 2.5vh, 16px) !important; }
+  .nf-auth-shell .nf-login-heading { font-size: clamp(16px, 4vh, 20px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-auth-shell .nf-login-subtext { font-size: clamp(10px, 2.2vh, 12px) !important; }
+  .nf-auth-shell .nf-login-sso-btn { padding: clamp(6px, 1.6vh, 9px) clamp(10px, 3vw, 14px) !important; font-size: clamp(11px, 2.4vh, 13px) !important; }
+  .nf-auth-shell .nf-login-divider { margin: clamp(8px, 2.2vh, 14px) 0 !important; font-size: clamp(10px, 2vh, 11px) !important; }
+  .nf-auth-shell .nf-login-field { margin-bottom: clamp(6px, 1.8vh, 10px) !important; }
+  .nf-auth-shell .nf-login-label { font-size: clamp(10px, 2vh, 11px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-auth-shell .nf-login-input { padding-top: clamp(6px, 1.6vh, 8px) !important; padding-bottom: clamp(6px, 1.6vh, 8px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
+  .nf-auth-shell .nf-login-forgot-row { margin-bottom: clamp(8px, 2vh, 12px) !important; margin-top: 0 !important; }
+  .nf-auth-shell .nf-login-submit { padding: clamp(7px, 1.8vh, 9px) clamp(12px, 3vw, 16px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
 }
 
 /* Employee dashboard — Attendance Calendar -> was built with a hardcoded

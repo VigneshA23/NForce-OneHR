@@ -41,7 +41,7 @@ const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: '
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -157,7 +157,7 @@ function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
             </PieChart>
           </ResponsiveContainer>
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <span style={{ fontSize: 20, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)', lineHeight: 1 }}>{available}</span>
+            <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', lineHeight: 1 }}>{available}</span>
           </div>
         </div>
 
@@ -328,7 +328,7 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
         >
           <ChevronLeft size={12} />
         </button>
-        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 12, color: 'var(--txt)' }}>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 12, color: 'var(--txt)' }}>
           {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
         </span>
         <button
@@ -633,7 +633,7 @@ export default function LeavePage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 22 }}>
         <div>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Leave & Holidays</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Leave & Holidays</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>View your balance, request leave, and track approvals.</p>
         </div>
         <button onClick={() => setShowRequest(true)} disabled={types.length === 0} style={{ ...primaryButtonStyle, cursor: types.length === 0 ? 'not-allowed' : 'pointer', opacity: types.length === 0 ? 0.6 : 1 }}>
@@ -718,7 +718,7 @@ export default function LeavePage() {
       <div style={{ marginTop: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+            <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
               Company Holidays{holidayScopeLabel ? ` — ${holidayScopeLabel}` : ''}
             </h2>
             <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4 }}>

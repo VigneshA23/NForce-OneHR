@@ -159,7 +159,7 @@ function ModalShell({ title, onClose, width = 480, children }: { title: string; 
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>{title}</h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
             <X size={16} />
           </button>
@@ -452,7 +452,7 @@ export function ConfirmDiscardModal({ onKeepEditing, onDiscard }: { onKeepEditin
       background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)',
     }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '22px 26px', width: 380, maxWidth: '95vw' }}>
-        <h2 style={{ margin: '0 0 10px', fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>Discard unsaved changes?</h2>
+        <h2 style={{ margin: '0 0 10px', fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>Discard unsaved changes?</h2>
         <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--txt-mut)' }}>You have unsaved edits in this policy configuration. Leaving now will discard them.</p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" onClick={onKeepEditing} style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>Keep editing</button>

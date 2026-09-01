@@ -321,7 +321,10 @@ export function AttendanceHeroBanner() {
       const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
       const refreshed = await attendanceApi.today(token);
       setToday(refreshed);
-      const at = formatClockTime(kind === 'in' ? refreshed.serverNow : record.checkOutAt);
+      // Use the check-in/check-out record's own timestamp, not `refreshed.serverNow` — that comes
+      // from a second, later `/today` call and picks up whatever latency that round trip has,
+      // making the toast read later than the moment the employee actually punched in.
+      const at = formatClockTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
@@ -413,7 +416,7 @@ export function AttendanceHeroBanner() {
 
     return (
       <HeroCard>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
           {headline}
         </div>
         {subtitle && <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{subtitle}</p>}
@@ -527,7 +530,7 @@ export function AttendanceHeroBanner() {
 
   return (
     <HeroCard>
-      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
         Not checked in yet.
       </div>
       <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{subtitle}</p>
