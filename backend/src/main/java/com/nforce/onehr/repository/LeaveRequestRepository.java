@@ -44,16 +44,21 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
 
     // Organization-wide equivalent of the above — no employeeUserId scoping. Backs the HR
     // dashboard's "On Leave" KPI (see LeaveService#listOrgLeave). JOIN FETCH r.leaveType for the
-    // same N+1 reason as the other list-backing queries in this file.
-    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.status = :status "
-            + "AND r.startDate <= :to AND r.endDate >= :from")
+    // same N+1 reason as the other list-backing queries in this file. Joins User to exclude
+    // soft-deleted requesters — org-wide views aren't scoped through EmployeeManagerHistoryRepository
+    // (unlike the manager-scoped queries above), so this is the only place deleted employees'
+    // leave requests get filtered out of the HR-wide view.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType JOIN User u ON u.id = r.employeeUserId "
+            + "WHERE r.status = :status AND r.startDate <= :to AND r.endDate >= :from AND u.deletedAt IS NULL")
     List<LeaveRequest> findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
             @Param("status") String status, @Param("to") LocalDate to, @Param("from") LocalDate from);
 
     // Organization-wide pending queue, no employeeUserId scoping — backs HR_ADMIN/SUPER_ADMIN
     // visibility in Approval Center (see LeaveService#listPendingApprovals's override branch).
-    // JOIN FETCH r.leaveType for the same N+1 reason as the other list-backing queries in this file.
-    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.status = :status ORDER BY r.createdAt ASC")
+    // JOIN FETCH r.leaveType for the same N+1 reason as the other list-backing queries in this
+    // file. Joins User to exclude soft-deleted requesters, same reasoning as the query above.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType JOIN User u ON u.id = r.employeeUserId "
+            + "WHERE r.status = :status AND u.deletedAt IS NULL ORDER BY r.createdAt ASC")
     List<LeaveRequest> findByStatusOrderByCreatedAtAsc(@Param("status") String status);
 
     // Backs LeaveService#submitRequest's overlapping-request guard: true if the employee already

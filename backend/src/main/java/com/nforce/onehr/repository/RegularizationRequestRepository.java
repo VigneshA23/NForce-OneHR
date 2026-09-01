@@ -3,6 +3,7 @@ package com.nforce.onehr.repository;
 import com.nforce.onehr.entity.RegularizationRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -21,9 +22,24 @@ public interface RegularizationRequestRepository extends JpaRepository<Regulariz
     @Query("SELECT r.id FROM RegularizationRequest r WHERE r.employeeUserId IN :employeeUserIds")
     Set<UUID> findIdsByEmployeeUserIdIn(Collection<UUID> employeeUserIds);
 
-    List<RegularizationRequest> findByStatus(String status);
+    // Backs RegularizationService#listPendingForApprover — a company-wide (not manager-scoped)
+    // queue, so unlike the employeeUserId-scoped queries elsewhere in this file, these need their
+    // own User join to exclude soft-deleted requesters' regularization requests.
+    @Query("SELECT r FROM RegularizationRequest r JOIN User u ON u.id = r.employeeUserId "
+         + "WHERE r.status = :status AND u.deletedAt IS NULL")
+    List<RegularizationRequest> findByStatus(@Param("status") String status);
 
-    List<RegularizationRequest> findByStatusIn(Collection<String> statuses);
+    @Query("SELECT r FROM RegularizationRequest r JOIN User u ON u.id = r.employeeUserId "
+         + "WHERE r.status IN :statuses AND u.deletedAt IS NULL")
+    List<RegularizationRequest> findByStatusIn(@Param("statuses") Collection<String> statuses);
+
+    // Backs RegularizationService#listAll (Super Admin full history) and #listForApprover's
+    // override branch — both used the base findAll() previously, which returns every row
+    // regardless of the requester's deletion state. A dedicated method rather than overriding
+    // findAll() itself, matching the EmployeeRepository.findAllWithDetails() precedent for "the
+    // same rows as findAll(), but deletedAt-aware."
+    @Query("SELECT r FROM RegularizationRequest r JOIN User u ON u.id = r.employeeUserId WHERE u.deletedAt IS NULL")
+    List<RegularizationRequest> findAllWithActiveRequester();
 
     boolean existsByEmployeeUserIdAndAttendanceDateAndStatus(UUID employeeUserId, LocalDate attendanceDate, String status);
 
