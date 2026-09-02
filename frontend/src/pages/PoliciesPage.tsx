@@ -363,7 +363,7 @@ function AckDrawer({ policy, onClose }: { policy: Policy; onClose(): void }) {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name…"
             style={{ width: '100%', paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' }} />
         </div>
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div style={{ overflowY: 'auto', overflowX: 'auto', flex: 1 }}>
           {loading ? <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</p> : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -575,7 +575,7 @@ export default function PoliciesPage() {
       </div>
 
       {/* Tabs — colored badge style */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 18, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
+      <div className="nf-tab-scroll" style={{ display: 'flex', gap: 6, marginBottom: 18, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', maxWidth: '100%' }}>
         <button style={tabStyle('policies')} onClick={() => setTab('policies')}>
           Policies
           {policies.length > 0 && (

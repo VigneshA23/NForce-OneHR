@@ -281,6 +281,7 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
                 No allocation history — this employee follows the legacy/default assignment only.
               </div>
             ) : (
+              <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
                   <tr style={{ background: 'var(--raised)' }}>
@@ -300,6 +301,7 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </>
         ) : null}
@@ -418,7 +420,7 @@ function AddEmployeesModal({ token, policies, businessUnits, departments, locati
           </select>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
           {loading ? (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>
           ) : loadError ? (

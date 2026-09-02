@@ -1042,7 +1042,7 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
             {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
           {loading ? (
             <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
           ) : !rows || rows.length === 0 ? (

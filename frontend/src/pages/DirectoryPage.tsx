@@ -363,11 +363,11 @@ export default function DirectoryPage() {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+                <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
                     Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
                   </span>
-                  <div style={{ display: 'flex', gap: 4 }}>
+                  <div className="nf-tab-scroll" style={{ display: 'flex', gap: 4, maxWidth: '100%' }}>
                     <button
                       disabled={page === 0}
                       onClick={() => setPage(p => p - 1)}

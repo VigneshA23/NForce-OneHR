@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>NForce OneHR</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,6 +15,17 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- TEMP-DEBUG: on-page mobile DevTools overlay for diagnosing an iOS Safari-only mobile
+         layout bug without Mac/Web-Inspector access. Only loads with ?debug=1 in the URL —
+         remove this block once the bug is diagnosed and fixed. -->
+    <script>
+      if (new URLSearchParams(location.search).get('debug') === '1') {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/eruda';
+        s.onload = function () { eruda.init(); };
+        document.body.appendChild(s);
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

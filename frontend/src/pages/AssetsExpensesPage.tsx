@@ -256,7 +256,7 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Assets tab */}
       {activeTab === 'assets' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <select value={assetCatFilter} onChange={e => setAssetCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Categories</option>
               {assetCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
@@ -305,7 +305,7 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Asset Requests tab */}
       {activeTab === 'requests' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             <select value={reqStatusFilter} onChange={e => setReqStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Statuses</option>
               {requestStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -350,8 +350,8 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Expense Claims tab */}
       {activeTab === 'claims' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <select value={claimStatusFilter} onChange={e => setClaimStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
                 <option value="">All Statuses</option>
                 {claimStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -674,7 +674,7 @@ function ManagerView({ token }: { token: string }) {
       {/* Team Assets tab */}
       {activeTab === 'assets' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={assetSearch} onChange={e => setAssetSearch(e.target.value)} placeholder="Search employee…" style={{ ...inputStyle, width: 180, fontSize: 12, padding: '6px 10px' }} />
             <select value={assetCatFilter} onChange={e => setAssetCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Categories</option>
@@ -1031,7 +1031,7 @@ function HRView({ token }: { token: string }) {
         <div style={{ marginBottom: 10 }}>
           <input value={payrollSearch} onChange={e => setPayrollSearch(e.target.value)} placeholder="Search employee…" style={{ ...inputStyle, width: 200, fontSize: 12, padding: '6px 10px' }} />
         </div>
-        <div style={{ ...panelStyle, padding: '14px 18px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ ...panelStyle, padding: '14px 18px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
             {hrExpTiles?.pendingClearanceCount ? `${hrExpTiles.pendingClearanceCount} claims pending final approval in Approval Center` : 'No claims pending final approval'}
           </div>

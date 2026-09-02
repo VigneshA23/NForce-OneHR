@@ -137,7 +137,7 @@ function DetailModal({
         {/* Actions — only for pending docs */}
         {doc.status === 'PENDING_VERIFICATION' && (
           mode === 'view' ? (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button onClick={onClose} disabled={acting}
                 style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
                 Close

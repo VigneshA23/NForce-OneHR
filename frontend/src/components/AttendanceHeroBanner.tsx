@@ -376,8 +376,8 @@ export function AttendanceHeroBanner() {
   if (loading) {
     return (
       <HeroCard>
-        <div style={{ height: 28, width: 240, background: 'rgba(255,255,255,0.08)', borderRadius: 6, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
-        <div style={{ height: 14, width: 360, background: 'rgba(255,255,255,0.05)', borderRadius: 4, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ height: 28, width: '100%', maxWidth: 240, background: 'rgba(255,255,255,0.08)', borderRadius: 6, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ height: 14, width: '100%', maxWidth: 360, background: 'rgba(255,255,255,0.05)', borderRadius: 4, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
         <div style={{ display: 'flex', gap: 7 }}>
           <div style={{ height: 26, width: 90, background: 'rgba(255,255,255,0.06)', borderRadius: 20, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
           <div style={{ height: 26, width: 70, background: 'rgba(255,255,255,0.06)', borderRadius: 20, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />

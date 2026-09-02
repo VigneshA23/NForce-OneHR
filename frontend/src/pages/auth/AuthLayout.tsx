@@ -83,7 +83,7 @@ function BrandingBlock({ size, compact = false, stacked = false }: { size: 'sm' 
 
 export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, children }: AuthLayoutProps) {
   return (
-    <div data-theme="dark" className="nf-auth-shell" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: '100dvh' }}>
+    <div data-theme="dark" className="nf-auth-shell" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: 'var(--app-height, 100dvh)' }}>
       <div className="nf-auth-left-panel" style={{ position: 'relative', overflow: 'hidden', background: panelGradient, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 48px' }}>
         <SpeedStreaks />
         <BrandingBlock size="lg" />
@@ -117,7 +117,7 @@ export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, child
         ) : <div />}
       </div>
 
-      <div className="nf-auth-right-panel max-[900px]:flex-col" style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: '100dvh' }}>
+      <div className="nf-auth-right-panel max-[900px]:flex-col" style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: 'var(--app-height, 100dvh)' }}>
         <div className="hidden max-[900px]:flex nf-auth-mobile-brand" style={{ width: '100%', maxWidth: 440, marginBottom: 24, justifyContent: 'center' }}>
           <BrandingBlock size="lg" stacked />
         </div>

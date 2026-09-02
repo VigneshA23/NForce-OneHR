@@ -952,7 +952,7 @@ function LandingFooter() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
   return (
-    <div data-theme="dark" style={{ background: 'var(--shell)', color: 'var(--txt)', minHeight: '100vh', overflowX: 'clip' }}>
+    <div data-theme="dark" style={{ background: 'var(--shell)', color: 'var(--txt)', minHeight: 'var(--app-height, 100dvh)', overflowX: 'clip' }}>
       <LandingNav />
       <div style={{ paddingTop: 76 }}>
         <LandingHero />
