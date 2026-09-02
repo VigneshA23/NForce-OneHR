@@ -297,7 +297,7 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
             value={message}
             onChange={e => setMessage(e.target.value)}
           />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
               <Paperclip size={13} />
               {attachment ? attachment.name : 'Attach a file'}

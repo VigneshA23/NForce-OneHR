@@ -725,7 +725,7 @@ export default function LeavePage() {
               {isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location.'}
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             {isAdmin && (
               <select
                 value={locationFilter}

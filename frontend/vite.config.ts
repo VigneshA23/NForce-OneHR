@@ -29,4 +29,16 @@ export default defineConfig({
       },
     },
   },
+  // `vite preview` (serves the production `dist/` build, used to rule out dev-server-only
+  // FOUC/HMR artifacts when debugging mobile rendering) doesn't inherit `server.proxy` above —
+  // it needs its own. Mirrors the dev proxy so `npm run preview` also has a working backend.
+  preview: {
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+    },
+  },
 })

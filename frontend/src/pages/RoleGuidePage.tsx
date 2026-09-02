@@ -116,7 +116,7 @@ export default function RoleGuidePage() {
 
   if (!role) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--shell)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+      <div style={{ minHeight: 'var(--app-height, 100dvh)', background: 'var(--shell)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
         <p style={{ color: 'var(--txt-mut)', fontSize: 16 }}>Role not found.</p>
         <button onClick={() => navigate('/')} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 600 }}>
           Back to home
@@ -141,10 +141,10 @@ export default function RoleGuidePage() {
   };
 
   return (
-    <div data-theme="dark" style={{ minHeight: '100vh', background: 'var(--shell)', color: 'var(--txt)' }}>
+    <div data-theme="dark" style={{ minHeight: 'var(--app-height, 100dvh)', background: 'var(--shell)', color: 'var(--txt)' }}>
       {/* Header */}
       <div style={{ borderBottom: '1px solid var(--line)', background: 'rgba(14,15,18,0.9)', backdropFilter: 'blur(14px)', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 24px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div className="nf-roleguide-header" style={{ maxWidth: 900, margin: '0 auto', padding: '0 24px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontFamily: 'inherit', padding: '4px 0' }}
               onMouseEnter={e => (e.currentTarget.style.color = 'var(--txt)')}

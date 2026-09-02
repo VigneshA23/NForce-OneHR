@@ -372,7 +372,7 @@ export default function DocumentsPage() {
 
           {/* Upload from docTypes for any not in required list */}
           {docTypes.length > required.length && (
-            <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Upload additional document:</span>
               <select onChange={e => {
                 const dt = docTypes.find(d => d.id === Number(e.target.value));

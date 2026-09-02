@@ -357,6 +357,28 @@ export function Shell() {
     setNavOpen(false);
   }, [location.pathname]);
 
+  // iOS Safari's dynamic bottom toolbar (the one that shrinks away on scroll, see the
+  // safe-area/dvh comments elsewhere in this file and index.css) can get its layout out of
+  // sync with a `position: fixed` overlay closing right after the toolbar was mid-animation —
+  // opening this drawer forces the toolbar back to its full/expanded state (standard Safari
+  // behavior on any tap), and once the drawer's scrim/sidebar unmount, WebKit sometimes fails
+  // to repaint the page region that sits behind where the toolbar was, leaving a blank hole
+  // where content used to render — until something else forces a redraw. A no-op 1px scroll
+  // nudge right after the close transition (200ms, matching .shell-sidebar's own transition)
+  // is the standard, imperceptible way to force that repaint.
+  const wasNavOpenRef = useRef(false);
+  useEffect(() => {
+    const wasOpen = wasNavOpenRef.current;
+    wasNavOpenRef.current = navOpen;
+    if (wasOpen && !navOpen) {
+      const t = setTimeout(() => {
+        window.scrollBy(0, 1);
+        window.scrollBy(0, -1);
+      }, 220);
+      return () => clearTimeout(t);
+    }
+  }, [navOpen]);
+
   // Results dropdown — shared by the desktop search bar and the mobile expanded-search row
   // below, so the two never drift out of sync. Only one of them is ever mounted at a time
   // (mobileSearchOpen swaps between them), so reusing this element in both branches is safe.
@@ -413,7 +435,7 @@ export function Shell() {
   );
 
   return (
-    <div style={{ display: 'flex', minHeight: '100dvh' }}>
+    <div style={{ display: 'flex', minHeight: 'var(--app-height, 100dvh)' }}>
       {/* Mobile-only scrim behind the off-canvas sidebar; no desktop/tablet equivalent */}
       {navOpen && (
         <div className="nf-nav-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
@@ -424,7 +446,13 @@ export function Shell() {
         className={`shell-sidebar${navOpen ? ' shell-sidebar--open' : ''}`}
         style={{
           width: 236, flexShrink: 0, background: '#0B0C0F', borderRight: '1px solid #23262D',
-          display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, bottom: 0, left: 0,
+          display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, left: 0,
+          // `height: 100dvh` instead of `bottom: 0` — on iOS Safari, a `position: fixed` element
+          // pinned via top/bottom:0 can end up sized against a stale snapshot of the toolbar's
+          // collapsed/expanded state at the moment it's inserted, leaving a black gap below it
+          // if the toolbar's state changes shortly after (e.g. opening this drawer right after
+          // scrolling). `dvh` is the unit purpose-built to track the actual live viewport instead.
+          height: 'var(--app-height, 100dvh)',
         }}
       >
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
@@ -512,10 +540,10 @@ export function Shell() {
                 {navOpen ? <CloseIcon size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
               </button>
 
-              <div style={{ color: '#9BA1AC', fontSize: 13 }}>
+              <div style={{ color: '#9BA1AC', fontSize: 13, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1 }}>
                 <b style={{ color: '#E8EAED', fontWeight: 600 }}>{current.label}</b>
               </div>
-              <div style={{ flex: 1 }} />
+              <div style={{ flex: 1, minWidth: 0 }} />
               {/* Global search — People + Navigation */}
               <div ref={searchRef} className="nf-topbar-search" style={{ position: 'relative', maxWidth: 260, width: 260 }}>
                 <div style={{ background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8 }}>

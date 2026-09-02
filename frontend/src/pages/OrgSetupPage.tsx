@@ -651,7 +651,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
         <form onSubmit={submit}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={labelS}>Shift Name *</label>
               <input style={inputS} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. US Night Shift" required autoFocus />
@@ -665,7 +665,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
             <label style={labelS}>Description</label>
             <textarea style={{ ...inputS, minHeight: 60, resize: 'vertical', fontFamily: 'inherit' }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional notes about who this shift is for" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={labelS}>Start Time *</label>
               <input type="time" style={inputS} value={startTime} onChange={e => setStartTime(e.target.value)} required />
@@ -676,7 +676,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Earlier than start = overnight shift, crossing midnight</span>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14, alignItems: 'end' }}>
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14, alignItems: 'end' }}>
             <div>
               <label style={labelS}>Break Duration (minutes)</label>
               <input type="number" min={0} style={inputS} value={breakMinutes} onChange={e => setBreakMinutes(e.target.value)} placeholder="e.g. 60" />
