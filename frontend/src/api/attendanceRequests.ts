@@ -96,7 +96,8 @@ export const attendanceRequestApi = {
     fetch(`${BASE}/partial-day-balance?date=${date}`, { headers: authHeaders(token) })
       .then(r => handle<PartialDayBalance>(r)),
 
-  /** WFH's "Remaining balance" line — days already committed in `date`'s month vs. the 2-day cap. */
+  /** WFH's "Remaining balance" line — days already committed in `date`'s month vs. the current
+   * monthly cap (Super Admin-configurable, see wfhPartialLeavePolicyApi). */
   wfhBalance: (date: string, token: string) =>
     fetch(`${BASE}/wfh-balance?date=${date}`, { headers: authHeaders(token) })
       .then(r => handle<WfhBalance>(r)),

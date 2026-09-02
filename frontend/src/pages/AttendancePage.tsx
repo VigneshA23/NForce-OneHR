@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, MoreVertical, XCircle } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, MoreVertical, XCircle, Sliders } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -29,6 +29,7 @@ import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeR
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
+import { wfhPartialLeavePolicyApi, type WfhPartialLeavePolicy } from '../api/wfhPartialLeavePolicy';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { profileApi } from '../api/profile';
@@ -2493,7 +2494,7 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   );
 }
 
-function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, onCheckOut, onWebCheckInSubmitted }: {
+function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, onCheckOut, onWebCheckInSubmitted, isSuperAdmin }: {
   token: string;
   today: TodayAttendance | null;
   todayLoading: boolean;
@@ -2501,8 +2502,9 @@ function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, 
   onCheckIn: () => Promise<void>;
   onCheckOut: () => Promise<void>;
   onWebCheckInSubmitted: () => Promise<unknown>;
+  isSuperAdmin: boolean;
 }) {
-  const [modal, setModal] = useState<'WFH' | 'PARTIAL_DAY' | 'POLICY' | null>(null);
+  const [modal, setModal] = useState<'WFH' | 'PARTIAL_DAY' | 'POLICY' | 'WFH_POLICY_CONFIG' | null>(null);
 
   const actionStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8, background: 'var(--raised)', border: '1px solid var(--line2)',
@@ -2524,6 +2526,13 @@ function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, 
       <button style={actionStyle} onClick={() => setModal('POLICY')}>
         <FileText size={14} style={{ color: 'var(--brand)' }} /> Attendance Policy
       </button>
+      {/* Super Admin only — the actual editable limits (see WfhPartialLeavePolicyModal),
+          distinct from the read-only policy text above. */}
+      {isSuperAdmin && (
+        <button style={actionStyle} onClick={() => setModal('WFH_POLICY_CONFIG')}>
+          <Sliders size={14} style={{ color: 'var(--brand)' }} /> WFH & Partial Leave Limits
+        </button>
+      )}
       {(modal === 'WFH' || modal === 'PARTIAL_DAY') && (
         <AttendanceRequestModal
           presetType={modal}
@@ -2535,6 +2544,129 @@ function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, 
       {modal === 'POLICY' && (
         <AttendancePolicyModal onClose={() => setModal(null)} />
       )}
+      {modal === 'WFH_POLICY_CONFIG' && (
+        <WfhPartialLeavePolicyModal token={token} onClose={() => setModal(null)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Super Admin-only: edit the org-wide WFH monthly-days limit and Partial Day monthly-minutes
+ * limit — replaces what used to be hardcoded (2 days / 120 minutes) in AttendanceRequestService.
+ * Saved values are read fresh from the DB on the backend (see WfhPartialLeavePolicyService), so
+ * they take effect for every employee's very next request/balance check immediately, no
+ * redeploy — "use anytime" (no restriction on which day(s) within the month the allowance is
+ * spent) is unchanged, only the SIZE of each monthly allowance is now configurable.
+ */
+function WfhPartialLeavePolicyModal({ token, onClose }: { token: string; onClose: () => void }) {
+  const { showToast } = useToast();
+  const [policy, setPolicy] = useState<WfhPartialLeavePolicy | null>(null);
+  const [wfhDays, setWfhDays] = useState('');
+  const [partialMinutes, setPartialMinutes] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    wfhPartialLeavePolicyApi.get(token)
+      .then((p) => {
+        if (cancelled) return;
+        setPolicy(p);
+        setWfhDays(String(p.wfhMonthlyLimitDays));
+        setPartialMinutes(String(p.partialLeaveMonthlyLimitMinutes));
+      })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load current limits'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // Accepts any non-negative integer, including 0 — matches the backend's @Min(0) validation
+  // and the table's own CHECK (... >= 0) constraint.
+  function parseLimit(raw: string): number | null {
+    if (!/^\d+$/.test(raw.trim())) return null;
+    return Number(raw.trim());
+  }
+
+  async function handleSave() {
+    const wfhDaysValue = parseLimit(wfhDays);
+    const partialMinutesValue = parseLimit(partialMinutes);
+    if (wfhDaysValue === null || partialMinutesValue === null) {
+      setError('Enter a whole number (0 or greater) for both limits.');
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const updated = await wfhPartialLeavePolicyApi.update(
+        { wfhMonthlyLimitDays: wfhDaysValue, partialLeaveMonthlyLimitMinutes: partialMinutesValue }, token,
+      );
+      setPolicy(updated);
+      showToast('success', 'WFH & Partial Leave limits updated — effective immediately for every employee.');
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save limits';
+      setError(msg);
+      showToast('error', msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: 440 }}>
+        <ModalHeader title="WFH & Partial Leave Limits" onClose={onClose} />
+        <div style={{ padding: 24 }}>
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', padding: '12px 0' }}>Loading current limits…</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.6, marginBottom: 16 }}>
+                Set how many WFH days and Partial Leave minutes each employee can use per calendar month.
+                The allowance can still be used on any day(s) within the month — only the total size of each
+                monthly allowance is set here. Accepts 0 (disables the allowance entirely) or any whole number.
+              </div>
+              <Field label="WFH Days Limit (per month)">
+                <input
+                  type="number" min={0} step={1} inputMode="numeric"
+                  style={inputStyle} value={wfhDays}
+                  onChange={(e) => setWfhDays(e.target.value)}
+                  placeholder="e.g. 2"
+                />
+              </Field>
+              <div style={{ height: 14 }} />
+              <Field label="Partial Leave Hours Limit — in minutes (per month)">
+                <input
+                  type="number" min={0} step={1} inputMode="numeric"
+                  style={inputStyle} value={partialMinutes}
+                  onChange={(e) => setPartialMinutes(e.target.value)}
+                  placeholder="e.g. 120"
+                />
+              </Field>
+              {error && (
+                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--risk)' }}>{error}</div>
+              )}
+              {policy?.updatedByName && (
+                <div style={{ marginTop: 14, fontSize: 11, color: 'var(--txt-dim)' }}>
+                  Last updated by {policy.updatedByName}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
+                <button
+                  onClick={handleSave}
+                  disabled={submitting}
+                  style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                >
+                  {submitting ? 'Saving…' : 'Save Limits'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -3569,6 +3701,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           onCheckIn={() => punch('in')}
           onCheckOut={() => punch('out')}
           onWebCheckInSubmitted={refreshTodayAndMonth}
+          isSuperAdmin={isSuperAdmin}
         />
       </div>
 

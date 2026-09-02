@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -59,13 +60,13 @@ public class AttendanceRequestService {
     // enforced as a hard cap in submit() (a request that would push the month's total past this
     // is rejected outright), same as WFH's cap below. The employee also sees usage-vs-allowance
     // via getPartialDayBalance before submitting.
-    private static final BigDecimal PARTIAL_DAY_MONTHLY_LIMIT_HOURS = new BigDecimal("2");
-    private static final int PARTIAL_DAY_MONTHLY_LIMIT_MINUTES = 120;
-
-    // WFH's monthly allowance, in days (Full Day = 1, First/Second Half = 0.5 each) — same
-    // hard-limit treatment as Partial Day's cap above: a request that would push the month's
-    // total past this is rejected outright.
-    private static final BigDecimal WFH_MONTHLY_LIMIT_DAYS = new BigDecimal("2");
+    //
+    // Both this and WFH's monthly-days allowance below used to be hardcoded here (2 hours /
+    // 120 minutes, 2 days). They're now Super Admin-configurable — see
+    // WfhPartialLeavePolicyService, read fresh (not cached) on every call below so a saved
+    // change takes effect on the very next request, no redeploy. "Use anytime" — i.e. no
+    // restriction on which day(s) within the month the allowance is spent — is unchanged; only
+    // the SIZE of the monthly allowance is now configurable, not when it can be used.
 
     // Minimum lead time before a WFH request's date — matches the policy text ("requires 2
     // day(s) of prior notice, containing at least 0 working day(s)") and Keka's own reference
@@ -82,6 +83,33 @@ public class AttendanceRequestService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
+    private final WfhPartialLeavePolicyService wfhPartialLeavePolicyService;
+
+    /** WFH's current monthly allowance in days — Super Admin configurable, see class javadoc above. */
+    private BigDecimal wfhMonthlyLimitDays() {
+        return BigDecimal.valueOf(wfhPartialLeavePolicyService.getLimits().wfhMonthlyLimitDays());
+    }
+
+    /** Partial Day's current monthly allowance in minutes — Super Admin configurable. */
+    private int partialDayMonthlyLimitMinutes() {
+        return wfhPartialLeavePolicyService.getLimits().partialLeaveMonthlyLimitMinutes();
+    }
+
+    /** Same allowance as partialDayMonthlyLimitMinutes(), in hours — partialDayHours/usedThisMonth
+     * are tracked in hours (BigDecimal), so the minutes-based config is converted once here
+     * rather than at every comparison site. Uses the exact (unscaled) quotient when the division
+     * terminates — 120 minutes -> "2" at scale 0, exactly like the old `new BigDecimal("2")`
+     * literal, so combined with other BigDecimals via add/subtract it produces the same scale
+     * comparisons callers (and this class's own tests) already rely on — falling back to a
+     * rounded value only for a configured minute count that doesn't divide evenly (e.g. 100). */
+    private BigDecimal partialDayMonthlyLimitHours() {
+        BigDecimal minutes = BigDecimal.valueOf(partialDayMonthlyLimitMinutes());
+        try {
+            return minutes.divide(BigDecimal.valueOf(60));
+        } catch (ArithmeticException nonTerminating) {
+            return minutes.divide(BigDecimal.valueOf(60), 2, RoundingMode.HALF_UP);
+        }
+    }
 
     @Transactional
     public AttendanceRequestResponse submit(CreateAttendanceRequest req, String actorEmail) {
@@ -109,24 +137,27 @@ public class AttendanceRequestService {
             if (alreadyRequestedThisDate) {
                 throw new IllegalArgumentException("You already have a Work From Home request for this date.");
             }
+            BigDecimal wfhMonthlyLimitDays = wfhMonthlyLimitDays();
             BigDecimal usedThisMonth = wfhDaysUsedInMonth(actor.getId(), req.getRequestDate());
-            if (usedThisMonth.add(wfhDayFraction).compareTo(WFH_MONTHLY_LIMIT_DAYS) > 0) {
+            if (usedThisMonth.add(wfhDayFraction).compareTo(wfhMonthlyLimitDays) > 0) {
                 throw new IllegalArgumentException(
                         "This request exceeds your remaining Work From Home balance of "
-                                + WFH_MONTHLY_LIMIT_DAYS.subtract(usedThisMonth).max(BigDecimal.ZERO) + " day(s) for this month");
+                                + wfhMonthlyLimitDays.subtract(usedThisMonth).max(BigDecimal.ZERO) + " day(s) for this month");
             }
         }
         if (TYPE_PARTIAL_DAY.equals(type)) {
+            int partialDayMonthlyLimitMinutes = partialDayMonthlyLimitMinutes();
+            BigDecimal partialDayMonthlyLimitHours = partialDayMonthlyLimitHours();
             BigDecimal usedThisMonth = partialDayHoursUsedInMonth(actor.getId(), req.getRequestDate());
-            if (usedThisMonth.add(partialDayHours).compareTo(PARTIAL_DAY_MONTHLY_LIMIT_HOURS) > 0) {
-                // "You have used your 120 minutes" only holds when the allowance is actually
+            if (usedThisMonth.add(partialDayHours).compareTo(partialDayMonthlyLimitHours) > 0) {
+                // "You have used your N minutes" only holds when the allowance is actually
                 // already exhausted — a fresh 0-used request for 200 minutes isn't "used up",
                 // it's just larger than the cap allows in one request.
-                boolean allowanceExhausted = usedThisMonth.compareTo(PARTIAL_DAY_MONTHLY_LIMIT_HOURS) >= 0;
+                boolean allowanceExhausted = usedThisMonth.compareTo(partialDayMonthlyLimitHours) >= 0;
                 throw new IllegalArgumentException(allowanceExhausted
-                        ? "You have used your " + PARTIAL_DAY_MONTHLY_LIMIT_MINUTES + " minutes. You are not allowed to raise a request for more than "
-                                + PARTIAL_DAY_MONTHLY_LIMIT_MINUTES + " minutes."
-                        : "You are not allowed to raise a request for more than " + PARTIAL_DAY_MONTHLY_LIMIT_MINUTES + " minutes.");
+                        ? "You have used your " + partialDayMonthlyLimitMinutes + " minutes. You are not allowed to raise a request for more than "
+                                + partialDayMonthlyLimitMinutes + " minutes."
+                        : "You are not allowed to raise a request for more than " + partialDayMonthlyLimitMinutes + " minutes.");
             }
         }
 
@@ -225,7 +256,8 @@ public class AttendanceRequestService {
     public PartialDayBalance getPartialDayBalance(String actorEmail, LocalDate forDate) {
         User actor = requireActor(actorEmail);
         BigDecimal used = partialDayHoursUsedInMonth(actor.getId(), forDate);
-        return new PartialDayBalance(used, PARTIAL_DAY_MONTHLY_LIMIT_HOURS, PARTIAL_DAY_MONTHLY_LIMIT_HOURS.subtract(used).max(BigDecimal.ZERO));
+        BigDecimal limit = partialDayMonthlyLimitHours();
+        return new PartialDayBalance(used, limit, limit.subtract(used).max(BigDecimal.ZERO));
     }
 
     public record PartialDayBalance(BigDecimal usedHours, BigDecimal limitHours, BigDecimal remainingHours) {}
@@ -235,7 +267,8 @@ public class AttendanceRequestService {
     public WfhBalance getWfhBalance(String actorEmail, LocalDate forDate) {
         User actor = requireActor(actorEmail);
         BigDecimal used = wfhDaysUsedInMonth(actor.getId(), forDate);
-        return new WfhBalance(used, WFH_MONTHLY_LIMIT_DAYS, WFH_MONTHLY_LIMIT_DAYS.subtract(used).max(BigDecimal.ZERO));
+        BigDecimal limit = wfhMonthlyLimitDays();
+        return new WfhBalance(used, limit, limit.subtract(used).max(BigDecimal.ZERO));
     }
 
     public record WfhBalance(BigDecimal usedDays, BigDecimal limitDays, BigDecimal remainingDays) {}
@@ -259,7 +292,7 @@ public class AttendanceRequestService {
 
     /**
      * Validates the structural shape only (must be present and positive) — the monthly cap
-     * (PARTIAL_DAY_MONTHLY_LIMIT_HOURS) is a separate hard check in submit(), since it needs the
+     * (partialDayMonthlyLimitHours()) is a separate hard check in submit(), since it needs the
      * employee's other requests this month to evaluate, not just this one field.
      */
     private BigDecimal resolvePartialDayHours(String type, BigDecimal partialDayHours) {

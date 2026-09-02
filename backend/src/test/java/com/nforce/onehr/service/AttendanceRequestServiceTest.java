@@ -46,6 +46,7 @@ class AttendanceRequestServiceTest {
     @Mock private AttendanceProperties attendanceProps;
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
+    @Mock private WfhPartialLeavePolicyService wfhPartialLeavePolicyService;
 
     @InjectMocks private AttendanceRequestService service;
 
@@ -62,6 +63,10 @@ class AttendanceRequestServiceTest {
         lenient().when(employeeRepository.findById(any())).thenReturn(java.util.Optional.empty());
         lenient().when(userRepository.findById(any())).thenReturn(java.util.Optional.empty());
         lenient().when(attendanceProps.getZone()).thenReturn("Asia/Kolkata");
+        // Same values that used to be hardcoded (WFH_MONTHLY_LIMIT_DAYS = 2,
+        // PARTIAL_DAY_MONTHLY_LIMIT_MINUTES = 120) — every test below assumes these limits.
+        lenient().when(wfhPartialLeavePolicyService.getLimits())
+                .thenReturn(new WfhPartialLeavePolicyService.WfhPartialLeaveLimits(2, 120));
     }
 
     private CreateAttendanceRequest partialDayRequest(LocalDate date, double hours) {
