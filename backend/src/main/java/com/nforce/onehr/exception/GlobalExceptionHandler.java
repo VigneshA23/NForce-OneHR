@@ -3,6 +3,7 @@ package com.nforce.onehr.exception;
 import com.nforce.onehr.dto.ApiError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -135,6 +136,16 @@ public class GlobalExceptionHandler {
         log.warn("Data integrity violation", e);
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiError("That value conflicts with an existing record. Please use a different value."));
+    }
+
+    // Section 6: a @Version-protected row (e.g. LeaveBalance) was concurrently modified by another
+    // request between this transaction's read and write — the losing transaction lands here
+    // instead of silently overwriting the winner's change. Safe to retry.
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLockingFailure(ObjectOptimisticLockingFailureException e) {
+        log.warn("Optimistic locking failure", e);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError("This record was just updated by another request. Please refresh and try again."));
     }
 
     @ExceptionHandler(Exception.class)

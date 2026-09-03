@@ -56,4 +56,11 @@ public class AttendanceProperties {
 
     /** Daily break allowance before it starts eating into worked hours. Provisional — pending PO/final confirmation. */
     private int dailyBreakBudgetMinutes = 60;
+
+    /**
+     * Section 7: org-wide policy for an employee with no allocation and no legacy FK. Defaults to
+     * {@code DEFAULT_POLICY} so no existing org's behavior changes unless explicitly opted into
+     * {@code REQUIRE_ALLOCATION} (e.g. {@code app.attendance.penalization-fallback-strategy: REQUIRE_ALLOCATION}).
+     */
+    private PenalizationFallbackStrategy penalizationFallbackStrategy = PenalizationFallbackStrategy.DEFAULT_POLICY;
 }

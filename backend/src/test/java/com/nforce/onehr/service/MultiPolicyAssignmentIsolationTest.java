@@ -57,6 +57,8 @@ class MultiPolicyAssignmentIsolationTest {
     @Mock private PenalisationPolicyRepository penalisationPolicyRepository;
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
+    @Mock private EmployeeService employeeService;
+    @Mock private AttendancePenaltyService attendancePenaltyService;
 
     private ExceptionService exceptionService;
 
@@ -73,14 +75,15 @@ class MultiPolicyAssignmentIsolationTest {
         AuditSnapshotSerializer snapshotSerializer = new AuditSnapshotSerializer(new ObjectMapper());
         PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, snapshotSerializer);
         AttendancePenaltyEvaluationService penaltyEvaluationService =
-                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService);
+                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
+                        notificationService, employeeService, auditService, snapshotSerializer);
         WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
                 lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
                 attendanceProperties, employeeRepository, notificationService);
         lenient().when(allocationRepository.findEffectiveAt(any(), any())).thenReturn(List.of());
         PenalizationPolicyResolutionService policyResolutionService =
-                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository);
+                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
         ExpectedWorkHoursService expectedWorkHoursService = new ExpectedWorkHoursService(leaveRequestRepository);
         WorkHoursShortageCalculationService workHoursShortageCalculationService =
                 new WorkHoursShortageCalculationService(attendanceRepository, expectedWorkHoursService, workingDayService);
@@ -88,7 +91,7 @@ class MultiPolicyAssignmentIsolationTest {
                 attendanceExceptionRepository, attendanceRepository, leaveRequestRepository,
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
-                workHoursShortageCalculationService);
+                workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
@@ -133,6 +136,14 @@ class MultiPolicyAssignmentIsolationTest {
         PenalisationPolicy policyB = PenalisationPolicy.builder().id(policyBId).name("Policy B").build();
         when(employeeRepository.findById(employeeAId)).thenReturn(Optional.of(employee(employeeAId, policyA)));
         when(employeeRepository.findById(employeeBId)).thenReturn(Optional.of(employee(employeeBId, policyB)));
+        // Gap-001: the legacy-FK tier now gates through findActivePolicyIds() — both policies here
+        // are ACTIVE (the entity's default status).
+        when(penalisationPolicyRepository.findByStatus("ACTIVE")).thenReturn(List.of(policyA, policyB));
+        // GAP-007's working-day gate (and detectNoAttendanceAndShortage's own resolution) need
+        // this schedule lookup to return the SAME per-employee policy assignment `findById` does —
+        // otherwise it would fall through to the unscoped lookup this test forbids below.
+        when(employeeRepository.findAllByIdWithScheduleDetails(any()))
+                .thenReturn(List.of(employee(employeeAId, policyA), employee(employeeBId, policyB)));
 
         // Both employees are 20 minutes late on the same day. The scope list's order isn't
         // guaranteed (it's built from a Set), so match on any list rather than a fixed order.
@@ -174,12 +185,14 @@ class MultiPolicyAssignmentIsolationTest {
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeAId), date, date))
                 .thenReturn(List.of(lateAttendance(employeeAId, 20)));
         lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeAId));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any()))
+                .thenReturn(List.of(employee(employeeAId, null)));
 
         PenalisationPolicy defaultPolicy = PenalisationPolicy.builder().id(policyAId).name("Default Tracking Policy")
-                .createdAt(java.time.LocalDateTime.of(2020, 1, 1, 0, 0)).build();
-        // PenalizationPolicyService#resolveDefaultPolicyId uses a dedicated ORDER BY createdAt ASC
-        // LIMIT 1 query, not findAll().stream().min(...).
-        when(penalisationPolicyRepository.findFirstByOrderByCreatedAtAsc()).thenReturn(Optional.of(defaultPolicy));
+                .createdAt(java.time.LocalDateTime.of(2020, 1, 1, 0, 0)).orgDefault(true).build();
+        // Section 7: the org-default fallback now resolves through resolveActiveDefaultPolicyId(),
+        // which reads the admin-chosen isOrgDefault flag directly, not "oldest ACTIVE by createdAt".
+        when(penalisationPolicyRepository.findByOrgDefaultTrue()).thenReturn(Optional.of(defaultPolicy));
         PenalizationPolicyVersion defaultVersion = PenalizationPolicyVersion.builder()
                 .id(UUID.randomUUID()).policyId(policyAId).version(1)
                 .effectiveFrom(date.minusMonths(1).atStartOfDay())

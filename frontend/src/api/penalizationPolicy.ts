@@ -139,6 +139,17 @@ export async function getCurrentPolicy(token: string, policyId?: string): Promis
   return handle(res);
 }
 
+/**
+ * Section 25: the policy actually governing the calling employee's own attendance right now —
+ * any authenticated employee may call this (unlike every other function here, which requires
+ * HR_ADMIN/SUPER_ADMIN). Null when no policy has ever been saved for their resolved policy.
+ */
+export async function getMyCurrentPolicy(token: string): Promise<PenalizationPolicy | null> {
+  const res = await fetch(`${BASE}/my-current`, { headers: authHeaders(token) });
+  if (res.status === 404) return null;
+  return handle(res);
+}
+
 export async function getPolicyVersions(token: string, policyId?: string): Promise<PenalizationPolicyVersionSummary[]> {
   return handle(await fetch(withPolicyId(`${BASE}/versions`, policyId), { headers: authHeaders(token) }));
 }

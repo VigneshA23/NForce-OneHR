@@ -33,6 +33,12 @@ public class PenalisationPolicyManagementController {
         return service.list();
     }
 
+    /** Section 7/2: DEFAULT_POLICY or REQUIRE_ALLOCATION — read-only, see the service javadoc. */
+    @GetMapping("/fallback-strategy")
+    public java.util.Map<String, String> fallbackStrategy() {
+        return java.util.Map.of("strategy", service.getFallbackStrategy());
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public PenalisationPolicySummaryDto create(@Valid @RequestBody CreatePenalisationPolicyRequest request, Principal principal) {
@@ -48,6 +54,11 @@ public class PenalisationPolicyManagementController {
     @PatchMapping("/{id}/toggle-active")
     public PenalisationPolicySummaryDto toggleActive(@PathVariable UUID id, Principal principal) {
         return service.toggleActive(id, principal.getName());
+    }
+
+    @PatchMapping("/{id}/set-default")
+    public PenalisationPolicySummaryDto setOrgDefault(@PathVariable UUID id, Principal principal) {
+        return service.setOrgDefault(id, principal.getName());
     }
 
     @PostMapping("/{id}/clone")

@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.config.PenalizationFallbackStrategy;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.PenalisationPolicy;
 import com.nforce.onehr.entity.PenalizationPolicyAllocation;
@@ -37,6 +39,7 @@ class PenalizationPolicyResolutionServiceAllocationTest {
     @Mock private PenalizationPolicyAllocationRepository allocationRepository;
     @Mock private PenalizationPolicyService penalizationPolicyService;
     @Mock private EmployeeRepository employeeRepository;
+    @Mock private AttendanceProperties attendanceProperties;
 
     private PenalizationPolicyResolutionService resolutionService;
 
@@ -49,8 +52,14 @@ class PenalizationPolicyResolutionServiceAllocationTest {
 
     @BeforeEach
     void setUp() {
-        resolutionService = new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository);
-        lenient().when(penalizationPolicyService.resolveDefaultPolicyId()).thenReturn(defaultPolicyId);
+        resolutionService = new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
+        lenient().when(attendanceProperties.getPenalizationFallbackStrategy()).thenReturn(PenalizationFallbackStrategy.DEFAULT_POLICY);
+        lenient().when(penalizationPolicyService.resolveActiveDefaultPolicyId()).thenReturn(defaultPolicyId);
+        // Gap-001: resolution now gates every tier (allocation, legacy FK, default) through
+        // findActivePolicyIds() — every policy id this test file exercises is active by default;
+        // the one INACTIVE-specific test below overrides this locally.
+        lenient().when(penalizationPolicyService.findActivePolicyIds())
+                .thenReturn(java.util.Set.of(legacyPolicyId, allocationPolicyAId, allocationPolicyBId, defaultPolicyId));
         lenient().when(allocationRepository.findCurrentAllocationsAt(any())).thenReturn(List.of());
         lenient().when(employeeRepository.findAllEmployeeIdsWithLegacyPolicyId()).thenReturn(List.of());
     }
@@ -98,6 +107,60 @@ class PenalizationPolicyResolutionServiceAllocationTest {
     @Test
     void noAllocationAndNoLegacyFk_fallsBackToOrgDefault() {
         Employee employee = employeeWithLegacyPolicy(null);
+        when(allocationRepository.findEffectiveAt(employee.getUserId(), today)).thenReturn(List.of());
+
+        assertEquals(defaultPolicyId, resolutionService.resolveAssignedOrDefaultPolicyId(employee, today));
+    }
+
+    // ── Section 7: REQUIRE_ALLOCATION fallback strategy ──────────────────────────────────────
+
+    @Test
+    void requireAllocationStrategy_noAllocationAndNoLegacyFk_resolvesToNull_notOrgDefault() {
+        when(attendanceProperties.getPenalizationFallbackStrategy()).thenReturn(PenalizationFallbackStrategy.REQUIRE_ALLOCATION);
+        Employee employee = employeeWithLegacyPolicy(null);
+        when(allocationRepository.findEffectiveAt(employee.getUserId(), today)).thenReturn(List.of());
+
+        assertNull(resolutionService.resolveAssignedOrDefaultPolicyId(employee, today));
+        // The org default must never be silently consulted under this strategy.
+        org.mockito.Mockito.verify(penalizationPolicyService, org.mockito.Mockito.never()).resolveActiveDefaultPolicyId();
+    }
+
+    @Test
+    void requireAllocationStrategy_explicitAllocationStillResolves() {
+        // The strategy only changes what happens with NO allocation/legacy FK — an employee who
+        // does have one is completely unaffected, so this stub is never actually consulted.
+        lenient().when(attendanceProperties.getPenalizationFallbackStrategy()).thenReturn(PenalizationFallbackStrategy.REQUIRE_ALLOCATION);
+        Employee employee = employeeWithLegacyPolicy(null);
+        PenalizationPolicyAllocation currentAllocation = PenalizationPolicyAllocation.builder()
+                .employeeUserId(employee.getUserId()).penalisationPolicyId(allocationPolicyAId)
+                .effectiveFrom(today).effectiveTo(null).build();
+        when(allocationRepository.findEffectiveAt(employee.getUserId(), today)).thenReturn(List.of(currentAllocation));
+
+        assertEquals(allocationPolicyAId, resolutionService.resolveAssignedOrDefaultPolicyId(employee, today));
+    }
+
+    @Test
+    void inactiveAllocatedPolicy_fallsThroughToLegacyFk() {
+        // Gap-001: an allocation row pointing at an INACTIVE policy must never govern — the
+        // employee falls through to the next tier exactly as if no allocation existed.
+        when(penalizationPolicyService.findActivePolicyIds())
+                .thenReturn(java.util.Set.of(legacyPolicyId, defaultPolicyId)); // allocationPolicyAId is NOT active
+        Employee employee = employeeWithLegacyPolicy(legacyPolicyId);
+        PenalizationPolicyAllocation inactiveAllocation = PenalizationPolicyAllocation.builder()
+                .employeeUserId(employee.getUserId()).penalisationPolicyId(allocationPolicyAId)
+                .effectiveFrom(today).effectiveTo(null).build();
+        when(allocationRepository.findEffectiveAt(employee.getUserId(), today)).thenReturn(List.of(inactiveAllocation));
+
+        assertEquals(legacyPolicyId, resolutionService.resolveAssignedOrDefaultPolicyId(employee, today));
+    }
+
+    @Test
+    void inactiveLegacyFkPolicy_fallsThroughToOrgDefault() {
+        // Gap-001: same rule for the legacy FK tier — an INACTIVE policy referenced only via the
+        // legacy employees.penalisation_policy_id column must not govern either.
+        when(penalizationPolicyService.findActivePolicyIds())
+                .thenReturn(java.util.Set.of(defaultPolicyId)); // legacyPolicyId is NOT active
+        Employee employee = employeeWithLegacyPolicy(legacyPolicyId);
         when(allocationRepository.findEffectiveAt(employee.getUserId(), today)).thenReturn(List.of());
 
         assertEquals(defaultPolicyId, resolutionService.resolveAssignedOrDefaultPolicyId(employee, today));
@@ -246,7 +309,7 @@ class PenalizationPolicyResolutionServiceAllocationTest {
         when(employeeRepository.findAllEmployeeIdsWithLegacyPolicyId())
                 .thenReturn(List.<Object[]>of(employeeRow(employeeId, null)));
         when(allocationRepository.findCurrentAllocationsAt(today)).thenReturn(List.of());
-        when(penalizationPolicyService.resolveDefaultPolicyId()).thenThrow(new IllegalStateException("no policy"));
+        when(penalizationPolicyService.resolveActiveDefaultPolicyId()).thenThrow(new IllegalStateException("no policy"));
 
         Map<UUID, Long> counts = resolutionService.resolveCurrentEmployeeCountsByPolicy(today);
 

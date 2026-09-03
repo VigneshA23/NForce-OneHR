@@ -142,11 +142,13 @@ class PenalizationPolicyServiceTest {
         assertEquals(2, v2Response.getVersion());
         assertEquals(15, v2Response.getLateArrival().getGracePeriodMinutes());
         assertEquals(v1.getPolicyId(), v2Response.getPolicyId(), "policyId must stay stable across versions");
+        assertEquals(actorId, v2Response.getUpdatedBy());
 
         // V1's own grace period value is never rewritten — only effectiveTo (a temporal
         // boundary, not a configuration value) is set on it.
         assertEquals(10, v1.getLaGracePeriodMinutes());
         assertNotNull(v1.getEffectiveTo());
+        assertEquals(actorId, v1.getUpdatedBy(), "closing v1 on supersede is itself a row mutation worth attributing");
 
         ArgumentCaptor<PenalizationPolicyVersion> savedV1 = ArgumentCaptor.forClass(PenalizationPolicyVersion.class);
         verify(versionRepository, times(2)).save(savedV1.capture());
@@ -160,6 +162,131 @@ class PenalizationPolicyServiceTest {
         when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
 
         assertTrue(service.getCurrent(null).isEmpty());
+    }
+
+    // ── Section 20: no-op save — identical resubmission must not version/audit/notify ────────
+
+    /**
+     * Builds a real, fully-defaulted "current" version by actually saving once — rather than
+     * hand-building a {@link PenalizationPolicyVersion} in the test (easy to miss one of the many
+     * DTO-defaulted fields, like {@code WorkHoursShortageConfigDto}'s {@code deductionBasis}
+     * defaulting to {@code "EFFECTIVE_HOURS"} with no entity-side default to match), this exercises
+     * {@link PenalizationPolicyService#save} itself so every default is guaranteed authentic.
+     */
+    private PenalizationPolicyVersion saveAndCaptureVersion(UUID policyId, PenalizationPolicyRequest request) {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(policyId)).thenReturn(Optional.empty());
+        service.save(policyId, request, "hr@test.com");
+        ArgumentCaptor<PenalizationPolicyVersion> captor = ArgumentCaptor.forClass(PenalizationPolicyVersion.class);
+        verify(versionRepository).save(captor.capture());
+        clearInvocations(versionRepository, auditService, notificationService, tierRepository, lateHoursTierRepository);
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(policyId)).thenReturn(Optional.of(captor.getValue()));
+        return captor.getValue();
+    }
+
+    @Test
+    void save_identicalConfigurationAtTheSameDefaultDate_isANoOp() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        UUID policyId = UUID.randomUUID();
+        PenalizationPolicyRequest original = minimalRequest();
+        original.getLateArrival().setEnabled(true);
+        PenalizationPolicyVersion current = saveAndCaptureVersion(policyId, original);
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+
+        PenalizationPolicyRequest resubmitted = minimalRequest();
+        resubmitted.getLateArrival().setEnabled(true);
+        PenalizationPolicyResponse response = service.save(policyId, resubmitted, "hr@test.com");
+
+        assertEquals(current.getId(), response.getId());
+        verify(versionRepository, never()).save(any());
+        verifyNoInteractions(auditService);
+        verifyNoInteractions(notificationService);
+    }
+
+    /**
+     * The default "1st of next month" date can coincidentally land on an already-scheduled
+     * pending version's own date (an explicit date can't — validateBasicInfo requires strictly
+     * after). When the content genuinely differs, this is a content-only edit of that same
+     * pending version done in place — same id/version number, never a new point in the version
+     * chain — since closing it would set its effectiveTo one nanosecond before its own
+     * effectiveFrom (Section 4: no negative-length ranges).
+     */
+    @Test
+    void save_sameDateButDifferentRuleContent_editsThatPendingVersionInPlace() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        java.time.LocalDateTime defaultEffectiveFrom = today.withDayOfMonth(1).plusMonths(1).atStartOfDay();
+        UUID originalCreator = UUID.randomUUID();
+        java.time.LocalDateTime originalCreatedAt = java.time.LocalDateTime.of(2026, 1, 1, 0, 0);
+        PenalizationPolicyVersion current = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(4)
+                .effectiveFrom(defaultEffectiveFrom)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10)
+                .deductionMethod("LOSS_OF_PAY")
+                .createdBy(originalCreator).createdAt(originalCreatedAt)
+                .build();
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(current.getPolicyId())).thenReturn(Optional.of(current));
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getLateArrival().setEnabled(true);
+        req.getLateArrival().setGracePeriodMinutes(20); // the actual change
+
+        PenalizationPolicyResponse response = service.save(current.getPolicyId(), req, "hr@test.com");
+
+        assertEquals(current.getId(), response.getId());
+        assertEquals(4, response.getVersion(), "same version number — this is an edit, not a new point in the chain");
+        assertEquals(20, response.getLateArrival().getGracePeriodMinutes());
+        assertEquals(originalCreator, response.getCreatedBy());
+        assertEquals(originalCreatedAt, response.getCreatedAt());
+        assertEquals(actorId, response.getUpdatedBy(), "createdBy/createdAt are preserved, but updatedBy reflects whoever made this edit");
+        assertNull(current.getEffectiveTo(), "never closed — there is no distinct previous version being superseded");
+        verify(versionRepository, times(1)).save(any());
+        verify(auditService).log(eq(actorId), eq("PENALIZATION_POLICY_UPDATED"), any(), any(), any());
+    }
+
+    @Test
+    void save_sameDateAndScalarsButTiersChanged_editsThatPendingVersionInPlace() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        java.time.LocalDateTime defaultEffectiveFrom = today.withDayOfMonth(1).plusMonths(1).atStartOfDay();
+        PenalizationPolicyVersion current = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(defaultEffectiveFrom)
+                .workHoursShortageEnabled(true)
+                .deductionMethod("LOSS_OF_PAY")
+                .build();
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(current.getPolicyId())).thenReturn(Optional.of(current));
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+        PenalizationPolicyRequest req = minimalRequest();
+        req.getWorkHoursShortage().setEnabled(true);
+        req.getWorkHoursShortage().setTiers(List.of(tier("50", "1"))); // current has zero tiers
+
+        PenalizationPolicyResponse response = service.save(current.getPolicyId(), req, "hr@test.com");
+
+        assertEquals(1, response.getVersion());
+        assertEquals(current.getId(), response.getId());
+        verify(tierRepository).deleteByPolicyVersionId(current.getId());
+        verify(auditService).log(eq(actorId), eq("PENALIZATION_POLICY_UPDATED"), any(), any(), any());
+    }
+
+    @Test
+    void save_differentScaleButNumericallyEqualAmount_stillTreatedAsUnchanged() {
+        // BigDecimal("0.50") vs BigDecimal("0.5") differ under Object#equals but are numerically
+        // identical — a request round-tripped through JSON could easily produce either scale.
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        UUID policyId = UUID.randomUUID();
+        PenalizationPolicyRequest original = minimalRequest();
+        original.getLateArrival().setEnabled(true);
+        original.getLateArrival().setDeductionDays(new java.math.BigDecimal("0.50"));
+        PenalizationPolicyVersion current = saveAndCaptureVersion(policyId, original);
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+
+        PenalizationPolicyRequest resubmitted = minimalRequest();
+        resubmitted.getLateArrival().setEnabled(true);
+        resubmitted.getLateArrival().setDeductionDays(new java.math.BigDecimal("0.5"));
+        service.save(policyId, resubmitted, "hr@test.com");
+
+        verify(versionRepository, never()).save(any());
     }
 
     private WorkHoursTierDto tier(String thresholdPercent, String deductionDays) {

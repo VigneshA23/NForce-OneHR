@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Copy, Pencil, Power, Trash2, Plus, X } from 'lucide-react';
+import { Copy, Pencil, Power, Trash2, Plus, X, Star } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
-import { penalisationPoliciesApi, type PenalisationPolicySummary } from '../../api/penalisationPolicies';
+import { penalisationPoliciesApi, type PenalisationPolicySummary, type PenalizationFallbackStrategy } from '../../api/penalisationPolicies';
 import PenalizationPolicySection, { ConfirmDiscardModal } from './PenalizationPolicySection';
 
 const inputStyle: React.CSSProperties = {
@@ -210,6 +210,21 @@ export default function PolicyListSection({ token, onViewAllocations }: {
   const [deleting, setDeleting] = useState<PenalisationPolicySummary | null>(null);
   const [editing, setEditing] = useState<PenalisationPolicySummary | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
+  const [fallbackStrategy, setFallbackStrategy] = useState<PenalizationFallbackStrategy | null>(null);
+
+  async function handleSetOrgDefault(policy: PenalisationPolicySummary) {
+    setSettingDefaultId(policy.id);
+    try {
+      await penalisationPoliciesApi.setOrgDefault(token, policy.id);
+      showToast('success', `"${policy.name}" is now the organization default`);
+      await load();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to set organization default');
+    } finally {
+      setSettingDefaultId(null);
+    }
+  }
 
   async function handleToggleActive(policy: PenalisationPolicySummary) {
     setTogglingId(policy.id);
@@ -239,6 +254,11 @@ export default function PolicyListSection({ token, onViewAllocations }: {
   }
 
   useEffect(() => { if (token) load(); }, [token]);
+  // Section 7: read-only, deploy-time config — see penalisationPoliciesApi.getFallbackStrategy.
+  useEffect(() => {
+    if (!token) return;
+    penalisationPoliciesApi.getFallbackStrategy(token).then(r => setFallbackStrategy(r.strategy)).catch(() => { /* informational only */ });
+  }, [token]);
 
   if (loading) {
     return <div style={{ padding: 24, color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>;
@@ -249,6 +269,14 @@ export default function PolicyListSection({ token, onViewAllocations }: {
       {loadError && (
         <div role="alert" style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 8, padding: '10px 14px', color: 'var(--risk)', fontSize: 13 }}>
           {loadError}
+        </div>
+      )}
+
+      {fallbackStrategy && (
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 12px', whiteSpace: 'nowrap', overflowX: 'auto' }}>
+          {fallbackStrategy === 'DEFAULT_POLICY'
+            ? <>An employee with no allocation and no legacy assignment resolves to the <strong>Org Default</strong> policy below (marked with <Star size={11} style={{ display: 'inline', verticalAlign: -1 }} />).</>
+            : <>REQUIRE_ALLOCATION is active — an employee with no allocation and no legacy assignment resolves to <strong>no policy at all</strong> until one is explicitly allocated (see "Needs Allocation" on the Allocation screen).</>}
         </div>
       )}
 
@@ -280,6 +308,12 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                     background: p.status === 'ACTIVE' ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)',
                     color: p.status === 'ACTIVE' ? 'var(--ok)' : 'var(--txt-dim)',
                   }}>{p.status}</span>
+                  {p.orgDefault && (
+                    <span title="Organization default — governs any employee with no allocation and no legacy assignment"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'rgba(224,169,59,.15)', color: '#E0A93B' }}>
+                      <Star size={10} fill="currentColor" /> Org Default
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: '10px 14px' }}>
                   {onViewAllocations ? (
@@ -295,6 +329,28 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                 <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{fmtDate(p.effectiveFrom)}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-start' }}>
+                    {(() => {
+                      const isBusy = settingDefaultId === p.id;
+                      const canSetDefault = p.status === 'ACTIVE' && !p.orgDefault && !isBusy;
+                      const label = p.orgDefault ? `${p.name} is already the organization default`
+                        : p.status !== 'ACTIVE' ? 'Only an active policy can be set as the organization default'
+                        : `Set ${p.name} as organization default`;
+                      return (
+                        <button aria-label={label} title={label}
+                          onClick={() => canSetDefault && handleSetOrgDefault(p)}
+                          disabled={!canSetDefault}
+                          aria-pressed={p.orgDefault}
+                          style={{
+                            background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30,
+                            color: p.orgDefault ? '#E0A93B' : 'var(--txt-mut)',
+                            cursor: canSetDefault ? 'pointer' : 'not-allowed',
+                            opacity: p.orgDefault ? 1 : (p.status !== 'ACTIVE' || isBusy) ? 0.5 : 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                          <Star size={13} fill={p.orgDefault ? 'currentColor' : 'none'} />
+                        </button>
+                      );
+                    })()}
                     <button aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)} title="Edit" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={13} /></button>
                     <button aria-label={`Clone ${p.name}`} onClick={() => setCloning(p)} title="Clone" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Copy size={13} /></button>
                     <button aria-label={p.status === 'ACTIVE' ? `Deactivate ${p.name}` : `Activate ${p.name}`}

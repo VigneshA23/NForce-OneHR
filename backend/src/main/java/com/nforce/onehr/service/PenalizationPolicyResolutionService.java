@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.config.PenalizationFallbackStrategy;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.PenalizationPolicyAllocation;
 import com.nforce.onehr.entity.PenalizationPolicyVersion;
@@ -14,6 +16,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -32,6 +35,7 @@ public class PenalizationPolicyResolutionService {
     private final PenalizationPolicyAllocationRepository penalizationPolicyAllocationRepository;
     private final PenalizationPolicyService penalizationPolicyService;
     private final EmployeeRepository employeeRepository;
+    private final AttendanceProperties attendanceProperties;
 
     /**
      * The Penalization Policy that governs this employee on {@code date}, resolved in priority
@@ -48,32 +52,51 @@ public class PenalizationPolicyResolutionService {
      * DESC" with no policy filter can return an arbitrary policy's version, not the org's default.
      * Returns {@code null} only in the fully-degenerate case where no {@code PenalisationPolicy}
      * row exists at all (shouldn't happen given the V95 seed).
+     *
+     * <p>Gap-001: an INACTIVE policy is skipped at every tier — an explicit allocation or legacy
+     * FK pointing at a policy that's since been deactivated falls through to the next tier exactly
+     * as if that assignment didn't exist, rather than keeping a retired policy in force. Historical
+     * {@link com.nforce.onehr.entity.AttendancePenalty} rows already carry their own policy/version
+     * snapshot and are never re-resolved through this method, so past evaluations are unaffected.
      */
     public UUID resolveAssignedOrDefaultPolicyId(Employee employee, LocalDate date) {
         if (employee != null) {
             List<PenalizationPolicyAllocation> allocations =
                     penalizationPolicyAllocationRepository.findEffectiveAt(employee.getUserId(), date);
-            if (!allocations.isEmpty()) {
+            if (!allocations.isEmpty() && isActivePolicy(allocations.get(0).getPenalisationPolicyId())) {
                 return allocations.get(0).getPenalisationPolicyId();
             }
-            if (employee.getPenalisationPolicy() != null) {
+            if (employee.getPenalisationPolicy() != null && isActivePolicy(employee.getPenalisationPolicy().getId())) {
                 return employee.getPenalisationPolicy().getId();
             }
         }
         return resolveDefaultPolicyIdOrNull();
     }
 
+    private boolean isActivePolicy(UUID policyId) {
+        return policyId != null && penalizationPolicyService.findActivePolicyIds().contains(policyId);
+    }
+
     /**
-     * Null-safe wrapper around {@link PenalizationPolicyService#resolveDefaultPolicyId()} — the
-     * one place every caller in this class (and any other authoritative-count consumer) gets the
-     * org default from, instead of each re-deriving its own try/catch around the same call.
+     * Null-safe wrapper around {@link PenalizationPolicyService#resolveActiveDefaultPolicyId()} —
+     * the one place every caller in this class (and any other authoritative-count consumer) gets
+     * the org default from, instead of each re-deriving its own try/catch around the same call.
+     *
+     * <p>Section 7: under {@link PenalizationFallbackStrategy#REQUIRE_ALLOCATION}, there is
+     * deliberately no fallback at all — an employee with no allocation and no legacy FK resolves
+     * to {@code null} (surfaced as {@code resolvedPolicySource = "ALLOCATION_REQUIRED"} on the
+     * Allocation screen) rather than silently picking up whatever policy happens to be flagged as
+     * the org default.
      */
     private UUID resolveDefaultPolicyIdOrNull() {
+        if (attendanceProperties.getPenalizationFallbackStrategy() == PenalizationFallbackStrategy.REQUIRE_ALLOCATION) {
+            return null;
+        }
         try {
-            return penalizationPolicyService.resolveDefaultPolicyId();
+            return penalizationPolicyService.resolveActiveDefaultPolicyId();
         } catch (IllegalStateException e) {
-            // No PenalisationPolicy row exists at all (shouldn't happen given the V95 seed) — no
-            // default to fall back to; the caller's null-handling takes over from here.
+            // No ACTIVE PenalisationPolicy row exists — no default to fall back to; the caller's
+            // null-handling takes over from here.
             return null;
         }
     }
@@ -117,13 +140,17 @@ public class PenalizationPolicyResolutionService {
             }
         }
 
+        // Gap-001: same active-only rule as resolveAssignedOrDefaultPolicyId, computed once for
+        // the whole bulk pass instead of one membership check per employee.
+        Set<UUID> activePolicyIds = penalizationPolicyService.findActivePolicyIds();
+
         Map<UUID, UUID> resolved = new HashMap<>();
         for (Object[] row : employeeRepository.findAllEmployeeIdsWithLegacyPolicyId()) {
             UUID employeeId = (UUID) row[0];
             UUID legacyPolicyId = (UUID) row[1];
             UUID allocatedPolicyId = allocatedPolicyByEmployee.get(employeeId);
-            UUID resolvedPolicyId = allocatedPolicyId != null ? allocatedPolicyId
-                    : (legacyPolicyId != null ? legacyPolicyId : defaultPolicyId);
+            UUID resolvedPolicyId = allocatedPolicyId != null && activePolicyIds.contains(allocatedPolicyId) ? allocatedPolicyId
+                    : (legacyPolicyId != null && activePolicyIds.contains(legacyPolicyId) ? legacyPolicyId : defaultPolicyId);
             if (resolvedPolicyId != null) {
                 resolved.put(employeeId, resolvedPolicyId);
             }

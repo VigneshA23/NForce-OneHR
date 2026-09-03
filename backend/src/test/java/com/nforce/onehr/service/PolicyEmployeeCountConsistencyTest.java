@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.penalization.PenalisationPolicySummaryDto;
 import com.nforce.onehr.entity.PenalisationPolicy;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.PenalisationPolicyRepository;
 import com.nforce.onehr.repository.PenalizationPolicyAllocationRepository;
@@ -62,6 +63,7 @@ class PolicyEmployeeCountConsistencyTest {
     @Mock private NotificationService notificationService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private EmployeeService employeeService;
+    @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
 
     private PenalizationPolicyResolutionService resolutionService;
     private PenalisationPolicyManagementService managementService;
@@ -76,18 +78,22 @@ class PolicyEmployeeCountConsistencyTest {
     void setUp() {
         // ONE real resolution service, shared by both screens — exactly like production DI.
         resolutionService = new PenalizationPolicyResolutionService(
-                versionRepository, allocationRepository, penalizationPolicyService, employeeRepository);
+                versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
 
         managementService = new PenalisationPolicyManagementService(penalisationPolicyRepository, versionRepository,
                 tierRepository, lateHoursTierRepository, allocationRepository, userRepository, auditService,
-                auditSnapshot, attendanceProperties, resolutionService);
+                auditSnapshot, attendanceProperties, resolutionService, attendancePenaltyRepository);
 
         allocationService = new PenalizationPolicyAllocationService(allocationRepository, employeeRepository,
                 penalisationPolicyRepository, userRepository, auditService, notificationService, auditSnapshot,
                 resolutionService, employeeService, attendanceProperties);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
-        lenient().when(penalizationPolicyService.resolveDefaultPolicyId()).thenReturn(policyDefaultId);
+        lenient().when(penalizationPolicyService.resolveActiveDefaultPolicyId()).thenReturn(policyDefaultId);
+        // Gap-001: resolution now gates every tier through findActivePolicyIds() — all three
+        // policies in this fixture are active.
+        lenient().when(penalizationPolicyService.findActivePolicyIds())
+                .thenReturn(java.util.Set.of(policyLegacyId, policyAllocatedId, policyDefaultId));
         lenient().when(allocationRepository.countByPenalisationPolicyId(any())).thenReturn(0L);
         lenient().when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
         lenient().when(employeeService.findCurrentManagersBulk(any())).thenReturn(java.util.Map.of());
@@ -106,7 +112,11 @@ class PolicyEmployeeCountConsistencyTest {
                 // wrong (it would have shown this employee against the LEGACY policy).
                 new Object[] { employeeAllocationOverridesLegacy, policyLegacyId },
                 new Object[] { employeeOnOrgDefault, null }));
-        when(allocationRepository.findCurrentAllocationsAt(today)).thenReturn(List.<Object[]>of(
+        // any(), not the fixed `today` — managementService.list() calls its own today() (real
+        // wall-clock date via attendanceProperties.getZone()), not this test's fixed constant, so a
+        // date-scoped stub here would silently return empty only for list()'s call and make Legacy
+        // wrongly absorb employeeAllocationOverridesLegacy's allocation-resolved count.
+        when(allocationRepository.findCurrentAllocationsAt(any())).thenReturn(List.<Object[]>of(
                 new Object[] { employeeAllocationOverridesLegacy, policyAllocatedId, LocalDateTime.now() }));
 
         // Deliberately distinct, ordered createdAt values (not all "now()") — Default Policy must
@@ -118,11 +128,6 @@ class PolicyEmployeeCountConsistencyTest {
                 PenalisationPolicy.builder().id(policyAllocatedId).name("Allocated Policy").createdAt(LocalDateTime.now().minusHours(12)).build(),
                 PenalisationPolicy.builder().id(policyDefaultId).name("Default Policy").createdAt(LocalDateTime.now().minusDays(2)).build());
         when(penalisationPolicyRepository.findAll()).thenReturn(allPolicies);
-        // resolveDefaultPolicyId (via resolveCurrentEmployeeCountsByPolicy) now uses a dedicated
-        // ORDER BY createdAt ASC LIMIT 1 query instead of findAll().stream().min(...) — policyDefaultId
-        // is this fixture's org default regardless of which of the three rows above is "oldest".
-        when(penalisationPolicyRepository.findFirstByOrderByCreatedAtAsc()).thenReturn(
-                allPolicies.stream().filter(p -> p.getId().equals(policyDefaultId)).findFirst());
 
         // ── The one authoritative answer ──
         Map<UUID, Long> authoritative = resolutionService.resolveCurrentEmployeeCountsByPolicy(today);

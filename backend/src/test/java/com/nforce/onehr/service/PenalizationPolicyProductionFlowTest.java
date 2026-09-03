@@ -57,6 +57,8 @@ class PenalizationPolicyProductionFlowTest {
     @Mock private PenalisationPolicyRepository penalisationPolicyRepository;
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
+    @Mock private EmployeeService employeeService;
+    @Mock private AttendancePenaltyService attendancePenaltyService;
 
     private ExceptionService exceptionService;
 
@@ -72,14 +74,15 @@ class PenalizationPolicyProductionFlowTest {
         AuditSnapshotSerializer snapshotSerializer = new AuditSnapshotSerializer(new com.fasterxml.jackson.databind.ObjectMapper());
         PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, snapshotSerializer);
         AttendancePenaltyEvaluationService penaltyEvaluationService =
-                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService);
+                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
+                        notificationService, employeeService, auditService, snapshotSerializer);
         WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
                 lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
                 attendanceProperties, employeeRepository, notificationService);
         lenient().when(allocationRepository.findEffectiveAt(any(), any())).thenReturn(List.of());
         PenalizationPolicyResolutionService policyResolutionService =
-                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository);
+                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
         ExpectedWorkHoursService expectedWorkHoursService = new ExpectedWorkHoursService(leaveRequestRepository);
         WorkHoursShortageCalculationService workHoursShortageCalculationService =
                 new WorkHoursShortageCalculationService(attendanceRepository, expectedWorkHoursService, workingDayService);
@@ -87,7 +90,7 @@ class PenalizationPolicyProductionFlowTest {
                 attendanceExceptionRepository, attendanceRepository, leaveRequestRepository,
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
-                workHoursShortageCalculationService);
+                workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
@@ -100,10 +103,15 @@ class PenalizationPolicyProductionFlowTest {
         lenient().when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
                 any(), any(), any())).thenReturn(List.of());
         lenient().when(attendancePenaltyRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        // detectNoAttendanceAndShortage's WorkingDayService pass — an empty schedule for every
-        // employee means it contributes no NO_ATTENDANCE/WORK_HOURS_SHORTAGE occurrences, leaving
-        // this test class free to focus purely on the LATE_ARRIVAL flow it was written for.
-        lenient().when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of());
+        // Both detectExceptions' own GAP-007 working-day gate and detectNoAttendanceAndShortage
+        // need a real schedule for this employee to treat the test dates (weekdays, no location/
+        // weekly-off policy configured => default Sat/Sun off) as working days. The employee has
+        // no location, so detectNoAttendanceAndShortage's holiday/leave lookups below stay no-ops
+        // and its shortage/NO_ATTENDANCE branches never fire (workedMinutes is left null on every
+        // fixture Attendance and no default policy is configured), leaving this test class free to
+        // focus purely on the LATE_ARRIVAL flow it was written for.
+        lenient().when(employeeRepository.findAllByIdWithScheduleDetails(any()))
+                .thenReturn(List.of(Employee.builder().userId(employeeId).build()));
     }
 
     private User hrUser() {
@@ -132,7 +140,7 @@ class PenalizationPolicyProductionFlowTest {
     // ── CRITICAL ACCEPTANCE TEST — real production flow, V1 ──
     @Test
     void realProductionFlow_v1Grace10_lateMinutes12_appliesPenalty() {
-        LocalDate date = LocalDate.of(2026, 8, 15);
+        LocalDate date = LocalDate.of(2026, 8, 17);
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), date, date))
                 .thenReturn(List.of(lateAttendance(date, 12)));
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay()))
@@ -155,7 +163,7 @@ class PenalizationPolicyProductionFlowTest {
     // ── Same real production flow, V2: grace widened to 15 — NO code change, only configuration ──
     @Test
     void realProductionFlow_v2Grace15_sameLateMinutes12_noMatch_noPenaltyPersisted() {
-        LocalDate date = LocalDate.of(2026, 8, 15);
+        LocalDate date = LocalDate.of(2026, 8, 17);
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), date, date))
                 .thenReturn(List.of(lateAttendance(date, 12)));
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay()))
@@ -169,7 +177,7 @@ class PenalizationPolicyProductionFlowTest {
     // ── Version immutability across two evaluations through the real production path ──
     @Test
     void policyVersionChange_realFlow_historicalPenaltyKeepsV1_laterEvaluationUsesV2() {
-        LocalDate augDate = LocalDate.of(2026, 8, 15);
+        LocalDate augDate = LocalDate.of(2026, 8, 17);
         LocalDate sepDate = LocalDate.of(2026, 9, 15);
 
         when(versionRepository.findVersionsEffectiveAt(augDate.atStartOfDay()))
@@ -195,7 +203,7 @@ class PenalizationPolicyProductionFlowTest {
     // ── Disabled section / outside effective period, through the real production path ──
     @Test
     void realProductionFlow_disabledLateArrivalSection_noMatch_noPenalty() {
-        LocalDate date = LocalDate.of(2026, 8, 15);
+        LocalDate date = LocalDate.of(2026, 8, 17);
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), date, date))
                 .thenReturn(List.of(lateAttendance(date, 30)));
         PenalizationPolicyVersion disabled = PenalizationPolicyVersion.builder()
@@ -211,7 +219,7 @@ class PenalizationPolicyProductionFlowTest {
 
     @Test
     void realProductionFlow_noEffectiveVersion_noMatch_noPenalty() {
-        LocalDate date = LocalDate.of(2026, 8, 15);
+        LocalDate date = LocalDate.of(2026, 8, 17);
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), date, date))
                 .thenReturn(List.of(lateAttendance(date, 30)));
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of());
@@ -224,7 +232,7 @@ class PenalizationPolicyProductionFlowTest {
     // ── Regularization: unchanged existing meaning, now honored through the real flow too ──
     @Test
     void realProductionFlow_approvedRegularization_exempt_noPenaltyPersisted() {
-        LocalDate date = LocalDate.of(2026, 8, 15);
+        LocalDate date = LocalDate.of(2026, 8, 17);
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), date, date))
                 .thenReturn(List.of(lateAttendance(date, 12)));
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay()))
@@ -243,7 +251,7 @@ class PenalizationPolicyProductionFlowTest {
     // exception must never create a second penalty row. ──
     @Test
     void reRunningDetection_forAlreadyDetectedException_doesNotDuplicatePenalty() {
-        LocalDate date = LocalDate.of(2026, 8, 15);
+        LocalDate date = LocalDate.of(2026, 8, 17);
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), date, date))
                 .thenReturn(List.of(lateAttendance(date, 12)));
         // Simulate the exception already existing from a prior dashboard load — isNew=false means

@@ -98,6 +98,7 @@ public class RegularizationService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProps;
     private final NotificationService notificationService;
+    private final ExceptionService exceptionService;
 
     /** Resolved requested times after applying punch auto-fill from attendance history. */
     private record ResolvedTimes(LocalDateTime checkIn, LocalDateTime checkOut) {}
@@ -535,6 +536,14 @@ public class RegularizationService {
             req.setStatus(STATUS_APPROVED);
             req.setFinalApprovedBy(actor.getId());
             req.setFinalApprovedAt(LocalDateTime.now());
+            // Section 16/Gap-033: the attendance record for this date is now corrected — any
+            // penalty whose discrepancy no longer holds against the corrected record is reversed
+            // automatically, scoped to only the types this correction could have affected (not a
+            // blind "reverse everything for this date," which could erase an unrelated, still-
+            // legitimate penalty of a different discrepancy type on the same day).
+            exceptionService.reevaluateAndReverseIfInvalid(req.getEmployeeUserId(), req.getAttendanceDate(),
+                    ExceptionService.REGULARIZATION_REEVALUATION_TYPES, actor.getId(),
+                    "Attendance corrected via approved regularization", "ATTENDANCE_PENALTY_REVERSED");
         } else {
             req.setStatus(STATUS_PARTIALLY_APPROVED);
             req.setApprovedBy(actor.getId());

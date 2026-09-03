@@ -43,6 +43,7 @@ class OvertimeRequestServiceTest {
     @Mock private EmployeeRepository employeeRepository;
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
+    @Mock private AuditSnapshotSerializer auditSnapshot;
 
     @InjectMocks private OvertimeRequestService service;
 

@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface PenalizationPolicyWorkHoursTierRepository extends JpaRepository<PenalizationPolicyWorkHoursTier, UUID> {
 
     List<PenalizationPolicyWorkHoursTier> findByPolicyVersionIdOrderBySortOrderAsc(UUID policyVersionId);
+
+    void deleteByPolicyVersionId(UUID policyVersionId);
 }

@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Info, X } from 'lucide-react';
+import { getMyCurrentPolicy, type PenalizationPolicy } from '../api/penalizationPolicy';
 
 /**
- * Static policy content (Penalisation Policy / Time Tracking Policy) shown from the Attendance
- * page's Quick Actions. There's no backend-editable policy document behind this yet — the text
- * mirrors the org's actual attendance policy, entered directly here rather than left as a
- * placeholder link, per the story's own content. If HR needs to edit this without a code change
- * later, it should move into a real Policy document (see PoliciesPage.tsx's model) — not
- * attempted here to keep this change scoped to the Attendance page.
+ * Section 25: the Penalisation Policy tab is now driven by the employee's own real resolved
+ * policy (GET /api/penalization-policy/my-current — PenalizationPolicyResolutionService's normal
+ * allocation → legacy → org-default priority, the same one the attendance engine itself uses),
+ * not hardcoded copy that could silently contradict whatever HR actually configured.
+ *
+ * The Time Tracking tab (WFH/regularization/partial-day limits) remains static intentionally —
+ * there is no backend policy document for those yet (no WFH/regularization policy entity exists
+ * in this codebase), so nothing to point it at. Converting it would mean inventing a new backend
+ * model, out of scope for this pass; see the constant below for the exact same caveat this file
+ * already carried before this change.
  *
  * Layout is a full-page takeover (not a small centered dialog) matching Keka's reference —
  * see nf-attpolicy-* rules in index.css for the mobile breakpoint.
@@ -19,42 +24,118 @@ type PolicyBlock =
   | { type: 'callout'; text: string }
   | { type: 'bullets'; items: string[] };
 
-const PENALISATION_POLICY_BLOCKS: PolicyBlock[] = [
-  { type: 'heading', text: 'No Attendance' },
-  { type: 'text', text: 'You will be penalized 1 day(s) of Paid Leave for every single missing attendance day' },
-  { type: 'callout', text: 'You have a buffer period of 2 day(s) to regularize your attendance before the penalization happens.' },
-  { type: 'text', text: 'The order of paid leave for deduction is:' },
-  { type: 'bullets', items: ['Paid Leave'] },
-  { type: 'text', text: 'In case no Paid Leave are left, Unpaid leave will be deducted.' },
+const DEDUCTION_PERIOD_LABEL: Record<string, string> = { DAY: 'day', WEEK: 'week', MONTH: 'month' };
 
-  { type: 'heading', text: 'Late Arrival' },
-  { type: 'callout', text: 'You have a grace period (tolerance) of 10 minutes beyond which your arrival will be considered as late.' },
-  { type: 'text', text: 'You can come 2 time(s) late in a month, beyond which you will be penalized with 0.5 day(s) of Paid Leave for every 1 incident(s).' },
-  { type: 'callout', text: 'If required 100% effective hours are met, the given day will not be considered for late arrival penalization.' },
-  { type: 'callout', text: 'You have a buffer period of 2 day(s) to regularize your attendance before the penalization happens.' },
-  { type: 'text', text: 'The order of paid leave for deduction is:' },
-  { type: 'bullets', items: ['Paid Leave'] },
-  { type: 'text', text: 'In case no Paid Leave are left, Unpaid leave will be deducted.' },
+function leaveOrderBullets(policy: PenalizationPolicy): PolicyBlock[] {
+  if (policy.basicInfo.deductionMethod !== 'PAID_LEAVE') {
+    return [{ type: 'text', text: 'Penalties under this policy are deducted as Loss of Pay.' }];
+  }
+  return [
+    { type: 'text', text: 'Penalties are deducted from your leave balance in this priority order:' },
+    { type: 'bullets', items: policy.basicInfo.leavePriorityOrder.length > 0 ? policy.basicInfo.leavePriorityOrder : ['Not configured'] },
+    { type: 'text', text: 'Once every configured leave type is exhausted, the remaining amount is deducted as Loss of Pay.' },
+  ];
+}
 
-  { type: 'heading', text: 'Work Hours' },
-  { type: 'text', text: 'You will be penalized, in following manner, based on the shortage of effective hours in a day:' },
-  { type: 'bullets', items: [
-    '0.5 day(s) of Paid Leave deduction if average effective hours in a day, is less than 90% of shift hours.',
-    '1 day(s) of Paid Leave deduction if average effective hours in a day, is less than 50% of shift hours.',
-  ] },
-  { type: 'text', text: 'In case you have both Late Arrival and Work Hour penalization for the same day, penalization for only Shortage Of work hours will apply.' },
-  { type: 'callout', text: 'You have a buffer period of 2 day(s) to regularize your attendance before the penalization happens.' },
-  { type: 'text', text: 'The order of paid leave for deduction is:' },
-  { type: 'bullets', items: ['Paid Leave'] },
-  { type: 'text', text: 'In case no Paid Leave are left, Unpaid leave will be deducted.' },
+function noAttendanceBlocks(policy: PenalizationPolicy): PolicyBlock[] {
+  const na = policy.noAttendance;
+  if (!na.enabled) {
+    return [{ type: 'heading', text: 'No Attendance' }, { type: 'text', text: 'Not currently enabled under your policy.' }];
+  }
+  const blocks: PolicyBlock[] = [
+    { type: 'heading', text: 'No Attendance' },
+    { type: 'text', text: `You will be penalized ${na.deductionDays ?? '—'} day(s) for every day with no recorded attendance.` },
+  ];
+  if (policy.basicInfo.bufferPeriodDays) {
+    blocks.push({ type: 'callout', text: `You have a buffer period of ${policy.basicInfo.bufferPeriodDays} day(s) to regularize your attendance before the penalization applies.` });
+  }
+  return blocks;
+}
 
-  { type: 'heading', text: 'Missing Swipes' },
-  { type: 'text', text: 'In case of missing swipes exceeding 5 working day(s) in a month, 0.25 day(s) of Paid Leave for every 1 subsequent incident(s) of missing swipe day' },
-  { type: 'callout', text: 'You have a buffer period of 2 day(s) to regularize your attendance before the penalization happens.' },
-  { type: 'text', text: 'The order of paid leave for deduction is:' },
-  { type: 'bullets', items: ['Paid Leave'] },
-  { type: 'text', text: 'In case no Paid Leave are left, Unpaid leave will be deducted.' },
-];
+function lateArrivalBlocks(policy: PenalizationPolicy): PolicyBlock[] {
+  const la = policy.lateArrival;
+  if (!la.enabled) {
+    return [{ type: 'heading', text: 'Late Arrival' }, { type: 'text', text: 'Not currently enabled under your policy.' }];
+  }
+  const blocks: PolicyBlock[] = [{ type: 'heading', text: 'Late Arrival' }];
+  if (la.gracePeriodMinutes != null) {
+    blocks.push({ type: 'callout', text: `You have a grace period of ${la.gracePeriodMinutes} minute(s) beyond which your arrival is considered late.` });
+  }
+  if (la.basis === 'TOTAL_HOURS') {
+    blocks.push({ type: 'text', text: `Once your total late minutes in a ${la.exemptPeriod.toLowerCase()} exceed ${la.allowedHours ?? '—'} hour(s), a penalty applies based on the tier your total falls into:` });
+    if (la.lateHoursTiers.length > 0) {
+      blocks.push({ type: 'bullets', items: la.lateHoursTiers.map(t => `More than ${t.thresholdHours} total hour(s) late: ${t.deductionDays} day(s) penalty`) });
+    }
+  } else {
+    const perShifts = la.deductionPerShifts && la.deductionPerShifts > 1 ? la.deductionPerShifts : 1;
+    const rateText = perShifts > 1
+      ? `you will be penalized ${la.deductionDays ?? '—'} day(s) for every ${perShifts} incident(s) beyond that`
+      : `you will be penalized ${la.deductionDays ?? '—'} day(s) for every incident beyond that`;
+    blocks.push({ type: 'text', text: `You can arrive late ${la.exemptCount ?? 0} time(s) per ${la.exemptPeriod.toLowerCase()} without penalty — ${rateText}.` });
+  }
+  if (la.ignoreWhenEffectiveHoursMetEnabled) {
+    blocks.push({ type: 'callout', text: 'If your required effective hours are still met for the day, that day is not penalized for late arrival.' });
+  }
+  if (policy.basicInfo.bufferPeriodDays) {
+    blocks.push({ type: 'callout', text: `You have a buffer period of ${policy.basicInfo.bufferPeriodDays} day(s) to regularize your attendance before the penalization applies.` });
+  }
+  return blocks;
+}
+
+function workHoursShortageBlocks(policy: PenalizationPolicy): PolicyBlock[] {
+  const whs = policy.workHoursShortage;
+  if (!whs.enabled) {
+    return [{ type: 'heading', text: 'Work Hours' }, { type: 'text', text: 'Not currently enabled under your policy.' }];
+  }
+  const basisLabel = whs.deductionBasis === 'GROSS_HOURS' ? 'gross hours' : 'effective hours';
+  const periodLabel = DEDUCTION_PERIOD_LABEL[whs.deductionPeriod] ?? whs.deductionPeriod.toLowerCase();
+  const blocks: PolicyBlock[] = [
+    { type: 'heading', text: 'Work Hours' },
+    { type: 'text', text: `You will be penalized based on the shortage of ${basisLabel} against your shift, evaluated per ${periodLabel}:` },
+  ];
+  if (whs.tiers.length > 0) {
+    blocks.push({ type: 'bullets', items: whs.tiers.map(t => `${t.deductionDays} day(s) penalty if ${basisLabel} are less than ${t.thresholdPercent}% of shift hours`) });
+  }
+  if (!whs.applyPenaltyForLateArrivalEnabled) {
+    blocks.push({ type: 'text', text: 'If both Late Arrival and Work Hours Shortage occur the same day, only the Work Hours Shortage penalty applies.' });
+  }
+  if (policy.basicInfo.bufferPeriodDays) {
+    blocks.push({ type: 'callout', text: `You have a buffer period of ${policy.basicInfo.bufferPeriodDays} day(s) to regularize your attendance before the penalization applies.` });
+  }
+  return blocks;
+}
+
+function missingLogsBlocks(policy: PenalizationPolicy): PolicyBlock[] {
+  const ml = policy.missingLogs;
+  if (!ml.enabled) {
+    return [{ type: 'heading', text: 'Missing Swipes' }, { type: 'text', text: 'Not currently enabled under your policy.' }];
+  }
+  const perShifts = ml.deductionMode === 'IRRESPECTIVE' ? null : (ml.deductionPerShifts && ml.deductionPerShifts > 1 ? ml.deductionPerShifts : 1);
+  const rateText = ml.deductionMode === 'IRRESPECTIVE'
+    ? `you will be penalized ${ml.deductionDays ?? '—'} day(s) once for the period`
+    : perShifts && perShifts > 1
+      ? `you will be penalized ${ml.deductionDays ?? '—'} day(s) for every ${perShifts} occurrence(s) beyond that`
+      : `you will be penalized ${ml.deductionDays ?? '—'} day(s) for every occurrence beyond that`;
+  const blocks: PolicyBlock[] = [
+    { type: 'heading', text: 'Missing Swipes' },
+    { type: 'text', text: `You can have ${ml.exemptDays ?? 0} missing-swipe day(s) per ${ml.exemptPeriod.toLowerCase()} without penalty — ${rateText}.` },
+  ];
+  if (policy.basicInfo.bufferPeriodDays) {
+    blocks.push({ type: 'callout', text: `You have a buffer period of ${policy.basicInfo.bufferPeriodDays} day(s) to regularize your attendance before the penalization applies.` });
+  }
+  return blocks;
+}
+
+function buildPenalisationBlocks(policy: PenalizationPolicy): PolicyBlock[] {
+  return [
+    { type: 'callout', text: `This policy is effective from ${new Date(policy.effectiveFrom).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.` },
+    ...leaveOrderBullets(policy),
+    ...noAttendanceBlocks(policy),
+    ...lateArrivalBlocks(policy),
+    ...workHoursShortageBlocks(policy),
+    ...missingLogsBlocks(policy),
+  ];
+}
 
 const TIME_TRACKING_POLICY_BLOCKS: PolicyBlock[] = [
   { type: 'text', text: 'Below are the details of the time tracking policy assigned to you' },
@@ -130,9 +211,31 @@ function PolicyBlockView({ block }: { block: PolicyBlock }) {
 
 type PolicyTab = 'PENALISATION' | 'TIME_TRACKING';
 
-export function AttendancePolicyModal({ onClose }: { onClose: () => void }) {
+export function AttendancePolicyModal({ token, onClose }: { token: string; onClose: () => void }) {
   const [tab, setTab] = useState<PolicyTab>('PENALISATION');
-  const blocks = tab === 'PENALISATION' ? PENALISATION_POLICY_BLOCKS : TIME_TRACKING_POLICY_BLOCKS;
+  const [policy, setPolicy] = useState<PenalizationPolicy | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadState('loading');
+    getMyCurrentPolicy(token)
+      .then((p) => { if (!cancelled) { setPolicy(p); setLoadState('ready'); } })
+      .catch(() => { if (!cancelled) setLoadState('error'); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  let penalisationBlocks: PolicyBlock[];
+  if (loadState === 'loading') {
+    penalisationBlocks = [{ type: 'text', text: 'Loading your attendance policy…' }];
+  } else if (loadState === 'error') {
+    penalisationBlocks = [{ type: 'text', text: 'Could not load your attendance policy right now. Please try again later.' }];
+  } else if (!policy) {
+    penalisationBlocks = [{ type: 'text', text: 'No attendance penalization policy has been configured for your organization yet.' }];
+  } else {
+    penalisationBlocks = buildPenalisationBlocks(policy);
+  }
+  const blocks = tab === 'PENALISATION' ? penalisationBlocks : TIME_TRACKING_POLICY_BLOCKS;
 
   // This is a full-page takeover that covers the viewport, but the Attendance page behind it
   // stays in the DOM and keeps document.body scrollable — without this, the body's native

@@ -27,7 +27,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -96,7 +98,9 @@ public class PenalizationPolicyService {
 
         UUID resolvedPolicyId = resolvePolicyId(policyId);
         Optional<PenalizationPolicyVersion> current = versionRepository.findByPolicyIdAndEffectiveToIsNull(resolvedPolicyId);
-        int nextVersion = current.map(v -> v.getVersion() + 1).orElse(1);
+        // Captured now, before anything below can mutate the managed `current` entity in place
+        // (see the editingSameDateVersion merge path further down).
+        String before = current.map(this::snapshotFields).map(snapshotSerializer::toJson).orElse(null);
 
         LocalDateTime now = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone()));
         validateBasicInfo(request, current, now.toLocalDate());
@@ -107,17 +111,43 @@ public class PenalizationPolicyService {
                 ? requestedEffectiveFrom.atStartOfDay()
                 : now.toLocalDate().withDayOfMonth(1).plusMonths(1).atStartOfDay();
 
-        // Close the version being superseded — a bookkeeping update to its temporal boundary
-        // only, never to its configuration values (see EmployeeManagerHistory for the same
-        // close-on-supersede convention already used elsewhere in this codebase).
-        current.ifPresent(previous -> {
-            previous.setEffectiveTo(effectiveFrom.minusNanos(1));
-            versionRepository.save(previous);
-        });
+        // Section 20: consistent with PenalizationPolicyAllocationService#update's own "unchanged"
+        // short-circuit — an admin resubmitting byte-identical rule content at the same effective
+        // date must not create a new version, write an audit row, or notify anyone.
+        if (current.isPresent() && isUnchanged(request, current.get(), effectiveFrom)) {
+            return toResponse(current.get());
+        }
 
-        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder()
+        // Section 4: an explicit requestedEffectiveFrom can never equal current's own date
+        // (validateBasicInfo requires strictly after), but the DEFAULT "1st of next month" date
+        // can coincidentally land on it (e.g. re-saving later the same month, still ahead of a
+        // version that was itself scheduled for next month). Closing `current` in that case would
+        // set its effectiveTo to one nanosecond BEFORE its own effectiveFrom — a negative-length
+        // range. Since the content here differs from isUnchanged's check above, this is a genuine
+        // edit of that same still-pending version's rule content, done in place (same row/id) —
+        // exactly like #save's other create-new/close-old path, just without a new point in the
+        // version chain to add. That version can never have been referenced by any
+        // AttendancePenalty yet (nothing evaluates a not-yet-effective policy).
+        boolean editingSameDateVersion = current.isPresent() && effectiveFrom.equals(current.get().getEffectiveFrom());
+
+        int versionNumber = editingSameDateVersion
+                ? current.get().getVersion()
+                : current.map(v -> v.getVersion() + 1).orElse(1);
+
+        if (!editingSameDateVersion) {
+            // Close the version being superseded — a bookkeeping update to its temporal boundary
+            // only, never to its configuration values (see EmployeeManagerHistory for the same
+            // close-on-supersede convention already used elsewhere in this codebase).
+            current.ifPresent(previous -> {
+                previous.setEffectiveTo(effectiveFrom.minusNanos(1));
+                previous.setUpdatedBy(actor.getId());
+                versionRepository.save(previous);
+            });
+        }
+
+        PenalizationPolicyVersion.PenalizationPolicyVersionBuilder versionBuilder = PenalizationPolicyVersion.builder()
                 .policyId(resolvedPolicyId)
-                .version(nextVersion)
+                .version(versionNumber)
                 .effectiveFrom(effectiveFrom)
                 .noAttendanceEnabled(request.getNoAttendance().isEnabled())
                 .naDeductionDays(request.getNoAttendance().getDeductionDays())
@@ -164,8 +194,22 @@ public class PenalizationPolicyService {
                 .bufferPeriodDays(request.getBasicInfo().getBufferPeriodDays())
                 .noticePeriodForcesLopEnabled(request.getBasicInfo().isNoticePeriodForcesLopEnabled())
                 .createdBy(actor.getId())
-                .build();
+                .updatedBy(actor.getId());
+        if (editingSameDateVersion) {
+            // Same row, same origin — save() below merges onto it in place instead of inserting a
+            // new one; preserve who/when it was originally scheduled rather than overwriting it
+            // with this edit's actor (the audit log entry already records who made this edit).
+            versionBuilder.id(current.get().getId())
+                    .createdBy(current.get().getCreatedBy())
+                    .createdAt(current.get().getCreatedAt());
+        }
+        PenalizationPolicyVersion version = versionBuilder.build();
         version = versionRepository.save(version);
+
+        if (editingSameDateVersion) {
+            tierRepository.deleteByPolicyVersionId(version.getId());
+            lateHoursTierRepository.deleteByPolicyVersionId(version.getId());
+        }
 
         List<WorkHoursTierDto> tierDtos = request.getWorkHoursShortage().getTiers();
         for (int i = 0; i < tierDtos.size(); i++) {
@@ -190,7 +234,6 @@ public class PenalizationPolicyService {
         }
 
         String action = current.isEmpty() ? "PENALIZATION_POLICY_CREATED" : "PENALIZATION_POLICY_UPDATED";
-        String before = current.map(this::snapshotFields).map(snapshotSerializer::toJson).orElse(null);
         String after = snapshotSerializer.toJson(snapshotFields(version));
         auditService.log(actor.getId(), action, version.getId(), before, after);
 
@@ -343,6 +386,7 @@ public class PenalizationPolicyService {
                 .noAttendance(noAttendance).lateArrival(lateArrival)
                 .workHoursShortage(workHours).missingLogs(missingLogs)
                 .createdBy(v.getCreatedBy()).createdAt(v.getCreatedAt())
+                .updatedBy(v.getUpdatedBy()).updatedAt(v.getUpdatedAt())
                 .build();
     }
 
@@ -359,11 +403,48 @@ public class PenalizationPolicyService {
     }
 
     /**
+     * Gap-001/Section 7: the attendance-evaluation resolution chain's own default fallback. Unlike
+     * {@link #resolveDefaultPolicyId()} (policy-management bookkeeping — "the org's original
+     * policy" stays meaningful for that purpose regardless of active/inactive status), an
+     * INACTIVE policy must never be selected to govern a new/current/future attendance
+     * evaluation. Historical {@link com.nforce.onehr.entity.AttendancePenalty} rows already carry
+     * their own policy/version snapshot and are never re-resolved, so this has no effect on them.
+     *
+     * <p>Reads the admin-chosen {@code isOrgDefault} flag (Section 7) rather than "oldest ACTIVE
+     * by createdAt" — that undocumented derivation is retired as the *fallback resolution* rule
+     * (it's still what a brand-new org's very first policy gets flagged as, by V152's backfill).
+     * Falls through to the still-nullable exception below if the flagged default has since been
+     * deactivated without a replacement being chosen — "the default itself must be ACTIVE" is
+     * enforced at write time by {@link PenalisationPolicyManagementService#setOrgDefault}, this is
+     * just the defensive read-time check.
+     */
+    UUID resolveActiveDefaultPolicyId() {
+        return penalisationPolicyRepository.findByOrgDefaultTrue()
+                .filter(p -> "ACTIVE".equals(p.getStatus()))
+                .map(PenalisationPolicy::getId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No active Penalisation Policy is configured as the organization default"));
+    }
+
+    /** Gap-001: bulk active-policy membership check, reused across the resolution chain. */
+    Set<UUID> findActivePolicyIds() {
+        return penalisationPolicyRepository.findByStatus("ACTIVE").stream()
+                .map(PenalisationPolicy::getId)
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * Section 15/25: an admin-chosen {@code requestedEffectiveFrom} (optional — see
      * {@link BasicInfoConfigDto}) must be a genuine future date, and — when a version is already
      * scheduled or in effect — strictly after that version's own effective date, so two saves can
      * never produce an inverted or overlapping version chain ("future version conflicts").
      * Omitting it entirely preserves the original next-month-1st behavior untouched.
+     *
+     * <p>Deliberately independent of Penalization Policy Allocation's own Effective From: a
+     * Policy Version's Effective From answers "from what date do these rules apply", while an
+     * Allocation's Effective From answers "from what date is this employee assigned to this
+     * policy" — two different HRMS concepts that must resolve together against the attendance
+     * date ({@code PenalizationPolicyResolutionService}), not be forced to match each other.
      */
     private void validateBasicInfo(PenalizationPolicyRequest request, Optional<PenalizationPolicyVersion> current, LocalDate today) {
         BasicInfoConfigDto basicInfo = request.getBasicInfo();
@@ -383,6 +464,106 @@ public class PenalizationPolicyService {
                         "Effective date must be after the currently scheduled version's effective date (" + currentEffectiveFrom + ")");
             }
         }
+    }
+
+    /**
+     * Section 20: true when {@code request} would produce a byte-identical rule configuration to
+     * {@code current} at the exact same {@code effectiveFrom} — every scalar rule field plus both
+     * tier lists, not just the effective date. {@link java.math.BigDecimal#equals} is deliberately
+     * avoided for amount fields ({@code compareTo} is used instead via {@link #bdEquals}) since it
+     * treats {@code 0.50} and {@code 0.5} as different values despite being numerically identical —
+     * exactly the kind of scale mismatch a request round-tripped through JSON is likely to produce,
+     * which would otherwise make this check under-detect real no-ops.
+     */
+    private boolean isUnchanged(PenalizationPolicyRequest request, PenalizationPolicyVersion current, LocalDateTime effectiveFrom) {
+        if (!effectiveFrom.equals(current.getEffectiveFrom())) {
+            return false;
+        }
+        BasicInfoConfigDto b = request.getBasicInfo();
+        NoAttendanceConfigDto na = request.getNoAttendance();
+        LateArrivalConfigDto la = request.getLateArrival();
+        WorkHoursShortageConfigDto whs = request.getWorkHoursShortage();
+        MissingLogsConfigDto ml = request.getMissingLogs();
+        String requestedLeavePriorityOrder = b.getLeavePriorityOrder() == null || b.getLeavePriorityOrder().isEmpty()
+                ? null : String.join(",", b.getLeavePriorityOrder());
+
+        boolean scalarsMatch =
+                na.isEnabled() == current.isNoAttendanceEnabled()
+                && bdEquals(na.getDeductionDays(), current.getNaDeductionDays())
+                && na.isNoShowEnabled() == current.isNaNoShowEnabled()
+                && bdEquals(na.getNoShowThresholdHours(), current.getNaNoShowThresholdHours())
+                && na.isAdjoiningHolidayEnabled() == current.isNaAdjoiningHolidayEnabled()
+                && Objects.equals(na.getAdjoiningHolidayCondition(), current.getNaAdjoiningHolidayCondition())
+                && Objects.equals(na.getAdjoiningHolidayCalendarDayThreshold(), current.getNaAdjoiningHolidayCalendarDayThreshold())
+                && na.isAdjoiningHolidayIgnoreHalfDayLeave() == current.isNaAdjoiningHolidayIgnoreHalfDayLeave()
+                && na.isAdjoiningWeekoffEnabled() == current.isNaAdjoiningWeekoffEnabled()
+                && Objects.equals(na.getAdjoiningWeekoffCondition(), current.getNaAdjoiningWeekoffCondition())
+                && Objects.equals(na.getAdjoiningWeekoffCalendarDayThreshold(), current.getNaAdjoiningWeekoffCalendarDayThreshold())
+                && na.isAdjoiningWeekoffIgnoreHalfDayLeave() == current.isNaAdjoiningWeekoffIgnoreHalfDayLeave()
+                && la.isEnabled() == current.isLateArrivalEnabled()
+                && Objects.equals(la.getBasis(), current.getLaBasis())
+                && Objects.equals(la.getGracePeriodMinutes(), current.getLaGracePeriodMinutes())
+                && Objects.equals(la.getExemptCount(), current.getLaExemptCount())
+                && Objects.equals(la.getExemptPeriod(), current.getLaExemptPeriod())
+                && bdEquals(la.getDeductionDays(), current.getLaDeductionDays())
+                && Objects.equals(la.getDeductionPerShifts(), current.getLaDeductionPerShifts())
+                && la.isIgnoreWhenEffectiveHoursMetEnabled() == current.isLaIgnoreWhenEffectiveHoursMetEnabled()
+                && bdEquals(la.getAllowedHours(), current.getLaAllowedHours())
+                && Objects.equals(la.getCombinedRuleBehavior(), current.getLaCombinedRuleBehavior())
+                && la.isPenaliseWhenCausedByMissingLogEnabled() == current.isLaPenaliseWhenCausedByMissingLogEnabled()
+                && whs.isEnabled() == current.isWorkHoursShortageEnabled()
+                && Objects.equals(whs.getDeductionBasis(), current.getWhsDeductionBasis())
+                && Objects.equals(whs.getDeductionPeriod(), current.getWhsDeductionPeriod())
+                && whs.isApplyPenaltyForShortageEnabled() == current.isWhsApplyPenaltyForShortageEnabled()
+                && whs.isApplyPenaltyForLateArrivalEnabled() == current.isWhsApplyPenaltyForLateArrivalEnabled()
+                && whs.isExcludeHoursOutsideShiftEnabled() == current.isWhsExcludeHoursOutsideShiftEnabled()
+                && whs.isPenalizeShortageCausedByMissingLogsEnabled() == current.isWhsPenalizeShortageCausedByMissingLogsEnabled()
+                && ml.isEnabled() == current.isMissingLogsEnabled()
+                && Objects.equals(ml.getExemptDays(), current.getMlExemptDays())
+                && Objects.equals(ml.getExemptPeriod(), current.getMlExemptPeriod())
+                && Objects.equals(ml.getDeductionMode(), current.getMlDeductionMode())
+                && bdEquals(ml.getDeductionDays(), current.getMlDeductionDays())
+                && Objects.equals(ml.getDeductionPerShifts(), current.getMlDeductionPerShifts())
+                && ml.isIgnoreRuleEnabled() == current.isMlIgnoreRuleEnabled()
+                && Objects.equals(ml.getIgnoreRuleThresholdPercent(), current.getMlIgnoreRuleThresholdPercent())
+                && Objects.equals(b.getDeductionMethod(), current.getDeductionMethod())
+                && Objects.equals(requestedLeavePriorityOrder, current.getLeavePriorityOrder())
+                && Objects.equals(b.getBufferPeriodDays(), current.getBufferPeriodDays())
+                && b.isNoticePeriodForcesLopEnabled() == current.isNoticePeriodForcesLopEnabled();
+        if (!scalarsMatch) {
+            return false;
+        }
+
+        List<PenalizationPolicyWorkHoursTier> existingTiers = tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId());
+        if (whs.getTiers().size() != existingTiers.size()) {
+            return false;
+        }
+        for (int i = 0; i < existingTiers.size(); i++) {
+            if (!bdEquals(whs.getTiers().get(i).getThresholdPercent(), existingTiers.get(i).getThresholdPercent())
+                    || !bdEquals(whs.getTiers().get(i).getDeductionDays(), existingTiers.get(i).getDeductionDays())) {
+                return false;
+            }
+        }
+
+        List<PenalizationPolicyLateHoursTier> existingLateHoursTiers =
+                lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId());
+        if (la.getLateHoursTiers().size() != existingLateHoursTiers.size()) {
+            return false;
+        }
+        for (int i = 0; i < existingLateHoursTiers.size(); i++) {
+            if (!bdEquals(la.getLateHoursTiers().get(i).getThresholdHours(), existingLateHoursTiers.get(i).getThresholdHours())
+                    || !bdEquals(la.getLateHoursTiers().get(i).getDeductionDays(), existingLateHoursTiers.get(i).getDeductionDays())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean bdEquals(java.math.BigDecimal a, java.math.BigDecimal b) {
+        if (a == null || b == null) {
+            return a == b;
+        }
+        return a.compareTo(b) == 0;
     }
 
     /**
