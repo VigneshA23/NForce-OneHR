@@ -1,9 +1,11 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.assignments.AssignmentBulkResultResponse;
 import com.nforce.onehr.dto.assignments.AssignmentLookupsResponse;
 import com.nforce.onehr.dto.assignments.EmployeeAssignmentRow;
 import com.nforce.onehr.dto.assignments.ImportResultResponse;
+import com.nforce.onehr.dto.penalization.BulkAllocationRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.PenalisationPolicy;
 import com.nforce.onehr.entity.Shift;
@@ -24,10 +26,13 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -49,6 +54,9 @@ public class EmployeeAssignmentService {
     private final WeeklyOffPolicyRepository weeklyOffPolicyRepository;
     private final PenalisationPolicyRepository penalisationPolicyRepository;
     private final AuditService auditService;
+    private final PenalizationPolicyAllocationService penalizationPolicyAllocationService;
+    private final PenalizationPolicyResolutionService penalizationPolicyResolutionService;
+    private final AttendanceProperties attendanceProperties;
 
     @Transactional(readOnly = true)
     public List<EmployeeAssignmentRow> listTeamAssignments(String managerEmail, UUID shiftId, UUID weeklyOffPolicyId,
@@ -60,6 +68,14 @@ public class EmployeeAssignmentService {
             return List.of();
         }
 
+        // Same authoritative resolution (allocation row > legacy FK > org default) the Allocation
+        // screen and the attendance engine read from — nothing has written Employee.penalisationPolicy
+        // since allocations replaced it, so filtering/displaying that legacy FK directly here would
+        // silently show every row's policy column as blank/stale.
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        Map<UUID, UUID> resolvedPolicyByEmployee = penalizationPolicyResolutionService.resolveCurrentPolicyIdsByEmployee(today);
+        Map<UUID, PenalisationPolicy> policyCache = new java.util.HashMap<>();
+
         String q = search != null ? search.trim().toLowerCase() : null;
         return employeeRepository.findAllById(reportIds).stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
@@ -67,14 +83,14 @@ public class EmployeeAssignmentService {
                 .filter(e -> weeklyOffPolicyId == null
                         || (e.getWeeklyOffPolicy() != null && weeklyOffPolicyId.equals(e.getWeeklyOffPolicy().getId())))
                 .filter(e -> penalisationPolicyId == null
-                        || (e.getPenalisationPolicy() != null && penalisationPolicyId.equals(e.getPenalisationPolicy().getId())))
+                        || penalisationPolicyId.equals(resolvedPolicyByEmployee.get(e.getUserId())))
                 .filter(e -> department == null || department.isBlank()
                         || (e.getDepartment() != null && department.equalsIgnoreCase(e.getDepartment().getName())))
                 .filter(e -> location == null || location.isBlank()
                         || (e.getLocation() != null && location.equalsIgnoreCase(e.getLocation().getName())))
                 .filter(e -> q == null || q.isBlank()
                         || e.getFullName().toLowerCase().contains(q) || e.getEmployeeCode().toLowerCase().contains(q))
-                .map(this::toRow)
+                .map(e -> toRow(e, resolvedPolicyByEmployee.get(e.getUserId()), policyCache))
                 .sorted(Comparator.comparing(EmployeeAssignmentRow::getFullName, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
     }
@@ -128,11 +144,45 @@ public class EmployeeAssignmentService {
         return bulkApply(managerEmail, employeeUserIds, "WEEKLY_OFF", policyId, e -> e.setWeeklyOffPolicy(policy));
     }
 
+    /**
+     * Section 26: routed entirely through {@link PenalizationPolicyAllocationService} instead of
+     * writing the legacy {@code employees.penalisation_policy_id} FK directly — the same
+     * validation (overlap protection), history, and audit trail as the org-wide Penalization
+     * Policy Allocation screen, rather than a second, independent write path with none of those
+     * guarantees. Effective from today (this screen has no date picker of its own), open-ended.
+     * A manager-scoping failure (no longer this manager's direct report) is reported the same way
+     * {@link #bulkApply} already reports one, merged with whatever
+     * {@code PenalizationPolicyAllocationService} itself rejects (e.g. an employee who already has
+     * a current/future allocation elsewhere) — both surface as per-employee failures in the same
+     * response shape this endpoint always returned.
+     */
     @Transactional
     public AssignmentBulkResultResponse bulkUpdatePenalisationPolicy(String managerEmail, List<UUID> employeeUserIds, UUID policyId) {
-        PenalisationPolicy policy = penalisationPolicyRepository.findById(policyId)
-                .orElseThrow(() -> new IllegalArgumentException("Penalisation policy not found"));
-        return bulkApply(managerEmail, employeeUserIds, "PENALISATION_POLICY", policyId, e -> e.setPenalisationPolicy(policy));
+        Employee manager = resolveManager(managerEmail);
+        Set<UUID> reportIds = new HashSet<>(managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId()));
+
+        List<UUID> scopedIds = new ArrayList<>();
+        List<AssignmentBulkResultResponse.FailureDto> failed = new ArrayList<>();
+        for (UUID employeeUserId : employeeUserIds) {
+            if (reportIds.contains(employeeUserId)) {
+                scopedIds.add(employeeUserId);
+            } else {
+                failed.add(AssignmentBulkResultResponse.FailureDto.builder()
+                        .employeeUserId(employeeUserId).reason("Not a current direct report").build());
+            }
+        }
+        if (scopedIds.isEmpty()) {
+            return AssignmentBulkResultResponse.builder().succeededIds(List.of()).failed(failed).build();
+        }
+
+        BulkAllocationRequest request = new BulkAllocationRequest();
+        request.setEmployeeUserIds(scopedIds);
+        request.setPenalisationPolicyId(policyId);
+        request.setEffectiveFrom(LocalDate.now(ZoneId.of(attendanceProperties.getZone())));
+        AssignmentBulkResultResponse allocationResult = penalizationPolicyAllocationService.bulkAllocate(request, managerEmail);
+
+        failed.addAll(allocationResult.getFailed());
+        return AssignmentBulkResultResponse.builder().succeededIds(allocationResult.getSucceededIds()).failed(failed).build();
     }
 
     private AssignmentBulkResultResponse bulkApply(String managerEmail, List<UUID> employeeUserIds, String fieldLabel,
@@ -227,7 +277,7 @@ public class EmployeeAssignmentService {
                 .build();
     }
 
-    private EmployeeAssignmentRow toRow(Employee e) {
+    private EmployeeAssignmentRow toRow(Employee e, UUID resolvedPolicyId, Map<UUID, PenalisationPolicy> policyCache) {
         return EmployeeAssignmentRow.builder()
                 .employeeUserId(e.getUserId())
                 .employeeCode(e.getEmployeeCode())
@@ -241,9 +291,17 @@ public class EmployeeAssignmentService {
                 .shiftEndTime(e.getShift() != null ? e.getShift().getEndTime() : null)
                 .weeklyOffPolicyId(e.getWeeklyOffPolicy() != null ? e.getWeeklyOffPolicy().getId() : null)
                 .weeklyOffPolicyName(e.getWeeklyOffPolicy() != null ? e.getWeeklyOffPolicy().getName() : null)
-                .penalisationPolicyId(e.getPenalisationPolicy() != null ? e.getPenalisationPolicy().getId() : null)
-                .penalisationPolicyName(e.getPenalisationPolicy() != null ? e.getPenalisationPolicy().getName() : null)
+                .penalisationPolicyId(resolvedPolicyId)
+                .penalisationPolicyName(resolvedPolicyName(resolvedPolicyId, policyCache))
                 .build();
+    }
+
+    private String resolvedPolicyName(UUID policyId, Map<UUID, PenalisationPolicy> cache) {
+        if (policyId == null) {
+            return null;
+        }
+        PenalisationPolicy cached = cache.computeIfAbsent(policyId, id -> penalisationPolicyRepository.findById(id).orElse(null));
+        return cached != null ? cached.getName() : "Unknown Policy";
     }
 
     private Employee resolveManager(String actorEmail) {

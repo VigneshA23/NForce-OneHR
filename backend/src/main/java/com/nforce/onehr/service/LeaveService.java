@@ -19,6 +19,7 @@ import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,6 +78,13 @@ public class LeaveService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
+    // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
+    // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
+    // depended on LeaveService since before this change). A lazy proxy defers resolving the real
+    // ExceptionService bean until approve() actually calls it, well after the context has finished
+    // starting up, rather than needing it live during EmployeeService's own construction.
+    @Lazy
+    private final ExceptionService exceptionService;
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
@@ -356,7 +364,28 @@ public class LeaveService {
         auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId(), before, after);
 
         notifyDecision(request, "LEAVE_APPROVED", "Leave Request Approved", "approved", null, actor);
+        reevaluatePenaltiesForApprovedLeave(request, actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Gap-034: the leave-approval half of the shared re-evaluation engine {@link RegularizationService#approve}
+     * already uses — this request's now-approved days may have lowered expected work minutes (or,
+     * for a full day, removed the working-day expectation entirely) below what a WORK_HOURS_SHORTAGE
+     * or NO_ATTENDANCE penalty on that date assumed when it was applied. Runs once per covered
+     * calendar day — a multi-day request can invalidate a different subset of days than others —
+     * and reverses only the two discrepancy types leave approval can actually affect
+     * ({@link ExceptionService#LEAVE_REEVALUATION_TYPES}), never LATE_ARRIVAL/MISSING_PUNCH, which
+     * a leave approval has no bearing on. Covers both full-day and half-day requests identically:
+     * the engine re-derives "is this still a shortage" from current data, not from this method
+     * knowing which kind of leave was approved.
+     */
+    private void reevaluatePenaltiesForApprovedLeave(LeaveRequest request, User actor) {
+        for (LocalDate date = request.getStartDate(); !date.isAfter(request.getEndDate()); date = date.plusDays(1)) {
+            exceptionService.reevaluateAndReverseIfInvalid(request.getEmployeeUserId(), date,
+                    ExceptionService.LEAVE_REEVALUATION_TYPES, actor.getId(),
+                    "Leave approved for " + date.format(NOTIFICATION_DATE_FMT), "ATTENDANCE_PENALTY_REVERSED");
+        }
     }
 
     @Transactional

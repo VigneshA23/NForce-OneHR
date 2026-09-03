@@ -27,7 +27,9 @@ public class EmployeeAllocationRow {
     /** The policy actually governing this employee today, and where that resolution came from. */
     private UUID resolvedPolicyId;
     private String resolvedPolicyName;
-    /** ALLOCATION / LEGACY / DEFAULT — same three-tier priority as PenalizationPolicyResolutionService. */
+    /** ALLOCATION / LEGACY / DEFAULT / ALLOCATION_REQUIRED — same priority as
+     * PenalizationPolicyResolutionService; ALLOCATION_REQUIRED means resolvedPolicyId is null
+     * because the REQUIRE_ALLOCATION fallback strategy is active and this employee has neither. */
     private String resolvedPolicySource;
 
     /** The allocation row backing resolvedPolicy* above, when resolvedPolicySource == ALLOCATION. */

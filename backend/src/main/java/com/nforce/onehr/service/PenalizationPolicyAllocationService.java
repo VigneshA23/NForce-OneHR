@@ -1,6 +1,7 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.config.PenalizationFallbackStrategy;
 import com.nforce.onehr.dto.assignments.AssignmentBulkResultResponse;
 import com.nforce.onehr.dto.penalization.AllocationDto;
 import com.nforce.onehr.dto.penalization.BulkAllocationRequest;
@@ -10,11 +11,13 @@ import com.nforce.onehr.dto.penalization.EmployeeAllocationDetailResponse;
 import com.nforce.onehr.dto.penalization.EmployeeAllocationProjection;
 import com.nforce.onehr.dto.penalization.EmployeeAllocationRow;
 import com.nforce.onehr.dto.penalization.EmployeeAllocationSearchResponse;
+import com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse;
 import com.nforce.onehr.dto.penalization.UpdateAllocationRequest;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.PenalisationPolicy;
 import com.nforce.onehr.entity.PenalizationPolicyAllocation;
+import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.EmployeeSpecifications;
@@ -36,11 +39,13 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -164,6 +169,50 @@ public class PenalizationPolicyAllocationService {
                 .build();
     }
 
+    /**
+     * Section 21: "Employee X on date Y → which policy applies?" for an ARBITRARY date, not just
+     * today — reuses {@link #toRow} (the exact same allocation/legacy/default/resolvedPolicySource
+     * logic {@link #getEmployeeDetail} and every search row already use), adding the version and
+     * "why null" detail neither of those needs. The attendance engine's own resolution
+     * ({@link PenalizationPolicyResolutionService#resolveEffectiveVersionForEmployee}) and this API
+     * are guaranteed to agree because both call the identical {@code resolveAssignedOrDefaultPolicyId}
+     * this method calls.
+     */
+    @Transactional(readOnly = true)
+    public PolicyResolutionDetailResponse resolveFor(UUID employeeUserId, LocalDate date) {
+        Employee employee = findEmployee(employeeUserId);
+        List<PenalizationPolicyAllocation> allocations = allocationRepository.findByEmployeeUserIdOrderByEffectiveFromDesc(employeeUserId);
+        Map<UUID, PenalisationPolicy> policyCache = new LinkedHashMap<>();
+        UUID resolvedPolicyId = resolutionService.resolveAssignedOrDefaultPolicyId(employee, date);
+        EmployeeResponse.ManagerRef manager =
+                employeeService.findCurrentManagersBulk(List.of(employeeUserId)).get(employeeUserId);
+        EmployeeAllocationRow row = toRow(employee, allocations, date, policyCache, resolvedPolicyId, manager);
+
+        PenalizationPolicyVersion version = resolvedPolicyId != null
+                ? resolutionService.resolveEffectiveVersion(resolvedPolicyId, date) : null;
+        PenalisationPolicy resolvedPolicy = resolvedPolicyId != null ? policyCache.get(resolvedPolicyId) : null;
+
+        return PolicyResolutionDetailResponse.builder()
+                .employeeUserId(employeeUserId).date(date)
+                .resolvedPolicyId(resolvedPolicyId).resolvedPolicyName(row.getResolvedPolicyName())
+                .resolvedPolicySource(row.getResolvedPolicySource())
+                .policyStatus(resolvedPolicy != null ? resolvedPolicy.getStatus() : null)
+                .policyVersion(version != null ? version.getVersion() : null)
+                .versionEffectiveFrom(version != null ? version.getEffectiveFrom() : null)
+                .currentAllocation(row.getCurrentAllocation())
+                .reason(resolvedPolicyId == null ? noResolvedPolicyReason() : null)
+                .build();
+    }
+
+    private String noResolvedPolicyReason() {
+        if (attendanceProperties.getPenalizationFallbackStrategy() == PenalizationFallbackStrategy.REQUIRE_ALLOCATION) {
+            return "No allocation or legacy assignment exists for this employee on this date, and the "
+                    + "REQUIRE_ALLOCATION fallback strategy means no organization default is consulted.";
+        }
+        return "No allocation or legacy assignment exists for this employee on this date, and no active "
+                + "organization default policy is configured.";
+    }
+
     // ── Individual write operations ──────────────────────────────────────────────
 
     @Transactional
@@ -267,7 +316,7 @@ public class PenalizationPolicyAllocationService {
             }
         }
         auditService.log(actor.getId(), "PENALIZATION_POLICY_ALLOCATION_BULK_ASSIGNED", policy.getId(),
-                null, "{\"employeeCount\":" + succeeded.size() + "}");
+                null, bulkAuditJson(succeeded, failed));
         return AssignmentBulkResultResponse.builder().succeededIds(succeeded).failed(failed).build();
     }
 
@@ -277,6 +326,10 @@ public class PenalizationPolicyAllocationService {
         LocalDate today = today();
         List<UUID> succeeded = new ArrayList<>();
         List<AssignmentBulkResultResponse.FailureDto> failed = new ArrayList<>();
+        // Gap-039: unlike bulkAllocate, this request carries no single policyId — each employee's
+        // current allocation can point at a different policy — so the one shared value bulkAllocate
+        // uses as its audit target isn't available here by construction, not by oversight.
+        Set<UUID> removedPolicyIds = new HashSet<>();
         for (UUID employeeUserId : req.getEmployeeUserIds()) {
             try {
                 List<PenalizationPolicyAllocation> current = allocationRepository.findEffectiveAt(employeeUserId, today);
@@ -284,6 +337,7 @@ public class PenalizationPolicyAllocationService {
                     throw new IllegalStateException("No active allocation to remove");
                 }
                 PenalizationPolicyAllocation allocation = current.get(0);
+                removedPolicyIds.add(allocation.getPenalisationPolicyId());
                 removeOrTruncate(allocation, actor.getId(), today);
                 succeeded.add(employeeUserId);
                 employeeRepository.findById(employeeUserId).ifPresent(this::notifyRemoval);
@@ -292,12 +346,34 @@ public class PenalizationPolicyAllocationService {
                         .employeeUserId(employeeUserId).reason(e.getMessage()).build());
             }
         }
-        auditService.log(actor.getId(), "PENALIZATION_POLICY_ALLOCATION_BULK_REMOVED", actor.getId(),
-                null, "{\"employeeCount\":" + succeeded.size() + "}");
+        // A single policy was removed from everyone (the common case — e.g. "clear this policy's
+        // allocations") is the one scenario with a genuine bulk-allocate-style target; anything
+        // else (a mixed-policy selection, or nothing succeeded) has no single meaningful target,
+        // so this is left null rather than misattributing the event to the actor auditing themselves.
+        UUID auditTargetId = removedPolicyIds.size() == 1 ? removedPolicyIds.iterator().next() : null;
+        auditService.log(actor.getId(), "PENALIZATION_POLICY_ALLOCATION_BULK_REMOVED", auditTargetId,
+                null, bulkAuditJson(succeeded, failed));
         return AssignmentBulkResultResponse.builder().succeededIds(succeeded).failed(failed).build();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
+
+    /**
+     * Section 9: a bulk operation's audit entry must let an HR/audit user determine exactly which
+     * employees were affected, not just how many — {@code employeeCount} alone (the previous
+     * behavior) can't answer "was employee X part of this batch?". Includes every failure's own
+     * employee id and reason too, so a partially-successful batch is fully explainable from the
+     * audit log alone.
+     */
+    private String bulkAuditJson(List<UUID> succeeded, List<AssignmentBulkResultResponse.FailureDto> failed) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("employeeCount", succeeded.size());
+        snapshot.put("succeededEmployeeIds", succeeded);
+        snapshot.put("failed", failed.stream()
+                .map(f -> Map.of("employeeUserId", f.getEmployeeUserId(), "reason", String.valueOf(f.getReason())))
+                .toList());
+        return auditSnapshot.toJson(snapshot);
+    }
 
     /**
      * Every employee id the shared {@code resolvedPolicyByEmployee} map (from
@@ -323,15 +399,36 @@ public class PenalizationPolicyAllocationService {
 
     /** Non-destructive overlap prevention: reject rather than silently truncate/delete the conflicting row. */
     private void checkOverlap(UUID employeeUserId, LocalDate from, LocalDate to, UUID excludeId) {
-        List<PenalizationPolicyAllocation> overlapping = allocationRepository.findOverlapping(employeeUserId, from, to, excludeId);
-        if (!overlapping.isEmpty()) {
-            PenalizationPolicyAllocation conflict = overlapping.get(0);
+        findConflict(employeeUserId, from, to, excludeId).ifPresent(conflict -> {
             String conflictPolicyName = resolvePolicyName(conflict.getPenalisationPolicyId());
             throw new IllegalStateException("This employee already has an allocation to \"" + conflictPolicyName
                     + "\" covering " + conflict.getEffectiveFrom()
                     + (conflict.getEffectiveTo() != null ? " to " + conflict.getEffectiveTo() : " onward (no end date)")
                     + ". Edit or remove that allocation first.");
+        });
+    }
+
+    private Optional<PenalizationPolicyAllocation> findConflict(UUID employeeUserId, LocalDate from, LocalDate to, UUID excludeId) {
+        List<PenalizationPolicyAllocation> overlapping = allocationRepository.findOverlapping(employeeUserId, from, to, excludeId);
+        return overlapping.isEmpty() ? Optional.empty() : Optional.of(overlapping.get(0));
+    }
+
+    /**
+     * Section 16 (Gap-016): a read-only preview of the exact same overlap check
+     * {@link #checkOverlap} enforces at write time, so the Allocation screen can warn an admin
+     * about a conflict before they submit rather than only after. Only employees that actually
+     * conflict appear in the returned map.
+     */
+    @Transactional(readOnly = true)
+    public Map<UUID, AllocationDto> checkConflicts(List<UUID> employeeUserIds, LocalDate from, LocalDate to, UUID excludeAllocationId) {
+        LocalDate today = today();
+        Map<UUID, PenalisationPolicy> policyCache = new LinkedHashMap<>();
+        Map<UUID, AllocationDto> conflicts = new LinkedHashMap<>();
+        for (UUID employeeUserId : employeeUserIds) {
+            findConflict(employeeUserId, from, to, excludeAllocationId)
+                    .ifPresent(conflict -> conflicts.put(employeeUserId, toAllocationDto(conflict, today, policyCache)));
         }
+        return conflicts;
     }
 
     /**
@@ -459,7 +556,12 @@ public class PenalizationPolicyAllocationService {
                 .min(Comparator.comparing(PenalizationPolicyAllocation::getEffectiveFrom))
                 .orElse(null);
 
-        String resolvedSource = current != null ? "ALLOCATION" : hasLegacyPolicy ? "LEGACY" : "DEFAULT";
+        // Section 7: a null resolvedPolicyId here means the REQUIRE_ALLOCATION strategy is active
+        // and this employee has no allocation and no legacy FK — surfaced distinctly so HR/admin
+        // can find and fix the gap, rather than being mislabeled "DEFAULT" when nothing was
+        // actually resolved.
+        String resolvedSource = resolvedPolicyId == null ? "ALLOCATION_REQUIRED"
+                : current != null ? "ALLOCATION" : hasLegacyPolicy ? "LEGACY" : "DEFAULT";
 
         return EmployeeAllocationRow.builder()
                 .employeeUserId(employeeUserId).employeeCode(employeeCode).fullName(fullName)

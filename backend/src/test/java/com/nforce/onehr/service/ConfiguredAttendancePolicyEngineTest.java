@@ -178,6 +178,61 @@ class ConfiguredAttendancePolicyEngineTest {
         assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
     }
 
+    // ── 6b. Late Arrival deduction rate (laDeductionPerShifts) ──
+    @Test
+    void lateArrival_noExplicitRate_deductsEveryOccurrencePastExempt() {
+        // No laDeductionPerShifts set — must behave exactly like every pre-existing policy saved
+        // before this field was consumed (backward compatibility).
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(3).build()).getType());
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(4).build()).getType());
+    }
+
+    @Test
+    void lateArrival_rateOfTwo_onlyDeductsOnEveryOtherOccurrencePastExempt() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(2).laDeductionPerShifts(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        // Occurrence #3 overall = 1st past exempt -> not a multiple of 2 -> no match.
+        assertEquals(PolicyDecisionType.NO_MATCH, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(3).build()).getType());
+        // Occurrence #4 overall = 2nd past exempt -> multiple of 2 -> applies.
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(4).build()).getType());
+        // Occurrence #5 overall = 3rd past exempt -> not a multiple of 2 -> no match again.
+        assertEquals(PolicyDecisionType.NO_MATCH, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(5).build()).getType());
+    }
+
+    @Test
+    void lateArrival_ratedBatching_stillDefersToATotalHoursTierMatchIndependently() {
+        // laDeductionPerShifts gates only the plain incident-count case — a total-late-hours tier
+        // match (a wholly separate mechanism) must still apply even on an occurrence the rate
+        // would otherwise suppress.
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(0).laDeductionPerShifts(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId()))
+                .thenReturn(List.of(com.nforce.onehr.entity.PenalizationPolicyLateHoursTier.builder()
+                        .thresholdHours(new java.math.BigDecimal("1")).deductionDays(new java.math.BigDecimal("1")).build()));
+        engine = newEngine();
+
+        // Occurrence #1 overall = 1st past exempt -> not a multiple of 2 by rate alone, but 90
+        // late minutes (1.5h) exceeds the 1-hour tier, so the tier match still applies.
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(1).lateMinutesTotalInPeriod(90).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+    }
+
     // ── 7. Work-hours shortage threshold affects evaluation ──
     @Test
     void effectiveHoursBelowTier_appliesPenalty() {

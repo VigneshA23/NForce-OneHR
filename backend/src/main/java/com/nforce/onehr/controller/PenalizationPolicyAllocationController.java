@@ -4,18 +4,23 @@ import com.nforce.onehr.dto.assignments.AssignmentBulkResultResponse;
 import com.nforce.onehr.dto.penalization.AllocationDto;
 import com.nforce.onehr.dto.penalization.BulkAllocationRequest;
 import com.nforce.onehr.dto.penalization.BulkRemoveAllocationRequest;
+import com.nforce.onehr.dto.penalization.CheckConflictsRequest;
 import com.nforce.onehr.dto.penalization.CreateAllocationRequest;
 import com.nforce.onehr.dto.penalization.EmployeeAllocationDetailResponse;
 import com.nforce.onehr.dto.penalization.EmployeeAllocationSearchResponse;
+import com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse;
 import com.nforce.onehr.dto.penalization.UpdateAllocationRequest;
 import com.nforce.onehr.service.PenalizationPolicyAllocationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.time.LocalDate;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -53,6 +58,18 @@ public class PenalizationPolicyAllocationController {
         return service.getEmployeeDetail(employeeUserId);
     }
 
+    /**
+     * Section 21: "which policy applies to employee X on date Y" — for any date, not just today.
+     * Uses the exact same resolution logic {@link #getEmployeeDetail} (today only) and the
+     * attendance engine both already use.
+     */
+    @GetMapping("/employees/{employeeUserId}/resolve")
+    public PolicyResolutionDetailResponse resolvePolicyFor(
+            @PathVariable UUID employeeUserId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return service.resolveFor(employeeUserId, date);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public AllocationDto allocate(@Valid @RequestBody CreateAllocationRequest request, Principal principal) {
@@ -78,5 +95,11 @@ public class PenalizationPolicyAllocationController {
     @PostMapping("/bulk-remove")
     public AssignmentBulkResultResponse bulkRemove(@Valid @RequestBody BulkRemoveAllocationRequest request, Principal principal) {
         return service.bulkRemove(request, principal.getName());
+    }
+
+    @PostMapping("/check-conflicts")
+    public Map<UUID, AllocationDto> checkConflicts(@Valid @RequestBody CheckConflictsRequest request) {
+        return service.checkConflicts(request.getEmployeeUserIds(), request.getEffectiveFrom(), request.getEffectiveTo(),
+                request.getExcludeAllocationId());
     }
 }

@@ -46,6 +46,9 @@ class ExceptionServiceTest {
     @Mock private PenalizationPolicyResolutionService penalizationPolicyResolutionService;
     @Mock private ExpectedWorkHoursService expectedWorkHoursService;
     @Mock private WorkHoursShortageCalculationService workHoursShortageCalculationService;
+    @Mock private AttendancePolicyEngine attendancePolicyEngine;
+    @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private AttendancePenaltyService attendancePenaltyService;
 
     @InjectMocks private ExceptionService exceptionService;
 
@@ -74,6 +77,22 @@ class ExceptionServiceTest {
                 any(), anyString(), any(), any())).thenReturn(List.of());
         lenient().when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
                 any(), any(), any())).thenReturn(List.of());
+    }
+
+    /**
+     * Section 09/Gap-007: LATE_ARRIVAL and MISSING_PUNCH are now gated by
+     * {@code WorkingDayService}'s working-day set, same as NO_ATTENDANCE/WORK_HOURS_SHORTAGE
+     * already were. Call this from a test that needs {@code employeeId} to count as scheduled to
+     * work on {@code workDates} — scoped per-test (not a class-wide default) since
+     * {@code findAllByIdWithScheduleDetails} returning a non-empty list also feeds
+     * {@code detectNoAttendanceAndShortage}'s own, unrelated NO_ATTENDANCE detection.
+     */
+    private void stubWorkingDays(LocalDate... workDates) {
+        when(employeeRepository.findAllByIdWithScheduleDetails(any()))
+                .thenReturn(List.of(Employee.builder().userId(employeeId).build()));
+        when(workingDayService.computeExpectedWorkingDaysBulk(anyList(), any(), any()))
+                .thenReturn(java.util.Map.of(employeeId, com.nforce.onehr.dto.attendance.WorkingDaySchedule.builder()
+                        .employeeUserId(employeeId).workingDates(Set.of(workDates)).build()));
     }
 
     private User userWithRole(String email, String roleCode, UUID id) {
@@ -157,12 +176,63 @@ class ExceptionServiceTest {
                 employeeId, lateRecord.getWorkDate(), ExceptionType.LATE_ARRIVAL)).thenReturn(Optional.empty());
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        stubWorkingDays(lateRecord.getWorkDate());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
         verify(attendanceExceptionRepository).save(argThat(exc ->
                 exc.getExceptionType().equals(ExceptionType.LATE_ARRIVAL)
                         && exc.getMinutesLate().equals(15)));
+    }
+
+    @Test
+    void lateArrival_suppressedOnAHolidayOrWeekOff_gap007() {
+        User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
+
+        Attendance lateRecordOnWeekOff = Attendance.builder()
+                .employeeUserId(employeeId)
+                .workDate(LocalDate.now().minusDays(1))
+                .checkInAt(LocalDateTime.now().minusDays(1).withHour(10).withMinute(0))
+                .checkOutAt(LocalDateTime.now().minusDays(1).withHour(18).withMinute(0))
+                .lateByMinutes(15)
+                .build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(lateRecordOnWeekOff));
+        // Deliberately NOT included in the stubbed working-day set — this employee wasn't
+        // scheduled to work this date at all (weekly off/holiday), so a punch that happens to
+        // read as "late" against normal shift-start must not become a penalty candidate.
+        stubWorkingDays();
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+
+        verify(attendanceExceptionRepository, never()).save(argThat(exc -> exc.getExceptionType().equals(ExceptionType.LATE_ARRIVAL)));
+    }
+
+    /** Section 3: MISSING_PUNCH shares the exact same isWorkingDay gate LATE_ARRIVAL does — a
+     * forgotten checkout on a day nobody was expected to work (holiday or weekly off) must never
+     * become a penalty candidate either. */
+    @Test
+    void missingPunch_suppressedOnAHolidayOrWeekOff() {
+        User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
+
+        Attendance missingPunchOnWeekOff = Attendance.builder()
+                .employeeUserId(employeeId)
+                .workDate(to.minusDays(1))
+                .checkInAt(to.minusDays(1).atTime(9, 30))
+                .checkOutAt(null)
+                .lateByMinutes(0)
+                .build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(missingPunchOnWeekOff));
+        // Deliberately NOT included in the stubbed working-day set — same gap007 reasoning as
+        // lateArrival_suppressedOnAHolidayOrWeekOff_gap007 above.
+        stubWorkingDays();
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+
+        verify(attendanceExceptionRepository, never()).save(argThat(exc -> exc.getExceptionType().equals(ExceptionType.MISSING_PUNCH)));
     }
 
     @Test
@@ -190,6 +260,7 @@ class ExceptionServiceTest {
                 employeeId, missingPunchYesterday.getWorkDate(), ExceptionType.MISSING_PUNCH)).thenReturn(Optional.empty());
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        stubWorkingDays(missingPunchYesterday.getWorkDate());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
@@ -224,6 +295,7 @@ class ExceptionServiceTest {
                 employeeId, lateRecord.getWorkDate(), ExceptionType.LATE_ARRIVAL)).thenReturn(Optional.of(existing));
         when(attendanceExceptionRepository.save(any(AttendanceException.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        stubWorkingDays(lateRecord.getWorkDate());
 
         exceptionService.getExceptionsForCaller(hrEmail, from, to);
 
@@ -339,5 +411,71 @@ class ExceptionServiceTest {
 
         verify(attendanceExceptionRepository, times(2)).save(argThat(exc ->
                 exc.getExceptionType().equals(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)));
+    }
+
+    // ── Gap-033: reevaluateAndReverseIfInvalid must reverse ONLY the invalidated type ──────────
+
+    @Test
+    void reevaluateAndReverseIfInvalid_correctionFixesLateness_shortagePenaltyOfDifferentTypePreserved() {
+        LocalDate date = to;
+        UUID actorId = UUID.randomUUID();
+        AttendancePenalty latePenalty = AttendancePenalty.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).incidentDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL)
+                .status(AttendancePenaltyStatus.PENDING_REVIEW).build();
+        AttendancePenalty shortagePenalty = AttendancePenalty.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).incidentDate(date).discrepancyType(ExceptionType.WORK_HOURS_SHORTAGE)
+                .status(AttendancePenaltyStatus.PENDING_REVIEW).build();
+        when(attendancePenaltyRepository.findByEmployeeUserIdAndIncidentDate(employeeId, date))
+                .thenReturn(List.of(latePenalty, shortagePenalty));
+        Employee employee = Employee.builder().userId(employeeId).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+        when(workingDayService.computeExpectedWorkingDays(employee, date, date))
+                .thenReturn(com.nforce.onehr.dto.attendance.WorkingDaySchedule.builder()
+                        .employeeUserId(employeeId).workingDates(Set.of(date)).build());
+        // Corrected by the regularization: no longer late, but still short on total hours.
+        Attendance corrected = Attendance.builder().employeeUserId(employeeId).workDate(date)
+                .checkInAt(date.atTime(9, 30)).checkOutAt(date.atTime(14, 0))
+                .workedMinutes(270).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.of(corrected));
+        PenalizationPolicyVersion version = PenalizationPolicyVersion.builder().id(UUID.randomUUID()).build();
+        when(penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, date)).thenReturn(version);
+        when(expectedWorkHoursService.adjustedExpectedMinutes(employee, date)).thenReturn(480L); // 270 < 480 — still short
+        when(attendancePolicyEngine.evaluate(any())).thenReturn(
+                com.nforce.onehr.dto.attendance.PolicyDecision.builder()
+                        .type(com.nforce.onehr.dto.attendance.PolicyDecisionType.APPLY_PENALTY).build());
+
+        exceptionService.reevaluateAndReverseIfInvalid(employeeId, date, ExceptionService.REGULARIZATION_REEVALUATION_TYPES,
+                actorId, "Attendance corrected", "ATTENDANCE_PENALTY_REVERSED");
+
+        verify(attendancePenaltyService).reverseIfActive(latePenalty.getId(), actorId, "Attendance corrected", "ATTENDANCE_PENALTY_REVERSED");
+        verify(attendancePenaltyService, never()).reverseIfActive(eq(shortagePenalty.getId()), any(), any(), any());
+    }
+
+    @Test
+    void reevaluateAndReverseIfInvalid_dateNoLongerAWorkingDay_reversesEveryCandidateType() {
+        // Simulates a full/half-day leave approved AFTER a penalty already exists: the date drops
+        // out of the working-day schedule entirely, so every candidate type must be reversed
+        // regardless of its own per-type fact check.
+        LocalDate date = to;
+        UUID actorId = UUID.randomUUID();
+        AttendancePenalty shortagePenalty = AttendancePenalty.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).incidentDate(date).discrepancyType(ExceptionType.WORK_HOURS_SHORTAGE)
+                .status(AttendancePenaltyStatus.PENDING_REVIEW).build();
+        when(attendancePenaltyRepository.findByEmployeeUserIdAndIncidentDate(employeeId, date))
+                .thenReturn(List.of(shortagePenalty));
+        Employee employee = Employee.builder().userId(employeeId).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+        // Empty working-dates set — the newly-approved leave removed this date entirely.
+        when(workingDayService.computeExpectedWorkingDays(employee, date, date))
+                .thenReturn(com.nforce.onehr.dto.attendance.WorkingDaySchedule.builder()
+                        .employeeUserId(employeeId).workingDates(Set.of()).build());
+
+        exceptionService.reevaluateAndReverseIfInvalid(employeeId, date, ExceptionService.LEAVE_REEVALUATION_TYPES,
+                actorId, "Leave approved", "ATTENDANCE_PENALTY_REVERSED");
+
+        verify(attendancePenaltyService).reverseIfActive(shortagePenalty.getId(), actorId, "Leave approved", "ATTENDANCE_PENALTY_REVERSED");
+        // The day being non-working is decisive on its own — the engine/per-type fact check must
+        // never even need to run.
+        verifyNoInteractions(attendancePolicyEngine);
     }
 }

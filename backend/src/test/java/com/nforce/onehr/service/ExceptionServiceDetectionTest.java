@@ -57,6 +57,8 @@ class ExceptionServiceDetectionTest {
     @Mock private PenalisationPolicyRepository penalisationPolicyRepository;
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
+    @Mock private EmployeeService employeeService;
+    @Mock private AttendancePenaltyService attendancePenaltyService;
 
     private ExceptionService exceptionService;
 
@@ -81,14 +83,15 @@ class ExceptionServiceDetectionTest {
         AuditSnapshotSerializer snapshotSerializer = new AuditSnapshotSerializer(new ObjectMapper());
         PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, snapshotSerializer);
         AttendancePenaltyEvaluationService penaltyEvaluationService =
-                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService);
+                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
+                        notificationService, employeeService, auditService, snapshotSerializer);
         WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
                 lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
                 attendanceProperties, employeeRepository, notificationService);
         lenient().when(allocationRepository.findEffectiveAt(any(), any())).thenReturn(List.of());
         PenalizationPolicyResolutionService policyResolutionService =
-                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository);
+                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
         ExpectedWorkHoursService expectedWorkHoursService = new ExpectedWorkHoursService(leaveRequestRepository);
         WorkHoursShortageCalculationService workHoursShortageCalculationService =
                 new WorkHoursShortageCalculationService(attendanceRepository, expectedWorkHoursService, workingDayService);
@@ -96,7 +99,7 @@ class ExceptionServiceDetectionTest {
                 attendanceExceptionRepository, attendanceRepository, leaveRequestRepository,
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
-                workHoursShortageCalculationService);
+                workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
@@ -637,6 +640,54 @@ class ExceptionServiceDetectionTest {
         exceptionService.runScheduledPenaltyEvaluation(7);
 
         verify(attendanceRepository, org.mockito.Mockito.never()).findByEmployeeUserIdInAndWorkDateBetween(any(), any(), any());
+    }
+
+    /**
+     * Section 8: {@code Employee#lastWorkingDay} — the domain's one genuine, HR-authored
+     * termination fact — blocks NEW penalty creation for any date after it. Reuses the exact
+     * NO_ATTENDANCE scenario {@link #expectedWorkingDayWithNoAttendanceRow_detectsNoAttendance_appliesPenalty}
+     * already proves fires a penalty — here the only difference is a lastWorkingDay before the
+     * evaluated date, which must suppress it. A merely-deactivated employee (User.active = false,
+     * no lastWorkingDay) is deliberately NOT an exclusion case — active alone must never gate this
+     * (see this method's production-code javadoc); only lastWorkingDay does.
+     */
+    @Test
+    void evaluatePolicy_dateAfterLastWorkingDay_neverCreatesANewPenalty() {
+        Employee terminatedEmployee = Employee.builder().userId(employeeId)
+                .user(User.builder().id(employeeId).email("employee@test.com").build())
+                .joiningDate(targetDate.minusYears(1)).lastWorkingDay(targetDate.minusDays(1)).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(terminatedEmployee));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(terminatedEmployee));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of());
+        when(versionRepository.findVersionsEffectiveAt(targetDate.atStartOfDay())).thenReturn(List.of(noAttendanceVersion()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        org.mockito.Mockito.verifyNoInteractions(attendancePenaltyRepository);
+    }
+
+    /**
+     * Same scenario, but the last working day is ON the evaluated date itself — this is exactly
+     * the boundary the gate must NOT suppress (an employee's actual final day is still a genuine
+     * working day to evaluate).
+     */
+    @Test
+    void evaluatePolicy_dateOnLastWorkingDay_stillEvaluatesNormally() {
+        Employee employeeLeavingToday = Employee.builder().userId(employeeId)
+                .user(User.builder().id(employeeId).email("employee@test.com").build())
+                .joiningDate(targetDate.minusYears(1)).lastWorkingDay(targetDate).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employeeLeavingToday));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employeeLeavingToday));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of());
+        when(versionRepository.findVersionsEffectiveAt(targetDate.atStartOfDay())).thenReturn(List.of(noAttendanceVersion()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        ArgumentCaptor<AttendancePenalty> captor = ArgumentCaptor.forClass(AttendancePenalty.class);
+        verify(attendancePenaltyRepository).save(captor.capture());
+        assertEquals(ExceptionType.NO_ATTENDANCE, captor.getValue().getDiscrepancyType());
     }
 
     // ── Phase 3: Weekly/Monthly Work Hours Shortage frequency ──────────────────────────────────

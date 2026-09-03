@@ -7,10 +7,28 @@ import { penalisationPoliciesApi, type PenalisationPolicySummary } from '../../a
 import {
   penalizationPolicyAllocationApi,
   type AllocationDto,
+  type AllocationBulkResult,
   type EmployeeAllocationRow,
   type EmployeeAllocationSearchResponse,
   type EmployeeAllocationDetailResponse,
+  type ResolvedPolicySource,
 } from '../../api/penalizationPolicyAllocation';
+
+/** Gap-015: per-employee bulk-failure detail, mirroring MyTeamPage's AssignmentActionResult. */
+interface AllocationActionResult {
+  succeeded: number;
+  failures: { label: string; reason: string }[];
+}
+
+function toActionResult(res: AllocationBulkResult, employees: { employeeUserId: string; fullName: string }[]): AllocationActionResult {
+  return {
+    succeeded: res.succeededIds.length,
+    failures: res.failed.map(f => ({
+      label: employees.find(e => e.employeeUserId === f.employeeUserId)?.fullName ?? f.employeeUserId,
+      reason: f.reason,
+    })),
+  };
+}
 
 // The main Allocation table shows every matching employee at once (no pagination) — only the
 // Add Employees modal still paginates its own independent employee search.
@@ -28,9 +46,15 @@ function fmtDate(iso: string | null | undefined): string {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function SourceBadge({ source }: { source: 'ALLOCATION' | 'LEGACY' | 'DEFAULT' }) {
-  const copy = source === 'ALLOCATION' ? 'Allocated' : source === 'LEGACY' ? 'Legacy' : 'Org Default';
-  const color = source === 'ALLOCATION' ? 'var(--brand-bright)' : source === 'LEGACY' ? '#E0A93B' : 'var(--txt-dim)';
+function SourceBadge({ source }: { source: ResolvedPolicySource }) {
+  const copy = source === 'ALLOCATION' ? 'Allocated'
+    : source === 'LEGACY' ? 'Legacy'
+    : source === 'ALLOCATION_REQUIRED' ? 'Needs Allocation'
+    : 'Org Default';
+  const color = source === 'ALLOCATION' ? 'var(--brand-bright)'
+    : source === 'LEGACY' ? '#E0A93B'
+    : source === 'ALLOCATION_REQUIRED' ? 'var(--risk)'
+    : 'var(--txt-dim)';
   return (
     <span style={{ fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '.04em' }}>
       {copy}
@@ -95,7 +119,11 @@ type AllocateAction =
 
 interface AllocateModalProps {
   title: string;
-  employeeCount: number;
+  token: string;
+  employeeUserIds: string[];
+  /** For per-employee name resolution in the conflict preview — falls back to the raw id when a
+   * selected employee isn't in this list (e.g. selected on a different page of a paginated search). */
+  employees?: { employeeUserId: string; fullName: string }[];
   policies: PenalisationPolicySummary[];
   initial?: AllocationDto | null;
   /** Only offered for bulk actions — individual remove has its own dedicated confirmation flow. */
@@ -104,7 +132,8 @@ interface AllocateModalProps {
   onSubmit(action: AllocateAction): Promise<void>;
 }
 
-function AllocateModal({ title, employeeCount, policies, initial, allowRemoveOption, onClose, onSubmit }: AllocateModalProps) {
+function AllocateModal({ title, token, employeeUserIds, employees, policies, initial, allowRemoveOption, onClose, onSubmit }: AllocateModalProps) {
+  const employeeCount = employeeUserIds.length;
   const [removeMode, setRemoveMode] = useState(false);
   const [policyId, setPolicyId] = useState(initial?.penalisationPolicyId ?? '');
   const [effectiveFrom, setEffectiveFrom] = useState(initial?.effectiveFrom ?? new Date().toISOString().slice(0, 10));
@@ -112,7 +141,26 @@ function AllocateModal({ title, employeeCount, policies, initial, allowRemoveOpt
   const [effectiveTo, setEffectiveTo] = useState(initial?.effectiveTo ?? '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [conflicts, setConflicts] = useState<Record<string, AllocationDto>>({});
   const activePolicies = policies.filter(p => p.status === 'ACTIVE');
+
+  // Gap-016: pre-submit preview of the same overlap check the backend enforces at submit time —
+  // debounced so it doesn't fire on every keystroke, and purely advisory (submit is still the
+  // authoritative check; this can't block it, only warn ahead of it).
+  useEffect(() => {
+    if (removeMode || !policyId || !effectiveFrom) { setConflicts({}); return; }
+    const timer = setTimeout(() => {
+      penalizationPolicyAllocationApi.checkConflicts(token, {
+        employeeUserIds,
+        effectiveFrom,
+        effectiveTo: noEndDate ? null : (effectiveTo || null),
+        excludeAllocationId: initial?.id,
+      }).then(setConflicts).catch(() => setConflicts({}));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [token, employeeUserIds, removeMode, policyId, effectiveFrom, effectiveTo, noEndDate, initial?.id]);
+
+  const conflictEntries = Object.entries(conflicts);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -162,6 +210,9 @@ function AllocateModal({ title, employeeCount, policies, initial, allowRemoveOpt
               <span style={labelText}>Effective From {!removeMode && '*'}</span>
               <input type="date" style={{ ...inputStyle, width: '100%' }} value={effectiveFrom} disabled={removeMode}
                 onChange={e => setEffectiveFrom(e.target.value)} />
+              <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
+                When this employee's assignment to the selected policy starts — separate from the policy's own effective date on the Penalization Policy screen.
+              </div>
             </div>
             <div>
               <span style={labelText}>Effective Up To</span>
@@ -169,6 +220,22 @@ function AllocateModal({ title, employeeCount, policies, initial, allowRemoveOpt
                 onChange={e => setEffectiveTo(e.target.value)} min={effectiveFrom} />
             </div>
           </div>
+          {conflictEntries.length > 0 && (
+            <div role="alert" style={{ background: 'rgba(181,101,29,.1)', border: '1px solid rgba(181,101,29,.3)', borderRadius: 6, padding: '8px 12px', color: '#B5651D', fontSize: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>This date range overlaps an existing allocation:</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {conflictEntries.map(([empId, conflict]) => {
+                  const label = employees?.find(e => e.employeeUserId === empId)?.fullName ?? empId;
+                  return (
+                    <div key={empId}>
+                      {employeeCount > 1 ? `${label}: ` : ''}already allocated to "{conflict.penalisationPolicyName}" from {fmtDate(conflict.effectiveFrom)}
+                      {conflict.effectiveTo ? ` to ${fmtDate(conflict.effectiveTo)}` : ' onward (no end date)'}.
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--txt-mut)', cursor: removeMode ? 'not-allowed' : 'pointer' }}>
             <input type="checkbox" checked={noEndDate} disabled={removeMode} onChange={e => setNoEndDate(e.target.checked)} style={{ width: 14, height: 14 }} />
             No End Date (stays in effect until changed)
@@ -198,12 +265,22 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
   onRemovePolicy(emp: AllocatableEmployee): void;
 }) {
   const [detail, setDetail] = useState<EmployeeAllocationDetailResponse | null>(null);
+  const [noPolicyReason, setNoPolicyReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     penalizationPolicyAllocationApi.getEmployeeDetail(token, employeeUserId)
-      .then(setDetail)
+      .then(d => {
+        setDetail(d);
+        // ALLOCATION_REQUIRED (Section 21): explain WHY, not just that nothing resolved.
+        if (d.resolvedPolicySource === 'ALLOCATION_REQUIRED') {
+          const today = new Date().toISOString().slice(0, 10);
+          penalizationPolicyAllocationApi.resolveFor(token, employeeUserId, today)
+            .then(r => setNoPolicyReason(r.reason))
+            .catch(() => { /* the detail view already degrades to "No Penalization Policy" without a reason */ });
+        }
+      })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load employee detail'))
       .finally(() => setLoading(false));
   }, [token, employeeUserId]);
@@ -254,7 +331,14 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
                   )}
                 </div>
               ) : (
-                <div style={{ fontSize: 13, color: 'var(--txt-mut)', fontStyle: 'italic' }}>No Penalization Policy</div>
+                <div>
+                  <div style={{ fontSize: 13, color: 'var(--txt-mut)', fontStyle: 'italic' }}>
+                    No Penalization Policy <SourceBadge source={detail.resolvedPolicySource} />
+                  </div>
+                  {noPolicyReason && (
+                    <div style={{ fontSize: 11.5, color: 'var(--risk)', marginTop: 4 }}>{noPolicyReason}</div>
+                  )}
+                </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <button
@@ -318,7 +402,7 @@ function AddEmployeesModal({ token, policies, businessUnits, departments, locati
   departments: DepartmentRow[];
   locations: LocationRow[];
   onClose(): void;
-  onAssigned(): Promise<void>;
+  onAssigned(result: AllocationBulkResult, assignedEmployees: { employeeUserId: string; fullName: string }[]): Promise<void>;
 }) {
   const { showToast } = useToast();
   const [search, setSearch] = useState('');
@@ -375,14 +459,18 @@ function AddEmployeesModal({ token, policies, businessUnits, departments, locati
     const res = await penalizationPolicyAllocationApi.bulkAllocate(token, { employeeUserIds: Array.from(selected), ...action });
     showToast(res.failed.length > 0 ? 'error' : 'success',
       `${res.succeededIds.length} employee(s) assigned${res.failed.length > 0 ? `, ${res.failed.length} failed` : ''}`);
-    await onAssigned();
+    // Only this page's rows are loaded here — a failure for an employee selected on a different
+    // page falls back to showing their raw id, same convention MyTeamPage's failure list uses.
+    await onAssigned(res, result?.content ?? []);
   }
 
   if (step === 'assign') {
     return (
       <AllocateModal
         title={`Assign Policy — ${selected.size} employee${selected.size === 1 ? '' : 's'}`}
-        employeeCount={selected.size}
+        token={token}
+        employeeUserIds={Array.from(selected)}
+        employees={result?.content}
         policies={policies}
         onClose={onClose}
         onSubmit={handleAssign}
@@ -508,6 +596,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
   const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<{ title: string; body: string; onConfirm: () => Promise<void> } | null>(null);
   const [addEmployeesOpen, setAddEmployeesOpen] = useState(false);
+  const [lastResult, setLastResult] = useState<AllocationActionResult | null>(null);
 
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -610,10 +699,12 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
 
   async function handleAllocateSubmit(action: AllocateAction) {
     if (!allocateTarget) return;
+    const employees = result?.content ?? [];
     if (action.type === 'remove') {
       const res = await penalizationPolicyAllocationApi.bulkRemove(token, allocateTarget.employeeIds);
       showToast(res.failed.length > 0 ? 'error' : 'success',
         `${res.succeededIds.length} removed${res.failed.length > 0 ? `, ${res.failed.length} had nothing to remove` : ''}`);
+      setLastResult(toActionResult(res, employees));
     } else if (allocateTarget.employeeIds.length === 1 && allocateTarget.initial) {
       await penalizationPolicyAllocationApi.update(token, allocateTarget.initial.id, action);
       showToast('success', 'Allocation updated');
@@ -624,6 +715,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
       const res = await penalizationPolicyAllocationApi.bulkAllocate(token, { employeeUserIds: allocateTarget.employeeIds, ...action });
       showToast(res.failed.length > 0 ? 'error' : 'success',
         `${res.succeededIds.length} allocated${res.failed.length > 0 ? `, ${res.failed.length} failed` : ''}`);
+      setLastResult(toActionResult(res, employees));
     }
     await refreshAll();
   }
@@ -663,6 +755,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
         const res = await penalizationPolicyAllocationApi.bulkRemove(token, Array.from(selected));
         showToast(res.failed.length > 0 ? 'error' : 'success',
           `${res.succeededIds.length} removed${res.failed.length > 0 ? `, ${res.failed.length} had nothing to remove` : ''}`);
+        setLastResult(toActionResult(res, result?.content ?? []));
         await refreshAll();
       },
     });
@@ -776,6 +869,22 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
         </div>
       )}
 
+      {/* Gap-015: per-employee bulk failure detail, matching Team Assignments' own result banner. */}
+      {lastResult && (
+        <div style={{ padding: '10px 18px', border: '1px solid var(--line)', borderRadius: 8, background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
+            Bulk update — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+          </div>
+          {lastResult.failures.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {lastResult.failures.map((f, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: 'var(--risk)' }}>{f.label}: {f.reason}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Table */}
       <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
@@ -861,7 +970,9 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
       {allocateTarget && (
         <AllocateModal
           title={allocateTarget.title}
-          employeeCount={allocateTarget.employeeIds.length}
+          token={token}
+          employeeUserIds={allocateTarget.employeeIds}
+          employees={result?.content}
           policies={policies}
           initial={allocateTarget.initial}
           allowRemoveOption={allocateTarget.allowRemove}
@@ -896,7 +1007,11 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
           departments={departments}
           locations={locations}
           onClose={() => setAddEmployeesOpen(false)}
-          onAssigned={async () => { setAddEmployeesOpen(false); await refreshAll(); }}
+          onAssigned={async (res, assignedEmployees) => {
+            setAddEmployeesOpen(false);
+            setLastResult(toActionResult(res, assignedEmployees));
+            await refreshAll();
+          }}
         />
       )}
     </div>

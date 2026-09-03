@@ -64,6 +64,7 @@ class LeaveServiceTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private NotificationService notificationService;
     @Mock private AttendanceProperties attendanceProperties;
+    @Mock private ExceptionService exceptionService;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -953,6 +954,56 @@ class LeaveServiceTest {
         verify(notificationService, times(1)).send(eq(employeeId), eq("LEAVE_APPROVED"), any(), any(), any());
     }
 
+    // ── Gap-034: leave approval re-evaluates penalties the leave may have invalidated ────────
+
+    @Test
+    void approve_singleDayLeave_triggersPenaltyReevaluationForThatDate() {
+        LocalDate leaveDate = LocalDate.now();
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(leaveDate).endDate(leaveDate)
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        leaveService.approve(pending.getId(), managerEmail);
+
+        verify(exceptionService).reevaluateAndReverseIfInvalid(eq(employeeId), eq(leaveDate),
+                eq(ExceptionService.LEAVE_REEVALUATION_TYPES), eq(managerId), any(), eq("ATTENDANCE_PENALTY_REVERSED"));
+    }
+
+    @Test
+    void approve_multiDayLeave_triggersPenaltyReevaluationOncePerCoveredDate() {
+        LocalDate start = LocalDate.now();
+        LocalDate end = start.plusDays(2);
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(start).endDate(end)
+                .totalDays(new BigDecimal("3")).status("PENDING").employeeReason("Trip").build();
+        LeaveBalance balance = balanceOf(new BigDecimal("20"), BigDecimal.ZERO);
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balance));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        leaveService.approve(pending.getId(), managerEmail);
+
+        verify(exceptionService, times(3)).reevaluateAndReverseIfInvalid(eq(employeeId), any(),
+                eq(ExceptionService.LEAVE_REEVALUATION_TYPES), eq(managerId), any(), eq("ATTENDANCE_PENALTY_REVERSED"));
+        verify(exceptionService).reevaluateAndReverseIfInvalid(eq(employeeId), eq(start), any(), any(), any(), any());
+        verify(exceptionService).reevaluateAndReverseIfInvalid(eq(employeeId), eq(start.plusDays(1)), any(), any(), any(), any());
+        verify(exceptionService).reevaluateAndReverseIfInvalid(eq(employeeId), eq(end), any(), any(), any(), any());
+    }
+
     @Test
     void reject_byCurrentManager_requiresReasonAndLeavesBalanceUntouched() {
         LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
@@ -1086,7 +1137,7 @@ class LeaveServiceTest {
 
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).send(eq(employeeId), eq("LEAVE_APPROVED"), eq("Leave Request Approved"),
-                messageCaptor.capture(), eq("/requests?type=LEAVE"));
+                messageCaptor.capture(), eq("/my-requests?type=LEAVE"));
         String message = messageCaptor.getValue();
         assertTrue(message.contains("Annual Leave"));
         assertTrue(message.contains("20 Aug 2026"));
@@ -1109,7 +1160,7 @@ class LeaveServiceTest {
         leaveService.reject(pending.getId(), "Team coverage conflict", managerEmail);
 
         verify(notificationService).send(eq(employeeId), eq("LEAVE_REJECTED"), eq("Leave Request Rejected"),
-                contains("Team coverage conflict"), eq("/requests?type=LEAVE"));
+                contains("Team coverage conflict"), eq("/my-requests?type=LEAVE"));
     }
 
     @Test

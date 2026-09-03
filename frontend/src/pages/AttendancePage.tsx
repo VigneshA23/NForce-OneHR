@@ -2533,7 +2533,7 @@ function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, 
         />
       )}
       {modal === 'POLICY' && (
-        <AttendancePolicyModal onClose={() => setModal(null)} />
+        <AttendancePolicyModal token={token} onClose={() => setModal(null)} />
       )}
     </div>
   );

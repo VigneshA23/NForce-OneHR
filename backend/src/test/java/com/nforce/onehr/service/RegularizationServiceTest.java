@@ -56,6 +56,7 @@ class RegularizationServiceTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties attendanceProps;
     @Mock private NotificationService notificationService;
+    @Mock private ExceptionService exceptionService;
 
     @InjectMocks private RegularizationService regularizationService;
 
@@ -627,6 +628,47 @@ class RegularizationServiceTest {
         verify(regularizationApprovalRepository).save(argThat(a -> "SUPER_ADMIN".equals(a.getActorRole())));
     }
 
+    // ── Section 16: approving a regularization must trigger the corresponding penalty reversal ──
+
+    @Test
+    void approve_reachingTerminalApproved_triggersPenaltyReversalForThatEmployeeAndDate() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        regularizationService.approve(pending.getId(), null, superAdminEmail);
+
+        verify(exceptionService).reevaluateAndReverseIfInvalid(eq(employeeId), eq(date),
+                eq(ExceptionService.REGULARIZATION_REEVALUATION_TYPES), eq(superAdminId), anyString(), anyString());
+    }
+
+    @Test
+    void approve_partialStage_doesNotYetTriggerPenaltyReversal() {
+        LocalDate date = LocalDate.now();
+        // A Manager approval is final on its own now (see the approve() javadoc) — a Manager has
+        // no authority left once a legacy request is already PARTIALLY_APPROVED, so this exercises
+        // the one remaining way finalStage can be false without also reaching the terminal state.
+        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PARTIALLY_APPROVED").approvedBy(managerId).build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(regularizationRepository.findById(partiallyApproved.getId())).thenReturn(Optional.of(partiallyApproved));
+
+        assertThrows(AccessDeniedException.class,
+                () -> regularizationService.approve(partiallyApproved.getId(), null, managerEmail),
+                "a Manager has no authority at the PARTIALLY_APPROVED stage");
+        verifyNoInteractions(exceptionService);
+    }
+
     @Test
     void reject_recordsCommentAndAuditRow() {
         LocalDate date = LocalDate.now();
@@ -1144,7 +1186,7 @@ class RegularizationServiceTest {
                 eq("Regularization Request Approved"),
                 argThat(msg -> msg.contains("Priya HR") && msg.contains("Looks good")
                         && msg.contains(date.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")))),
-                eq("/requests?type=REGULARIZATION"));
+                eq("/my-requests?type=REGULARIZATION"));
     }
 
     @Test
@@ -1181,7 +1223,7 @@ class RegularizationServiceTest {
         verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"),
                 eq("Regularization Request Rejected"),
                 argThat(msg -> msg.contains("Sam Manager") && msg.contains("Not a valid correction")),
-                eq("/requests?type=REGULARIZATION"));
+                eq("/my-requests?type=REGULARIZATION"));
     }
 
     @Test

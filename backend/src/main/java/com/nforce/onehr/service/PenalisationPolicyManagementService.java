@@ -10,6 +10,7 @@ import com.nforce.onehr.entity.PenalizationPolicyLateHoursTier;
 import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.entity.PenalizationPolicyWorkHoursTier;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.PenalisationPolicyRepository;
 import com.nforce.onehr.repository.PenalizationPolicyAllocationRepository;
 import com.nforce.onehr.repository.PenalizationPolicyLateHoursTierRepository;
@@ -52,9 +53,22 @@ public class PenalisationPolicyManagementService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final AttendanceProperties attendanceProperties;
     private final PenalizationPolicyResolutionService resolutionService;
+    private final AttendancePenaltyRepository attendancePenaltyRepository;
 
     private LocalDate today() {
         return LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
+    }
+
+    /**
+     * Section 7/2: read-only — this is a deploy-time config value
+     * ({@code app.attendance.penalization-fallback-strategy}), the same convention as
+     * {@code lateGraceMinutes}/{@code halfDayMaxHours} elsewhere on {@link AttendanceProperties},
+     * not a DB-backed runtime setting. Exposed so the Allocation screen can explain why an
+     * unassigned employee resolves to {@code DEFAULT} vs {@code ALLOCATION_REQUIRED}, without the
+     * frontend re-deriving or hardcoding that logic itself.
+     */
+    public String getFallbackStrategy() {
+        return attendanceProperties.getPenalizationFallbackStrategy().name();
     }
 
     /**
@@ -175,6 +189,14 @@ public class PenalisationPolicyManagementService {
     public PenalisationPolicySummaryDto toggleActive(UUID id, String actorEmail) {
         User actor = resolveActor(actorEmail);
         PenalisationPolicy policy = findPolicy(id);
+        // Section 7: deactivating the org default would silently leave every unassigned employee
+        // with no policy at all the moment resolveActiveDefaultPolicyId next runs — require an
+        // explicit new default first, the same "never leave the org without one" spirit as
+        // delete()'s "cannot delete the only remaining policy" guard below.
+        if ("ACTIVE".equals(policy.getStatus()) && policy.isOrgDefault()) {
+            throw new IllegalStateException(
+                    "This policy is the organization default. Set a different active policy as the default before deactivating this one.");
+        }
         String before = auditSnapshot.toJson(Map.of("status", policy.getStatus()));
         policy.setStatus("ACTIVE".equals(policy.getStatus()) ? "INACTIVE" : "ACTIVE");
         penalisationPolicyRepository.save(policy);
@@ -184,13 +206,62 @@ public class PenalisationPolicyManagementService {
     }
 
     /**
-     * Blocked while any employee is still assigned to this policy, and blocked for the org's last
-     * remaining policy — every employee must always have a policy to fall back to.
+     * Section 7: makes the org-wide fallback an explicit admin action instead of an undocumented
+     * "oldest ACTIVE policy" derivation. Only an ACTIVE policy may be set — "the default itself
+     * must be ACTIVE" is a write-time guarantee here, not just a runtime filter in
+     * {@link PenalizationPolicyService#resolveActiveDefaultPolicyId}.
+     *
+     * <p>Clears the previous default via an immediate bulk {@code UPDATE}
+     * ({@link PenalisationPolicyRepository#clearOrgDefault}) rather than loading that row and
+     * calling {@code save()} on it — Hibernate defers an entity save's actual UPDATE statement to
+     * flush time, ordered by when each entity was LOADED into the persistence context, not by
+     * statement call order. Since {@code policy} (the new default) is loaded before any previous
+     * default row would be, a deferred flush could write this row's "true" before the old row's
+     * "false", tripping {@code idx_penalisation_policies_one_org_default} even though the code
+     * calls them in the right sequence. The bulk clear runs synchronously the moment it's called,
+     * so the database has zero rows flagged default before {@code policy}'s own save is ever
+     * flushed — the two writes can never coexist.
+     */
+    @Transactional
+    public PenalisationPolicySummaryDto setOrgDefault(UUID id, String actorEmail) {
+        User actor = resolveActor(actorEmail);
+        PenalisationPolicy policy = findPolicy(id);
+        if (!"ACTIVE".equals(policy.getStatus())) {
+            throw new IllegalStateException("Only an active policy can be set as the organization default");
+        }
+        if (policy.isOrgDefault()) {
+            return toSummary(policy, resolutionService.resolveCurrentEmployeeCount(id, today()));
+        }
+        penalisationPolicyRepository.clearOrgDefault();
+        policy.setOrgDefault(true);
+        penalisationPolicyRepository.save(policy);
+        auditService.log(actor.getId(), "PENALISATION_POLICY_SET_AS_DEFAULT", policy.getId());
+        return toSummary(policy, resolutionService.resolveCurrentEmployeeCount(id, today()));
+    }
+
+    /**
+     * Blocked while any employee is still assigned to this policy, blocked for the org's last
+     * remaining policy — every employee must always have a policy to fall back to — blocked
+     * while any historical {@link com.nforce.onehr.entity.AttendancePenalty} still references this
+     * policy, and blocked whenever the policy has genuinely ever been live (Gap-036: more than one
+     * version, or any version already effective). That last check exists because the first three
+     * guards only catch a policy reached via an explicit allocation or one that actually produced a
+     * penalty row — a policy that governed every employee for months purely through the org-default
+     * fallback could have real rule history with zero rows in either table. {@code allocationCount}
+     * above only protects against removing an *assignment*; it says nothing about penalties already
+     * issued, and neither says anything about whether the policy's own version history is real.
      */
     @Transactional
     public void delete(UUID id, String actorEmail) {
         User actor = resolveActor(actorEmail);
         PenalisationPolicy policy = findPolicy(id);
+        // Section 7: guards against the narrow edge case employeeCount alone wouldn't catch — every
+        // employee happens to have an explicit allocation/legacy FK, so the default's own resolved
+        // count reads zero even though it's still the org's configured fallback for anyone new.
+        if (policy.isOrgDefault()) {
+            throw new IllegalStateException(
+                    "This policy is the organization default and cannot be deleted. Set a different policy as the default first.");
+        }
         long employeeCount = resolutionService.resolveCurrentEmployeeCount(id, today());
         if (employeeCount > 0) {
             throw new IllegalStateException(employeeCount + " employee(s) are currently assigned to this policy. Reassign them first.");
@@ -200,10 +271,31 @@ public class PenalisationPolicyManagementService {
             throw new IllegalStateException(allocationCount
                     + " Penalization Policy Allocation record(s) reference this policy. Remove or reassign them first.");
         }
+        if (attendancePenaltyRepository.existsByPolicyId(id)) {
+            throw new IllegalStateException(
+                    "One or more attendance penalty records reference this policy's history and cannot be orphaned. "
+                            + "This policy cannot be deleted.");
+        }
+        List<PenalizationPolicyVersion> versions = versionRepository.findByPolicyIdOrderByVersionDesc(id);
+        // Gap-036: the three checks above only catch a policy that was reached via an explicit
+        // allocation or that actually produced a persisted AttendancePenalty — an org that let
+        // every employee resolve to this policy purely through the org-default fallback (see
+        // PenalizationPolicyResolutionService#resolveDefaultPolicyIdOrNull) could have real,
+        // months-old rule history here with zero rows in either of those tables. "More than one
+        // version, or any version already effective" is the actual signal that this policy was
+        // genuinely live, independent of whether anything else in the system happens to still
+        // reference it — a policy this old must be deactivated, never hard-deleted.
+        boolean everLive = versions.size() > 1
+                || versions.stream().anyMatch(v -> !v.getEffectiveFrom().toLocalDate().isAfter(today()));
+        if (everLive) {
+            throw new IllegalStateException(
+                    "This policy has real version history (it has been effective, or has more than one version) "
+                            + "and cannot be permanently deleted. Deactivate it instead.");
+        }
         if (penalisationPolicyRepository.count() <= 1) {
             throw new IllegalStateException("Cannot delete the organization's only remaining Penalization Policy.");
         }
-        for (PenalizationPolicyVersion version : versionRepository.findByPolicyIdOrderByVersionDesc(id)) {
+        for (PenalizationPolicyVersion version : versions) {
             tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId()).forEach(tierRepository::delete);
             lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId()).forEach(lateHoursTierRepository::delete);
             versionRepository.delete(version);
@@ -263,7 +355,7 @@ public class PenalisationPolicyManagementService {
     private PenalisationPolicySummaryDto toSummary(PenalisationPolicy policy, long employeeCount, PenalizationPolicyVersion current) {
         return PenalisationPolicySummaryDto.builder()
                 .id(policy.getId()).name(policy.getName()).description(policy.getDescription())
-                .status(policy.getStatus()).employeeCount(employeeCount)
+                .status(policy.getStatus()).employeeCount(employeeCount).orgDefault(policy.isOrgDefault())
                 .currentVersion(current != null ? current.getVersion() : null)
                 .effectiveFrom(current != null ? current.getEffectiveFrom() : null)
                 .createdBy(policy.getCreatedBy()).createdAt(policy.getCreatedAt())

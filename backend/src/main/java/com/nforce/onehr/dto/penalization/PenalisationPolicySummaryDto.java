@@ -16,6 +16,8 @@ public class PenalisationPolicySummaryDto {
     private String description;
     private String status;
     private long employeeCount;
+    /** Section 7: the org-wide fallback for an employee with no allocation and no legacy FK. */
+    private boolean orgDefault;
 
     /** Null when this policy has never had a rule configuration saved yet. */
     private Integer currentVersion;

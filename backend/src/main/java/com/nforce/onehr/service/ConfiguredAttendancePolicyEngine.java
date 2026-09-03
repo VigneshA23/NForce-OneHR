@@ -29,10 +29,13 @@ import java.util.Optional;
  * matched rule's configured {@code deductionDays} on {@link PolicyDecision#getDeductionDays()},
  * which {@link AttendancePenaltyEvaluationService} copies onto
  * {@link com.nforce.onehr.entity.AttendancePenalty#getDeductionDays()} — a real, persisted
- * execution path, not stored-but-unused configuration. {@code deductionPerShifts}/
- * {@code deductionMode} remain rate/aggregation *descriptions* of that same amount (every
- * approved-screenshot example uses "per 1 shift", so no multi-shift batching is implemented — see
- * {@link PolicyDecision} class javadoc). No field is stored and silently ignored by this engine.
+ * execution path, not stored-but-unused configuration. {@code mlDeductionMode}/
+ * {@code mlDeductionPerShifts} ({@link #isMissingLogDeductionDueThisOccurrence}) and
+ * {@code laDeductionPerShifts} ({@link #isLateArrivalDeductionDueThisOccurrence}) are both real
+ * occurrence-batching gates, not cosmetic rate descriptions — with {@code deductionPerShifts}
+ * defaulting to 1 (every pre-existing policy's implicit value), batching is a no-op and every
+ * occurrence past the exempt count is penalized exactly as before. No field is stored and
+ * silently ignored by this engine.
  *
  * <p><b>Phase 2 note on "Total Late Hours in Shift" (Section 31) vs "Total Hours" basis (Section
  * 25/29):</b> both are modeled as ONE mechanism here —
@@ -126,13 +129,14 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
     private PolicyDecision evaluateLateArrivalByIncidents(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
         // "Exempt N late arrival(s) in a Month" — lateArrivalCountInPeriod is this occurrence's
         // running count for the period, inclusive of itself (see PolicyEvaluationContext javadoc);
-        // "Post N late arrivals, deduct..." means the (N+1)th occurrence is the first one penalized.
-        boolean incidentExceeded = v.getLaExemptCount() == null || ctx.getLateArrivalCountInPeriod() == null
-                || ctx.getLateArrivalCountInPeriod() > v.getLaExemptCount();
+        // "Post N late arrivals, deduct..." means the (N+1)th occurrence is the first one penalized,
+        // batched every laDeductionPerShifts occurrences past that point — see
+        // isLateArrivalDeductionDueThisOccurrence.
+        boolean incidentDeductionDue = isLateArrivalDeductionDueThisOccurrence(v, ctx);
         Optional<PenalizationPolicyLateHoursTier> matchedTotalHoursTier = matchTotalHoursTier(v, ctx);
         boolean totalHoursExceeded = matchedTotalHoursTier.isPresent();
 
-        if (!incidentExceeded && !totalHoursExceeded) {
+        if (!incidentDeductionDue && !totalHoursExceeded) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Late arrival occurrence is within the exempt count for this period.");
         }
         if (isRegularized(ctx)) {
@@ -144,7 +148,7 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         // AttendancePenalty row is ever recorded per (employee, date, discrepancy type)
         // (AttendancePenaltyEvaluationService's duplicate guard), so "BOTH" combines both
         // configured amounts into that one row rather than attempting two separate rows.
-        if (incidentExceeded && totalHoursExceeded) {
+        if (incidentDeductionDue && totalHoursExceeded) {
             BigDecimal totalHoursAmount = matchedTotalHoursTier.get().getDeductionDays();
             if ("BOTH".equals(v.getLaCombinedRuleBehavior())) {
                 BigDecimal combined = (v.getLaDeductionDays() == null ? BigDecimal.ZERO : v.getLaDeductionDays())
@@ -160,6 +164,36 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
                     "Total late hours in the period exceed a configured tier.");
         }
         return decideApplyPenalty(v, ctx, v.getLaDeductionDays(), "Late minutes exceed the configured grace period.");
+    }
+
+    /**
+     * Section 21: consumes {@code laDeductionPerShifts} — previously stored and versioned but
+     * never read by this engine (unlike its Missing Logs sibling, {@code mlDeductionPerShifts},
+     * already consumed by {@link #isMissingLogDeductionDueThisOccurrence}). Late Arrival has no
+     * {@code laDeductionMode} toggle, so this always applies PER_SHIFT-style batching: with
+     * {@code deductionPerShifts} defaulting to 1, this is identical to every pre-existing policy's
+     * behavior (a deduction on every incident-basis occurrence past the exempt count), preserving
+     * backward compatibility for policies saved before this field was consumed. Only gates the
+     * plain incident-count case above — the total-late-hours tier match is its own independent
+     * mechanism, not occurrence-counted.
+     */
+    private boolean isLateArrivalDeductionDueThisOccurrence(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        // Preserves the pre-existing incidentExceeded short-circuit exactly: no configured exempt
+        // count (or no count fact available) always applies, regardless of the occurrence count's
+        // actual value — unlike Missing Logs, Late Arrival's original gate never treated a null
+        // exempt count as "0 exempt" (see the equivalent boolean this replaces, previously
+        // `laExemptCount == null || count == null || count > laExemptCount`). Only once an exempt
+        // count is actually configured does "occurrences past it" become a meaningful basis to
+        // batch by deductionPerShifts.
+        if (v.getLaExemptCount() == null || ctx.getLateArrivalCountInPeriod() == null) {
+            return true;
+        }
+        int occurrencesPastExempt = ctx.getLateArrivalCountInPeriod() - v.getLaExemptCount();
+        if (occurrencesPastExempt <= 0) {
+            return false;
+        }
+        int perShifts = v.getLaDeductionPerShifts() != null && v.getLaDeductionPerShifts() > 0 ? v.getLaDeductionPerShifts() : 1;
+        return occurrencesPastExempt % perShifts == 0;
     }
 
     private PolicyDecision evaluateLateArrivalByTotalHours(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {

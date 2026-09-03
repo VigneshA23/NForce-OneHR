@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.attendance.PolicyDecision;
 import com.nforce.onehr.dto.attendance.PolicyDecisionType;
 import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.ExceptionType;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
@@ -33,6 +35,10 @@ class AttendancePenaltyEvaluationServiceTest {
     @Mock private AttendancePolicyEngine policyEngine;
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
     @Mock private PenaltyDeductionService penaltyDeductionService;
+    @Mock private NotificationService notificationService;
+    @Mock private EmployeeService employeeService;
+    @Mock private AuditService auditService;
+    @Spy private AuditSnapshotSerializer auditSnapshot = new AuditSnapshotSerializer(new ObjectMapper());
 
     @InjectMocks private AttendancePenaltyEvaluationService service;
 
@@ -92,6 +98,23 @@ class AttendancePenaltyEvaluationServiceTest {
         verify(attendancePenaltyRepository).save(any());
     }
 
+    /** Gap-038: penalty creation must be traceable from the audit log, not just the row itself. */
+    @Test
+    void applyPenalty_auditsCreation_withNullActor_sinceNoHumanInitiatedIt() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        UUID policyId = UUID.randomUUID();
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(policyId).policyVersion(2).build());
+        when(attendancePenaltyRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Optional<AttendancePenalty> result = service.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+        verify(auditService).log(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq("ATTENDANCE_PENALTY_CREATED"),
+                org.mockito.ArgumentMatchers.eq(result.get().getId()), org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
     @Test
     void applyPenalty_penaltyAlreadyExistsForThisIncident_doesNotSaveDuplicate() {
         UUID employeeId = UUID.randomUUID();
@@ -135,5 +158,37 @@ class AttendancePenaltyEvaluationServiceTest {
         assertTrue(second.isEmpty(), "second evaluation of the identical occurrence is a no-op");
         verify(attendancePenaltyRepository, org.mockito.Mockito.times(1)).save(any());
         verify(penaltyDeductionService, org.mockito.Mockito.times(1)).apply(any(), any(), any());
+    }
+
+    // ── Section 19: penalty-applied notification ─────────────────────────────────────────────
+
+    @Test
+    void applyPenalty_notifiesTheEmployee() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1).build());
+        when(attendancePenaltyRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+        verify(notificationService).send(org.mockito.ArgumentMatchers.eq(employeeId),
+                org.mockito.ArgumentMatchers.eq("ATTENDANCE_PENALTY_APPLIED"), any(), any(), any());
+    }
+
+    @Test
+    void duplicateEvaluation_neverSendsASecondNotification() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1).build());
+        when(attendancePenaltyRepository.existsByEmployeeUserIdAndIncidentDateAndDiscrepancyType(
+                employeeId, date, ExceptionType.LATE_ARRIVAL)).thenReturn(true);
+
+        service.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+        verifyNoInteractions(notificationService);
     }
 }

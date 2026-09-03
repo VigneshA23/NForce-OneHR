@@ -159,6 +159,52 @@ class PenalizationPolicyAllocationServiceTest {
         verify(allocationRepository, never()).save(existing);
     }
 
+    // ── checkConflicts() — Gap-016 pre-submit preview ─────────────────────────────
+
+    @Test
+    void checkConflicts_noOverlap_returnsEmptyMap() {
+        when(allocationRepository.findOverlapping(employeeId, today, null, null)).thenReturn(List.of());
+
+        var conflicts = service.checkConflicts(List.of(employeeId), today, null, null);
+
+        assertTrue(conflicts.isEmpty());
+    }
+
+    @Test
+    void checkConflicts_overlap_returnsConflictingAllocationDto_withoutThrowing() {
+        UUID conflictingPolicyId = UUID.randomUUID();
+        PenalizationPolicyAllocation existing = PenalizationPolicyAllocation.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).penalisationPolicyId(conflictingPolicyId)
+                .effectiveFrom(today.minusDays(30)).effectiveTo(null).build();
+        when(allocationRepository.findOverlapping(employeeId, today, null, null)).thenReturn(List.of(existing));
+        when(penalisationPolicyRepository.findById(conflictingPolicyId))
+                .thenReturn(Optional.of(PenalisationPolicy.builder().id(conflictingPolicyId).name("Old Policy").build()));
+
+        var conflicts = service.checkConflicts(List.of(employeeId), today, null, null);
+
+        assertEquals(1, conflicts.size());
+        AllocationDto conflict = conflicts.get(employeeId);
+        assertNotNull(conflict);
+        assertEquals(existing.getId(), conflict.getId());
+        assertEquals("Old Policy", conflict.getPenalisationPolicyName());
+    }
+
+    @Test
+    void checkConflicts_multipleEmployees_onlyConflictingOnesAppearInTheMap() {
+        UUID cleanEmployeeId = UUID.randomUUID();
+        PenalizationPolicyAllocation existing = PenalizationPolicyAllocation.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).penalisationPolicyId(policyId)
+                .effectiveFrom(today.minusDays(10)).effectiveTo(null).build();
+        when(allocationRepository.findOverlapping(employeeId, today, null, null)).thenReturn(List.of(existing));
+        when(allocationRepository.findOverlapping(cleanEmployeeId, today, null, null)).thenReturn(List.of());
+
+        var conflicts = service.checkConflicts(List.of(employeeId, cleanEmployeeId), today, null, null);
+
+        assertEquals(1, conflicts.size());
+        assertTrue(conflicts.containsKey(employeeId));
+        assertFalse(conflicts.containsKey(cleanEmployeeId));
+    }
+
     @Test
     void allocate_effectiveToBeforeEffectiveFrom_rejected() {
         CreateAllocationRequest req = new CreateAllocationRequest();
@@ -369,6 +415,42 @@ class PenalizationPolicyAllocationServiceTest {
     }
 
     @Test
+    void bulkRemove_allRemovedFromSamePolicy_auditTargetsThatPolicy_notTheActor() {
+        PenalizationPolicyAllocation current = PenalizationPolicyAllocation.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).penalisationPolicyId(policyId)
+                .effectiveFrom(today).effectiveTo(null).build();
+        when(allocationRepository.findEffectiveAt(employeeId, today)).thenReturn(List.of(current));
+
+        BulkRemoveAllocationRequest req = new BulkRemoveAllocationRequest();
+        req.setEmployeeUserIds(List.of(employeeId));
+
+        service.bulkRemove(req, actorEmail);
+
+        verify(auditService).log(eq(actorId), eq("PENALIZATION_POLICY_ALLOCATION_BULK_REMOVED"), eq(policyId), isNull(), any());
+    }
+
+    @Test
+    void bulkRemove_mixedPolicies_auditTargetIsNull_notTheActor() {
+        UUID otherEmployeeId = UUID.randomUUID();
+        UUID otherPolicyId = UUID.randomUUID();
+        PenalizationPolicyAllocation current = PenalizationPolicyAllocation.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).penalisationPolicyId(policyId)
+                .effectiveFrom(today).effectiveTo(null).build();
+        PenalizationPolicyAllocation otherCurrent = PenalizationPolicyAllocation.builder()
+                .id(UUID.randomUUID()).employeeUserId(otherEmployeeId).penalisationPolicyId(otherPolicyId)
+                .effectiveFrom(today).effectiveTo(null).build();
+        when(allocationRepository.findEffectiveAt(employeeId, today)).thenReturn(List.of(current));
+        when(allocationRepository.findEffectiveAt(otherEmployeeId, today)).thenReturn(List.of(otherCurrent));
+
+        BulkRemoveAllocationRequest req = new BulkRemoveAllocationRequest();
+        req.setEmployeeUserIds(List.of(employeeId, otherEmployeeId));
+
+        service.bulkRemove(req, actorEmail);
+
+        verify(auditService).log(eq(actorId), eq("PENALIZATION_POLICY_ALLOCATION_BULK_REMOVED"), isNull(), isNull(), any());
+    }
+
+    @Test
     void bulkRemove_allocationStartedInThePast_truncatesRatherThanDeletes() {
         PenalizationPolicyAllocation current = PenalizationPolicyAllocation.builder()
                 .id(UUID.randomUUID()).employeeUserId(employeeId).penalisationPolicyId(policyId)
@@ -384,5 +466,98 @@ class PenalizationPolicyAllocationServiceTest {
         verify(allocationRepository, never()).delete(any());
         verify(allocationRepository).save(current);
         assertEquals(today.minusDays(1), current.getEffectiveTo());
+    }
+
+    // ── Section 21: resolveFor() — "which policy applies to employee X on date Y" ────────────
+
+    @Test
+    void resolveFor_resolvedViaAllocation_includesVersionAndCurrentAllocation() {
+        PenalizationPolicyAllocation current = PenalizationPolicyAllocation.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).penalisationPolicyId(policyId)
+                .effectiveFrom(today).effectiveTo(null).build();
+        when(allocationRepository.findByEmployeeUserIdOrderByEffectiveFromDesc(employeeId)).thenReturn(List.of(current));
+        when(resolutionService.resolveAssignedOrDefaultPolicyId(any(), eq(today))).thenReturn(policyId);
+        com.nforce.onehr.entity.PenalizationPolicyVersion version = com.nforce.onehr.entity.PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(policyId).version(2)
+                .effectiveFrom(today.minusMonths(1).atStartOfDay()).build();
+        when(resolutionService.resolveEffectiveVersion(policyId, today)).thenReturn(version);
+
+        com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse result = service.resolveFor(employeeId, today);
+
+        assertEquals(policyId, result.getResolvedPolicyId());
+        assertEquals("Standard Policy", result.getResolvedPolicyName());
+        assertEquals("ALLOCATION", result.getResolvedPolicySource());
+        assertEquals("ACTIVE", result.getPolicyStatus());
+        assertEquals(2, result.getPolicyVersion());
+        assertEquals(version.getEffectiveFrom(), result.getVersionEffectiveFrom());
+        assertNotNull(result.getCurrentAllocation());
+        assertEquals(current.getId(), result.getCurrentAllocation().getId());
+        assertNull(result.getReason());
+    }
+
+    @Test
+    void resolveFor_nothingResolved_defaultPolicyStrategy_explainsNoActiveDefault() {
+        when(allocationRepository.findByEmployeeUserIdOrderByEffectiveFromDesc(employeeId)).thenReturn(List.of());
+        when(resolutionService.resolveAssignedOrDefaultPolicyId(any(), eq(today))).thenReturn(null);
+        lenient().when(attendanceProperties.getPenalizationFallbackStrategy())
+                .thenReturn(com.nforce.onehr.config.PenalizationFallbackStrategy.DEFAULT_POLICY);
+
+        com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse result = service.resolveFor(employeeId, today);
+
+        assertNull(result.getResolvedPolicyId());
+        assertEquals("ALLOCATION_REQUIRED", result.getResolvedPolicySource());
+        assertNull(result.getPolicyStatus());
+        assertNotNull(result.getReason());
+        assertTrue(result.getReason().contains("no active"));
+    }
+
+    @Test
+    void resolveFor_nothingResolved_requireAllocationStrategy_explainsStrategy() {
+        when(allocationRepository.findByEmployeeUserIdOrderByEffectiveFromDesc(employeeId)).thenReturn(List.of());
+        when(resolutionService.resolveAssignedOrDefaultPolicyId(any(), eq(today))).thenReturn(null);
+        when(attendanceProperties.getPenalizationFallbackStrategy())
+                .thenReturn(com.nforce.onehr.config.PenalizationFallbackStrategy.REQUIRE_ALLOCATION);
+
+        com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse result = service.resolveFor(employeeId, today);
+
+        assertNull(result.getResolvedPolicyId());
+        assertEquals("ALLOCATION_REQUIRED", result.getResolvedPolicySource());
+        assertTrue(result.getReason().contains("REQUIRE_ALLOCATION"));
+    }
+
+    @Test
+    void resolveFor_resolvedPolicyIsInactive_reflectsActualStatus_notHardcodedActive() {
+        // resolutionService is mocked here, so this doesn't re-prove GAP-001's own "inactive never
+        // resolves" rule (PenalizationPolicyResolutionServiceAllocationTest already does) — it
+        // proves resolveFor's DTO always reports whatever the policy's real status actually is,
+        // never assumes ACTIVE just because something resolved.
+        PenalisationPolicy inactivePolicy = PenalisationPolicy.builder().id(policyId).name("Retired Policy").status("INACTIVE").build();
+        when(penalisationPolicyRepository.findById(policyId)).thenReturn(Optional.of(inactivePolicy));
+        when(allocationRepository.findByEmployeeUserIdOrderByEffectiveFromDesc(employeeId)).thenReturn(List.of());
+        when(resolutionService.resolveAssignedOrDefaultPolicyId(any(), eq(today))).thenReturn(policyId);
+        when(resolutionService.resolveEffectiveVersion(policyId, today)).thenReturn(null);
+
+        com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse result = service.resolveFor(employeeId, today);
+
+        assertEquals(policyId, result.getResolvedPolicyId());
+        assertEquals("INACTIVE", result.getPolicyStatus());
+        assertNull(result.getReason(), "a policy DID resolve — no 'nothing resolved' reason should be attached");
+    }
+
+    @Test
+    void resolveFor_policyResolvedButNoVersionConfiguredYet_versionFieldsNull_noException() {
+        // A brand-new policy allocated to an employee before anyone has saved its first rule
+        // configuration — resolveEffectiveVersion legitimately returns null.
+        when(allocationRepository.findByEmployeeUserIdOrderByEffectiveFromDesc(employeeId)).thenReturn(List.of());
+        when(resolutionService.resolveAssignedOrDefaultPolicyId(any(), eq(today))).thenReturn(policyId);
+        when(resolutionService.resolveEffectiveVersion(policyId, today)).thenReturn(null);
+
+        com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse result = service.resolveFor(employeeId, today);
+
+        assertEquals(policyId, result.getResolvedPolicyId());
+        assertEquals("Standard Policy", result.getResolvedPolicyName());
+        assertNull(result.getPolicyVersion());
+        assertNull(result.getVersionEffectiveFrom());
+        assertNull(result.getReason(), "a policy DID resolve, just with no version yet — not a 'nothing resolved' case");
     }
 }
