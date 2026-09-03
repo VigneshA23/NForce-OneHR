@@ -363,7 +363,7 @@ function AckDrawer({ policy, onClose }: { policy: Policy; onClose(): void }) {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name…"
             style={{ width: '100%', paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' }} />
         </div>
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div style={{ overflowY: 'auto', overflowX: 'auto', flex: 1 }}>
           {loading ? <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</p> : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -380,7 +380,7 @@ function AckDrawer({ policy, onClose }: { policy: Policy; onClose(): void }) {
                 ) : filtered.map(a => (
                   <tr key={a.id}>
                     <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>
-                      {a.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--txt-dim)' }}>{a.employeeUserId.slice(0, 8)}…</span>}
+                      {a.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{a.employeeUserId.slice(0, 8)}…</span>}
                     </td>
                     <td style={tdS}>
                       {a.pending
@@ -545,7 +545,7 @@ export default function PoliciesPage() {
     <div>
       <div className="nf-policy-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Policies & Announcements</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Policies & Announcements</h1>
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
         </div>
         <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
@@ -568,14 +568,14 @@ export default function PoliciesPage() {
           { label: 'Total Announcements', value: announcements.length, color: '#3b82f6' },
         ].map(k => (
           <div key={k.label} className="nf-policy-kpi-tile" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div className="nf-policy-kpi-value" style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: '"Space Grotesk", sans-serif' }}>{k.value}</div>
+            <div className="nf-policy-kpi-value" style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
             <div className="nf-policy-kpi-label" style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
           </div>
         ))}
       </div>
 
       {/* Tabs — colored badge style */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 18, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
+      <div className="nf-tab-scroll" style={{ display: 'flex', gap: 6, marginBottom: 18, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', maxWidth: '100%' }}>
         <button style={tabStyle('policies')} onClick={() => setTab('policies')}>
           Policies
           {policies.length > 0 && (

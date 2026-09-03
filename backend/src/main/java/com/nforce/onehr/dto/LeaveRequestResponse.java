@@ -13,6 +13,7 @@ public class LeaveRequestResponse {
     private UUID id;
     private UUID employeeUserId;
     private String employeeName;
+    private String employeeCode;
     private String leaveTypeCode;
     private String leaveTypeName;
     private LocalDate startDate;

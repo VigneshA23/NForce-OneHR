@@ -28,6 +28,7 @@ import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -225,7 +226,7 @@ function JoinersChart({ joiners, title = 'Team Joiners per Month', description =
         style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', cursor: 'pointer' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             {title}
           </span>
           <span style={{ fontSize: 11, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 8px' }}>
@@ -286,7 +287,7 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
         style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 880, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             {modalTitle}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
@@ -334,7 +335,7 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
                 <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>
                   {j.designationName ?? '—'}{j.departmentName ? ` · ${j.departmentName}` : ''}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{j.employeeCode}</div>
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{j.employeeCode}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--brand)', marginTop: 6 }}>
                   Joined team: {new Date(j.joinedTeamOn).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
@@ -347,14 +348,30 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
   );
 }
 
-function EmployeeLink({ userId, name }: { userId: string; name: string }) {
+// Same avatar + bold name + employee code identity block People Directory's table rows use
+// (see DirectoryPage's Avatar/row-cell styling) — replaces the plain underlined-red name link
+// this used to be, so an employee "card" here reads the same way it does everywhere else in the
+// app. Still navigates to the same Directory detail-panel deep link on click.
+function EmployeeCard({ userId, name, code }: { userId: string; name: string; code?: string | null }) {
   const navigate = useNavigate();
   return (
     <button
       onClick={() => navigate(`/directory?userId=${userId}`)}
-      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left', fontSize: 13, fontWeight: 600, color: 'var(--brand)', textDecoration: 'underline' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
     >
-      {name}
+      <EmployeeAvatar
+        userId={userId}
+        name={name}
+        size={34}
+        fontSize={34 * 0.33}
+        background="rgba(177,17,22,.18)"
+        color="#e4373d"
+        style={{ fontFamily: 'Inter, sans-serif' }}
+      />
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{name}</div>
+        {code && <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 1 }}>{code}</div>}
+      </div>
     </button>
   );
 }
@@ -371,7 +388,7 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             Present Today — {scopeLabel} ({present.length})
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
@@ -385,12 +402,12 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one has checked in yet today.</div>
           ) : present.map(r => (
             <div key={r.employeeUserId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <EmployeeLink userId={r.employeeUserId} name={r.fullName} />
-                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{r.employeeCode}</div>
-              </div>
+              <EmployeeCard userId={r.employeeUserId} name={r.fullName} code={r.employeeCode} />
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.checkInAt) ?? '—'}</div>
+                {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to the
+                    day's first one and never updated on a same-day checkout+checkin resume — see
+                    AttendanceService.checkIn. Same fallback as AttendanceHeroBanner/AttendancePage. */}
+                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.sessionStartedAt ?? r.checkInAt) ?? '—'}</div>
                 {r.status === 'LATE' && (
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
                     Late{r.lateByMinutes ? ` by ${formatWorkedMinutes(r.lateByMinutes)}` : ''}
@@ -420,8 +437,8 @@ function LeaveSection({ title, accent, rows }: { title: string; accent: string; 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {rows.map(r => (
             <div key={r.id} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
-              <EmployeeLink userId={r.employeeUserId} name={r.employeeName} />
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>
+              <EmployeeCard userId={r.employeeUserId} name={r.employeeName} code={r.employeeCode} />
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 6 }}>
                 {r.leaveTypeName} · {new Date(r.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 {r.startDate !== r.endDate ? ` – ${new Date(r.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
               </div>
@@ -446,7 +463,7 @@ function OnLeaveModal({ rows, loading, scopeLabel, onClose }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             On Leave Today — {scopeLabel} ({rows.length})
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
@@ -539,7 +556,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Welcome back, {firstName}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{isHr ? 'HR Dashboard' : 'Manager Dashboard'}</p>
@@ -557,7 +574,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
               {isHr ? 'Total Employees' : 'Direct Reports'}
             </span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {loading ? '—' : error ? '—' : (data?.directReportCount ?? 0)}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
@@ -570,7 +587,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             <UserCheck size={14} style={{ color: 'var(--ok)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Active</span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {loading ? '—' : error ? '—' : (data?.directReports.filter(r => r.active).length ?? 0)}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
@@ -586,7 +603,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             <Clock size={14} style={{ color: 'var(--brand)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Present Today</span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {teamLoading ? '—' : `${presentCount}/${teamToday.length}`}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today · view list →</div>
@@ -600,7 +617,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             <Calendar size={14} style={{ color: 'var(--brand)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>On Leave</span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {onLeaveLoading ? '—' : onLeaveCount}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
@@ -612,7 +629,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
               {isHr ? 'All Employees' : 'Your Team'}
             </span>
           </div>
@@ -657,7 +674,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
                     <tr key={r.userId} style={{ borderBottom: '1px solid var(--line)', ...inactiveDimStyle(r.active) }}>
                       <td style={{ padding: '10px 14px', fontSize: 12.5, overflow: 'hidden' }}>
                         <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 1, overflowWrap: 'break-word' }}>{r.fullName}</div>
-                        <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+                        <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</div>
                       </td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{r.designationName ?? '—'}</td>
                       {isHr && (
@@ -891,7 +908,7 @@ function EmployeeStatTiles({
           </div>
           <div style={{
             fontSize: 28, fontWeight: 700, color: accent, lineHeight: 1, marginBottom: 6,
-            fontFamily: '"Space Grotesk", sans-serif', fontVariantNumeric: 'tabular-nums',
+            fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums',
           }}>
             {value}
           </div>
@@ -966,7 +983,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
 
   return (
     <div className="nf-atn-cal-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 18 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 18 }}>
         Attendance Calendar
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -979,7 +996,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
           >
             <ChevronLeft size={13} /> Prev
           </button>
-          <span style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <span style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             {monthLabel}
           </span>
           <button
@@ -1082,7 +1099,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
 
   return (
     <div className="nf-leave-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
         Leave Balance
       </div>
 
@@ -1128,7 +1145,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
               }}>
-                <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+                <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
                   {totalRemaining}
                 </span>
                 <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>days left</span>
@@ -1140,7 +1157,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: LEAVE_DONUT_COLORS.available, flexShrink: 0 }} />
               <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)' }}>Available</span>
-              <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
+              <span style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
                 {totalRemaining}d
               </span>
               <span style={{ fontSize: 10, color: 'var(--txt-dim)', minWidth: 48, textAlign: 'right' }}>
@@ -1150,7 +1167,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: LEAVE_DONUT_COLORS.consumed, flexShrink: 0 }} />
               <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)' }}>Consumed/Reserved</span>
-              <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
+              <span style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
                 {totalConsumed}d
               </span>
               <span style={{ fontSize: 10, color: 'var(--txt-dim)', minWidth: 48, textAlign: 'right' }}>
@@ -1186,7 +1203,7 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
   if (actionItems.length === 0) {
     return (
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
           Action Needed
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 0' }}>
@@ -1201,7 +1218,7 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <AlertTriangle size={14} style={{ color: 'var(--risk)', flexShrink: 0 }} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Action Needed
         </span>
         <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: 'color-mix(in srgb, var(--risk) 12%, transparent)', color: 'var(--risk)' }}>
@@ -1279,7 +1296,7 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
 
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
         My Recent Requests
       </div>
       {recent.length === 0 ? (
@@ -1348,7 +1365,7 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
 
   return (
     <div className="nf-holiday-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
         Upcoming Holidays
       </div>
       {upcoming.length === 0 ? (
@@ -1380,7 +1397,7 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
                     <span className="nf-holiday-month" style={{ fontSize: 8, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', lineHeight: 1 }}>
                       {d.toLocaleDateString('en-US', { month: 'short' })}
                     </span>
-                    <span className="nf-holiday-day" style={{ fontSize: 18, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt)', lineHeight: 1.1, fontFamily: '"Space Grotesk", sans-serif' }}>
+                    <span className="nf-holiday-day" style={{ fontSize: 18, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt)', lineHeight: 1.1, fontFamily: 'Inter, sans-serif' }}>
                       {d.getDate()}
                     </span>
                   </div>
@@ -1447,7 +1464,7 @@ function EmployeeDashboardView() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
       <div>
-        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {greetingPrefix()}, {firstName}.
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-dim)' }}>{dateLabel}</p>
@@ -1516,7 +1533,11 @@ function SuperAdminDashboardView() {
   const firstName = user?.fullName ?? user?.email?.split('@')[0] ?? 'there';
 
   const [allUsers,           setAllUsers]           = useState<EmployeeRecord[]>([]);
-  const [todayRecords,       setTodayRecords]       = useState<{ checkInAt: string | null }[]>([]);
+  // attendanceApi.day already returns full AttendanceRecord rows (same call TeamDashboardView's
+  // useTeamAttendanceToday makes for scope 'hr') — widened from the checkInAt-only shape this
+  // used to be typed as, so the Present Today tile can open the same PresentTodayModal.
+  const [todayRecords,       setTodayRecords]       = useState<AttendanceRecord[]>([]);
+  const [showPresentModal,   setShowPresentModal]   = useState(false);
   const [pendingItems,       setPendingItems]       = useState<ApprovalItem[]>([]);
   const [auditStats,         setAuditStats]         = useState<AuditLogStats | null>(null);
   const [recentAudit,        setRecentAudit]        = useState<AuditLogEntry[]>([]);
@@ -1543,17 +1564,17 @@ function SuperAdminDashboardView() {
       auditApi.stats({}, token).catch(() => null),
       auditApi.list({}, 0, 8, token).catch(() => ({ content: [] as AuditLogEntry[] })),
       getAdminKpis(token).catch(() => null),
-      assetsApi.listAll(token).catch(() => [] as import('../api/assets').AssetResponse[]),
+      assetsApi.count(token).catch(() => ({ count: 0 })),
       auditApi.list({ action: 'PASSWORD_RESET', from: monthStartStr }, 0, 1, token).catch(() => ({ totalElements: 0 })),
       auditApi.exportAll({ action: 'USER_UPDATED', from: monthStartStr }, token).catch(() => [] as AuditLogEntry[]),
     ]).then(([users, attn, pending, stats, auditPage, kpis, assets, pwResetPage, userUpdated]) => {
       setAllUsers(users as EmployeeRecord[]);
-      setTodayRecords(attn as { checkInAt: string | null }[]);
+      setTodayRecords(attn as AttendanceRecord[]);
       setPendingItems(pending as ApprovalItem[]);
       setAuditStats(stats as AuditLogStats | null);
       setRecentAudit((auditPage as { content: AuditLogEntry[] }).content);
       setDocKpis(kpis as DocumentAdminKpi | null);
-      setTotalAssets((assets as import('../api/assets').AssetResponse[]).length);
+      setTotalAssets((assets as { count: number }).count);
       setPasswordResetsMonth((pwResetPage as { totalElements: number }).totalElements);
       const roleChanges = (userUpdated as AuditLogEntry[]).filter(e => {
         try {
@@ -1618,29 +1639,36 @@ function SuperAdminDashboardView() {
       icon: <Users size={16} />,
       label: 'Total Users',
       value: loading ? '—' : String(allUsers.length),
-      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive`,
+      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
       accent: '#4E9EE8',
+      onClick: () => navigate('/directory'),
     },
     {
       icon: <UserCheck size={16} />,
       label: 'Present Today',
       value: loading ? '—' : `${presentCount}/${todayRecords.length}`,
-      sub: 'org-wide check-ins',
+      sub: 'org-wide check-ins · view list →',
       accent: '#2FB67C',
+      onClick: () => setShowPresentModal(true),
     },
     {
       icon: <Package size={16} />,
       label: 'Total Assets',
       value: loading ? '—' : totalAssets === null ? '—' : String(totalAssets),
-      sub: 'company-wide inventory',
+      sub: 'company-wide inventory · view inventory →',
       accent: '#F97316',
+      onClick: () => navigate('/assets'),
     },
     {
       icon: <ShieldCheck size={16} />,
       label: 'Audit Events Today',
       value: loading ? '—' : auditStats ? String(auditStats.todayCount) : '—',
-      sub: 'security events logged',
+      sub: 'security events logged · view log →',
       accent: '#B11116',
+      onClick: () => {
+        const today = todayIsoDate();
+        navigate(`/audit?from=${today}&to=${today}`);
+      },
     },
   ];
 
@@ -1651,7 +1679,7 @@ function SuperAdminDashboardView() {
   };
   const cardTitle = (text: string) => (
     <div style={{ marginBottom: 14 }}>
-      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
         {text}
       </span>
     </div>
@@ -1660,7 +1688,7 @@ function SuperAdminDashboardView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {greetingPrefix()}, {firstName}.
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-dim)' }}>Super Admin Dashboard</p>
@@ -1670,10 +1698,14 @@ function SuperAdminDashboardView() {
 
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
 
-      {/* Row 2 — Stat tiles */}
+      {/* Row 2 — Stat tiles, each clickable through to its detail view */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        {statTiles.map(({ icon, label, value, sub, accent }) => (
-          <div key={label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
+        {statTiles.map(({ icon, label, value, sub, accent, onClick }) => (
+          <button
+            key={label}
+            onClick={onClick}
+            style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
+          >
             <div style={{
               width: 34, height: 34, borderRadius: 8, marginBottom: 12,
               background: `color-mix(in srgb, ${accent} 12%, var(--raised2))`,
@@ -1683,13 +1715,13 @@ function SuperAdminDashboardView() {
             </div>
             <div style={{
               fontSize: 28, fontWeight: 700, color: accent, lineHeight: 1, marginBottom: 6,
-              fontFamily: '"Space Grotesk", sans-serif', fontVariantNumeric: 'tabular-nums',
+              fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums',
             }}>
               {value}
             </div>
             <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 500, marginBottom: 2 }}>{label}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{sub}</div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -1741,7 +1773,7 @@ function SuperAdminDashboardView() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                    <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{pendingCount}</span>
+                    <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{pendingCount}</span>
                     <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>pending</span>
                   </div>
                 </div>
@@ -1815,7 +1847,7 @@ function SuperAdminDashboardView() {
                   borderTop: i === 0 ? 'none' : '1px solid var(--line)',
                 }}>
                   <div style={{
-                    fontSize: 22, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif',
+                    fontSize: 22, fontWeight: 700, fontFamily: 'Inter, sans-serif',
                     fontVariantNumeric: 'tabular-nums', color: row.color,
                     minWidth: 32, lineHeight: 1,
                   }}>
@@ -1833,7 +1865,7 @@ function SuperAdminDashboardView() {
 
         {/* Users by Role — UNCHANGED */}
         <div className="nf-leave-panel" style={{ ...cardStyle, gap: 16 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             Users by Role
           </div>
           {loading || roleData.length === 0 ? (
@@ -1879,7 +1911,7 @@ function SuperAdminDashboardView() {
                     position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                     alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
                   }}>
-                    <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
                       {allUsers.length}
                     </span>
                     <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>total</span>
@@ -1893,7 +1925,7 @@ function SuperAdminDashboardView() {
                     <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.name}
                     </span>
-                    <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 24, textAlign: 'right' }}>
+                    <span style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 24, textAlign: 'right' }}>
                       {item.value}
                     </span>
                   </div>
@@ -1906,7 +1938,7 @@ function SuperAdminDashboardView() {
 
       {/* Recent Audit Events — UNCHANGED */}
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
           Recent Audit Events
         </div>
         {loading ? (
@@ -1959,6 +1991,15 @@ function SuperAdminDashboardView() {
           View all in Audit & Security →
         </button>
       </div>
+
+      {showPresentModal && (
+        <PresentTodayModal
+          records={todayRecords}
+          loading={loading}
+          scopeLabel="Organization"
+          onClose={() => setShowPresentModal(false)}
+        />
+      )}
     </div>
   );
 }

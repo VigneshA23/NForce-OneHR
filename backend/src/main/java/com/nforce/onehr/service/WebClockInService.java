@@ -29,6 +29,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -220,8 +221,7 @@ public class WebClockInService {
     @Transactional(readOnly = true)
     public List<WebClockInResponse> listMine(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return webClockInRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId())
-                .stream().map(this::toResponse).toList();
+        return toResponses(webClockInRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()));
     }
 
     /**
@@ -240,12 +240,12 @@ public class WebClockInService {
         if (!hasOverrideRole(actor)) {
             pending = pending.stream().filter(r -> actor.getId().equals(r.getAssignedApproverId())).toList();
         }
-        return pending.stream()
+        List<WebClockInRequest> deduped = pending.stream()
                 .collect(Collectors.groupingBy(r -> Map.entry(r.getEmployeeUserId(), r.getWorkDate())))
                 .values().stream()
                 .map(rows -> rows.stream().min(Comparator.comparing(WebClockInRequest::getRequestedCheckIn)).orElseThrow())
-                .map(this::toResponse)
                 .toList();
+        return toResponses(deduped);
     }
 
     /**
@@ -655,16 +655,54 @@ public class WebClockInService {
     }
 
     private WebClockInResponse toResponse(WebClockInRequest req) {
-        Employee employee = employeeRepository.findById(req.getEmployeeUserId()).orElse(null);
+        return toResponses(List.of(req)).get(0);
+    }
+
+    /**
+     * Batch equivalent of {@link #toResponse} — listMine/listPendingForApprover funnel through
+     * here instead of mapping row-by-row. Previously each row cost up to 4 findById round trips
+     * (employee, email, reviewer, assignedApprover); this collects every distinct user id
+     * referenced across the whole batch and resolves them with one name-lookup query total,
+     * regardless of how many requests are being mapped. Output fields/values are unchanged.
+     */
+    private List<WebClockInResponse> toResponses(List<WebClockInRequest> requests) {
+        if (requests.isEmpty()) {
+            return List.of();
+        }
+
+        Set<UUID> allUserIds = new LinkedHashSet<>();
+        for (WebClockInRequest req : requests) {
+            allUserIds.add(req.getEmployeeUserId());
+            addIfNotNull(allUserIds, req.getReviewedBy());
+            addIfNotNull(allUserIds, req.getAssignedApproverId());
+        }
+
+        Map<UUID, String> nameById = employeeRepository.findNamesByUserIds(allUserIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        Map<UUID, Employee> employeeById = employeeRepository.findAllByIdWithDepartment(allUserIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+        Map<UUID, String> emailById = userRepository.findAllById(allUserIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getEmail));
+
+        return requests.stream().map(req -> toResponse(req, nameById, employeeById, emailById)).toList();
+    }
+
+    private static void addIfNotNull(Set<UUID> ids, UUID id) {
+        if (id != null) {
+            ids.add(id);
+        }
+    }
+
+    private WebClockInResponse toResponse(WebClockInRequest req, Map<UUID, String> nameById,
+                                           Map<UUID, Employee> employeeById, Map<UUID, String> emailById) {
+        Employee employee = employeeById.get(req.getEmployeeUserId());
         String employeeName = employee != null ? employee.getFullName() : "Unknown";
         String departmentName = employee != null && employee.getDepartment() != null
                 ? employee.getDepartment().getName() : null;
-        String employeeEmail = userRepository.findById(req.getEmployeeUserId())
-                .map(User::getEmail).orElse("");
-        String reviewerName = req.getReviewedBy() == null ? null
-                : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
+        String employeeEmail = emailById.getOrDefault(req.getEmployeeUserId(), "");
+        String reviewerName = req.getReviewedBy() == null ? null : nameById.get(req.getReviewedBy());
         String assignedApproverName = req.getAssignedApproverId() == null ? null
-                : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
+                : nameById.get(req.getAssignedApproverId());
 
         return WebClockInResponse.builder()
                 .id(req.getId())

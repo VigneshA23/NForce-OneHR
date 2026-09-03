@@ -8,7 +8,8 @@ public class AttendanceStatBucket {
 
     private int presentDays;
 
-    /** Null when presentDays == 0 — nothing to average. */
+    /** Null when presentDays == 0, or when every present row is still mid-session (no
+     * workedMinutes computed yet) — nothing to average. */
     private Double avgHoursPerDay;
 
     /** Null when presentDays == 0. */

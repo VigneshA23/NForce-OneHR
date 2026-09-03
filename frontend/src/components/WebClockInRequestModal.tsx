@@ -59,7 +59,7 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
           Web Clock-In Request
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>

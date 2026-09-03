@@ -31,6 +31,6 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         boolean disabled = !user.isActive() || user.getDeletedAt() != null;
         return new AppUserPrincipal(user.getId(), user.getEmail(), user.getPasswordHash(),
-                user.getTokenVersion(), disabled, authorities);
+                user.getTokenVersion(), user.getTokenVersionReason(), disabled, authorities);
     }
 }

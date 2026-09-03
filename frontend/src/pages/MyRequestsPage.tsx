@@ -146,7 +146,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TypeBadge type={item.requestType} />
-            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
               Request Details
             </span>
           </div>
@@ -246,7 +246,7 @@ export default function MyRequestsPage() {
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All your submitted leave and attendance requests in one place.</p>
       </div>
 

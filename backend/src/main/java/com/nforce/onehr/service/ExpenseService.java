@@ -188,10 +188,20 @@ public class ExpenseService {
 
     // ── Final stage (HR Admin / Super Admin) ─────────────
 
+    // ONEHR bug report: HR Admin/Super Admin couldn't see a claim in the Approval Center until
+    // after Manager approval, blocking oversight of the manager stage entirely. Every other
+    // approval-queue type in this app already gives HR/SA admin's blanket "all pending regardless
+    // of stage" visibility (see RegularizationService.listPendingForApprover, and the class-level
+    // doc comment on ApprovalCenterController) — Expense was the one outlier still hard-restricted
+    // to MANAGER_APPROVED only. The backend was never actually blocking admins from acting at the
+    // manager stage (managerApprove/managerReject already bypass the reporting-line check for
+    // HR_ADMIN/SUPER_ADMIN — see requireCurrentManagerOf), so this was purely a visibility gap,
+    // not a workflow-ordering safeguard: a SUBMITTED claim still can't skip straight to final
+    // clearance (finalApprove/finalReject still require MANAGER_APPROVED via requireClaimInStatus).
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> pendingForFinalApprover(String actorEmail) {
         requireFinalApprover(actorEmail);
-        return claimRepo.findByStatus("MANAGER_APPROVED").stream()
+        return claimRepo.findByStatusIn(List.of("SUBMITTED", "MANAGER_APPROVED")).stream()
                 .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
                 .collect(Collectors.toList());
     }

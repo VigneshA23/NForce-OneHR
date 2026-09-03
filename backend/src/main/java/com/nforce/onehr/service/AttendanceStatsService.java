@@ -116,8 +116,9 @@ public class AttendanceStatsService {
 
     /**
      * Day-level aggregate across every row in the bucket (total worked minutes / total
-     * present-day rows) — not a per-employee-then-averaged figure. Matches AttendanceService's
-     * existing convention of aggregating in Java rather than via JPQL AVG.
+     * present-day rows with a computed worked-minutes figure) — not a per-employee-then-averaged
+     * figure. Matches AttendanceService's existing convention of aggregating in Java rather than
+     * via JPQL AVG.
      */
     private AttendanceStatBucket aggregate(List<Attendance> rows, Double expectedHoursPerDay) {
         List<Attendance> present = rows.stream().filter(r -> r.getCheckInAt() != null).toList();
@@ -127,14 +128,25 @@ public class AttendanceStatsService {
                     .expectedHoursPerDay(expectedHoursPerDay).build();
         }
 
-        long totalWorkedMinutes = present.stream()
-                .mapToLong(r -> r.getWorkedMinutes() != null ? r.getWorkedMinutes() : 0)
+        // workedMinutes is only populated on checkout/break-recompute (see AttendanceService,
+        // WebClockInService) — a present row that's still mid-session has it null, not zero.
+        // Folding that into the sum as 0 would understate the average for anyone not yet checked
+        // out, so those rows are excluded from the average entirely rather than counted as a
+        // worked-0-hours day; onTimeArrivalPercent is unaffected since it only depends on
+        // lateByMinutes (set at check-in) and still uses every present row.
+        List<Attendance> withWorkedMinutes = present.stream()
+                .filter(r -> r.getWorkedMinutes() != null)
+                .toList();
+        long totalWorkedMinutes = withWorkedMinutes.stream()
+                .mapToLong(Attendance::getWorkedMinutes)
                 .sum();
         long onTimeCount = present.stream()
                 .filter(r -> r.getLateByMinutes() == null || r.getLateByMinutes() == 0)
                 .count();
 
-        double avgHoursPerDay = Math.round((totalWorkedMinutes / 60.0 / presentDays) * 10) / 10.0;
+        Double avgHoursPerDay = withWorkedMinutes.isEmpty()
+                ? null
+                : Math.round((totalWorkedMinutes / 60.0 / withWorkedMinutes.size()) * 10) / 10.0;
         double onTimePercent = Math.round((onTimeCount * 100.0 / presentDays) * 10) / 10.0;
 
         return AttendanceStatBucket.builder()

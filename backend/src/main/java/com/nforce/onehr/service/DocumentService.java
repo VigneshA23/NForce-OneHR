@@ -137,7 +137,7 @@ public class DocumentService {
     public List<EmployeeDocumentResponse> listAll(String actorEmail) {
         requireAdminRole(actorEmail);
         Set<UUID> adminIds = userRepo.findAdminUserIds();
-        List<EmployeeDocument> docs = docRepo.findAll()
+        List<EmployeeDocument> docs = docRepo.findAllWithActiveEmployee()
                 .stream().filter(d -> !adminIds.contains(d.getEmployeeUserId())).collect(Collectors.toList());
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());

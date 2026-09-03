@@ -224,7 +224,7 @@ function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => vo
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 620, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Changes vs. previous submission</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Changes vs. previous submission</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
         </div>
         <div style={{ padding: 20 }}>
@@ -373,7 +373,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TypeBadge type={item.requestType} />
-            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
               {item.employeeName}
             </span>
           </div>
@@ -409,7 +409,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
 
           {item.requestType === 'EXPENSE' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Final clearance (HR/Admin)' : 'Manager approval'} />
+              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Pending Final Approval (HR/Admin)' : 'Pending Manager Review'} />
               <Row label="Category" value={item.expenseCategoryName} />
               <Row label="Amount" value={fmtCurrency(item.expenseAmount ?? 0)} />
               <Row label="Expense Date" value={fmtDate(item.expenseDate)} />
@@ -538,7 +538,7 @@ function BulkActionModal({ items, mode, onClose, onDone, token }: {
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: 440 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             {mode === 'approve' ? 'Approve Selected Requests' : 'Reject Selected Requests'}
           </span>
           <button onClick={onClose} disabled={submitting} style={{ background: 'none', border: 'none', cursor: submitting ? 'not-allowed' : 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
@@ -679,7 +679,7 @@ export default function ApprovalsPage() {
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Approval Center</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Approval Center</h1>
         {/* Subheading stays left, search pushed to the far right of the same row via
            space-between — search wraps below the subheading onto its own full-width line on
            narrow/mobile viewports instead of being squeezed into the corner. */}
@@ -808,7 +808,19 @@ export default function ApprovalsPage() {
                           style={{ cursor: 'pointer', accentColor: 'var(--brand)' }}
                         />
                       </td>
-                      <td style={tdStyle}><TypeBadge type={item.requestType} /></td>
+                      <td style={tdStyle}>
+                        <TypeBadge type={item.requestType} />
+                        {/* Expense claims now surface to HR/SA before Manager approval too (see
+                            ApprovalCenterController's expense branch) — this makes that stage
+                            visible at a glance in the queue itself, not just inside the detail
+                            modal's "Stage" row, so admins can tell a not-yet-manager-approved
+                            claim apart from one that's actually ready for their own final call. */}
+                        {item.requestType === 'EXPENSE' && item.approvalStage === 'MANAGER' && (
+                          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--txt-dim)', marginTop: 4, whiteSpace: 'nowrap' }}>
+                            Pending Manager Review
+                          </div>
+                        )}
+                      </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{item.employeeName}</td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{requestedDates}</td>
                       <td style={tdStyle}>

@@ -24,8 +24,8 @@
 
   /* Fonts */
   --font-sans: 'Inter', system-ui, sans-serif;
-  --font-heading: 'Space Grotesk', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-heading: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Inter', system-ui, sans-serif;
 }
 
 *,
@@ -42,15 +42,21 @@ body {
 }
 
 body {
-  background-color: #080808;
-  color: #f0f0f0;
+  /* Was hardcoded to a fixed dark value, ignoring the theme entirely. Invisible in dark mode
+     (close enough to --shell's dark value, #0E0F12, that the mismatch never showed), but in
+     light mode this raw dark background is what paints behind iOS Safari's translucent
+     bottom toolbar / the safe-area strip under it (see viewport-fit=cover in index.html) —
+     showing as a stark black bar against the light theme's actual white/light content. */
+  background-color: var(--shell);
+  color: var(--txt);
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  min-height: 100dvh;
+  /* See the setAppHeight() comment in main.tsx for why this isn't bare 100dvh. */
+  min-height: var(--app-height, 100dvh);
 }
 
 :root,
@@ -105,6 +111,36 @@ body {
   --warn:        #896010;
   --risk:        #C81A1F;
   --info:        #1A5FAA;
+}
+
+/* Scrollbars — thin, low-contrast, theme-aware (replaces the default
+   opaque/white browser scrollbar, which stood out too much against the
+   dark/light panels). Uses the existing --line2/--txt-dim tokens so the
+   thumb color already tracks light/dark theme switches automatically;
+   track stays transparent so no background box shows up around it. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--line2);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--txt-dim);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 @keyframes glow-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
@@ -296,15 +332,35 @@ input[type="date"] {
 }
 .shell-sidebar .nf-sidebar-logo-title { font-size: clamp(11px, calc(10.4px + 0.18vw), 13px) !important; }
 .shell-sidebar .nf-sidebar-logo-sub { font-size: clamp(7px, calc(6.7px + 0.09vw), 8px) !important; }
-.nf-nav-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 90; }
+/* height instead of inset:0's bottom edge — see the matching comment on .shell-sidebar's
+   inline style in Shell.tsx, and setAppHeight() in main.tsx, for why this isn't 100dvh. */
+.nf-nav-scrim { position: fixed; top: 0; left: 0; right: 0; height: var(--app-height, 100dvh); background: rgba(0,0,0,.5); z-index: 90; }
 
 /* Main content padding reduction */
 @media (max-width: 1024px) { .nf-main-content { padding: 18px !important; } }
 @media (max-width: 767px)  { .nf-main-content { padding: 14px !important; } }
 
-/* Defensive: eliminate any missed horizontal-overflow source at phone widths only */
+/* iOS Safari's translucent bottom toolbar sits over `env(safe-area-inset-bottom)` (only
+   nonzero when `viewport-fit=cover` is set, see index.html) — without extra bottom padding
+   here, the page's last row of content/buttons ends up tucked right underneath it. This adds
+   just enough breathing room for the last content to clear the toolbar/home-indicator area;
+   the dark page background already extends the rest of the way under it on its own. */
+.nf-main-content { padding-bottom: calc(26px + env(safe-area-inset-bottom)) !important; }
+@media (max-width: 1024px) { .nf-main-content { padding-bottom: calc(18px + env(safe-area-inset-bottom)) !important; } }
+@media (max-width: 767px)  { .nf-main-content { padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; } }
+
+/* Defensive: eliminate any missed horizontal-overflow source at phone widths only.
+   Deliberately NOT on html/body — the CSS spec forces overflow-y to compute as 'auto'
+   whenever overflow-x is non-'visible' and overflow-y is left unset, which turns html/body
+   into their own explicit scroll containers instead of the natural document scroller. iOS
+   Safari's dynamic toolbar (the one that shrinks away as you scroll) only auto-hides when it
+   recognizes genuine viewport/document-level scrolling — once html/body become explicit
+   scroll containers, it stops recognizing the scroll as "the page" and keeps the toolbar
+   pinned open with a hard-edged cutoff instead of collapsing gracefully. #root wraps all app
+   content, so applying it there gives the same horizontal-overflow safety net without ever
+   touching html/body's own overflow behavior. */
 @media (max-width: 767px) {
-  html, body { overflow-x: hidden; }
+  #root { overflow-x: hidden; }
 }
 
 /* auto-fit/minmax rows whose px floor (e.g. 360px) can exceed the available
@@ -356,6 +412,34 @@ input[type="date"] {
 @media (max-width: 767px) {
   .nf-search-full-mobile { width: 100% !important; }
   .nf-search-full-mobile-input { width: 100% !important; box-sizing: border-box; }
+}
+
+/* Organization Structure / Organization Masters toolbar -> the search bar and Add button
+   always move onto their own row below the section selector (Business Units / Departments /
+   Designations / …) on mobile, rather than only wrapping down when the two happen not to fit
+   (see .nf-org-toolbar's flexWrap for that desktop/tablet behavior) — a narrow phone always has
+   too little room for both, so this forces the stack instead of relying on the fit check. The
+   search input also grows to fill its row instead of staying a fixed 196px. */
+@media (max-width: 767px) {
+  .nf-org-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+  }
+  /* Explicit full-width + scroll, rather than leaning on flexbox's implicit cross-axis stretch
+     from align-items above to size this row — same overflow-x/-webkit-overflow-scrolling
+     pairing used for the other mobile-scrollable strips in this file (e.g. .nf-hierarchy-actions'
+     siblings around line 417). Keeps the section selector (Business Units / Departments / …)
+     horizontally scrollable on its own full-width row once it's stacked above the actions block. */
+  .nf-org-toolbar-tabs {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-org-toolbar-actions { width: 100%; box-sizing: border-box; }
+  .nf-org-search-wrap { flex: 1; min-width: 0; }
+  .nf-org-search-input { width: 100% !important; box-sizing: border-box; }
 }
 
 /* Policies & Announcements stat tiles -> stay a 3-column row on mobile (no
@@ -540,29 +624,34 @@ input[type="date"] {
    scrolling. Desktop/tablet keep the original fixed sizes set inline,
    untouched. */
 @media (max-width: 900px) {
-  .nf-auth-mobile-brand { margin-bottom: clamp(10px, 3vh, 22px) !important; }
-  .nf-branding-block { gap: clamp(4px, 1.5vh, 12px) !important; }
-  .nf-brandmark, .nf-brandmark-ring, .nf-brandmark-img {
+  /* Scoped to .nf-auth-shell (the auth/login page root) — .nf-brandmark,
+     .nf-brand-title etc. are the same classes BrandMark renders everywhere
+     (e.g. the landing page nav), so leaving these selectors bare here would
+     hijack every other page's logo sizing with vh-based clamps meant only
+     for this vertically-stacked login layout. */
+  .nf-auth-shell .nf-auth-mobile-brand { margin-bottom: clamp(10px, 3vh, 22px) !important; }
+  .nf-auth-shell .nf-branding-block { gap: clamp(4px, 1.5vh, 12px) !important; }
+  .nf-auth-shell .nf-brandmark, .nf-auth-shell .nf-brandmark-ring, .nf-auth-shell .nf-brandmark-img {
     width: clamp(48px, min(11vh, 22vw), 96px) !important;
     height: clamp(48px, min(11vh, 22vw), 96px) !important;
   }
-  .nf-brandmark-glow {
+  .nf-auth-shell .nf-brandmark-glow {
     width: clamp(70px, min(16vh, 32vw), 140px) !important;
     height: clamp(70px, min(16vh, 32vw), 140px) !important;
   }
-  .nf-brand-title { font-size: clamp(14px, min(3.2vh, 4.4vw), 18px) !important; }
-  .nf-brand-subtitle { font-size: clamp(8px, min(1.8vh, 2.4vw), 10px) !important; margin-top: clamp(1px, 0.6vh, 3px) !important; }
+  .nf-auth-shell .nf-brand-title { font-size: clamp(14px, min(3.2vh, 4.4vw), 18px) !important; }
+  .nf-auth-shell .nf-brand-subtitle { font-size: clamp(8px, min(1.8vh, 2.4vw), 10px) !important; margin-top: clamp(1px, 0.6vh, 3px) !important; }
 
-  .nf-login-heading-block { margin-bottom: clamp(8px, 2.5vh, 16px) !important; }
-  .nf-login-heading { font-size: clamp(16px, 4vh, 20px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
-  .nf-login-subtext { font-size: clamp(10px, 2.2vh, 12px) !important; }
-  .nf-login-sso-btn { padding: clamp(6px, 1.6vh, 9px) clamp(10px, 3vw, 14px) !important; font-size: clamp(11px, 2.4vh, 13px) !important; }
-  .nf-login-divider { margin: clamp(8px, 2.2vh, 14px) 0 !important; font-size: clamp(10px, 2vh, 11px) !important; }
-  .nf-login-field { margin-bottom: clamp(6px, 1.8vh, 10px) !important; }
-  .nf-login-label { font-size: clamp(10px, 2vh, 11px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
-  .nf-login-input { padding-top: clamp(6px, 1.6vh, 8px) !important; padding-bottom: clamp(6px, 1.6vh, 8px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
-  .nf-login-forgot-row { margin-bottom: clamp(8px, 2vh, 12px) !important; margin-top: 0 !important; }
-  .nf-login-submit { padding: clamp(7px, 1.8vh, 9px) clamp(12px, 3vw, 16px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
+  .nf-auth-shell .nf-login-heading-block { margin-bottom: clamp(8px, 2.5vh, 16px) !important; }
+  .nf-auth-shell .nf-login-heading { font-size: clamp(16px, 4vh, 20px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-auth-shell .nf-login-subtext { font-size: clamp(10px, 2.2vh, 12px) !important; }
+  .nf-auth-shell .nf-login-sso-btn { padding: clamp(6px, 1.6vh, 9px) clamp(10px, 3vw, 14px) !important; font-size: clamp(11px, 2.4vh, 13px) !important; }
+  .nf-auth-shell .nf-login-divider { margin: clamp(8px, 2.2vh, 14px) 0 !important; font-size: clamp(10px, 2vh, 11px) !important; }
+  .nf-auth-shell .nf-login-field { margin-bottom: clamp(6px, 1.8vh, 10px) !important; }
+  .nf-auth-shell .nf-login-label { font-size: clamp(10px, 2vh, 11px) !important; margin-bottom: clamp(2px, 0.8vh, 4px) !important; }
+  .nf-auth-shell .nf-login-input { padding-top: clamp(6px, 1.6vh, 8px) !important; padding-bottom: clamp(6px, 1.6vh, 8px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
+  .nf-auth-shell .nf-login-forgot-row { margin-bottom: clamp(8px, 2vh, 12px) !important; margin-top: 0 !important; }
+  .nf-auth-shell .nf-login-submit { padding: clamp(7px, 1.8vh, 9px) clamp(12px, 3vw, 16px) !important; font-size: clamp(12px, 2.4vh, 13px) !important; }
 }
 
 /* Employee dashboard — Attendance Calendar -> was built with a hardcoded
@@ -661,16 +750,47 @@ input[type="date"] {
    than only shaving a few px of padding — the label wraps onto a second
    line instead of truncating or forcing nowrap overflow, the same "wrap,
    don't truncate/scroll" pattern used for the Documents & Compliance tab
-   labels elsewhere in this file. If the two buttons still can't both fit on
-   one line, the row wraps and they share it equally. */
-.nf-attendance-actions { flex-wrap: wrap; }
+   labels elsewhere in this file.
+   The +14px added to the basis formula's constant below (over the original
+   62.5px) is deliberate headroom: at a common "zoomed in a bit" width (a
+   1280px-wide viewport at 110% browser zoom, ~1164px effective) the older
+   62.5px constant put "Request Regularization" a fraction of a pixel short
+   of its own single-line width — an invisible-in-code, knife's-edge wrap
+   that read as "misaligned" purely because the label broke to a second line
+   at an otherwise perfectly ordinary desktop zoom level, not because of any
+   role-specific styling (verified identical at every role at this width).
+   The two buttons no longer wrap onto separate lines when they can't both
+   fit — AttendancePage.tsx now pins .nf-attendance-actions to an explicit
+   width (2x this same clamp formula) and flex-wrap: nowrap inline, since a
+   flex container's own auto/shrink-to-fit width doesn't reliably compute to
+   its flex-grow children's full basis size in every browser (measured short
+   by ~35px here), which silently starved the buttons of room even with
+   hundreds of spare header pixels next to them and either wrapped a label
+   to two lines or, worse, stacked the whole buttons on separate rows. */
 .nf-attendance-action-btn {
-  flex: 1 1 clamp(90px, calc(62.5px + 8.59vw), 200px);
+  flex: 1 1 clamp(90px, calc(76.5px + 8.59vw), 200px);
   min-width: 0;
   justify-content: center;
   text-align: center;
   padding: clamp(7px, calc(6.5px + 0.16vw), 9px) clamp(8px, calc(6px + 0.63vw), 16px) !important;
-  font-size: clamp(11px, calc(10.5px + 0.16vw), 13px) !important;
+  font-size: clamp(10px, calc(9.5px + 0.16vw), 12px) !important;
 }
 .nf-attendance-action-icon { flex-shrink: 0; }
+
+/* Role Guide sticky header (Back + logo | Download PDF) -> stack on mobile instead of
+   staying a fixed-height 60px nowrap row. That row had no room for both the back/brand
+   group and the Download PDF button at phone widths, and — being `position: sticky` with a
+   hardcoded `height: 60` — couldn't just wrap in place without clipping whichever content
+   fell to a second line. Height switches to auto so the now-taller stacked header isn't
+   clipped, and the export button goes full width below the back/brand row. Desktop/tablet
+   keep the original single-row layout, untouched. */
+@media (max-width: 767px) {
+  .nf-roleguide-header {
+    flex-wrap: wrap !important;
+    height: auto !important;
+    padding: 12px 16px !important;
+    gap: 10px !important;
+  }
+  .nf-roleguide-header > button { width: 100%; justify-content: center; }
+}
 .nf-attendance-action-label { white-space: normal; word-break: break-word; line-height: 1.25; }

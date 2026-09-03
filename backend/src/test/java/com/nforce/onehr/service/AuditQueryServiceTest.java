@@ -5,9 +5,11 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AuditLogRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -37,6 +39,12 @@ class AuditQueryServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private AuditTargetResolver targetResolver;
+    // Deep stubs so the getCriteriaBuilder()/createQuery()/... chain used by the grouped stats
+    // aggregate query resolves to further mocks all the way down to getResultList(), which
+    // Mockito's default answer resolves to an empty list — equivalent to "no rows matched"
+    // without needing a real persistence context (this suite deliberately avoids Spring/H2, see
+    // class javadoc below).
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS) private EntityManager entityManager;
 
     @InjectMocks private AuditQueryService auditQueryService;
 

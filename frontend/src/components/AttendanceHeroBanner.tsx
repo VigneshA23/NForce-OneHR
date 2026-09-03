@@ -321,7 +321,10 @@ export function AttendanceHeroBanner() {
       const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
       const refreshed = await attendanceApi.today(token);
       setToday(refreshed);
-      const at = formatClockTime(kind === 'in' ? refreshed.serverNow : record.checkOutAt);
+      // Use the check-in/check-out record's own timestamp, not `refreshed.serverNow` — that comes
+      // from a second, later `/today` call and picks up whatever latency that round trip has,
+      // making the toast read later than the moment the employee actually punched in.
+      const at = formatClockTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
@@ -332,7 +335,14 @@ export function AttendanceHeroBanner() {
   }
 
   const record     = today?.record ?? null;
-  const checkInAt  = record?.checkInAt  ?? null;
+  // sessionStartedAt (not checkInAt) — checkInAt is the day's *original* check-in, deliberately
+  // frozen across a same-day resume (see AttendanceRecord's own doc comment and
+  // AttendanceService.checkIn's "resume" branch), so it never reflects a later Check-In → Check-
+  // Out → Check-In again cycle. Every display below reads this one value, so it was showing the
+  // stale original time immediately after a resumed check-in (and after a refresh — this wasn't
+  // a caching bug, checkInAt genuinely never updates). sessionStartedAt updates on every check-in
+  // including a resume, so it's what "Checked in at" should actually show.
+  const checkInAt  = record?.sessionStartedAt ?? record?.checkInAt ?? null;
   const checkOutAt = record?.checkOutAt ?? null;
 
   // The later of the normal Check-Out and the most recent closed Web Clock-Out today, whichever
@@ -366,8 +376,8 @@ export function AttendanceHeroBanner() {
   if (loading) {
     return (
       <HeroCard>
-        <div style={{ height: 28, width: 240, background: 'rgba(255,255,255,0.08)', borderRadius: 6, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
-        <div style={{ height: 14, width: 360, background: 'rgba(255,255,255,0.05)', borderRadius: 4, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ height: 28, width: '100%', maxWidth: 240, background: 'rgba(255,255,255,0.08)', borderRadius: 6, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ height: 14, width: '100%', maxWidth: 360, background: 'rgba(255,255,255,0.05)', borderRadius: 4, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
         <div style={{ display: 'flex', gap: 7 }}>
           <div style={{ height: 26, width: 90, background: 'rgba(255,255,255,0.06)', borderRadius: 20, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
           <div style={{ height: 26, width: 70, background: 'rgba(255,255,255,0.06)', borderRadius: 20, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
@@ -406,7 +416,7 @@ export function AttendanceHeroBanner() {
 
     return (
       <HeroCard>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
           {headline}
         </div>
         {subtitle && <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{subtitle}</p>}
@@ -520,7 +530,7 @@ export function AttendanceHeroBanner() {
 
   return (
     <HeroCard>
-      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
         Not checked in yet.
       </div>
       <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{subtitle}</p>

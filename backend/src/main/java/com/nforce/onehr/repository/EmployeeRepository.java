@@ -3,6 +3,7 @@ package com.nforce.onehr.repository;
 import com.nforce.onehr.entity.Employee;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -32,6 +33,12 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     @Query("SELECT e FROM Employee e LEFT JOIN FETCH e.location LEFT JOIN FETCH e.weeklyOffPolicy "
          + "LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department LEFT JOIN FETCH e.shift WHERE e.userId IN :ids")
     List<Employee> findAllByIdWithScheduleDetails(@Param("ids") Collection<UUID> ids);
+
+    // Backs EmployeeService#getManagerDashboard — joins the associations that method reads
+    // (user, designation, department) in one query instead of one findById (plus lazy-loads
+    // of each association) per direct report.
+    @Query("SELECT e FROM Employee e JOIN FETCH e.user LEFT JOIN FETCH e.designation LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
+    List<Employee> findAllByIdWithUserDetails(@Param("ids") Collection<UUID> ids);
 
     // Backs the shift/weekly-off import (ONEHR-108) — rows are addressed by employee code, not id.
     Optional<Employee> findByEmployeeCode(String employeeCode);
@@ -102,6 +109,19 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     @Query("SELECT e.userId, e.fullName FROM Employee e WHERE e.userId IN :ids")
     List<Object[]> findNamesByUserIds(@Param("ids") Set<UUID> ids);
 
+    // Backs LeaveService's batched employee-card rendering (Dashboard's Present Today/On Leave
+    // widgets show avatar + name + code, Directory-row style) — same shape/usage as
+    // findNamesByUserIds above, kept as its own method rather than widening that one's shared
+    // 2-column shape, which many unrelated call sites already depend on.
+    @Query("SELECT e.userId, e.employeeCode FROM Employee e WHERE e.userId IN :ids")
+    List<Object[]> findCodesByUserIds(@Param("ids") Set<UUID> ids);
+
+    // Batch employee + department fetch backing RegularizationService/WebClockInService's list
+    // responses — one query for every row's employee name + department name instead of one
+    // findById per row (department is LAZY, so a plain findAllById would still N+1 on it).
+    @Query("SELECT e FROM Employee e LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
+    List<Employee> findAllByIdWithDepartment(@Param("ids") Collection<UUID> ids);
+
     // Backs ShiftSeedCorrector's startup backfill for employees created after V95's one-time
     // "assign everyone the Regular Shift" migration ran (e.g. anyone onboarded since).
     List<Employee> findByShiftIsNull();
@@ -148,4 +168,29 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
          + "LEFT JOIN e.penalisationPolicy pp "
          + "WHERE e.userId IN :ids")
     List<com.nforce.onehr.dto.penalization.EmployeeAllocationProjection> findAllocationProjectionsByIds(@Param("ids") Collection<UUID> ids);
+
+    // Backs OrgService's hard-delete of a Department/Designation/Location/Shift master row —
+    // called only after countBy*Id above has already confirmed 0 *active* (non-deleted)
+    // employees remain. Any employee row still pointing at the id being deleted at that point is
+    // therefore necessarily a soft-deleted (terminated) one — deleting a user never clears their
+    // Employee row's own department/designation/location/shift columns (see
+    // UserManagementService.deleteUser), so a stale FK is all that's left blocking the master
+    // row's real removal. These null out that already-nullable column (same "— None —" state the
+    // UI already supports) rather than touching the employee row itself or any Attendance/audit
+    // table — no historical data is deleted or reassigned, only a now-dangling reference cleared.
+    @Modifying
+    @Query("UPDATE Employee e SET e.department = NULL WHERE e.department.id = :id")
+    void clearDepartmentReferences(@Param("id") UUID id);
+
+    @Modifying
+    @Query("UPDATE Employee e SET e.designation = NULL WHERE e.designation.id = :id")
+    void clearDesignationReferences(@Param("id") UUID id);
+
+    @Modifying
+    @Query("UPDATE Employee e SET e.location = NULL WHERE e.location.id = :id")
+    void clearLocationReferences(@Param("id") UUID id);
+
+    @Modifying
+    @Query("UPDATE Employee e SET e.shift = NULL WHERE e.shift.id = :id")
+    void clearShiftReferences(@Param("id") UUID id);
 }

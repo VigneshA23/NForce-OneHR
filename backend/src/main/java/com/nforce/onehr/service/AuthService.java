@@ -137,9 +137,19 @@ public class AuthService {
             throw new DisabledException("Account has been deactivated");
         }
 
-        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
-            auditService.log(user.getId(), "PASSWORD_CHANGE_FAILED", user.getId());
-            throw new BadCredentialsException("Current password is incorrect");
+        // Forced flow (user just logged in with a temp/reset password and must change it
+        // before continuing): the frontend omits currentPassword entirely, since the user
+        // already proved they know it by using it to authenticate and obtain this request's
+        // JWT. Voluntary flow (already-authenticated user changing their password from My
+        // Profile): currentPassword is required and verified as before.
+        if (!user.isMustChangePassword()) {
+            if (request.getCurrentPassword() == null || request.getCurrentPassword().isBlank()) {
+                throw new IllegalArgumentException("Current password is required");
+            }
+            if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+                auditService.log(user.getId(), "PASSWORD_CHANGE_FAILED", user.getId());
+                throw new BadCredentialsException("Current password is incorrect");
+            }
         }
 
         // newPassword is already checked for spaces by @ValidPassword on ChangePasswordRequest,
@@ -170,6 +180,7 @@ public class AuthService {
         // their very next API call fails auth. The token minted just below carries this new
         // version, so the session performing the change stays logged in.
         user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(user);
 
         auditService.log(user.getId(), "PASSWORD_CHANGED", user.getId());
@@ -208,6 +219,7 @@ public class AuthService {
         user.setMustChangePassword(true);
         // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
         user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(user);
 
         String fullName = employeeRepository.findById(user.getId())

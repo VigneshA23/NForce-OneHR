@@ -47,7 +47,7 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             {request.employeeName} — {request.attendanceDate}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
@@ -163,7 +163,7 @@ export default function SuperAdminRegularizationPage() {
         <Link to="/attendance" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-dim)', textDecoration: 'none', marginBottom: 8 }}>
           <ArrowLeft size={13} /> Back to Attendance
         </Link>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
           Attendance Regularization — All Requests
         </h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>

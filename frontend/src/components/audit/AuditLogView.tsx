@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -59,9 +60,13 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
 
+  // Deep-link support: the Super Admin dashboard's "Audit Events Today" tile links here as
+  // /audit?from=<today>&to=<today> to pre-apply today's date filter — same pattern as
+  // DirectoryPage's ?userId= deep link from the Present Today/On Leave modals.
+  const [searchParams] = useSearchParams();
   const [targetSearch, setTargetSearch] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState(() => searchParams.get('from') ?? '');
+  const [to, setTo] = useState(() => searchParams.get('to') ?? '');
   const [activeGroup, setActiveGroup] = useState<ActionGroup | 'ALL'>('ALL');
   const [page, setPage] = useState(0);
   const [pageData, setPageData] = useState<PagedAuditLogs | null>(null);
@@ -138,7 +143,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {config.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{config.subtitle}</p>

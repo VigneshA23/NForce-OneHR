@@ -102,7 +102,11 @@ public class EmployeeAssignmentService {
         List<Employee> reports = reportIds.isEmpty() ? List.of() : employeeRepository.findAllById(reportIds);
 
         return AssignmentLookupsResponse.builder()
+                // Active-only: this is a pure new-assignment picker (bulk-assign a shift to
+                // selected reports), not an edit view showing one employee's existing value, so
+                // there's no "currently selected but now inactive" case to preserve here.
                 .shifts(shiftRepository.findAll().stream()
+                        .filter(Shift::isActive)
                         .map(s -> AssignmentLookupsResponse.PolicyOption.builder().id(s.getId()).name(s.getName()).build())
                         .toList())
                 .weeklyOffPolicies(weeklyOffPolicyRepository.findAll().stream()
@@ -124,6 +128,12 @@ public class EmployeeAssignmentService {
     public AssignmentBulkResultResponse bulkUpdateShift(String managerEmail, List<UUID> employeeUserIds, UUID shiftId) {
         Shift shift = shiftRepository.findById(shiftId)
                 .orElseThrow(() -> new IllegalArgumentException("Shift not found"));
+        // Always a fresh assignment (a manager choosing "put these reports on this shift"), never
+        // a no-op resubmission of an employee's own existing value — so this is validated the
+        // same as a create, with no "unchanged id" exception. Mirrors UserManagementService
+        // .createUser's identical unconditional Shift check.
+        if (!shift.isActive())
+            throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
         return bulkApply(managerEmail, employeeUserIds, "SHIFT", shiftId, e -> e.setShift(shift));
     }
 
@@ -235,8 +245,13 @@ public class EmployeeAssignmentService {
                         throw new AccessDeniedException("Not a current direct report: " + employeeCode);
                     }
                     if (!shiftName.isBlank()) {
-                        employee.setShift(shiftRepository.findByName(shiftName)
-                                .orElseThrow(() -> new IllegalArgumentException("Unknown shift: " + shiftName)));
+                        Shift shift = shiftRepository.findByName(shiftName)
+                                .orElseThrow(() -> new IllegalArgumentException("Unknown shift: " + shiftName));
+                        // Always a fresh assignment for this row — see bulkUpdateShift's own
+                        // comment on why no "unchanged id" exception applies here either.
+                        if (!shift.isActive())
+                            throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+                        employee.setShift(shift);
                     }
                     if (!weeklyOffName.isBlank()) {
                         employee.setWeeklyOffPolicy(weeklyOffPolicyRepository.findByName(weeklyOffName)

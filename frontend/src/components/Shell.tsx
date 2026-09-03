@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Outlet, useNavigate, Link } from 'react-router-dom';
 import { Search, Bell, Sun, Moon, Shield, User, LogOut, Menu, X as CloseIcon } from 'lucide-react';
-import { NAV, toShellRole, type Role, type NavItem } from '../lib/nav.config';
+import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
@@ -9,6 +9,7 @@ import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
 import { publishNewNotifications } from '../lib/notificationEvents';
 import { authApi } from '../api/auth';
+import { stashSessionMessageForLogin, SESSION_PROFILE_UPDATED_MESSAGE } from '../lib/authFetch';
 import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
 import { SidebarNav } from './SidebarNav';
@@ -37,7 +38,7 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
         color: 'var(--txt-mut)',
       }}
     >
-      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 17, color: 'var(--txt)', marginBottom: 6 }}>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 17, color: 'var(--txt)', marginBottom: 6 }}>
         {label}
       </div>
       <div style={{ fontSize: 13 }}>
@@ -312,7 +313,12 @@ export function Shell() {
         eventSource.addEventListener('FORCE_LOGOUT', () => {
           eventSource?.close();
           clearAuth();
-          navigate('/login', { replace: true });
+          // Hard redirect (not the SPA navigate() used elsewhere in this file) — required so the
+          // message below survives to the Login page: consumeSessionMessage (authFetch.ts) only
+          // reads sessionStorage once, at module import, which a client-side route change would
+          // bypass entirely since this module is already loaded.
+          stashSessionMessageForLogin(SESSION_PROFILE_UPDATED_MESSAGE);
+          window.location.href = '/login';
         });
         eventSource.onerror = () => {
           // The ticket is single-use — EventSource's built-in auto-retry would reuse a now-dead
@@ -350,6 +356,28 @@ export function Shell() {
   useEffect(() => {
     setNavOpen(false);
   }, [location.pathname]);
+
+  // iOS Safari's dynamic bottom toolbar (the one that shrinks away on scroll, see the
+  // safe-area/dvh comments elsewhere in this file and index.css) can get its layout out of
+  // sync with a `position: fixed` overlay closing right after the toolbar was mid-animation —
+  // opening this drawer forces the toolbar back to its full/expanded state (standard Safari
+  // behavior on any tap), and once the drawer's scrim/sidebar unmount, WebKit sometimes fails
+  // to repaint the page region that sits behind where the toolbar was, leaving a blank hole
+  // where content used to render — until something else forces a redraw. A no-op 1px scroll
+  // nudge right after the close transition (200ms, matching .shell-sidebar's own transition)
+  // is the standard, imperceptible way to force that repaint.
+  const wasNavOpenRef = useRef(false);
+  useEffect(() => {
+    const wasOpen = wasNavOpenRef.current;
+    wasNavOpenRef.current = navOpen;
+    if (wasOpen && !navOpen) {
+      const t = setTimeout(() => {
+        window.scrollBy(0, 1);
+        window.scrollBy(0, -1);
+      }, 220);
+      return () => clearTimeout(t);
+    }
+  }, [navOpen]);
 
   // Results dropdown — shared by the desktop search bar and the mobile expanded-search row
   // below, so the two never drift out of sync. Only one of them is ever mounted at a time
@@ -407,7 +435,7 @@ export function Shell() {
   );
 
   return (
-    <div style={{ display: 'flex', minHeight: '100dvh' }}>
+    <div style={{ display: 'flex', minHeight: 'var(--app-height, 100dvh)' }}>
       {/* Mobile-only scrim behind the off-canvas sidebar; no desktop/tablet equivalent */}
       {navOpen && (
         <div className="nf-nav-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
@@ -418,19 +446,25 @@ export function Shell() {
         className={`shell-sidebar${navOpen ? ' shell-sidebar--open' : ''}`}
         style={{
           width: 236, flexShrink: 0, background: '#0B0C0F', borderRight: '1px solid #23262D',
-          display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, bottom: 0, left: 0,
+          display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, left: 0,
+          // `height: 100dvh` instead of `bottom: 0` — on iOS Safari, a `position: fixed` element
+          // pinned via top/bottom:0 can end up sized against a stale snapshot of the toolbar's
+          // collapsed/expanded state at the moment it's inserted, leaving a black gap below it
+          // if the toolbar's state changes shortly after (e.g. opening this drawer right after
+          // scrolling). `dvh` is the unit purpose-built to track the actual live viewport instead.
+          height: 'var(--app-height, 100dvh)',
         }}
       >
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
-        <div className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Link to="/" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size="sm" />
           <div>
-            <div className="nf-sidebar-logo-title" style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 13, color: '#E8EAED', letterSpacing: '0.01em' }}>NForce OneHR</div>
+            <div className="nf-sidebar-logo-title" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: '#E8EAED', letterSpacing: '0.01em' }}>NForce OneHR</div>
             <div className="nf-sidebar-logo-sub" style={{ fontSize: 8, color: '#6B7280', letterSpacing: '.12em', textTransform: 'uppercase', marginTop: 1 }}>
               {toRoleTagline(role)}
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
@@ -506,10 +540,10 @@ export function Shell() {
                 {navOpen ? <CloseIcon size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
               </button>
 
-              <div style={{ color: '#9BA1AC', fontSize: 13 }}>
+              <div style={{ color: '#9BA1AC', fontSize: 13, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1 }}>
                 <b style={{ color: '#E8EAED', fontWeight: 600 }}>{current.label}</b>
               </div>
-              <div style={{ flex: 1 }} />
+              <div style={{ flex: 1, minWidth: 0 }} />
               {/* Global search — People + Navigation */}
               <div ref={searchRef} className="nf-topbar-search" style={{ position: 'relative', maxWidth: 260, width: 260 }}>
                 <div style={{ background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -620,7 +654,7 @@ export function Shell() {
 
         <main className="nf-main-content" style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
           <ComplianceBanner />
-          {current.phase > 1 ? <ComingInPhase label={current.label} phase={current.phase} /> : <Outlet />}
+          {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
         </main>
       </div>
     </div>

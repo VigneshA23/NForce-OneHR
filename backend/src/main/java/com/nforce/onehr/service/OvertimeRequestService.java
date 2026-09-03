@@ -10,6 +10,7 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.OvertimeRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -19,10 +20,12 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Employee-submitted overtime requests. Tracked/visible only — approval never adjusts
@@ -118,8 +121,7 @@ public class OvertimeRequestService {
     @Transactional(readOnly = true)
     public List<OvertimeRequestResponse> listMine(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId())
-                .stream().map(this::toResponse).toList();
+        return toResponseList(requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()));
     }
 
     /** Manager sees only requests assigned to them; HR/Super Admin see all pending requests. */
@@ -129,12 +131,11 @@ public class OvertimeRequestService {
         List<OvertimeRequest> pending = requestRepository.findByStatus(STATUS_PENDING);
 
         if (hasOverrideRole(actor)) {
-            return pending.stream().map(this::toResponse).toList();
+            return toResponseList(pending);
         }
-        return pending.stream()
+        return toResponseList(pending.stream()
                 .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
-                .map(this::toResponse)
-                .toList();
+                .toList());
     }
 
     @Transactional
@@ -237,40 +238,77 @@ public class OvertimeRequestService {
     }
 
     private OvertimeRequestResponse toResponse(OvertimeRequest req) {
-        Employee employee = employeeRepository.findById(req.getEmployeeUserId()).orElse(null);
-        String employeeName = employee != null ? employee.getFullName() : "Unknown";
-        String departmentName = employee != null && employee.getDepartment() != null
-                ? employee.getDepartment().getName() : null;
-        String employeeEmail = userRepository.findById(req.getEmployeeUserId())
-                .map(User::getEmail).orElse("");
-        String reviewerName = req.getReviewedBy() == null ? null
-                : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
-        String assignedApproverName = req.getAssignedApproverId() == null ? null
-                : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
-        String notifyUserName = req.getNotifyUserId() == null ? null
-                : employeeRepository.findById(req.getNotifyUserId()).map(Employee::getFullName).orElse(null);
-        Long requestedMinutes = Duration.between(req.getRequestedStart(), req.getRequestedEnd()).toMinutes();
+        return toResponseList(List.of(req)).get(0);
+    }
 
-        return OvertimeRequestResponse.builder()
-                .id(req.getId())
-                .employeeUserId(req.getEmployeeUserId())
-                .employeeName(employeeName)
-                .employeeEmail(employeeEmail)
-                .departmentName(departmentName)
-                .workDate(req.getWorkDate())
-                .requestedStart(req.getRequestedStart())
-                .requestedEnd(req.getRequestedEnd())
-                .requestedMinutes(requestedMinutes)
-                .reason(req.getReason())
-                .status(req.getStatus())
-                .assignedApproverId(req.getAssignedApproverId())
-                .assignedApproverName(assignedApproverName)
-                .notifyUserId(req.getNotifyUserId())
-                .notifyUserName(notifyUserName)
-                .reviewedByName(reviewerName)
-                .reviewedAt(req.getReviewedAt())
-                .reviewComment(req.getReviewComment())
-                .createdAt(req.getCreatedAt())
-                .build();
+    /**
+     * Batched equivalent of the old per-row toResponse: collects every distinct user id referenced
+     * anywhere in the list (employee, reviewer, assigned approver, notify user) up front, then
+     * resolves names/department/email/role in a handful of bulk queries instead of ~6
+     * findById-style calls per row. Output fields/values are unchanged.
+     */
+    private List<OvertimeRequestResponse> toResponseList(List<OvertimeRequest> requests) {
+        if (requests.isEmpty()) return List.of();
+
+        Set<UUID> employeeIds = new LinkedHashSet<>();
+        Set<UUID> nameIds = new LinkedHashSet<>();
+        Set<UUID> reviewerIds = new LinkedHashSet<>();
+        for (OvertimeRequest r : requests) {
+            employeeIds.add(r.getEmployeeUserId());
+            nameIds.add(r.getEmployeeUserId());
+            if (r.getReviewedBy() != null) {
+                nameIds.add(r.getReviewedBy());
+                reviewerIds.add(r.getReviewedBy());
+            }
+            if (r.getAssignedApproverId() != null) nameIds.add(r.getAssignedApproverId());
+            if (r.getNotifyUserId() != null) nameIds.add(r.getNotifyUserId());
+        }
+
+        Map<UUID, String> nameById = employeeRepository.findNamesByUserIds(nameIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        Map<UUID, Employee> employeeById = employeeRepository.findAllByIdWithDepartment(employeeIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+        Map<UUID, String> emailById = userRepository.findAllById(employeeIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getEmail));
+        Map<UUID, String> reviewerRoleById = reviewerIds.isEmpty() ? Map.of()
+                : userRepository.findAllByIdWithRoles(reviewerIds).stream()
+                        .collect(Collectors.toMap(User::getId, u -> RoleUtils.primaryRoleCode(u.getRoles(), null)));
+
+        return requests.stream().map(req -> {
+            String employeeName = nameById.getOrDefault(req.getEmployeeUserId(), "Unknown");
+            Employee employee = employeeById.get(req.getEmployeeUserId());
+            String departmentName = employee != null && employee.getDepartment() != null
+                    ? employee.getDepartment().getName() : null;
+            String employeeEmail = emailById.getOrDefault(req.getEmployeeUserId(), "");
+            String reviewerName = req.getReviewedBy() == null ? null : nameById.get(req.getReviewedBy());
+            String reviewerRole = req.getReviewedBy() == null ? null : reviewerRoleById.get(req.getReviewedBy());
+            String assignedApproverName = req.getAssignedApproverId() == null ? null
+                    : nameById.get(req.getAssignedApproverId());
+            String notifyUserName = req.getNotifyUserId() == null ? null : nameById.get(req.getNotifyUserId());
+            Long requestedMinutes = Duration.between(req.getRequestedStart(), req.getRequestedEnd()).toMinutes();
+
+            return OvertimeRequestResponse.builder()
+                    .id(req.getId())
+                    .employeeUserId(req.getEmployeeUserId())
+                    .employeeName(employeeName)
+                    .employeeEmail(employeeEmail)
+                    .departmentName(departmentName)
+                    .workDate(req.getWorkDate())
+                    .requestedStart(req.getRequestedStart())
+                    .requestedEnd(req.getRequestedEnd())
+                    .requestedMinutes(requestedMinutes)
+                    .reason(req.getReason())
+                    .status(req.getStatus())
+                    .assignedApproverId(req.getAssignedApproverId())
+                    .assignedApproverName(assignedApproverName)
+                    .notifyUserId(req.getNotifyUserId())
+                    .notifyUserName(notifyUserName)
+                    .reviewedByName(reviewerName)
+                    .reviewedByRole(reviewerRole)
+                    .reviewedAt(req.getReviewedAt())
+                    .reviewComment(req.getReviewComment())
+                    .createdAt(req.getCreatedAt())
+                    .build();
+        }).toList();
     }
 }

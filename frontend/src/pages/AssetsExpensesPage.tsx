@@ -23,6 +23,7 @@ import {
   type ExpenseTileHR,
   type ExpenseTileManager,
 } from '../api/expenses';
+import { employeesApi } from '../api/employees';
 
 // ── Shared styles ─────────────────────────────────────────
 
@@ -86,7 +87,7 @@ function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
       onMouseEnter={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--brand)') : undefined}
       onMouseLeave={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--line)') : undefined}
     >
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{value}</div>
       <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3, fontWeight: 600 }}>{label}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{sub}</div>}
       {clickable && onClick && clickHint && <div style={{ fontSize: 10, color: 'var(--brand)', marginTop: 6, fontWeight: 600 }}>{clickHint}</div>}
@@ -97,7 +98,7 @@ function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
 function SectionHead({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{title}</h2>
+      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
       {action}
     </div>
   );
@@ -118,7 +119,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>
         </div>
         <div style={{ padding: 20 }}>{children}</div>
@@ -255,7 +256,7 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Assets tab */}
       {activeTab === 'assets' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <select value={assetCatFilter} onChange={e => setAssetCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Categories</option>
               {assetCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
@@ -304,7 +305,7 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Asset Requests tab */}
       {activeTab === 'requests' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             <select value={reqStatusFilter} onChange={e => setReqStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Statuses</option>
               {requestStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -349,8 +350,8 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Expense Claims tab */}
       {activeTab === 'claims' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <select value={claimStatusFilter} onChange={e => setClaimStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
                 <option value="">All Statuses</option>
                 {claimStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -395,7 +396,7 @@ function EmployeeView({ token }: { token: string }) {
       {ackTarget && (
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 440 }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Acknowledge Asset Receipt</div>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Acknowledge Asset Receipt</div>
             <div style={{ padding: 20 }}>
               <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
                 <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px' }}>
@@ -673,7 +674,7 @@ function ManagerView({ token }: { token: string }) {
       {/* Team Assets tab */}
       {activeTab === 'assets' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={assetSearch} onChange={e => setAssetSearch(e.target.value)} placeholder="Search employee…" style={{ ...inputStyle, width: 180, fontSize: 12, padding: '6px 10px' }} />
             <select value={assetCatFilter} onChange={e => setAssetCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Categories</option>
@@ -1030,7 +1031,7 @@ function HRView({ token }: { token: string }) {
         <div style={{ marginBottom: 10 }}>
           <input value={payrollSearch} onChange={e => setPayrollSearch(e.target.value)} placeholder="Search employee…" style={{ ...inputStyle, width: 200, fontSize: 12, padding: '6px 10px' }} />
         </div>
-        <div style={{ ...panelStyle, padding: '14px 18px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ ...panelStyle, padding: '14px 18px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
             {hrExpTiles?.pendingClearanceCount ? `${hrExpTiles.pendingClearanceCount} claims pending final approval in Approval Center` : 'No claims pending final approval'}
           </div>
@@ -1127,16 +1128,19 @@ function AssignAssetModal({ asset, token, mode, onClose, onDone }: { asset: Asse
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch('/api/employees', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then((data: { userId: string; fullName?: string; firstName?: string; lastName?: string; active?: boolean }[]) =>
+    let cancelled = false;
+    employeesApi.list(token)
+      .then(data => {
+        if (cancelled) return;
         setEmployees(
           data
-            .filter(e => e.active !== false)
-            .map(e => ({ id: e.userId, name: e.fullName ?? `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim() }))
-        )
-      ).catch(() => {});
-  }, [token]);
+            .filter(e => e.active !== false && e.role !== 'SUPER_ADMIN')
+            .map(e => ({ id: e.userId, name: e.fullName }))
+        );
+      })
+      .catch(() => { if (!cancelled) showToast('error', 'Could not load employees'); });
+    return () => { cancelled = true; };
+  }, [token, showToast]);
 
   async function submit() {
     if (!employeeUserId) return;
@@ -1328,7 +1332,7 @@ export default function AssetsExpensesPage() {
   return (
     <div>
       <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
             : role === 'HR Admin' || role === 'Super Admin' ? 'Manage company inventory, expense policies, and payroll-ready claims.'

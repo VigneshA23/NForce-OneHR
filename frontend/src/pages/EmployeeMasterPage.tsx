@@ -21,14 +21,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
 }
 
+// Department/Designation/Location dropdowns must only offer records still assignable for a NEW
+// selection — a deactivated (not deleted) master row shouldn't be pickable going forward. A
+// hard-deleted row never reaches here at all: it's physically gone from what the list endpoint
+// returns. `currentId` keeps this employee's EXISTING value visible/selected even if it was since
+// deactivated, rather than silently dropping it from the options.
+function assignableOptions<T extends { id: string; active?: boolean }>(rows: T[], currentId: string | null | undefined): T[] {
+  return rows.filter(r => r.active !== false || r.id === currentId);
+}
+
 // ─── Creatable Location Select ────────────────────────────────────────────────
-interface Location { id: string; name: string; }
+interface Location { id: string; name: string; active?: boolean; }
 
 function CreatableLocationSelect({
   locations, value, onChange, token,
@@ -178,13 +187,13 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
           <Field label="Department">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
               <option value="">— None —</option>
-              {opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              {assignableOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
               <option value="">— None —</option>
-              {opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              {assignableOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <Field label="Employment Type">
@@ -268,7 +277,7 @@ export default function EmployeeMasterPage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage employee records. New hires, role and access are added from Super Admin → User Management.</p>
         </div>
       </div>
@@ -331,7 +340,7 @@ export default function EmployeeMasterPage() {
                       style={inactiveDimStyle(emp.active)}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
-                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{emp.employeeCode}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{emp.employeeCode}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{emp.fullName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{emp.email}</td>
                       <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
@@ -356,11 +365,11 @@ export default function EmployeeMasterPage() {
             </div>
 
             {totalPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
                   {filtered.length} result{filtered.length !== 1 ? 's' : ''} · page {page} of {totalPages}
                 </span>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                     style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === 1 ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>
                     ← Prev

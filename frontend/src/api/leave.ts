@@ -31,6 +31,9 @@ export interface LeaveRequestRecord {
   id: string;
   employeeUserId: string;
   employeeName: string;
+  /** Null for a User with no Employee row (auth-only account) — same fallback as employeeName's
+   * own "Unknown", just displayed as absent rather than a placeholder string. */
+  employeeCode: string | null;
   leaveTypeCode: string;
   leaveTypeName: string;
   startDate: string;

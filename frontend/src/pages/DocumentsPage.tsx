@@ -255,7 +255,7 @@ export default function DocumentsPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>My Documents & Policies</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Documents & Policies</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
 
       {/* KPI tiles */}
@@ -267,7 +267,7 @@ export default function DocumentsPage() {
           { label: 'Not Submitted', value: missing.length, color: '#ef4444' },
         ].map(k => (
           <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: '"Space Grotesk", sans-serif' }}>{k.value}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
           </div>
         ))}
@@ -372,7 +372,7 @@ export default function DocumentsPage() {
 
           {/* Upload from docTypes for any not in required list */}
           {docTypes.length > required.length && (
-            <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Upload additional document:</span>
               <select onChange={e => {
                 const dt = docTypes.find(d => d.id === Number(e.target.value));

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock, Users } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
@@ -110,7 +111,7 @@ function StatusBadge({ active }: { active: boolean }) {
 function CountBadge({ count }: { count: number }) {
   return (
     <span style={{
-      fontFamily: '"JetBrains Mono", monospace', fontSize: 12,
+      fontFamily: 'Inter, sans-serif', fontSize: 12,
       color: count > 0 ? 'var(--txt-mut)' : 'var(--txt-dim)',
     }}>
       {count}
@@ -162,7 +163,7 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
             {title}
           </h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
@@ -334,7 +335,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
             {modalTitle}
           </h2>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
@@ -631,12 +632,26 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
   const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
   const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
-  return (
-    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Shift' : 'Add Shift'} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+  // Rendered via a portal straight to document.body: callers like the Add/Edit User Shift
+  // dropdown open this from *inside* their own <form> (see UserManagementPage's ShiftSelect) —
+  // without the portal, this modal's own <form> below would be a DOM descendant of that outer
+  // form. Nested <form> elements are invalid HTML, and clicking this form's "Add"/"Save Changes"
+  // submit button inside one triggers an ambiguous native form submission (a real page
+  // navigation/reload, wiping the outer form's state) instead of being caught by this
+  // component's own onSubmit — exactly the "leaves the Add User screen" bug this fixes. The
+  // portal keeps this modal a sibling of <body>'s other content in the DOM, so its <form> is
+  // never nested inside anyone else's, while staying identical in appearance/behavior (still a
+  // fixed, full-viewport overlay) and still fully wired into React's own component tree/state.
+  // z-index 600 (not this file's usual 200): once portaled to <body>, this overlay is a sibling
+  // of whatever opened it rather than a descendant, so when opened from inside another modal
+  // (e.g. UserManagementPage's Add/Edit User, overlay z-index 500) it must outrank that modal's
+  // own overlay or its backdrop swallows every click meant for this one.
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Shift' : 'Add Shift'} style={{ position: 'fixed', inset: 0, zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
         <form onSubmit={submit}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={labelS}>Shift Name *</label>
               <input style={inputS} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. US Night Shift" required autoFocus />
@@ -650,7 +665,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
             <label style={labelS}>Description</label>
             <textarea style={{ ...inputS, minHeight: 60, resize: 'vertical', fontFamily: 'inherit' }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional notes about who this shift is for" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={labelS}>Start Time *</label>
               <input type="time" style={inputS} value={startTime} onChange={e => setStartTime(e.target.value)} required />
@@ -661,7 +676,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Earlier than start = overnight shift, crossing midnight</span>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14, alignItems: 'end' }}>
+          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14, alignItems: 'end' }}>
             <div>
               <label style={labelS}>Break Duration (minutes)</label>
               <input type="number" min={0} style={inputS} value={breakMinutes} onChange={e => setBreakMinutes(e.target.value)} placeholder="e.g. 60" />
@@ -696,7 +711,8 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1131,7 +1147,7 @@ export default function OrgSetupPage() {
       )}
 
       <div>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
           {copy.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
@@ -1152,16 +1168,24 @@ export default function OrgSetupPage() {
       )}
 
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-        {/* Tab bar + search + add */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', padding: '0 4px', alignItems: 'center' }}>
-          <div style={{ display: 'flex', flex: 1 }}>
+        {/* Tab bar + search + add. flexWrap so the search/add block (fixed-width input + button,
+            never shrinks) drops to its own line once there isn't room for it alongside the tabs,
+            instead of squeezing the tabs' flex:1 box toward zero width — that squeeze is what
+            made the tab bar disappear before. justifyContent: flex-end keeps that block
+            right-aligned whether it's sharing the line with the tabs or sitting alone below. */}
+        <div className="nf-org-toolbar" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', borderBottom: '1px solid var(--line)', padding: '0 4px', alignItems: 'center' }}>
+          {/* minWidth: 0 lets this flex item actually shrink below its tabs' combined natural
+              width instead of forcing the row wider than the panel — overflowX then scrolls the
+              tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
+              squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
+          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
             {(Object.keys(TABS) as OrgTab[]).map(key => {
               const T = TABS[key];
               const TabIcon = T.icon;
               const isActive = activeTab === key;
               return (
                 <button key={key} onClick={() => setActiveTab(key)} style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
+                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, whiteSpace: 'nowrap',
                   padding: '11px 14px', background: 'transparent', border: 'none',
                   cursor: 'pointer', fontSize: 12.5,
                   fontWeight: isActive ? 600 : 400,
@@ -1176,13 +1200,17 @@ export default function OrgSetupPage() {
             })}
           </div>
           {activeTab !== 'penalization' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-              <div style={{ position: 'relative' }}>
+            // 8px vertical padding (was 0) gives this block breathing room from the tabs above
+            // it on the narrow widths where flexWrap drops it to its own line; harmless on the
+            // shared line, where alignItems: center still governs its vertical position.
+            <div className="nf-org-toolbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+              <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
                 <Search size={12} aria-hidden="true" style={{
                   position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
                   color: 'var(--txt-dim)', pointerEvents: 'none',
                 }} />
                 <input
+                  className="nf-org-search-input"
                   type="search" value={search} onChange={e => setSearch(e.target.value)}
                   placeholder={`Search ${tab.label.toLowerCase()}…`}
                   aria-label={`Search ${tab.label}`}
@@ -1322,7 +1350,7 @@ export default function OrgSetupPage() {
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{d.title}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', fontFamily: '"JetBrains Mono", monospace', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={d.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -1349,13 +1377,19 @@ export default function OrgSetupPage() {
                 visibleShifts.map(s => (
                   <tr key={s.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{s.name}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 12 }}>{s.code ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{s.code ?? '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{fmtShiftTime(s.startTime)} – {fmtShiftTime(s.endTime)}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.flexible ? 'Flexible' : 'Fixed'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{s.breakMinutes != null ? `${s.breakMinutes}m` : '—'}</td>
                     <td style={{ padding: '10px 16px' }}>
+                      {/* Fixed-width wrapper around the count so the "view employees" button
+                          beside it lands at the same x position on every row — CountBadge's own
+                          width is just its digit text (1-4+ chars), so without this the button
+                          crept right/left as the employee count varied row to row. */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <CountBadge count={s.employeeCount} />
+                        <span style={{ display: 'inline-block', minWidth: 26, flexShrink: 0 }}>
+                          <CountBadge count={s.employeeCount} />
+                        </span>
                         <button
                           onClick={() => setShiftEmployeesRow(s)}
                           disabled={s.employeeCount === 0}

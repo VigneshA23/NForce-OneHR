@@ -50,7 +50,7 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -61,7 +61,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ─── Creatable Location Select ────────────────────────────────────────────────
-interface Location { id: string; name: string; }
+interface Location { id: string; name: string; active?: boolean; }
 
 function CreatableLocationSelect({ locations, value, onChange, token }: { locations: Location[]; value: string | undefined; onChange: (id: string | undefined) => void; token: string }) {
   const [query, setQuery] = useState('');
@@ -185,14 +185,45 @@ function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord):
     : [...managers, updated];
 }
 
+// Same reasoning/shape as getManagersForRole just below: `shifts` (opts.shifts) is fetched once
+// per page load and shared by Add/Edit — an inactive shift must not be a pickable option for a
+// new or changed assignment, but an employee already on a shift that's since been deactivated
+// must still see their own current assignment rendered (not silently blanked out) when the Edit
+// modal opens. `currentShiftId` is `form.shiftId`, so this is a no-op filter for Add (starts
+// undefined) and only keeps the one already-assigned entry for Edit.
+function getShiftOptions(shifts: ShiftRow[], currentShiftId: string | undefined): ShiftRow[] {
+  return shifts.filter(s => s.active !== false || s.id === currentShiftId);
+}
+
+// Same reasoning/shape as getShiftOptions just above, for the 3 other master-data dropdowns that
+// were still handing out every row (including deactivated ones) unfiltered.
+function getDepartmentOptions(departments: any[], currentId: string | undefined): any[] {
+  return departments.filter(d => d.active !== false || d.id === currentId);
+}
+
+function getDesignationOptions(designations: any[], currentId: string | undefined): any[] {
+  return designations.filter(d => d.active !== false || d.id === currentId);
+}
+
+function getLocationOptions(locations: Location[], currentId: string | undefined): Location[] {
+  return locations.filter(l => l.active !== false || l.id === currentId);
+}
+
+// Deactivated managers are deliberately kept in this list (not filtered out) so an employee
+// already reporting to one still shows that name in the dropdown instead of it silently
+// vanishing — the option is rendered disabled (see the two <option> call sites below) rather
+// than excluded, so it can't be picked for a NEW assignment. A genuinely deleted manager is
+// excluded server-side already (EmployeeService.listPotentialManagers), so nothing to do here
+// for that case.
+//
+// An Employee can report to a Manager or an HR Admin; a Manager can report to an HR Admin or a
+// Super Admin; HR Admin/Super Admin still only report to a Super Admin. HR Admin was previously
+// excluded from every tier even though EmployeeService.listPotentialManagers already treats it
+// as an eligible manager role.
 function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
-  // `managers` (opts.managers) is fetched once per page load — defensively re-check `active`
-  // here too (not just at fetch time) so a manager deactivated later in the same session, before
-  // this cached list gets refreshed, can't still be picked. `!== false` so a record that simply
-  // omits the field isn't wrongly excluded.
-  const eligible = managers.filter(m => m.active !== false);
-  if (role === 'EMPLOYEE') return eligible.filter(m => m.role === 'MANAGER');
-  return eligible.filter(m => m.role === 'SUPER_ADMIN');
+  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER' || m.role === 'HR_ADMIN');
+  if (role === 'MANAGER') return managers.filter(m => m.role === 'HR_ADMIN' || m.role === 'SUPER_ADMIN');
+  return managers.filter(m => m.role === 'SUPER_ADMIN');
 }
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
@@ -272,20 +303,21 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
       const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: trimmedCode || undefined }, token);
       onCreated(emp);
       showToast('success', `${emp.fullName} created successfully`);
+      // The account is already fully created at this point — show the success screen right away
+      // instead of making the user wait on a second, unrelated request. Starting onboarding is a
+      // genuinely separate concern (its own checklist rows, its own "soft failure is fine, retry
+      // from the Onboarding page" story below) that doesn't need to block navigation; it now runs
+      // in the background and just updates the outcome banner in place once it settles.
+      setCreated(emp);
       if (startOnboarding) {
-        try {
-          await onboardingApi.start({ employeeUserId: emp.userId }, token);
-          setOnboardingOutcome('started');
-        } catch {
-          // Account is already created and safe either way — onboarding can
-          // always be started later from the Onboarding page, so this is a
-          // soft failure, not a blocker.
-          setOnboardingOutcome('failed');
-        }
+        onboardingApi.start({ employeeUserId: emp.userId }, token)
+          .then(() => setOnboardingOutcome('started'))
+          // Account is already created and safe either way — onboarding can always be started
+          // later from the Onboarding page, so this is a soft failure, not a blocker.
+          .catch(() => setOnboardingOutcome('failed'));
       } else {
         setOnboardingOutcome('skipped');
       }
-      setCreated(emp);
     } catch (err) {
       // The backend rejects a submitted Employee ID that's already in use (or was just taken by
       // a concurrent request) with this exact message — surfaced as its own banner with a
@@ -316,6 +348,11 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 <b style={{ color: 'var(--txt)' }}>Role:</b> {created.role}
               </div>
             </div>
+            {onboardingOutcome === null && (
+              <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: 'var(--txt-mut)' }}>
+                Starting onboarding checklist…
+              </div>
+            )}
             {onboardingOutcome === 'started' && (
               <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#4C8DD6' }}>
                 Onboarding checklist started — find it under Onboarding → Active.
@@ -329,7 +366,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             {created.tempPassword && (
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password — share once, store nowhere</div>
-                <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'monospace', userSelect: 'all' }}>{created.tempPassword}</code>
+                <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{created.tempPassword}</code>
               </div>
             )}
             <button onClick={onClose} style={{ marginTop: 20, width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
@@ -401,33 +438,42 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           </Field>
           <Field label="Department">
             <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
-              <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">— None —</option>{opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              <option value="">— None —</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Location *">
-              <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
+              <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             {(() => {
               const isSA = form.role === 'SUPER_ADMIN';
               const mgrList = getManagersForRole(form.role, opts.managers);
-              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager or HR Admin'
+                : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
+                : 'Super Admin';
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
-                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                    {/* Deactivated managers stay in the list (see getManagersForRole) but as a
+                        disabled option, so they can't be picked for a new assignment — they're
+                        only shown to explain an EXISTING selection that already points at one. */}
+                    {mgrList.map((m: any) => (
+                      <option key={m.userId} value={m.userId} disabled={m.active === false}>
+                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                      </option>
+                    ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel}-role users found — add one first.
+                      No {mgrRoleLabel} users found — add one first.
                     </div>
                   )}
                 </Field>
@@ -437,7 +483,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
               <ShiftSelect
-                shifts={opts.shifts}
+                shifts={getShiftOptions(opts.shifts, form.shiftId)}
                 value={form.shiftId}
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
@@ -564,12 +610,12 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
-              <option value="">— None —</option>{opts.departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">— None —</option>{opts.designations.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              <option value="">— None —</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <Field label="Date of Joining">
@@ -589,23 +635,32 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           )}
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Location">
-              <CreatableLocationSelect locations={opts.locations} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
+              <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             {(() => {
               const isSA = form.role === 'SUPER_ADMIN';
               const mgrList = getManagersForRole(form.role ?? 'EMPLOYEE', opts.managers).filter(m => m.userId !== user.userId);
-              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager' : 'Super Admin';
+              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager or HR Admin'
+                : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
+                : 'Super Admin';
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
-                    {mgrList.map((m: any) => <option key={m.userId} value={m.userId}>{m.fullName} ({m.email})</option>)}
+                    {/* Deactivated managers stay in the list (see getManagersForRole) but as a
+                        disabled option, so they can't be picked for a new assignment — they're
+                        only shown to explain an EXISTING selection that already points at one. */}
+                    {mgrList.map((m: any) => (
+                      <option key={m.userId} value={m.userId} disabled={m.active === false}>
+                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                      </option>
+                    ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel}-role users found — add one first.
+                      No {mgrRoleLabel} users found — add one first.
                     </div>
                   )}
                 </Field>
@@ -615,7 +670,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Shift">
               <ShiftSelect
-                shifts={opts.shifts}
+                shifts={getShiftOptions(opts.shifts, form.shiftId)}
                 value={form.shiftId}
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
@@ -689,7 +744,7 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
             <>
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>New temp password — share once, store nowhere</div>
-                <code style={{ fontSize: 15, color: 'var(--txt)', fontFamily: 'monospace', userSelect: 'all' }}>{result.tempPassword}</code>
+                <code style={{ fontSize: 15, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{result.tempPassword}</code>
               </div>
               <button onClick={onClose} style={{ width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
             </>
@@ -811,7 +866,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
             spellCheck={false}
           />
           <p style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 20, marginTop: 4 }}>
-            Must match exactly: <code style={{ fontFamily: 'monospace', color: 'var(--txt-mut)' }}>{user.email}</code>
+            Must match exactly: <code style={{ fontFamily: 'Inter, sans-serif', color: 'var(--txt-mut)' }}>{user.email}</code>
           </p>
           {error && <div style={{ color: 'var(--risk)', marginBottom: 12, fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -913,33 +968,35 @@ export default function UserManagementPage() {
   return (
     <div>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+      <div className="nf-policy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage access, roles, and account status for all users.</p>
         </div>
-        <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <UserPlus size={14} /> Add User
-        </button>
+        <div className="nf-policy-actions" style={{ display: 'flex' }}>
+          <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
+            <UserPlus size={14} /> Add User
+          </button>
+        </div>
       </div>
 
       {/* Stats tiles */}
       {!loading && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
           <div style={tileStyle('#9BA1AC')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{total}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{total}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Total Users</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>
               {Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')}
             </div>
           </div>
           <div style={tileStyle('#2FB67C')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#2FB67C', fontFamily: '"Space Grotesk", sans-serif' }}>{active}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#2FB67C', fontFamily: 'Inter, sans-serif' }}>{active}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Active</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((active / total) * 100) : 0}% of total</div>
           </div>
           <div style={tileStyle('#E4373D')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#E4373D', fontFamily: '"Space Grotesk", sans-serif' }}>{inactive}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#E4373D', fontFamily: 'Inter, sans-serif' }}>{inactive}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Inactive</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((inactive / total) * 100) : 0}% of total</div>
           </div>
@@ -1007,7 +1064,7 @@ export default function UserManagementPage() {
                     <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
-                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{u.employeeCode}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{u.employeeCode}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{u.fullName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                       <td style={tdStyle}><RoleBadge role={u.role} /></td>
@@ -1041,11 +1098,11 @@ export default function UserManagementPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
                   {filtered.length} result{filtered.length !== 1 ? 's' : ''} · page {page} of {totalPages}
                 </span>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                     style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === 1 ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>
                     ← Prev
