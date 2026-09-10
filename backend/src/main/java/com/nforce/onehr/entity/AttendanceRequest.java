@@ -35,10 +35,15 @@ public class AttendanceRequest {
     @Column(name = "partial_day_hours")
     private BigDecimal partialDayHours;
 
-    // Only meaningful for PARTIAL_DAY: LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY — see
-    // AttendanceRequestService for how each mode's duration is interpreted.
+    // PARTIAL_DAY: LATE_ARRIVE | INTERVENING_TIMEOFF | LEAVING_EARLY. WFH: FULL_DAY | FIRST_HALF
+    // | SECOND_HALF — see AttendanceRequestService for how each mode is interpreted per type.
     @Column(name = "partial_day_mode", length = 30)
     private String partialDayMode;
+
+    // WFH only: 1.00 (Full Day) or 0.50 (First Half / Second Half) — how much of this day counts
+    // toward the monthly WFH day quota. Null for PARTIAL_DAY, which uses partialDayHours instead.
+    @Column(name = "wfh_day_fraction")
+    private BigDecimal wfhDayFraction;
 
     // A specific colleague to alert about this request — distinct from assignedApproverId, which
     // drives actual approval; purely informational.

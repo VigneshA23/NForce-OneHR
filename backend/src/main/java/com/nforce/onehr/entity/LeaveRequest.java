@@ -37,6 +37,19 @@ public class LeaveRequest {
     @Column(name = "total_days", nullable = false)
     private BigDecimal totalDays;
 
+    // Backfilled from is_half_day (see V140__add_leave_duration_type.sql); is_half_day remains
+    // authoritative for every pre-existing consumer. Only ExpectedWorkHoursService reads this, to
+    // know how much to shrink (rather than zero out) a day's expected work hours for approved
+    // HOURLY/QUARTER_DAY leave — FULL_DAY/HALF_DAY submissions still zero the day out exactly as
+    // before, via WorkingDayService, unrelated to this field.
+    @Column(name = "duration_type", nullable = false, length = 20)
+    @Builder.Default
+    private String durationType = LeaveDurationType.FULL_DAY;
+
+    // Hours requested for HOURLY leave only; null for every other duration type.
+    @Column(name = "leave_hours")
+    private BigDecimal leaveHours;
+
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = "PENDING";

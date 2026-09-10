@@ -161,7 +161,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
                 "Expense Claim Approved",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was approved by your manager.",
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -182,16 +182,26 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected. Reason: " + reason.trim(),
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
     // ── Final stage (HR Admin / Super Admin) ─────────────
 
+    // ONEHR bug report: HR Admin/Super Admin couldn't see a claim in the Approval Center until
+    // after Manager approval, blocking oversight of the manager stage entirely. Every other
+    // approval-queue type in this app already gives HR/SA admin's blanket "all pending regardless
+    // of stage" visibility (see RegularizationService.listPendingForApprover, and the class-level
+    // doc comment on ApprovalCenterController) — Expense was the one outlier still hard-restricted
+    // to MANAGER_APPROVED only. The backend was never actually blocking admins from acting at the
+    // manager stage (managerApprove/managerReject already bypass the reporting-line check for
+    // HR_ADMIN/SUPER_ADMIN — see requireCurrentManagerOf), so this was purely a visibility gap,
+    // not a workflow-ordering safeguard: a SUBMITTED claim still can't skip straight to final
+    // clearance (finalApprove/finalReject still require MANAGER_APPROVED via requireClaimInStatus).
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> pendingForFinalApprover(String actorEmail) {
         requireFinalApprover(actorEmail);
-        return claimRepo.findByStatus("MANAGER_APPROVED").stream()
+        return claimRepo.findByStatusIn(List.of("SUBMITTED", "MANAGER_APPROVED")).stream()
                 .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
                 .collect(Collectors.toList());
     }
@@ -212,7 +222,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_APPROVED",
                 "Expense Cleared for Payroll",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been cleared for payroll.",
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -233,7 +243,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected by HR. Reason: " + reason.trim(),
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -262,7 +272,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_PAID",
                 "Expense Paid",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been paid.",
-                "/assets-expenses");
+                "/assets");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 

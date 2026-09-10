@@ -135,6 +135,18 @@ public class PenalizationPolicyVersion {
     @Column(name = "whs_apply_penalty_for_late_arrival_enabled", nullable = false)
     @Builder.Default
     private boolean whsApplyPenaltyForLateArrivalEnabled = false;
+    // "Exclude hours worked outside the assigned shift timing" — false (default) preserves the
+    // original behavior: every worked/gross minute counts toward shortage regardless of when it
+    // fell relative to the shift window.
+    @Column(name = "whs_exclude_hours_outside_shift_enabled", nullable = false)
+    @Builder.Default
+    private boolean whsExcludeHoursOutsideShiftEnabled = false;
+    // "Penalize shortage on a day whose own attendance log is missing (no check-out)" — false
+    // (default) preserves the original behavior: a missing-checkout day is never evaluated for
+    // Work Hours Shortage at all (see ConfiguredAttendancePolicyEngine/ExceptionService).
+    @Column(name = "whs_penalize_shortage_caused_by_missing_logs_enabled", nullable = false)
+    @Builder.Default
+    private boolean whsPenalizeShortageCausedByMissingLogsEnabled = false;
 
     // ── Missing Logs ──
     @Column(name = "missing_logs_enabled", nullable = false)
@@ -179,8 +191,20 @@ public class PenalizationPolicyVersion {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "updated_by")
+    private UUID updatedBy;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
+        if (updatedAt == null) updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 }

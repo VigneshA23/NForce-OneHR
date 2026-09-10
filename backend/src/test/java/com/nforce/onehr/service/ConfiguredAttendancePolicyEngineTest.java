@@ -93,11 +93,15 @@ class ConfiguredAttendancePolicyEngineTest {
         assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
     }
 
-    // ── 4 & 5. Matching late-arrival policy / grace period prevents penalty ──
+    // ── 4 & 5 (revised — unified grace model). There is exactly one allowed-late privilege,
+    // ShiftVersion.lateGraceMinutes, already folded into Attendance.status/lateMinutes upstream
+    // (ExceptionService only ever reaches this engine for a genuinely-LATE occurrence) —
+    // laGracePeriodMinutes is no longer consulted here at all, so setting it can no longer change
+    // the outcome for the same lateMinutes fact. ──
     @Test
-    void lateMinutesBeyondGrace_appliesPenalty() {
+    void genuineLateArrival_appliesPenalty() {
         PenalizationPolicyVersion version = baseVersion(1)
-                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laDeductionDays(new BigDecimal("0.5")).build();
+                .lateArrivalEnabled(true).laDeductionDays(new BigDecimal("0.5")).build();
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
         engine = newEngine();
 
@@ -110,40 +114,46 @@ class ConfiguredAttendancePolicyEngineTest {
     }
 
     @Test
-    void lateMinutesWithinGrace_returnsNoMatch() {
+    void laGracePeriodMinutes_widerThanLateMinutes_noLongerExemptsTheOccurrence() {
+        // Before the unified-grace fix, a policy-level grace WIDER than the raw late minutes
+        // (15 > 12) used to exempt this occurrence outright — a second, independently-configured
+        // grace overriding the shift's own. That field is no longer consulted for eligibility at
+        // all: this occurrence only ever reaches the engine because ExceptionService already
+        // determined it's genuinely LATE against the assigned shift's own grace, so it must apply.
         PenalizationPolicyVersion version = baseVersion(1)
-                .lateArrivalEnabled(true).laGracePeriodMinutes(15).build();
+                .lateArrivalEnabled(true).laGracePeriodMinutes(15).laDeductionDays(new BigDecimal("0.5")).build();
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
         engine = newEngine();
 
         PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL).lateMinutes(12).build());
 
-        assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
     }
 
-    // ── MANDATORY CRITICAL ACCEPTANCE TEST ──
-    // Organization Masters -> persisted policy -> policy version -> policy engine -> attendance
-    // facts -> policy decision. No engine code changes between the two evaluations below.
+    // ── MANDATORY ACCEPTANCE TEST (revised): a policy grace differing from the shift's own grace
+    // must NOT alter Late Arrival eligibility — the shift's ShiftVersion.lateGraceMinutes is the
+    // sole allowed-late privilege; laGracePeriodMinutes is no longer a second, competing grace. ──
     @Test
-    void gracePeriodChange_changesEvaluationWithoutAnyCodeChange() {
+    void policyGraceChange_neverAltersLateArrivalEligibility_sameLateMinutesFact() {
         int lateMinutes = 12;
         PolicyEvaluationContext sameFactEveryTime = baseContext(ExceptionType.LATE_ARRIVAL).lateMinutes(lateMinutes).build();
         engine = newEngine();
 
-        // V1: grace = 10 minutes. 12 > 10 -> APPLY_PENALTY.
+        // V1: policy grace = 10 minutes.
         PenalizationPolicyVersion v1 = baseVersion(1).lateArrivalEnabled(true).laGracePeriodMinutes(10).build();
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(v1));
         PolicyDecision decisionUnderV1 = engine.evaluate(sameFactEveryTime);
         assertEquals(PolicyDecisionType.APPLY_PENALTY, decisionUnderV1.getType());
         assertEquals(1, decisionUnderV1.getPolicyVersion());
 
-        // HR saves V2 in Organization Masters: grace = 15 minutes. No engine/attendance code changes.
+        // HR widens the POLICY's own grace to 15 minutes — still no engine/attendance code change,
+        // and (per the unified model) no effect on this occurrence's eligibility either: only the
+        // assigned Shift's own grace can ever decide that, and it already did, upstream.
         PenalizationPolicyVersion v2 = baseVersion(2).lateArrivalEnabled(true).laGracePeriodMinutes(15).build();
         when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(v2));
 
-        // Same attendance fact (lateMinutes = 12), evaluated again through the same engine instance.
         PolicyDecision decisionUnderV2 = engine.evaluate(sameFactEveryTime);
-        assertEquals(PolicyDecisionType.NO_MATCH, decisionUnderV2.getType());
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decisionUnderV2.getType());
         assertEquals(2, decisionUnderV2.getPolicyVersion());
 
         // V1's own decision object is untouched by V2 existing — proves no shared mutable state.
@@ -178,6 +188,61 @@ class ConfiguredAttendancePolicyEngineTest {
         assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
     }
 
+    // ── 6b. Late Arrival deduction rate (laDeductionPerShifts) ──
+    @Test
+    void lateArrival_noExplicitRate_deductsEveryOccurrencePastExempt() {
+        // No laDeductionPerShifts set — must behave exactly like every pre-existing policy saved
+        // before this field was consumed (backward compatibility).
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(3).build()).getType());
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(4).build()).getType());
+    }
+
+    @Test
+    void lateArrival_rateOfTwo_onlyDeductsOnEveryOtherOccurrencePastExempt() {
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(2).laDeductionPerShifts(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        // Occurrence #3 overall = 1st past exempt -> not a multiple of 2 -> no match.
+        assertEquals(PolicyDecisionType.NO_MATCH, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(3).build()).getType());
+        // Occurrence #4 overall = 2nd past exempt -> multiple of 2 -> applies.
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(4).build()).getType());
+        // Occurrence #5 overall = 3rd past exempt -> not a multiple of 2 -> no match again.
+        assertEquals(PolicyDecisionType.NO_MATCH, engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(5).build()).getType());
+    }
+
+    @Test
+    void lateArrival_ratedBatching_stillDefersToATotalHoursTierMatchIndependently() {
+        // laDeductionPerShifts gates only the plain incident-count case — a total-late-hours tier
+        // match (a wholly separate mechanism) must still apply even on an occurrence the rate
+        // would otherwise suppress.
+        PenalizationPolicyVersion version = baseVersion(1)
+                .lateArrivalEnabled(true).laGracePeriodMinutes(10).laExemptCount(0).laDeductionPerShifts(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(version.getId()))
+                .thenReturn(List.of(com.nforce.onehr.entity.PenalizationPolicyLateHoursTier.builder()
+                        .thresholdHours(new java.math.BigDecimal("1")).deductionDays(new java.math.BigDecimal("1")).build()));
+        engine = newEngine();
+
+        // Occurrence #1 overall = 1st past exempt -> not a multiple of 2 by rate alone, but 90
+        // late minutes (1.5h) exceeds the 1-hour tier, so the tier match still applies.
+        PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.LATE_ARRIVAL)
+                .lateMinutes(20).lateArrivalCountInPeriod(1).lateMinutesTotalInPeriod(90).build());
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
+    }
+
     // ── 7. Work-hours shortage threshold affects evaluation ──
     @Test
     void effectiveHoursBelowTier_appliesPenalty() {
@@ -190,7 +255,7 @@ class ConfiguredAttendancePolicyEngineTest {
         engine = newEngine();
 
         PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.WORK_HOURS_SHORTAGE)
-                .effectiveHoursPercent(82.0).build());
+                .workHoursShortagePercent(82.0).build());
 
         assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
         // 82% falls below the "less than 90%" tier only, not "less than 50%" — its own deduction, 0.5, applies.
@@ -208,7 +273,7 @@ class ConfiguredAttendancePolicyEngineTest {
         engine = newEngine();
 
         PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.WORK_HOURS_SHORTAGE)
-                .effectiveHoursPercent(30.0).build());
+                .workHoursShortagePercent(30.0).build());
 
         assertEquals(PolicyDecisionType.APPLY_PENALTY, decision.getType());
         // 30% falls below both tiers — the stricter "less than 50%" tier's own deduction (1 day) governs.
@@ -225,7 +290,7 @@ class ConfiguredAttendancePolicyEngineTest {
         engine = newEngine();
 
         PolicyDecision decision = engine.evaluate(baseContext(ExceptionType.WORK_HOURS_SHORTAGE)
-                .effectiveHoursPercent(95.0).build());
+                .workHoursShortagePercent(95.0).build());
 
         assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
     }
@@ -253,6 +318,56 @@ class ConfiguredAttendancePolicyEngineTest {
                 .missingLogCountInPeriod(3).build());
 
         assertEquals(PolicyDecisionType.NO_MATCH, decision.getType());
+    }
+
+    // ── 8b. Missing-log deduction rate (mlDeductionMode/mlDeductionPerShifts) ──
+    @Test
+    void missingLogs_defaultPerShiftModeWithNoExplicitRate_deductsEveryOccurrencePastExempt() {
+        // No mlDeductionMode/mlDeductionPerShifts set — must behave exactly like every
+        // pre-existing policy saved before this distinction existed (backward compatibility).
+        PenalizationPolicyVersion version = baseVersion(1).missingLogsEnabled(true).mlExemptDays(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(3).build()).getType());
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(4).build()).getType());
+    }
+
+    @Test
+    void missingLogs_perShiftModeWithRateOfTwo_onlyDeductsOnEveryOtherOccurrencePastExempt() {
+        PenalizationPolicyVersion version = baseVersion(1).missingLogsEnabled(true).mlExemptDays(2)
+                .mlDeductionMode("PER_SHIFT").mlDeductionPerShifts(2).build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        // Occurrence #3 overall = 1st past exempt -> not a multiple of 2 -> no match.
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(3).build()).getType());
+        // Occurrence #4 overall = 2nd past exempt -> multiple of 2 -> applies.
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(4).build()).getType());
+        // Occurrence #5 overall = 3rd past exempt -> not a multiple of 2 -> no match again.
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(5).build()).getType());
+    }
+
+    @Test
+    void missingLogs_irrespectiveMode_deductsOnlyOnceForTheWholePeriod() {
+        PenalizationPolicyVersion version = baseVersion(1).missingLogsEnabled(true).mlExemptDays(2)
+                .mlDeductionMode("IRRESPECTIVE").build();
+        when(versionRepository.findVersionsEffectiveAt(date.atStartOfDay())).thenReturn(List.of(version));
+        engine = newEngine();
+
+        // First occurrence past exempt -> the one and only deduction for the period.
+        assertEquals(PolicyDecisionType.APPLY_PENALTY,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(3).build()).getType());
+        // Every subsequent occurrence in the same period -> no further deduction.
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(4).build()).getType());
+        assertEquals(PolicyDecisionType.NO_MATCH,
+                engine.evaluate(baseContext(ExceptionType.MISSING_PUNCH).missingLogCountInPeriod(7).build()).getType());
     }
 
     // ── 9. No-attendance configuration affects evaluation ──

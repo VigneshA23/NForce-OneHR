@@ -117,7 +117,7 @@ public class PolicyService {
             notificationService.send(emp.getUserId(), "POLICY_PUBLISHED",
                     "New Policy: " + p.getTitle(),
                     "Please review and acknowledge version " + p.getVersion() + ".",
-                    "/documents?tab=policies");
+                    "/policies");
         }
 
         return PolicyResponse.from(p);
@@ -214,7 +214,7 @@ public class PolicyService {
         notificationService.send(employeeUserId, "POLICY_REMINDER",
                 "Policy Reminder: " + p.getTitle(),
                 "Please review and acknowledge version " + p.getVersion() + " of this policy.",
-                "/documents?tab=policies");
+                "/policies");
     }
 
     // ── Helpers ──

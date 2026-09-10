@@ -14,21 +14,21 @@ export default function DashboardPlaceholder() {
     <div className="min-h-dvh bg-[#080808] flex items-center justify-center">
       <div className="text-center space-y-4">
         <p
-          className="text-xs font-mono tracking-widest uppercase"
+          className="text-xs font-sans tracking-widest uppercase"
           style={{ color: '#b11116' }}
         >
           Phase 1 — Login slice complete
         </p>
         <h1
           className="text-3xl font-bold"
-          style={{ fontFamily: 'Space Grotesk, system-ui, sans-serif', color: '#f0f0f0' }}
+          style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
         >
           Welcome to NForce OneHR
         </h1>
         {user && (
           <p style={{ color: '#a0a0a0' }}>
             Signed in as{' '}
-            <span style={{ fontFamily: 'JetBrains Mono, monospace', color: '#f0f0f0' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', color: '#f0f0f0' }}>
               {user.email}
             </span>
           </p>

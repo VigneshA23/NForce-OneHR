@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -32,6 +33,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u FROM User u JOIN u.roles r WHERE r.code = 'SUPER_ADMIN' AND u.active = true AND u.deletedAt IS NULL ORDER BY u.createdAt ASC")
     List<User> findActiveSuperAdmins();
 
+    // Deliberately HR_ADMIN only (not findAdminUserIds, which also includes SUPER_ADMIN) — used
+    // to notify HR of newly-submitted Regularization/WFH/Partial Day requests without also
+    // paging every Super Admin on every single submission.
+    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'HR_ADMIN' AND u.active = true AND u.deletedAt IS NULL")
+    Set<UUID> findActiveHrAdminUserIds();
+
     // Backs audit-log actor/target search: resolves a free-text name/email fragment to candidate
     // user ids without requiring a @ManyToOne join on AuditLog (which has none).
     @Query("""
@@ -41,6 +48,20 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                    OR LOWER(e.fullName) LIKE LOWER(CONCAT('%', :q, '%')))
             """)
     Set<UUID> findUserIdsByEmailOrFullNameContaining(@Param("q") String q);
+
+    // Backs EmployeeService.listPotentialManagers — same rows as plain findAll() (active-only
+    // filtering still happens in the caller's stream, unchanged), just fetch-joined so it's one
+    // query instead of one lazy "load roles" query per row (User.roles is EAGER, but without an
+    // explicit join fetch that still means a secondary select per entity).
+    @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.roles")
+    List<User> findAllWithRoles();
+
+    // Batch equivalent of findById(id).getRoles() for a known set of ids — used to resolve e.g.
+    // a reviewer's primary role for several rows in one query instead of one lazy "load roles"
+    // query per distinct reviewer (User.roles is EAGER, so a plain findAllById would still incur
+    // one roles select per returned row without this explicit join fetch).
+    @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.roles WHERE u.id IN :ids")
+    List<User> findAllByIdWithRoles(@Param("ids") Collection<UUID> ids);
 
     // Exception Dashboard subjects: accounts holding EMPLOYEE and none of
     // MANAGER/HR_ADMIN/SUPER_ADMIN. A plain "holds EMPLOYEE" whitelist isn't enough —

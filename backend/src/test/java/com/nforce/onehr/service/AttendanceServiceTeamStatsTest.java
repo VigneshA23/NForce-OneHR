@@ -27,6 +27,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +47,7 @@ class AttendanceServiceTeamStatsTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties props;
     @Mock private WorkingDayService workingDayService;
+    @Mock private ExpectedWorkHoursService expectedWorkHoursService;
 
     @InjectMocks private AttendanceService attendanceService;
 
@@ -78,6 +80,10 @@ class AttendanceServiceTeamStatsTest {
         lenient().when(workingDayService.computeExpectedWorkingDaysBulk(any(), any(), any())).thenReturn(Map.of(
                 emp1Id, WorkingDaySchedule.builder().employeeUserId(emp1Id).workingDates(Set.of(day1, day2)).build(),
                 emp2Id, WorkingDaySchedule.builder().employeeUserId(emp2Id).workingDates(Set.of(day1, day2)).build()));
+        // AttendanceService's own "does a real shift exist" gate now reads employee.getShift()
+        // directly rather than calling shiftMinutes (see its own comment) — emp1/emp2 above have
+        // no shift assigned, so that gate alone already routes them to the flat per-day estimate;
+        // no expectedWorkHoursService stub is needed for that decision anymore.
     }
 
     private Attendance record(UUID id, UUID employeeId, LocalDate date, int workedMinutes, String status) {
@@ -132,6 +138,31 @@ class AttendanceServiceTeamStatsTest {
         TeamEffortEntry emp2Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp2Id)).findFirst().orElseThrow();
         assertEquals(8.0, emp1Entry.getExpectedHours(), 0.01); // 1 working day * 8h — same schedule Punctuality would use
         assertEquals(16.0, emp2Entry.getExpectedHours(), 0.01); // 2 working days * 8h
+    }
+
+    @Test
+    void getTeamEffort_expectedHours_usesRealAssignedShift_whenEmployeeHasOne_insteadOfFlatConstant() {
+        com.nforce.onehr.entity.Shift nineHourShift = com.nforce.onehr.entity.Shift.builder().id(UUID.randomUUID()).name("Regular").build();
+        Employee emp1WithShift = Employee.builder().userId(emp1Id).fullName("Employee One").employeeCode("NF-1").shift(nineHourShift).build();
+        when(employeeRepository.findAllByIdWithScheduleDetails(List.of(emp1Id, emp2Id))).thenReturn(List.of(emp1WithShift, emp2));
+        when(workingDayService.computeExpectedWorkingDaysBulk(any(), any(), any())).thenReturn(Map.of(
+                emp1Id, WorkingDaySchedule.builder().employeeUserId(emp1Id).workingDates(Set.of(day1, day2)).build(),
+                emp2Id, WorkingDaySchedule.builder().employeeUserId(emp2Id).workingDates(Set.of(day1, day2)).build()));
+        when(expectedWorkHoursService.adjustedExpectedMinutes(eq(emp1WithShift), any(), any())).thenReturn(540L);
+        List<Attendance> records = List.of(
+                record(UUID.randomUUID(), emp1Id, day1, 480, "PRESENT"),
+                record(UUID.randomUUID(), emp2Id, day1, 480, "PRESENT"));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(emp1Id, emp2Id), day1, day2))
+                .thenReturn(records);
+
+        List<TeamEffortEntry> result = attendanceService.getTeamEffort(managerEmail, day1, day2);
+
+        TeamEffortEntry emp1Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp1Id)).findFirst().orElseThrow();
+        TeamEffortEntry emp2Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp2Id)).findFirst().orElseThrow();
+        // 2 working days * 9h shift = 18h — NOT the flat 2*8=16h a hardcoded constant would give.
+        assertEquals(18.0, emp1Entry.getExpectedHours(), 0.01);
+        // emp2 still has no shift on file -> falls back to the flat 8h/day estimate.
+        assertEquals(16.0, emp2Entry.getExpectedHours(), 0.01);
     }
 
     @Test

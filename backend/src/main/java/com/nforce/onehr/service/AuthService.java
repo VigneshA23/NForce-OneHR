@@ -8,6 +8,7 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.JwtTokenProvider;
 import com.nforce.onehr.util.RoleUtils;
+import com.nforce.onehr.validation.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -136,9 +137,27 @@ public class AuthService {
             throw new DisabledException("Account has been deactivated");
         }
 
-        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
-            auditService.log(user.getId(), "PASSWORD_CHANGE_FAILED", user.getId());
-            throw new BadCredentialsException("Current password is incorrect");
+        // Forced flow (user just logged in with a temp/reset password and must change it
+        // before continuing): the frontend omits currentPassword entirely, since the user
+        // already proved they know it by using it to authenticate and obtain this request's
+        // JWT. Voluntary flow (already-authenticated user changing their password from My
+        // Profile): currentPassword is required and verified as before.
+        if (!user.isMustChangePassword()) {
+            if (request.getCurrentPassword() == null || request.getCurrentPassword().isBlank()) {
+                throw new IllegalArgumentException("Current password is required");
+            }
+            if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+                auditService.log(user.getId(), "PASSWORD_CHANGE_FAILED", user.getId());
+                throw new BadCredentialsException("Current password is incorrect");
+            }
+        }
+
+        // newPassword is already checked for spaces by @ValidPassword on ChangePasswordRequest,
+        // but confirmPassword carries no such annotation (it only needs to equal newPassword) —
+        // check it explicitly so a space-only difference is reported as a space error rather
+        // than a generic mismatch.
+        if (PasswordPolicy.containsSpace(request.getConfirmPassword())) {
+            throw new IllegalArgumentException(PasswordPolicy.SPACE_MESSAGE);
         }
 
         if (!request.getNewPassword().equals(request.getConfirmPassword())) {
@@ -157,6 +176,11 @@ public class AuthService {
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
+        // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
+        // their very next API call fails auth. The token minted just below carries this new
+        // version, so the session performing the change stays logged in.
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(user);
 
         auditService.log(user.getId(), "PASSWORD_CHANGED", user.getId());
@@ -178,7 +202,7 @@ public class AuthService {
      * this method ever runs.
      */
     @Transactional
-    public ForgotPasswordResponse forgotPassword(String email) {
+    public ForgotPasswordResponse forgotPassword(String email, String requestOrigin) {
         String normalizedEmail = email.toLowerCase().trim();
         User user = userRepository.findByEmail(normalizedEmail)
                 .orElseThrow(() -> new AccountNotFoundException("No account found with this email address"));
@@ -193,18 +217,23 @@ public class AuthService {
         String tempPassword = generateTempPassword();
         user.setPasswordHash(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
+        // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(user);
 
         String fullName = employeeRepository.findById(user.getId())
                 .map(com.nforce.onehr.entity.Employee::getFullName)
                 .orElse(user.getEmail());
 
-        emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword);
+        emailService.sendPasswordResetEmail(user.getEmail(), fullName, tempPassword, requestOrigin);
         auditService.log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
+        // No linkPath: the Password Reset notification intentionally has no "Open related
+        // page" action in the Notifications tab (ONEHR-351) — email delivery is unaffected.
         notificationService.send(user.getId(), "SECURITY",
                 "Password Reset",
                 "Your password was reset via the forgot-password flow. If you didn't request this, contact your HR admin immediately.",
-                "/change-password");
+                null);
 
         return ForgotPasswordResponse.builder()
                 .message("Password reset instructions have been sent to your email")

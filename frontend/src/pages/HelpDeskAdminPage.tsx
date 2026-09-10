@@ -40,7 +40,7 @@ function Kpi({ icon, label, value, danger }: { icon: React.ReactNode; label: str
         <span style={{ color: 'var(--brand)' }}>{icon}</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: danger && value > 0 ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger && value > 0 ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
     </div>
   );
 }
@@ -169,8 +169,8 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>Raised by {ticket.employeeName}</div>
           </div>
           <StatusBadge status={ticket.status} />
@@ -182,7 +182,7 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Assigned To</div>
             <select style={filterSelect} value={assigneeId} disabled={savingAssign} onChange={e => handleAssign(e.target.value)}>
               <option value="">Unassigned</option>
-              {agents.map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
+              {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
             </select>
           </div>
           <div style={{ minWidth: 180 }}>
@@ -221,7 +221,7 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
           onChange={e => setMessage(e.target.value)}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
               <Paperclip size={13} />
               {attachment ? attachment.name : 'Attach a file'}
@@ -314,8 +314,8 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
           </div>
           <StatusBadge status={ticket.status} />
         </div>
@@ -348,7 +348,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Assign To</div>
           <select style={filterSelect} value={assigneeChoice} onChange={e => setAssigneeChoice(e.target.value)}>
             <option value="">Select an HR Admin…</option>
-            {agents.map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
+            {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
           </select>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
             <button onClick={() => setShowAssignPanel(false)} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
@@ -440,7 +440,7 @@ export default function HelpDeskAdminPage() {
     return (
       <div>
         <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
         </div>
         <TicketDetailView ticketId={selectedId} token={token} agents={agents} onBack={() => { setSelectedId(null); refreshAll(); }} onChanged={refreshAll} />
       </div>
@@ -454,7 +454,7 @@ export default function HelpDeskAdminPage() {
     return (
       <div>
         <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
         </div>
         <TicketPreview
           ticketId={previewId}
@@ -471,7 +471,7 @@ export default function HelpDeskAdminPage() {
   return (
     <div>
       <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Help Desk tickets raised by employees across the organization.</p>
       </div>
 
@@ -526,7 +526,7 @@ export default function HelpDeskAdminPage() {
               <tbody>
                 {tickets.map(t => (
                   <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setPreviewId(t.id)}>
-                    <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
+                    <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
                     <td style={tdStyle}>{t.employeeName}</td>
                     <td style={tdStyle}>{t.categoryName}</td>
                     <td style={tdStyle}><StatusBadge status={t.status} /></td>

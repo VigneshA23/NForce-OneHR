@@ -56,7 +56,9 @@ public class ApprovalCenterController {
     /**
      * Returns all pending approval items visible to the caller.
      * - Manager: LEAVE (own reports), REGULARIZATION (own reports), EXPENSE at MANAGER stage (own reports), ASSET_REQUEST (own reports)
-     * - HR Admin / Super Admin: LEAVE (all), REGULARIZATION (all), EXPENSE at FINAL stage (all), ASSET_REQUEST (all)
+     * - HR Admin / Super Admin: LEAVE (all), REGULARIZATION (all), EXPENSE at either stage (all —
+     *   see ExpenseService.pendingForFinalApprover for why this includes MANAGER-stage claims
+     *   too), ASSET_REQUEST (all)
      */
     @GetMapping
     public List<ApprovalItemDto> pendingApprovals(Principal principal) {
@@ -106,9 +108,16 @@ public class ApprovalCenterController {
             // Web Clock-In — HR/SA see all pending
             webClockInService.listPendingForApprover(email).stream()
                     .map(this::webClockInToApprovalItem).forEach(items::add);
-            // Expense — final stage only
+            // Expense — HR/SA see claims at both stages now (SUBMITTED and MANAGER_APPROVED), so
+            // tag each item with its ACTUAL stage rather than hardcoding "FINAL" — the frontend
+            // routes the approve/reject click through managerApprove/managerReject vs
+            // finalApprove/finalReject based on this field (ApprovalsPage.tsx approveItem/
+            // rejectItem), and a still-SUBMITTED claim must go through the manager-stage endpoint
+            // (which already allows HR/SA to act on it — see requireCurrentManagerOf) since
+            // finalApprove/finalReject reject anything not already MANAGER_APPROVED.
             expenseService.pendingForFinalApprover(email).stream()
-                    .map(c -> expenseToApprovalItem(c, "FINAL")).forEach(items::add);
+                    .map(c -> expenseToApprovalItem(c, "SUBMITTED".equals(c.getStatus()) ? "MANAGER" : "FINAL"))
+                    .forEach(items::add);
             // Asset requests — HR/SA approve PENDING only (APPROVED → fulfilled via HR Assets page)
             assetService.listPendingForApprover(email).stream()
                     .filter(r -> "PENDING".equals(r.getStatus()))

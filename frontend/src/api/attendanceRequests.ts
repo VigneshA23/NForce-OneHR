@@ -16,6 +16,8 @@ export type AttendanceRequestType = 'WFH' | 'PARTIAL_DAY';
 export type AttendanceRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 /** Only meaningful for PARTIAL_DAY (Keka reference: one radio choice within the same request). */
 export type PartialDayMode = 'LATE_ARRIVE' | 'INTERVENING_TIMEOFF' | 'LEAVING_EARLY';
+/** Only meaningful for WFH — which portion of that day counts toward the day quota. */
+export type WfhDayMode = 'FULL_DAY' | 'FIRST_HALF' | 'SECOND_HALF';
 
 export interface AttendanceRequestRecord {
   id: string;
@@ -27,7 +29,10 @@ export interface AttendanceRequestRecord {
   requestDate: string;
   /** Only meaningful for PARTIAL_DAY — null for WFH. */
   partialDayHours: number | null;
-  partialDayMode: PartialDayMode | null;
+  /** PARTIAL_DAY: PartialDayMode. WFH: WfhDayMode. Null for neither. */
+  partialDayMode: PartialDayMode | WfhDayMode | null;
+  /** Only meaningful for WFH (1 = Full Day, 0.5 = First/Second Half) — null for Partial Day. */
+  wfhDayFraction: number | null;
   reason: string;
   status: AttendanceRequestStatus;
   assignedApproverId: string | null;
@@ -45,7 +50,7 @@ export interface SubmitAttendanceRequestPayload {
   requestType: AttendanceRequestType;
   requestDate: string;
   partialDayHours?: number;
-  partialDayMode?: PartialDayMode;
+  partialDayMode?: PartialDayMode | WfhDayMode;
   reason: string;
   managerUserId?: string;
   notifyUserId?: string;
@@ -55,6 +60,12 @@ export interface PartialDayBalance {
   usedHours: number;
   limitHours: number;
   remainingHours: number;
+}
+
+export interface WfhBalance {
+  usedDays: number;
+  limitDays: number;
+  remainingDays: number;
 }
 
 export const attendanceRequestApi = {
@@ -84,4 +95,9 @@ export const attendanceRequestApi = {
   partialDayBalance: (date: string, token: string) =>
     fetch(`${BASE}/partial-day-balance?date=${date}`, { headers: authHeaders(token) })
       .then(r => handle<PartialDayBalance>(r)),
+
+  /** WFH's "Remaining balance" line — days already committed in `date`'s month vs. the 2-day cap. */
+  wfhBalance: (date: string, token: string) =>
+    fetch(`${BASE}/wfh-balance?date=${date}`, { headers: authHeaders(token) })
+      .then(r => handle<WfhBalance>(r)),
 };

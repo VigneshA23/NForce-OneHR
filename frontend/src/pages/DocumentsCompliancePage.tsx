@@ -137,7 +137,7 @@ function DetailModal({
         {/* Actions — only for pending docs */}
         {doc.status === 'PENDING_VERIFICATION' && (
           mode === 'view' ? (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button onClick={onClose} disabled={acting}
                 style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
                 Close
@@ -338,7 +338,7 @@ export default function DocumentsCompliancePage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Documents & Compliance</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Verify employee documents and track compliance.</p>
 
       {/* KPI row */}
@@ -351,7 +351,7 @@ export default function DocumentsCompliancePage() {
             { label: 'Total Documents', value: kpis.totalDocuments, color: '#22c55e' },
           ].map(k => (
             <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: '"Space Grotesk", sans-serif' }}>{k.value}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
               <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
             </div>
           ))}
@@ -376,10 +376,11 @@ export default function DocumentsCompliancePage() {
 
       {/* Search + Filter */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative' }}>
+        <div className="nf-search-full-mobile" style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={tab === 'missing' ? 'Search by name, type…' : 'Search by name, type, file…'}
+            className="nf-search-full-mobile-input"
             style={{ paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, outline: 'none', width: 240 }} />
         </div>
         {allDocTypes.length > 1 && (
@@ -414,7 +415,7 @@ export default function DocumentsCompliancePage() {
                 ) : filteredPending.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
                     <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
                     <td style={tdS}>
@@ -426,8 +427,7 @@ export default function DocumentsCompliancePage() {
                     <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
-                        { label: 'Review & Verify', onClick: () => setDetailDoc(d) },
-                        { label: 'Review & Reject', onClick: () => setDetailDoc(d), danger: true },
+                        { label: 'Review', onClick: () => setDetailDoc(d) },
                       ]} />
                     </td>
                   </tr>
@@ -461,7 +461,7 @@ export default function DocumentsCompliancePage() {
                 ) : filteredVerified.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
                     <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
                     <td style={tdS}>

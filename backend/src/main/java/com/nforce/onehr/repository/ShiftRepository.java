@@ -11,4 +11,8 @@ import java.util.UUID;
 public interface ShiftRepository extends JpaRepository<Shift, UUID> {
 
     Optional<Shift> findByName(String name);
+
+    boolean existsByNameIgnoreCase(String name);
+
+    boolean existsByCodeIgnoreCase(String code);
 }

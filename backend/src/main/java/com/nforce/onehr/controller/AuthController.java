@@ -40,8 +40,9 @@ public class AuthController {
     }
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<ForgotPasswordResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
-        return ResponseEntity.ok(authService.forgotPassword(request.getEmail()));
+    public ResponseEntity<ForgotPasswordResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
+                                                                  HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.forgotPassword(request.getEmail(), httpRequest.getHeader("Origin")));
     }
 
     private String extractClientIp(HttpServletRequest request) {

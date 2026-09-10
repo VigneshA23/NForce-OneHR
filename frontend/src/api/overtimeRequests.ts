@@ -32,6 +32,10 @@ export interface OvertimeRequestRecord {
   notifyUserId: string | null;
   notifyUserName: string | null;
   reviewedByName: string | null;
+  /** The reviewer's role at response time (e.g. "MANAGER", "HR_ADMIN", "SUPER_ADMIN") — HR
+   * Admin/Super Admin can decide a manager-stage request too, so this distinguishes who actually
+   * acted in what capacity for the "Last Action By" column. */
+  reviewedByRole: string | null;
   reviewedAt: string | null;
   reviewComment: string | null;
   createdAt: string;

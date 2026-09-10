@@ -78,4 +78,13 @@ public class PolicyEvaluationContext {
     // True when this late arrival coincides with an unresolved missing-log occurrence for the
     // employee (Section 33) — set by the caller, never re-derived by the engine.
     private boolean lateArrivalCausedByMissingLog;
+
+    // ── Phase 3 ──
+    // The Work Hours Shortage tier-matching fact — distinct from effectiveHoursPercent above,
+    // which stays Effective-Hours-only and keeps backing No Attendance's no-show rule, Missing
+    // Logs' ignore-rule, and Late Arrival's ignore-when-effective-hours-met exactly as before.
+    // This one honors the effective version's basis (Effective/Gross), shift-exclusion, and
+    // daily/weekly/monthly frequency (see WorkHoursShortageCalculationService) — the ONLY fact
+    // ConfiguredAttendancePolicyEngine#evaluateWorkHoursShortage's tier matching reads.
+    private Double workHoursShortagePercent;
 }

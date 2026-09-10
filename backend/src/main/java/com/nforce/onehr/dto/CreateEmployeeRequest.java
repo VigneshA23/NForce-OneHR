@@ -23,6 +23,7 @@ public class CreateEmployeeRequest {
 
     private String employeeCode;
 
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID locationId;
@@ -34,4 +35,10 @@ public class CreateEmployeeRequest {
     private LocalDate joiningDate;
 
     private UUID managerId;
+
+    // Deliberately NO timezone field — the finalized Location/Timezone model derives an
+    // employee's effective attendance timezone entirely from their assigned Location (see
+    // Employee's own class Javadoc). locationId above is the only timezone-relevant input; an
+    // invalid, inactive, or timezone-less Location is rejected server-side rather than silently
+    // falling back to something else — see EmployeeService#validateAssignableLocation.
 }

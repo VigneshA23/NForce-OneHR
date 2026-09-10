@@ -28,6 +28,13 @@ public class PenalisationPolicy {
     @Builder.Default
     private String status = "ACTIVE";
 
+    // Section 7: the explicit, admin-chosen org-wide fallback for an employee with no allocation
+    // and no legacy FK — at most one row may have this true (V152's partial unique index). See
+    // PenalizationPolicyService#resolveActiveDefaultPolicyId.
+    @Column(name = "is_org_default", nullable = false)
+    @Builder.Default
+    private boolean orgDefault = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

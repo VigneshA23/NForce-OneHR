@@ -75,4 +75,47 @@ class RoleUtilsTest {
             assertEquals("MANAGER", RoleUtils.primaryRoleCode(freshLoad, "EMPLOYEE"));
         }
     }
+
+    // ── Help & Guidance audience buckets — see HelpContentService#publish ──────────────────
+
+    @Test
+    void employeeAlone_bucketsToEmployeeOnly() {
+        assertEquals(Set.of("EMPLOYEE"), RoleUtils.audienceBuckets(Set.of(role("EMPLOYEE"))));
+    }
+
+    @Test
+    void managerPlusEmployee_bucketsToBothEmployeeAndManager() {
+        // rolesFor() always grants a Manager the base EMPLOYEE role too — this is what lets a
+        // Manager see both Manager-tagged and Employee-tagged content with no hierarchy logic.
+        assertEquals(Set.of("EMPLOYEE", "MANAGER"),
+                RoleUtils.audienceBuckets(Set.of(role("MANAGER"), role("EMPLOYEE"))));
+    }
+
+    @Test
+    void hrAdminPlusEmployee_bucketsToEmployeeAndHr() {
+        assertEquals(Set.of("EMPLOYEE", "HR"),
+                RoleUtils.audienceBuckets(Set.of(role("HR_ADMIN"), role("EMPLOYEE"))));
+    }
+
+    @Test
+    void superAdminPlusEmployee_bucketsToEmployeeAndAdmin() {
+        assertEquals(Set.of("EMPLOYEE", "ADMIN"),
+                RoleUtils.audienceBuckets(Set.of(role("SUPER_ADMIN"), role("EMPLOYEE"))));
+    }
+
+    @Test
+    void leadershipFinanceDelivery_haveNoBucketOfTheirOwn() {
+        // Same collapse as the frontend's toShellRole() — these three fold into EMPLOYEE for nav,
+        // and (via rolesFor()) a user holding one of them also holds EMPLOYEE for real, so this
+        // is a defensive check on the mapping table itself, not a case that occurs without it.
+        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of(role("LEADERSHIP"))));
+        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of(role("FINANCE"))));
+        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of(role("DELIVERY"))));
+    }
+
+    @Test
+    void emptyOrNullRoles_returnsEmptyBucketSet() {
+        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of()));
+        assertEquals(Set.of(), RoleUtils.audienceBuckets(null));
+    }
 }

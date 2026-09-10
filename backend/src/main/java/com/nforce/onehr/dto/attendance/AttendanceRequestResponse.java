@@ -19,6 +19,7 @@ public class AttendanceRequestResponse {
     private LocalDate requestDate;
     private BigDecimal partialDayHours;
     private String partialDayMode;
+    private BigDecimal wfhDayFraction;
     private String reason;
     private String status;
     private UUID assignedApproverId;

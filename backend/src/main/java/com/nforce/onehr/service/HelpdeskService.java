@@ -116,7 +116,8 @@ public class HelpdeskService {
         Specification<HelpdeskTicket> spec = Specification
                 .allOf(HelpdeskTicketSpecifications.statusIn(statuses),
                         HelpdeskTicketSpecifications.assignedTo(assignedTo),
-                        HelpdeskTicketSpecifications.searchText(search));
+                        HelpdeskTicketSpecifications.searchText(search),
+                        HelpdeskTicketSpecifications.requesterNotDeleted());
         return ticketRepo.findAll(spec, PageRequest.of(page, size, Sort.by("createdAt").descending()))
                 .map(this::toSummary);
     }
@@ -377,7 +378,11 @@ public class HelpdeskService {
     public List<AssignableAgentDto> listAssignableAgents(String actorEmail) {
         requireAdmin(actorEmail);
         return userRepo.findAdminUserIds().stream()
-                .map(id -> AssignableAgentDto.builder().userId(id).name(employeeOrEmailName(id)).build())
+                .map(id -> AssignableAgentDto.builder()
+                        .userId(id)
+                        .name(employeeOrEmailName(id))
+                        .active(userRepo.findById(id).map(User::isActive).orElse(false))
+                        .build())
                 .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))
                 .collect(Collectors.toList());
     }

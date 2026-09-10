@@ -21,6 +21,8 @@ import {
 import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestReportRow } from '../api/reports';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
+import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -60,14 +62,23 @@ function fmtTime(iso?: string | null) {
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
+// Shift start/end are plain LocalTime strings (e.g. "20:30:00") with no date/zone component at
+// all — they represent the employee's own configured LOCAL shift time, not an instant to
+// convert. Formatted directly, deliberately without any Date()/timezone math, so a viewer in a
+// different zone (e.g. India HR looking at a US employee's shift) sees the employee's actual
+// configured hours rather than having them silently reprojected into the viewer's own zone.
+function fmtShiftRange(start: string, end: string): string {
+  const fmt = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  };
+  return `${fmt(start)} – ${fmt(end)}`;
+}
 function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEK_CHIPS = ['M', 'T', 'W', 'T', 'F'];
 
@@ -78,7 +89,7 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const panelHeadStyle: React.CSSProperties = { padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
-const panelTitleStyle: React.CSSProperties = { fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' };
+const panelTitleStyle: React.CSSProperties = { fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' };
 const panelCountStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '2px 8px', borderRadius: 20 };
 
 const TYPE_LABELS: Record<'LEAVE' | 'REGULARIZATION', string> = { LEAVE: 'Leave', REGULARIZATION: 'Attendance Reg.' };
@@ -93,11 +104,17 @@ function TypeBadge({ type }: { type: 'LEAVE' | 'REGULARIZATION' }) {
   );
 }
 
-function Avatar({ name, size = 34 }: { name: string; size?: number }) {
+function Avatar({ userId, name, size = 34 }: { userId?: string | null; name: string; size?: number }) {
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: 'rgba(177,17,22,.18)', color: '#e4373d', display: 'grid', placeItems: 'center', fontSize: size * 0.33, fontWeight: 700, flexShrink: 0, fontFamily: '"Space Grotesk", sans-serif' }}>
-      {initials(name)}
-    </div>
+    <EmployeeAvatar
+      userId={userId}
+      name={name}
+      size={size}
+      fontSize={size * 0.33}
+      background="rgba(177,17,22,.18)"
+      color="#e4373d"
+      style={{ fontFamily: 'Inter, sans-serif' }}
+    />
   );
 }
 
@@ -218,11 +235,11 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
     <div style={overlayStyle} onClick={onClose}>
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <Avatar name={dr.fullName} size={40} />
+          <Avatar userId={dr.userId} name={dr.fullName} size={40} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{dr.designationName ?? '—'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{dr.employeeCode}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{dr.employeeCode}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
         </div>
@@ -230,8 +247,17 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
           <div>
             <div style={labelStyle}>Today's attendance</div>
             <Row label="Status" value={STATUS_LABEL[status]} />
-            <Row label="Actual check-in" value={fmtTime(record?.checkInAt)} />
+            {/* sessionStartedAt reflects the latest check-in of the day (checkInAt is fixed to
+                the day's very first one and never updated on a same-day checkout+checkin resume
+                — see AttendanceService.checkIn) — same fallback AttendanceHeroBanner/
+                AttendancePage already use, so a direct report's most recent check-in shows here
+                too instead of a frozen original time. */}
+            <Row label="Actual check-in" value={fmtTime(record?.sessionStartedAt ?? record?.checkInAt)} />
             <Row label="Actual check-out" value={fmtTime(record?.checkOutAt)} />
+            {/* record.timezone is the employee's OWN effective timezone (locked in at their
+                check-in — see Attendance.timezone), not the viewer's. Labeled explicitly so it's
+                never ambiguous which zone the times above are in when viewing another employee. */}
+            {record?.timezone && <Row label="Employee's timezone" value={record.timezone} />}
             {!!record?.lateByMinutes && <Row label="Late by" value={`${record.lateByMinutes} minutes`} />}
             {missingFlag && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 600, padding: '8px 10px', borderRadius: 8, marginTop: 8, background: 'rgba(228,55,61,.13)', color: 'var(--risk)' }}>
@@ -284,7 +310,7 @@ function KpiCard({ icon, iconColor, label, value, note, onView }: { icon: React.
         {icon}
         <span style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--txt-mut)' }}>{label}</span>
       </div>
-      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
       {onView && (
         <button onClick={onView} style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
@@ -328,7 +354,7 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
   const fillPct = Math.min(100, entry.avgHoursPerDay * 10);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -350,7 +376,7 @@ function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
   const fillPct = Math.min(100, entry.percentage);
   return (
     <div className="nf-team-leaderboard-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -460,7 +486,7 @@ function EffortTab({ token }: { token: string }) {
 function LateArrivalRow({ entry }: { entry: TeamLateArrivalEntry }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -494,7 +520,7 @@ function DailyBarChart({ data, color }: { data: { date: string; count: number }[
 function LeastHoursRow({ entry }: { entry: TeamLeastHoursEntry }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -535,7 +561,7 @@ function HoursDonut({ buckets }: { buckets: { label: string; count: number; pct:
 function FrequentBreaksRow({ entry }: { entry: TeamFrequentBreaksEntry }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-      <Avatar name={entry.fullName} size={30} />
+      <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
@@ -869,14 +895,22 @@ function AssignmentsTab({ token }: { token: string }) {
                 </td>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Avatar name={r.fullName} size={26} />
+                    <Avatar userId={r.employeeUserId} name={r.fullName} size={26} />
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.fullName}</span>
                   </div>
                 </td>
                 <td style={assignmentCellStyle}>{r.employeeCode}</td>
                 <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
                 <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.shiftName ?? '—'}</td>
+                <td style={assignmentCellStyle}>
+                  {r.shiftName ?? '—'}
+                  {r.shiftName && r.shiftStartTime && r.shiftEndTime && (
+                    <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 2 }}>
+                      {fmtShiftRange(r.shiftStartTime, r.shiftEndTime)}
+                      {r.employeeTimezone ? ` · ${r.employeeTimezone}` : ''}
+                    </div>
+                  )}
+                </td>
                 <td style={assignmentCellStyle}>{r.weeklyOffPolicyName ?? '—'}</td>
                 <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
               </tr>
@@ -888,7 +922,7 @@ function AssignmentsTab({ token }: { token: string }) {
       {bulkModal && (
         <div style={overlayStyle} onClick={() => !bulkBusy && setBulkModal(null)}>
           <div style={{ ...modalStyle, maxWidth: 380 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>
               {bulkModal === 'shift' ? 'Update Shift' : bulkModal === 'weeklyOff' ? 'Update Weekly Off' : 'Update Penalisation Policy'}
             </div>
             <div style={{ padding: 18 }}>
@@ -911,7 +945,7 @@ function AssignmentsTab({ token }: { token: string }) {
       {importOpen && (
         <div style={overlayStyle} onClick={() => !importBusy && setImportOpen(false)}>
           <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
                 CSV with columns <code>employee_code,shift_name,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched.
@@ -993,7 +1027,7 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
     <div style={overlayStyle} onClick={onClose}>
       <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{card.title}</span>
+          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
         </div>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1008,7 +1042,7 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
             {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
           {loading ? (
             <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
           ) : !rows || rows.length === 0 ? (
@@ -1161,10 +1195,10 @@ function KudosModal({ target, token, onClose }: { target: KudosTarget | null; to
     <div style={overlayStyle} onClick={onClose}>
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <Avatar name={target.name} size={36} />
+          <Avatar userId={target.userId} name={target.name} size={36} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>Appreciating</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
         </div>
@@ -1311,9 +1345,10 @@ function PeersView({ token }: { token: string }) {
             <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your project team is on leave today.</div>
           ) : (
             onLeaveList.map(r => (
-              <div key={r.peer.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar name={r.peer.fullName} size={30} />
+              <div key={r.peer.userId} style={{ ...inactiveDimStyle(r.peer.active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+                <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.peer.fullName}</span>
+                {!r.peer.active && <StatusBadge active={false} />}
                 <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{r.leaveTypeName}</span>
               </div>
             ))
@@ -1333,7 +1368,7 @@ function PeersView({ token }: { token: string }) {
               <div style={{ display: 'flex' }}>
                 {notInYet.slice(0, OVERFLOW_LIMIT).map((r, i) => (
                   <div key={r.peer.userId} title={r.peer.fullName} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid var(--panel)', borderRadius: '50%' }}>
-                    <Avatar name={r.peer.fullName} size={30} />
+                    <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
                   </div>
                 ))}
               </div>
@@ -1402,11 +1437,12 @@ function PeersView({ token }: { token: string }) {
             </thead>
             <tbody>
               {peers.map(p => (
-                <tr key={p.userId}>
+                <tr key={p.userId} style={inactiveDimStyle(p.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar name={p.fullName} size={24} />
+                      <Avatar userId={p.userId} name={p.fullName} size={24} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{p.fullName}</span>
+                      {!p.active && <StatusBadge active={false} />}
                     </div>
                   </td>
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
@@ -1460,16 +1496,16 @@ function PeersView({ token }: { token: string }) {
           ) : filteredPeers.length === 0 ? (
             <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
           ) : filteredPeers.map(row => (
-            <div key={row.peer.userId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div key={row.peer.userId} style={{ ...inactiveDimStyle(row.peer.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <Avatar name={row.peer.fullName} />
+                <Avatar userId={row.peer.userId} name={row.peer.fullName} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.peer.fullName}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.peer.designationName ?? '—'}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                <StatusPill status={row.status} />
+                {row.peer.active ? <StatusPill status={row.status} /> : <StatusBadge active={false} />}
                 {row.peer.departmentName && (
                   <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: 'rgba(76,141,214,.14)', color: 'var(--info)' }}>{row.peer.departmentName}</span>
                 )}
@@ -1483,9 +1519,11 @@ function PeersView({ token }: { token: string }) {
                 <Mail size={11} style={{ flexShrink: 0 }} />
                 <a href={`mailto:${row.peer.email}`} style={{ color: 'var(--txt-mut)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.peer.email}</a>
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
-              </div>
+              {row.peer.active && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                  <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1550,7 +1588,7 @@ function RegularizationHistoryModal({ employeeUserId, employeeName, attendanceDa
       <div style={{ ...modalStyle, maxWidth: 520 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
           <div>
-            <div style={{ fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>Regularization History</div>
+            <div style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Regularization History</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{employeeName} · {fmtDateShort(attendanceDate)}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
@@ -1748,10 +1786,10 @@ function PenaltiesTab({ token }: { token: string }) {
                 </td>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Avatar name={r.fullName} size={26} />
+                    <Avatar userId={r.employeeUserId} name={r.fullName} size={26} />
                     <div>
                       <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.fullName}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</div>
                     </div>
                   </div>
                 </td>
@@ -1773,7 +1811,7 @@ function PenaltiesTab({ token }: { token: string }) {
       {cancelOpen && (
         <div style={overlayStyle} onClick={() => !cancelBusy && setCancelOpen(false)}>
           <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>
+            <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>
               Cancel {selected.size} {selected.size === 1 ? 'Penalty' : 'Penalties'}
             </div>
             <div style={{ padding: 18 }}>
@@ -1856,7 +1894,10 @@ export default function MyTeamPage() {
   useEffect(() => {
     dashboardApi.managerDashboard(token)
       .then(d => {
-        setDirectReports(d.directReports.filter(r => r.active));
+        // Keep inactive direct reports visible (dimmed + badge, see RosterRow render) instead of
+        // silently filtering them out — a deactivated report should still read as "no longer
+        // active" rather than simply vanishing from the manager's team.
+        setDirectReports(d.directReports);
         setDirectReportCount(d.directReportCount);
         if (d.directReportCount === 0 && !autoSwitched.current) {
           autoSwitched.current = true;
@@ -1921,6 +1962,10 @@ export default function MyTeamPage() {
   }), [directReports, attendanceByEmployee, onLeaveToday, requestsByEmployee]);
 
   const notInYet = rosterRows.filter(r => r.status === 'NOT_IN_YET');
+  // Leave-based widgets ("Who's on leave today", "Out this week") key off LeaveRequestRecord,
+  // not DirectReport — this maps a leave record's employeeUserId back to whether that direct
+  // report is still active, for the same dim + Inactive badge treatment as the roster above.
+  const directReportsById = useMemo(() => new Map(directReports.map(dr => [dr.userId, dr])), [directReports]);
   const onTimeCount = todayRecords.filter(r => r.status === 'PRESENT').length;
   const lateCount = todayRecords.filter(r => r.status === 'LATE').length;
   const remoteClockInCount = todayRecords.filter(r => r.source === 'WEB_REMOTE').length;
@@ -1965,7 +2010,7 @@ export default function MyTeamPage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
             {viewMode === 'direct'
               ? "Attendance, leave, and open requests for your direct reports — one place, so you don't have to check four separate pages to know how your team is doing today."
@@ -2024,13 +2069,17 @@ export default function MyTeamPage() {
           {todayLeave.length === 0 ? (
             <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is on leave today.</div>
           ) : (
-            todayLeave.map(l => (
-              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar name={l.employeeName} size={30} />
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{l.employeeName}</span>
-                <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{l.leaveTypeName}</span>
-              </div>
-            ))
+            todayLeave.map(l => {
+              const active = directReportsById.get(l.employeeUserId)?.active ?? true;
+              return (
+                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+                  <Avatar userId={l.employeeUserId} name={l.employeeName} size={30} />
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{l.employeeName}</span>
+                  {!active && <StatusBadge active={false} />}
+                  <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{l.leaveTypeName}</span>
+                </div>
+              );
+            })
           )}
         </div>
         <div style={panelStyle}>
@@ -2045,7 +2094,7 @@ export default function MyTeamPage() {
           ) : (
             notInYet.map(r => (
               <div key={r.dr.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar name={r.dr.fullName} size={30} />
+                <Avatar userId={r.dr.userId} name={r.dr.fullName} size={30} />
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.dr.fullName}</span>
               </div>
             ))
@@ -2106,11 +2155,12 @@ export default function MyTeamPage() {
             </thead>
             <tbody>
               {directReports.map(dr => (
-                <tr key={dr.userId}>
+                <tr key={dr.userId} style={inactiveDimStyle(dr.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar name={dr.fullName} size={24} />
+                      <Avatar userId={dr.userId} name={dr.fullName} size={24} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{dr.fullName}</span>
+                      {!dr.active && <StatusBadge active={false} />}
                     </div>
                   </td>
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
@@ -2167,17 +2217,17 @@ export default function MyTeamPage() {
             ) : filteredRoster.length === 0 ? (
               <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
             ) : filteredRoster.map(row => (
-              <div key={row.dr.userId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div key={row.dr.userId} style={{ ...inactiveDimStyle(row.dr.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <Avatar name={row.dr.fullName} />
+                  <Avatar userId={row.dr.userId} name={row.dr.fullName} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.dr.fullName}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.dr.designationName ?? '—'}</div>
-                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{row.dr.employeeCode}</div>
+                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{row.dr.employeeCode}</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 22 }}>
-                  <StatusPill status={row.status} />
+                  {row.dr.active ? <StatusPill status={row.status} /> : <StatusBadge active={false} />}
                   {row.isLate && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '4px 9px 4px 7px', borderRadius: 20, background: 'rgba(224,169,59,.16)', color: 'var(--warn)' }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warn)' }} />Late
@@ -2223,10 +2273,15 @@ export default function MyTeamPage() {
             <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {weekLeave.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is out this week.</div>
-              ) : weekLeave.map(l => (
-                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              ) : weekLeave.map(l => {
+                const active = directReportsById.get(l.employeeUserId)?.active ?? true;
+                return (
+                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.employeeName}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.employeeName}</div>
+                      {!active && <StatusBadge active={false} />}
+                    </div>
                     <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{l.leaveTypeName}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
@@ -2240,7 +2295,8 @@ export default function MyTeamPage() {
                     })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

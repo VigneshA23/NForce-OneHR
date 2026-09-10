@@ -116,6 +116,12 @@ export const assetsApi = {
   listAll: (token: string) =>
     fetch(`${BASE}`, { headers: authHeaders(token) }).then(handle<AssetResponse[]>),
 
+  // Lightweight total count — use this instead of listAll when only the number of assets is
+  // needed (e.g. a dashboard count tile), to avoid paying for per-asset category/location/
+  // assignee hydration just to read assets.length.
+  count: (token: string) =>
+    fetch(`${BASE}/count`, { headers: authHeaders(token) }).then(handle<{ count: number }>),
+
   createAsset: (payload: {
     assetTag: string; categoryId: number; brand?: string; model?: string;
     serialNumber?: string; purchaseDate?: string; purchaseCost?: number;

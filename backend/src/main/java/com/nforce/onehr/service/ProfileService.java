@@ -76,6 +76,16 @@ public class ProfileService {
         return toResponse(user, emp);
     }
 
+    @Transactional
+    public ProfileResponse removePhoto(String email) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setProfilePhoto(null);
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
     private ProfileResponse toMinimalResponse(User user) {
         String role = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
         return ProfileResponse.builder()

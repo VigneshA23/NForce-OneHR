@@ -100,7 +100,7 @@ public class OnboardingService {
     public List<OnboardingChecklistSummaryDto> listQueue(String actorEmail) {
         requireAdmin(actorEmail);
         LocalDate today = LocalDate.now();
-        List<OnboardingChecklist> all = checklistRepo.findAll();
+        List<OnboardingChecklist> all = checklistRepo.findAllWithActiveEmployee();
 
         return all.stream()
                 .map(c -> employeeRepo.findById(c.getEmployeeUserId()).map(emp -> {

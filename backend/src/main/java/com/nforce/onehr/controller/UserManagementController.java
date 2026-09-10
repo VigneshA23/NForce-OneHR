@@ -34,7 +34,7 @@ public class UserManagementController {
 
     @PatchMapping("/{userId}")
     public EmployeeResponse updateUser(@PathVariable UUID userId,
-                                       @RequestBody UpdateUserRequest req,
+                                       @Valid @RequestBody UpdateUserRequest req,
                                        Principal principal) {
         return userManagementService.updateUser(userId, req, principal.getName());
     }

@@ -37,6 +37,7 @@ public class NotificationService {
         m.put("OVERTIME_REJECTED",                "HIGH");
         m.put("REGULARIZATION_SUBMITTED",         "HIGH");  // goes to approver: action needed
         m.put("REGULARIZATION_REJECTED",          "HIGH");
+        m.put("LEAVE_REQUEST_SUBMITTED",          "HIGH");  // goes to manager/HR/Super Admin: action needed
         m.put("HELP_CONTENT_SUBMITTED",           "HIGH");  // goes to approver: action needed
         m.put("HELP_CONTENT_REJECTED",            "HIGH");
         m.put("HELPDESK_TICKET_CREATED",          "HIGH");  // goes to HR: action needed

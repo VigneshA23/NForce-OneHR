@@ -19,11 +19,15 @@ public final class PasswordPolicy {
 
     public static final String LENGTH_MESSAGE =
             "Password must be between " + MIN_LENGTH + " and " + MAX_LENGTH + " characters";
-    public static final String WHITESPACE_MESSAGE =
-            "Password must not start or end with a space";
+    public static final String SPACE_MESSAGE = "Password cannot contain spaces.";
     public static final String COMPLEXITY_MESSAGE =
             "Password must include at least " + MIN_CHARACTER_CLASSES
                     + " of: uppercase letter, lowercase letter, number, special character";
+
+    /** True if the password contains a space anywhere — leading, trailing, or between characters. */
+    public static boolean containsSpace(String password) {
+        return password.indexOf(' ') >= 0;
+    }
 
     /** Character-class score used by both the complexity check and the frontend strength meter. */
     public static int characterClassScore(String password) {

@@ -20,12 +20,16 @@ export interface EmployeeRecord {
   fullName: string;
   email: string;
   role: string;
+  businessUnitId: string | null;
+  businessUnitName: string | null;
   departmentId: string | null;
   departmentName: string | null;
   designationId: string | null;
   designationName: string | null;
   locationId: string | null;
   locationName: string | null;
+  shiftId: string | null;
+  shiftName: string | null;
   employmentType: string;
   workMode: string;
   joiningDate: string;
@@ -38,22 +42,32 @@ export interface CreateEmployeePayload {
   fullName: string;
   email: string;
   employeeCode?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
   joiningDate: string;
   managerId?: string;
+  /** Admin-only. IANA zone id, e.g. "Asia/Kolkata"; omit/blank to leave unset (falls back to Location, then the org default). */
+  timezone?: string;
 }
 
 export interface UpdateEmployeePayload {
   fullName?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
+  /** Required (true) to change department/designation/employmentType on a deactivated employee. */
+  confirmInactiveEdit?: boolean;
+  /** Admin-only. null/omit = leave unchanged; "" = clear it; else = set it. */
+  timezone?: string;
 }
 
 export interface CreateUserPayload extends CreateEmployeePayload {
@@ -63,12 +77,18 @@ export interface CreateUserPayload extends CreateEmployeePayload {
 export interface UpdateUserPayload {
   fullName?: string;
   role?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
+  shiftId?: string;
   employmentType?: string;
   workMode?: string;
   managerId?: string;
+  /** Required (true) to change role/manager/department/designation/employmentType on a deactivated user. */
+  confirmInactiveEdit?: boolean;
+  /** Admin-only (this endpoint is Super-Admin-only). null/omit = leave unchanged; "" = clear it; else = set it. */
+  timezone?: string;
 }
 
 export interface UpdateJoiningDatePayload {
@@ -77,6 +97,8 @@ export interface UpdateJoiningDatePayload {
 }
 
 export interface ResetPasswordResult { tempPassword: string; message: string; }
+
+export interface EmployeeCodePreview { employeeCode: string; }
 
 export const employeesApi = {
   list: (token: string) =>
@@ -90,6 +112,11 @@ export const employeesApi = {
 
   potentialManagers: (token: string) =>
     fetch(`${BASE}/employees/potential-managers`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),
+
+  // Read-only preview of the Employee ID the Add Employee/User form should display — does NOT
+  // reserve or consume the ID. See EmployeeCodeGenerator#preview on the backend.
+  previewNextCode: (token: string) =>
+    fetch(`${BASE}/employees/next-code`, { headers: authHeaders(token) }).then(handle<EmployeeCodePreview>),
 };
 
 export const usersApi = {

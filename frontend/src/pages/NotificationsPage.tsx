@@ -23,6 +23,7 @@ interface NotifMeta {
 }
 
 const META_BY_TYPE: Record<string, NotifMeta> = {
+  LEAVE_REQUEST_SUBMITTED:           { icon: <CalendarDays size={15} />, color: 'var(--warn)',    bg: 'rgba(224,169,59,.12)' },
   LEAVE_APPROVED:                    { icon: <CalendarDays size={15} />, color: 'var(--ok)',      bg: 'rgba(47,182,124,.12)' },
   LEAVE_REJECTED:                    { icon: <XCircle size={15} />,      color: 'var(--risk)',    bg: 'rgba(228,55,61,.12)'  },
   ATTENDANCE:                        { icon: <ClipboardCheck size={15}/>, color: 'var(--warn)',   bg: 'rgba(224,169,59,.12)' },
@@ -231,7 +232,7 @@ function NotifRow({
           </span>
           <span style={{
             fontSize: 10, color: 'var(--txt-dim)', flexShrink: 0,
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: 'Inter, sans-serif',
           }}>
             {timeAgo(n.createdAt)}
           </span>
@@ -324,7 +325,7 @@ function DetailPane({ n, navigate }: { n: NotificationItem | null; navigate: Ret
       </div>
 
       <h2 style={{
-        fontFamily: '"Space Grotesk", sans-serif',
+        fontFamily: 'Inter, sans-serif',
         fontSize: 19, fontWeight: 700, color: 'var(--txt)',
         margin: '0 0 6px', lineHeight: 1.35, overflowWrap: 'break-word',
       }}>
@@ -475,7 +476,7 @@ export default function NotificationsPage() {
       <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{
-            fontFamily: '"Space Grotesk", sans-serif',
+            fontFamily: 'Inter, sans-serif',
             fontSize: 22, fontWeight: 700, color: 'var(--txt)',
             margin: '0 0 4px', letterSpacing: '-0.01em',
             display: 'flex', alignItems: 'center', gap: 10,

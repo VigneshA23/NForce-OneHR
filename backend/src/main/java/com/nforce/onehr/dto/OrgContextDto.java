@@ -25,6 +25,7 @@ public class OrgContextDto {
         @JsonProperty("isFocus")
         private boolean isFocus;
         private boolean active;
+        private String primaryRole;
     }
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor

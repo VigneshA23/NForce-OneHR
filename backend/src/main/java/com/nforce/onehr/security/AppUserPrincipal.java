@@ -20,15 +20,18 @@ public class AppUserPrincipal implements UserDetails {
     private final String email;
     private final String passwordHash;
     private final int tokenVersion;
+    private final String tokenVersionReason;
     private final boolean disabled;
     private final Collection<? extends GrantedAuthority> authorities;
 
     public AppUserPrincipal(UUID userId, String email, String passwordHash, int tokenVersion,
-                             boolean disabled, Collection<? extends GrantedAuthority> authorities) {
+                             String tokenVersionReason, boolean disabled,
+                             Collection<? extends GrantedAuthority> authorities) {
         this.userId = userId;
         this.email = email;
         this.passwordHash = passwordHash;
         this.tokenVersion = tokenVersion;
+        this.tokenVersionReason = tokenVersionReason;
         this.disabled = disabled;
         this.authorities = authorities;
     }

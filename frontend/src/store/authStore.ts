@@ -6,6 +6,11 @@ export interface AuthUser {
   fullName?: string;
   mustChangePassword: boolean;
   role?: string; // DB enum e.g. SUPER_ADMIN, HR_ADMIN, EMPLOYEE
+  // Base64 data URL of the user's uploaded profile photo (see ProfileService#uploadPhoto),
+  // or null/undefined if they haven't uploaded one. Kept here (rather than only in
+  // ProfilePage's local state) so the Shell topbar/sidebar avatars can reflect it too —
+  // see Shell.tsx's profile-sync effect and ProfilePage.tsx's handlePhotoChange.
+  photoDataUrl?: string | null;
 }
 
 interface AuthState {

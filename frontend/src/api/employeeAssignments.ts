@@ -18,8 +18,11 @@ export interface EmployeeAssignmentRow {
   fullName: string;
   departmentName: string | null;
   locationName: string | null;
+  employeeTimezone: string | null;
   shiftId: string | null;
   shiftName: string | null;
+  shiftStartTime: string | null;
+  shiftEndTime: string | null;
   weeklyOffPolicyId: string | null;
   weeklyOffPolicyName: string | null;
   penalisationPolicyId: string | null;

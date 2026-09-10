@@ -1,6 +1,8 @@
 package com.nforce.onehr.repository;
 
 import com.nforce.onehr.entity.HelpdeskTicket;
+import com.nforce.onehr.entity.User;
+import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.Collection;
@@ -19,6 +21,18 @@ public final class HelpdeskTicketSpecifications {
 
     public static Specification<HelpdeskTicket> employeeIs(UUID employeeUserId) {
         return (root, query, cb) -> cb.equal(root.get("employeeUserId"), employeeUserId);
+    }
+
+    // Excludes tickets filed by a since-soft-deleted requester, for the HR-wide queue (listQueue)
+    // — employeeUserId is a plain UUID column here (no @ManyToOne to User, same as elsewhere in
+    // this codebase), so this uses a subquery instead of a join.
+    public static Specification<HelpdeskTicket> requesterNotDeleted() {
+        return (root, query, cb) -> {
+            Subquery<UUID> activeUserIds = query.subquery(UUID.class);
+            var u = activeUserIds.from(User.class);
+            activeUserIds.select(u.get("id")).where(cb.isNull(u.get("deletedAt")));
+            return root.get("employeeUserId").in(activeUserIds);
+        };
     }
 
     public static Specification<HelpdeskTicket> statusIs(String status) {

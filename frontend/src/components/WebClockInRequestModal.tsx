@@ -1,33 +1,57 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 
+// Backend LocalDateTime strings are naive wall-clock digits already in the record's own
+// resolved zone (browser-reported at Web Clock-In, see AttendanceService.resolveZone) — there is
+// nothing left to convert. Parsing with 'Z' and formatting with timeZone: 'UTC' reads those
+// digits back out verbatim, regardless of the viewer's own browser timezone — mirrors
+// AttendanceHeroBanner's formatClockTime.
+function formatClockTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso + 'Z');
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
+}
+
 /**
  * Web Clock-In Request (Keka reference): a comment explaining the remote check-in, Cancel and
- * Confirm. Self-approved the moment it's submitted — no manager approval step, see
- * WebClockInService.submit. Shared by DashboardPage and AttendancePage's own Web Check-In action.
+ * Confirm. The attendance effect is immediate — worked time starts counting the moment this is
+ * confirmed — but the request itself starts PENDING and is routed to HR/the employee's manager
+ * for a real approve/reject decision, see WebClockInService.submit. Shared by DashboardPage and
+ * AttendancePage's own Web Check-In action.
  */
 export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy guard, checked/set BEFORE any state update or re-render — the
+  // `disabled` attribute alone only blocks a real click once React has committed it, which
+  // isn't guaranteed to happen before a second click (rapid double-click, a slow/blocked main
+  // thread, or a directly-invoked handler) reaches this function. A ref mutation is visible to
+  // the very next invocation immediately, with no render/paint dependency at all.
+  const inFlightRef = useRef(false);
 
   async function handleSubmit() {
+    if (inFlightRef.current) return;
     const trimmed = reason.trim();
     if (!trimmed) {
       showToast('error', 'Please enter a comment for the web clock-in request');
       return;
     }
+    inFlightRef.current = true;
     setSubmitting(true);
     try {
       const created = await webClockInApi.submit(trimmed, token);
-      showToast('success', 'Checked in remotely');
+      const at = formatClockTime(created.requestedCheckIn);
+      showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
       onSubmitted(created);
       onClose();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to submit check-in');
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   }
@@ -35,7 +59,7 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
           Web Clock-In Request
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>

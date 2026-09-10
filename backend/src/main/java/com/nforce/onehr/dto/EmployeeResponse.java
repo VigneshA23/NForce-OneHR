@@ -13,12 +13,16 @@ public class EmployeeResponse {
     private String fullName;
     private String email;
     private String role;
+    private String businessUnitId;
+    private String businessUnitName;
     private String departmentId;
     private String departmentName;
     private String designationId;
     private String designationName;
     private String locationId;
     private String locationName;
+    private String shiftId;
+    private String shiftName;
     private String employmentType;
     private String workMode;
     private LocalDate joiningDate;

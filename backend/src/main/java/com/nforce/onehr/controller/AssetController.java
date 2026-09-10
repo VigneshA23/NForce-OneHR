@@ -78,6 +78,14 @@ public class AssetController {
         return assetService.listAllAssets(principal.getName());
     }
 
+    // Lightweight count for callers (e.g. the admin dashboard's asset count tile) that don't
+    // need per-asset category/location/assignee details — avoids paying for listAllAssets's
+    // full hydration just to read a count.
+    @GetMapping("/count")
+    public Map<String, Long> countAssets(Principal principal) {
+        return Map.of("count", assetService.countAssets(principal.getName()));
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public AssetResponse createAsset(@Valid @RequestBody CreateAssetRequest req, Principal principal) {

@@ -29,8 +29,10 @@ public class CreateUserRequest {
     private String role;
 
     private String employeeCode;
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
+    private UUID shiftId;
 
     @NotNull
     private UUID locationId;
@@ -42,4 +44,7 @@ public class CreateUserRequest {
     private LocalDate joiningDate;
 
     private UUID managerId;
+
+    // Deliberately NO timezone field — see CreateEmployeeRequest's identical comment. locationId
+    // above (mandatory here) is the only timezone-relevant input.
 }

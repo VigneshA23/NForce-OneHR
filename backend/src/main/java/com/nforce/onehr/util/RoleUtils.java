@@ -4,8 +4,11 @@ import com.nforce.onehr.entity.Role;
 
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Resolves the single "primary" / displayed role for a user who may hold multiple {@link Role}s
@@ -37,5 +40,33 @@ public final class RoleUtils {
     private static int rank(String code) {
         int i = PRIORITY_ORDER.indexOf(code);
         return i >= 0 ? i : PRIORITY_ORDER.size();
+    }
+
+    // Help & Guidance audience buckets: the same 4-value collapse the frontend's toShellRole()/
+    // nav.config.ts already uses (HR_ADMIN -> HR, SUPER_ADMIN -> ADMIN), not a second hierarchy.
+    // LEADERSHIP/FINANCE/DELIVERY intentionally have no bucket of their own here — same as nav,
+    // they fold into EMPLOYEE, which rolesFor() already grants every non-EMPLOYEE role holder.
+    private static final Map<String, String> AUDIENCE_BUCKET = Map.of(
+            "EMPLOYEE", "EMPLOYEE",
+            "MANAGER", "MANAGER",
+            "HR_ADMIN", "HR",
+            "SUPER_ADMIN", "ADMIN");
+
+    /**
+     * A viewer's Help & Guidance audience bucket set, derived from every Role they actually
+     * hold (not just their single "primary" role — see the class doc above). Because
+     * {@code UserManagementService#rolesFor} already grants every Manager/HR Admin/Super Admin
+     * the base EMPLOYEE role too, a Manager's bucket set comes out to {EMPLOYEE, MANAGER}
+     * without any extra hierarchy logic here — they see Manager-tagged content and general
+     * Employee-tagged content, exactly because they hold both roles for real.
+     */
+    public static Set<String> audienceBuckets(Collection<Role> roles) {
+        if (roles == null) return Set.of();
+        Set<String> buckets = new HashSet<>();
+        for (Role r : roles) {
+            String bucket = AUDIENCE_BUCKET.get(r.getCode());
+            if (bucket != null) buckets.add(bucket);
+        }
+        return buckets;
     }
 }

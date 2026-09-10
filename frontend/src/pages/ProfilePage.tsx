@@ -1,28 +1,42 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Lock, Shield } from 'lucide-react';
+import { Camera, Lock, Shield, X } from 'lucide-react';
 import { profileApi, type ProfileData, type UpdateProfilePayload } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { invalidateEmployeePhoto } from '../components/EmployeeAvatar';
 
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
 // Rejects: multiple/misplaced '@', missing local or domain part, spaces, consecutive dots in
 // the domain, and trailing junk after the TLD. A syntactically well-formed but non-existent
-// TLD (e.g. "gmail.comabc") cannot be distinguished from a real one by format alone — that
-// would require checking against a live public-suffix list, out of scope for format validation.
+// TLD (e.g. "gmail.comabc") is otherwise indistinguishable from a real one by format alone —
+// see the explicit ".com" check in validateEmail below for the one case called out by name.
 const EMAIL_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+// Once the TLD starts with "com", nothing may follow it (blocks "gmail.comabc" while still
+// allowing "gmail.com" itself) — a deliberate special case for the specific reported input,
+// not a general TLD whitelist.
+const TLD_COM_WITH_TRAILING_CHARS_RE = /^com.+/i;
 // Letters only, with a single space/hyphen/apostrophe/period allowed between word groups
 // (e.g. "Mary Jane", "O'Brien", "Anne-Marie") — no digits, no leading/trailing/consecutive
 // separators, no other symbols.
 const NAME_RE = /^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$/;
 const digitsOnly = (v: string) => v.replace(/\D/g, '');
 const nameCharsOnly = (v: string) => v.replace(/[^A-Za-z '.-]/g, '');
+// Strips emoji/pictographs (plus the variation-selector and zero-width-joiner marks used to
+// combine them, e.g. skin-tone modifiers, flag sequences) from free-text fields like Address —
+// unlike Name, Address needs to stay open to digits/punctuation/most Unicode text, so this only
+// removes emoji specifically rather than restricting to an allow-list.
+const EMOJI_RE = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u{1F1E6}-\u{1F1FF}]|[\u200D\uFE0F]/gu;
+const stripEmoji = (v: string) => v.replace(EMOJI_RE, '');
 
 function validateEmail(v: string): string | null {
   if (!v) return null;
-  return EMAIL_RE.test(v) ? null : 'Enter a valid email address (e.g. name@example.com).';
+  if (!EMAIL_RE.test(v)) return 'Enter a valid email address (e.g. name@example.com).';
+  const tld = v.slice(v.lastIndexOf('.') + 1);
+  if (TLD_COM_WITH_TRAILING_CHARS_RE.test(tld)) return 'Enter a valid email address (e.g. name@example.com).';
+  return null;
 }
 
 function validatePhone(v: string, label: string): string | null {
@@ -45,7 +59,7 @@ const ROLE_LABELS: Record<string, string> = {
 function SectionHeader({ title, badge }: { title: string; badge?: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-      <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+      <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '.06em' }}>
         {title}
       </h2>
       {badge && (
@@ -114,8 +128,101 @@ function PhoneField({ label, value, onChange, placeholder, error }: {
   );
 }
 
+// Profile photo popup — expands the avatar into a preview with Remove/Edit actions below it.
+// Every size (dialog width/padding, the enlarged photo, button type) scales continuously with
+// `clamp()` driven by `vw`, with no max-width media query gating it, so it resizes smoothly at
+// every viewport width — phone through ultrawide desktop — rather than jumping between a
+// handful of fixed breakpoint sizes.
+function PhotoModal({ photoDataUrl, initials, uploading, removing, onEditClick, onRemove, onClose }: {
+  photoDataUrl: string | null;
+  initials: string;
+  uploading: boolean;
+  removing: boolean;
+  onEditClick: () => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const busy = uploading || removing;
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: 'clamp(16px, 4vw, 40px)' }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'clamp(10px, 1.4vw, 16px)',
+          padding: 'clamp(20px, 3.4vw, 32px)', display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: 'clamp(14px, 2.4vw, 22px)', width: 'clamp(240px, 34vw, 420px)', maxWidth: '92vw',
+          boxShadow: '0 24px 64px rgba(0,0,0,.55)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <span style={{ fontSize: 'clamp(13px, 1.4vw, 15px)', fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
+            Profile Photo
+          </span>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {photoDataUrl ? (
+          <img
+            src={photoDataUrl}
+            alt="Profile"
+            style={{
+              width: 'clamp(140px, 24vw, 280px)', height: 'clamp(140px, 24vw, 280px)',
+              borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--line2)',
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 'clamp(140px, 24vw, 280px)', height: 'clamp(140px, 24vw, 280px)', borderRadius: '50%',
+              background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff',
+              fontSize: 'clamp(32px, 6vw, 64px)', fontWeight: 700, border: '3px solid rgba(177,17,22,.4)',
+            }}
+          >
+            {initials}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 'clamp(8px, 1.4vw, 12px)', width: '100%' }}>
+          {photoDataUrl && (
+            <button
+              onClick={onRemove}
+              disabled={busy}
+              style={{
+                flex: 1, padding: 'clamp(8px, 1.4vw, 10px) clamp(10px, 2vw, 16px)', background: 'var(--raised)',
+                border: '1px solid var(--line2)', borderRadius: 7, fontSize: 'clamp(12px, 1.3vw, 13.5px)',
+                fontWeight: 600, color: 'var(--risk)', cursor: busy ? 'not-allowed' : 'pointer',
+                opacity: busy ? .7 : 1,
+              }}
+            >
+              {removing ? 'Removing…' : 'Remove'}
+            </button>
+          )}
+          <button
+            onClick={onEditClick}
+            disabled={busy}
+            style={{
+              flex: 1, padding: 'clamp(8px, 1.4vw, 10px) clamp(10px, 2vw, 16px)', background: 'var(--brand)',
+              border: 'none', borderRadius: 7, fontSize: 'clamp(12px, 1.3vw, 13.5px)', fontWeight: 600,
+              color: '#fff', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? .7 : 1,
+            }}
+          >
+            {uploading ? 'Uploading…' : 'Edit'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
-  const token    = useAuthStore(s => s.token) ?? '';
+  const token     = useAuthStore(s => s.token) ?? '';
+  const storeUser = useAuthStore(s => s.user);
+  const setAuth   = useAuthStore(s => s.setAuth);
   const navigate = useNavigate();
   const { showToast } = useToast();
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +232,8 @@ export default function ProfilePage() {
   const [editing, setEditing]   = useState(false);
   const [saving, setSaving]     = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [form, setForm]         = useState<UpdateProfilePayload>({});
 
   const errors = {
@@ -137,9 +246,17 @@ export default function ProfilePage() {
 
   useEffect(() => {
     profileApi.get(token)
-      .then(p => { setProfile(p); setForm(toForm(p)); })
+      .then(p => {
+        setProfile(p);
+        setForm(toForm(p));
+        // Keep the shared auth store's photo in sync in case it's stale/missing here too.
+        if (storeUser && storeUser.photoDataUrl !== p.photoDataUrl) {
+          setAuth(token, { ...storeUser, photoDataUrl: p.photoDataUrl });
+        }
+      })
       .catch(() => showToast('error', 'Failed to load profile'))
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   function toForm(p: ProfileData): UpdateProfilePayload {
@@ -205,12 +322,37 @@ export default function ProfilePage() {
     try {
       const updated = await profileApi.uploadPhoto(token, file);
       setProfile(updated);
+      // Push the new photo into the shared auth store so the Shell topbar/sidebar
+      // avatars (which read storeUser.photoDataUrl) update immediately, instead of
+      // the photo only ever showing up here on this page.
+      if (storeUser) setAuth(token, { ...storeUser, photoDataUrl: updated.photoDataUrl });
+      // Every other avatar for this person (directory, org chart, team lists, search — anywhere
+      // else in the app) resolves the photo via a session-cached fetch keyed by userId; drop
+      // that cache entry so those spots pick up the new photo instead of showing the old one.
+      invalidateEmployeePhoto(updated.userId);
       showToast('success', 'Photo updated');
+      setShowPhotoModal(false);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
       if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  }
+
+  async function handleRemovePhoto() {
+    setRemoving(true);
+    try {
+      const updated = await profileApi.removePhoto(token);
+      setProfile(updated);
+      if (storeUser) setAuth(token, { ...storeUser, photoDataUrl: updated.photoDataUrl });
+      invalidateEmployeePhoto(updated.userId);
+      showToast('success', 'Photo removed');
+      setShowPhotoModal(false);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Remove failed');
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -237,53 +379,61 @@ export default function ProfilePage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 900 }}>
       {/* Page header */}
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>My Profile</h1>
+        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Profile</h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>View and update your personal information.</p>
       </div>
 
       {/* Avatar + identity card */}
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 20 }}>
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          {profile.photoDataUrl ? (
-            <img src={profile.photoDataUrl} alt="Profile" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--line2)' }} />
-          ) : (
-            <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 22, fontWeight: 700, border: '2px solid rgba(177,17,22,.4)' }}>
-              {initials}
-            </div>
-          )}
-          {profile.hasEmployeeRecord && (
-            <>
-              <button
-                onClick={() => photoInputRef.current?.click()}
-                disabled={uploading}
-                aria-label="Change photo"
-                style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
-              >
-                <Camera size={11} color="#fff" aria-hidden />
-              </button>
-              <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
-            </>
-          )}
-        </div>
+      <div className="nf-profile-header" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div className="nf-profile-top" style={{ display: 'flex', alignItems: 'center', gap: 20, flex: 1, minWidth: 0 }}>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => { if (profile.hasEmployeeRecord) setShowPhotoModal(true); }}
+              aria-label={profile.hasEmployeeRecord ? 'View profile photo' : 'Profile photo'}
+              style={{ padding: 0, border: 'none', background: 'none', cursor: profile.hasEmployeeRecord ? 'pointer' : 'default', display: 'block', borderRadius: '50%' }}
+            >
+              {profile.photoDataUrl ? (
+                <img src={profile.photoDataUrl} alt="Profile" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--line2)' }} />
+              ) : (
+                <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 22, fontWeight: 700, border: '2px solid rgba(177,17,22,.4)' }}>
+                  {initials}
+                </div>
+              )}
+            </button>
+            {profile.hasEmployeeRecord && (
+              <>
+                <button
+                  onClick={() => setShowPhotoModal(true)}
+                  aria-label="Change photo"
+                  style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
+                >
+                  <Camera size={11} color="#fff" aria-hidden />
+                </button>
+                <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+              </>
+            )}
+          </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 3 }}>{profile.fullName}</div>
-          <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{profile.email}</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(177,17,22,.18)', color: '#e4373d' }}>
-              {ROLE_LABELS[profile.role] ?? profile.role}
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(47,182,124,.15)', color: 'var(--ok)' }}>
-              {profile.active ? 'Active' : 'Inactive'}
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: 'rgba(107,114,128,.15)', color: 'var(--txt-dim)' }}>
-              {profile.employeeCode}
-            </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{profile.fullName}</div>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{profile.email}</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(177,17,22,.18)', color: '#e4373d' }}>
+                {ROLE_LABELS[profile.role] ?? profile.role}
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(47,182,124,.15)', color: 'var(--ok)' }}>
+                {profile.active ? 'Active' : 'Inactive'}
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: 'rgba(107,114,128,.15)', color: 'var(--txt-dim)' }}>
+                {profile.employeeCode}
+              </span>
+            </div>
           </div>
         </div>
 
         {profile.hasEmployeeRecord && (
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="nf-profile-actions" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             {editing ? (
               <>
                 <button onClick={() => { setEditing(false); setForm(toForm(profile)); }}
@@ -323,7 +473,7 @@ export default function ProfilePage() {
               <EditField label="Personal Email" value={field('personalEmail')} onChange={set('personalEmail')} type="email" placeholder="personal@email.com" error={errors.personalEmail} />
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>Address</label>
-                <textarea value={field('address')} onChange={e => set('address')(e.target.value)}
+                <textarea value={field('address')} onChange={e => set('address')(stripEmoji(e.target.value))}
                   placeholder="Your address…" rows={3}
                   style={{ ...INPUT_STYLE, resize: 'vertical', fontFamily: 'inherit' }} />
               </div>
@@ -406,6 +556,18 @@ export default function ProfilePage() {
           </span>
         </div>
       </div>
+
+      {showPhotoModal && profile.hasEmployeeRecord && (
+        <PhotoModal
+          photoDataUrl={profile.photoDataUrl}
+          initials={initials}
+          uploading={uploading}
+          removing={removing}
+          onEditClick={() => photoInputRef.current?.click()}
+          onRemove={handleRemovePhoto}
+          onClose={() => setShowPhotoModal(false)}
+        />
+      )}
     </div>
   );
 }

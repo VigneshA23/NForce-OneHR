@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  BookOpen, CheckCircle2, ChevronDown, FileText, FolderOpen, HelpCircle, Paperclip,
-  Plus, Search, Send, X,
+  Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
+  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -24,8 +24,8 @@ import {
   type HelpContentType,
 } from '../api/helpContent';
 import { ContentFormModal, StatusChip, ConfirmModal } from '../components/helpContent/ContentFormModal';
+import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
-import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -40,7 +40,7 @@ const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
@@ -73,12 +73,12 @@ function fmtDateTime(s?: string | null) {
 
 // ── Contact HR Support modal (ticket creation) — unchanged ─
 
-function ContactHRModal({ categories, token, onClose, onCreated }: {
-  categories: HelpdeskCategory[]; token: string; onClose: () => void; onCreated: () => void;
+function ContactHRModal({ categories, token, initialDescription, onClose, onCreated }: {
+  categories: HelpdeskCategory[]; token: string; initialDescription?: string; onClose: () => void; onCreated: () => void;
 }) {
   const { showToast } = useToast();
   const [categoryId, setCategoryId] = useState<number | ''>(categories[0]?.id ?? '');
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(initialDescription ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<TicketDetail | null>(null);
@@ -107,7 +107,7 @@ function ContactHRModal({ categories, token, onClose, onCreated }: {
           <ModalHeader title="Contact HR Support" onClose={onClose} />
           <div style={{ padding: '32px 24px', textAlign: 'center' }}>
             <CheckCircle2 size={40} style={{ color: 'var(--ok)', marginBottom: 12 }} />
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>
               Request Submitted
             </div>
             <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 18 }}>
@@ -116,7 +116,7 @@ function ContactHRModal({ categories, token, onClose, onCreated }: {
             <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ textAlign: 'left' }}>
                 <div style={labelStyle}>Ticket Number</div>
-                <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{created.ticketNumber}</div>
+                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{created.ticketNumber}</div>
               </div>
               <StatusBadge status={created.status} />
             </div>
@@ -251,8 +251,8 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
           <div>
-            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
           </div>
           <StatusBadge status={ticket.status} />
         </div>
@@ -297,7 +297,7 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
             value={message}
             onChange={e => setMessage(e.target.value)}
           />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
               <Paperclip size={13} />
               {attachment ? attachment.name : 'Attach a file'}
@@ -360,72 +360,134 @@ interface ContentAdminActions {
   onDelete: (item: HelpContentSummary) => void;
 }
 
+/** One icon-only action button, rendered inline in AdminItemControls (no ⋮ menu — every action is always visible). */
+interface ActionButtonItem {
+  label: string;
+  icon: LucideIcon;
+  onClick: () => void;
+  danger?: boolean;
+  dividerBefore?: boolean;
+}
+
 /**
  * Action availability per status — mirrors HelpContentService's ARCHIVABLE_STATUSES /
  * DELETABLE_STATUSES / PUBLISHABLE_STATUSES. A DRAFT hasn't been through approval yet, so
  * there's nothing worth retaining via Archive (Delete only); every other status except the
  * locked PENDING_APPROVAL may be permanently deleted.
  */
-function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions): KebabItem[] {
-  const { onEdit, onView, onSubmit, onWithdraw, onPublish, onUnpublish, onArchive, onRestore, onDelete } = actions;
+function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions): ActionButtonItem[] {
+  const { onEdit, onView, onSubmit, onWithdraw, onUnpublish, onArchive, onRestore, onDelete } = actions;
   switch (item.status) {
     case 'DRAFT':
       return [
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Submit for Approval', onClick: () => onSubmit(item) },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true, dividerBefore: true },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item) },
+        { label: 'Submit for Approval', icon: Send, onClick: () => onSubmit(item) },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true, dividerBefore: true },
       ];
     case 'PENDING_APPROVAL':
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Withdraw', onClick: () => onWithdraw(item), dividerBefore: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Withdraw', icon: Undo2, onClick: () => onWithdraw(item), dividerBefore: true },
       ];
     case 'APPROVED':
+      // Publish is deliberately not in this menu — see the dedicated button in
+      // AdminItemControls, which is the primary (only) way to publish now.
       return [
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Publish', onClick: () => onPublish(item) },
-        { label: 'Archive', onClick: () => onArchive(item), dividerBefore: true },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item) },
+        { label: 'Archive', icon: Archive, onClick: () => onArchive(item), dividerBefore: true },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
     case 'PUBLISHED':
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Unpublish', onClick: () => onUnpublish(item), dividerBefore: true },
-        { label: 'Archive', onClick: () => onArchive(item) },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item) },
+        { label: 'Unpublish', icon: EyeOff, onClick: () => onUnpublish(item), dividerBefore: true },
+        { label: 'Archive', icon: Archive, onClick: () => onArchive(item) },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
     case 'UNPUBLISHED':
+      // Publish is deliberately not in this menu — see the dedicated button in
+      // AdminItemControls, which is the primary (only) way to publish now.
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Edit', onClick: () => onEdit(item) },
-        { label: 'Publish', onClick: () => onPublish(item), dividerBefore: true },
-        { label: 'Archive', onClick: () => onArchive(item) },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Edit', icon: Pencil, onClick: () => onEdit(item), dividerBefore: true },
+        { label: 'Archive', icon: Archive, onClick: () => onArchive(item) },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
     default: // ARCHIVED
       return [
-        { label: 'View', onClick: () => onView(item) },
-        { label: 'Restore', onClick: () => onRestore(item), dividerBefore: true },
-        { label: 'Delete', onClick: () => onDelete(item), danger: true },
+        { label: 'View', icon: Eye, onClick: () => onView(item) },
+        { label: 'Restore', icon: ArchiveRestore, onClick: () => onRestore(item), dividerBefore: true },
+        { label: 'Delete', icon: Trash2, onClick: () => onDelete(item), danger: true },
       ];
   }
 }
 
 /**
- * Status chip + a kebab action menu, shown under an FAQ or Guide row, admins only. A portal-
- * based dropdown (not inline text links) so opening it never reflows the row — the trigger is a
- * fixed 30×30 button regardless of how many actions the current status has, which keeps FAQ and
- * Guide rows visually consistent and never shifts the page underneath an open menu.
+ * One icon-only action button next to Publish — same 30x30 footprint and hover convention as
+ * the ⋮ trigger it replaces, just without the trigger: every action for the current status is
+ * always visible, and the label only ever shows up as a hover tooltip (title/aria-label), the
+ * same convention already used for the Publish button itself.
+ */
+function ActionIconButton({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 30, height: 30, borderRadius: 6, cursor: 'pointer',
+        background: hovered ? (danger ? 'rgba(228,55,61,.08)' : 'var(--raised2)') : 'transparent',
+        border: `1px solid ${hovered ? (danger ? 'rgba(228,55,61,.2)' : 'var(--line2)') : 'transparent'}`,
+        color: danger ? '#E4373D' : (hovered ? 'var(--txt)' : 'var(--txt-mut)'),
+        transition: 'background .15s, border-color .15s, color .15s',
+      }}
+    >
+      <Icon size={14} />
+    </button>
+  );
+}
+
+/**
+ * Status chip + actions, shown under an FAQ or Guide row, admins only — right-aligned via
+ * space-between so the chip stays left and every action stays right, consistently for both FAQ
+ * and Guide rows (same shared component either way). No ⋮ menu — every action for the current
+ * status (including Publish) is always visible as its own icon button, so nothing is hidden
+ * behind a click. dividerBefore renders as a thin vertical rule, preserving the same grouping
+ * the old menu expressed with a horizontal divider (e.g. separating Delete from the safer
+ * actions before it).
  */
 function AdminItemControls({ item, actions, busy }: { item: HelpContentSummary; actions: ContentAdminActions; busy?: boolean }) {
+  const canPublish = item.status === 'APPROVED' || item.status === 'UNPUBLISHED';
+  const buttons = actionsForStatus(item, actions);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 30 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, height: 30 }}>
       <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />
       {busy ? (
         <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>Working…</span>
       ) : (
-        <KebabMenu items={actionsForStatus(item, actions)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {canPublish && (
+            <button
+              onClick={() => actions.onPublish(item)}
+              title="Publish"
+              aria-label="Publish"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+            >
+              <ArrowUp size={14} />
+            </button>
+          )}
+          {buttons.map(b => (
+            <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {b.dividerBefore && <span style={{ width: 1, height: 16, background: 'var(--line)', margin: '0 2px' }} />}
+              <ActionIconButton icon={b.icon} label={b.label} onClick={b.onClick} danger={b.danger} />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -475,7 +537,7 @@ function SectionHeader({ title, description, action }: { title: string; descript
   return (
     <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
       <div>
-        <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{title}</h2>
+        <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{title}</h2>
         {description && <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4, marginBottom: 0 }}>{description}</p>}
       </div>
       {action}
@@ -578,7 +640,7 @@ function GuideList({ items, onOpen, token, isAdmin, actions, busyIds }: {
 
 /** Full-content view for any content item — fetches its own detail and, if present, offers the shared attachment viewer. */
 function ContentModal({ id, token, onClose, onContactHR }: {
-  id: string; token: string; onClose: () => void; onContactHR: () => void;
+  id: string; token: string; onClose: () => void; onContactHR: (guideTitle: string) => void;
 }) {
   const [item, setItem] = useState<HelpContentDetail | null>(null);
   const [viewingAttachments, setViewingAttachments] = useState(false);
@@ -625,7 +687,7 @@ function ContentModal({ id, token, onClose, onContactHR }: {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-            <button onClick={onContactHR} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            <button onClick={() => onContactHR(item.title)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
               Still need help? Contact HR Support →
             </button>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
@@ -809,10 +871,18 @@ export default function HelpDeskPage() {
 
   const [categories, setCategories] = useState<HelpdeskCategory[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
+  // Seeded onto the Contact HR modal's description so HR sees what the employee was already
+  // looking at (a guide that didn't answer their question, or a search that came up empty)
+  // instead of starting the conversation from scratch.
+  const [contactPrefill, setContactPrefill] = useState('');
   const [activeContentId, setActiveContentId] = useState<string | null>(null);
   const [showAllFaqs, setShowAllFaqs] = useState(false);
   const [showAllGuides, setShowAllGuides] = useState(false);
   const [withdrawing, setWithdrawing] = useState<HelpContentSummary | null>(null);
+  // The Review & Publish modal — opened by the visible Publish button (AdminItemControls), not
+  // by the ⋮ menu. Holds the full detail (title/body/attachments/etc.) so the modal can show a
+  // complete read-only review before the publisher picks who sees it.
+  const [reviewingPublish, setReviewingPublish] = useState<HelpContentDetail | null>(null);
   // Ids currently mid-action (Submit/Publish/Archive/etc.) — drives the "Working…" state and
   // blocks a second click on the same row while its request is in flight.
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -915,6 +985,13 @@ export default function HelpDeskPage() {
     setFormOpen(true);
   }
 
+  /** "Edit" from the Review & Publish modal — already has the full detail, so no re-fetch. */
+  function openEditFromReview(detail: HelpContentDetail) {
+    setReviewingPublish(null);
+    setEditingContent(detail);
+    setFormOpen(true);
+  }
+
   function handleSubmitForApproval(item: HelpContentSummary) {
     setConfirmAction({
       title: 'Submit for Approval',
@@ -939,12 +1016,17 @@ export default function HelpDeskPage() {
     setWithdrawing(null);
   }
 
-  function handlePublish(item: HelpContentSummary) {
-    runAction(item.id, async () => {
-      const updated = await hrHelpContentApi.publish(item.id, token);
-      applyContentUpdate(updated);
-      showToast('success', 'Published');
-    }).catch(err => showToast('error', err instanceof Error ? err.message : 'Failed to publish'));
+  // Opens the Review & Publish modal — publishing itself happens from there (see
+  // reviewingPublish/handlePublished below), never as a direct one-click action.
+  async function handlePublish(item: HelpContentSummary) {
+    const detail = await hrHelpContentApi.getOne(item.id, token);
+    setReviewingPublish(detail);
+  }
+
+  function handlePublished(updated: HelpContentDetail) {
+    applyContentUpdate(updated);
+    setReviewingPublish(null);
+    refreshContent();
   }
 
   function handleUnpublish(item: HelpContentSummary) {
@@ -1023,8 +1105,15 @@ export default function HelpDeskPage() {
     return () => clearTimeout(handle);
   }, [contentSearch, token]);
 
-  function openContactFromModal() {
+  function openContactFromModal(guideTitle: string) {
     setActiveContentId(null);
+    setContactPrefill(`Regarding "${guideTitle}": this guide didn't answer my question. `);
+    setShowContactModal(true);
+  }
+
+  function openContactFromSearch() {
+    const q = contentSearch.trim();
+    setContactPrefill(q ? `Regarding my search for "${q}": ` : '');
     setShowContactModal(true);
   }
 
@@ -1032,7 +1121,7 @@ export default function HelpDeskPage() {
     return (
       <div>
         <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         </div>
         <TicketDetailView ticketId={selectedId} token={token} onBack={() => { setSelectedId(null); loadTickets(); }} onChanged={loadTickets} />
       </div>
@@ -1045,7 +1134,7 @@ export default function HelpDeskPage() {
     <div>
       {/* 1. Header */}
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
           Find an answer yourself, or reach HR directly — all from one place.
         </p>
@@ -1062,7 +1151,7 @@ export default function HelpDeskPage() {
             style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '11px 14px 11px 34px', color: 'var(--txt)', fontSize: 13.5, outline: 'none' }}
           />
         </div>
-        <button onClick={() => setShowContactModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '0 20px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <button onClick={() => { setContactPrefill(''); setShowContactModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '0 20px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           <HelpCircle size={15} /> Contact HR Support
         </button>
       </div>
@@ -1077,7 +1166,7 @@ export default function HelpDeskPage() {
           {!searching && searchResults.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 }}>
               No matches. Try different words, or{' '}
-              <button onClick={() => setShowContactModal(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', padding: 0, font: 'inherit' }}>contact HR</button>.
+              <button onClick={openContactFromSearch} style={{ background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', padding: 0, font: 'inherit' }}>contact HR</button>.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1199,7 +1288,7 @@ export default function HelpDeskPage() {
                 <tbody>
                   {visibleTickets.map(t => (
                     <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedId(t.id)}>
-                      <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
                       <td style={tdStyle}>{t.categoryName}</td>
                       <td style={tdStyle}><StatusBadge status={t.status} /></td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDateTime(t.updatedAt)}</td>
@@ -1224,7 +1313,8 @@ export default function HelpDeskPage() {
         <ContactHRModal
           categories={categories}
           token={token}
-          onClose={() => { setShowContactModal(false); loadTickets(0); }}
+          initialDescription={contactPrefill}
+          onClose={() => { setShowContactModal(false); setContactPrefill(''); loadTickets(0); }}
           onCreated={() => loadTickets(0)}
         />
       )}
@@ -1268,6 +1358,16 @@ export default function HelpDeskPage() {
           token={token}
           onClose={() => setFormOpen(false)}
           onSaved={refreshContent}
+        />
+      )}
+
+      {reviewingPublish && (
+        <ReviewPublishModal
+          item={reviewingPublish}
+          token={token}
+          onClose={() => setReviewingPublish(null)}
+          onEdit={openEditFromReview}
+          onPublished={handlePublished}
         />
       )}
 

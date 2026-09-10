@@ -7,6 +7,11 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AuditLogRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -48,6 +53,7 @@ public class AuditQueryService {
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final AuditTargetResolver targetResolver;
+    private final EntityManager entityManager;
 
     @Transactional(readOnly = true)
     public Page<AuditLogEntryDto> search(String targetSearch, String action,
@@ -93,7 +99,19 @@ public class AuditQueryService {
         }
 
         Specification<AuditLog> spec = baseSpec.get();
-        long totalCount = auditLogRepository.count(spec);
+
+        // Single grouped-aggregate query replaces what used to be 1 (total) + 1 (today) + up to 7
+        // (one per AuditActionGroup) sequential COUNT queries. AuditActionGroup.of(action) is a
+        // pure, deterministic function of the action string (prefix-based — see AuditActionGroup),
+        // so "count per action, bucketed into groups in memory" is exactly equivalent to "count per
+        // group via actionIn(group.knownActions())" — same predicate, same rows, same numbers.
+        // Summing all per-action counts also gives the same value as a separate count(spec) would,
+        // since the grouping query already applies the identical spec predicate.
+        Map<String, Long> countsByAction = countByAction(spec);
+        long totalCount = countsByAction.values().stream().mapToLong(Long::longValue).sum();
+
+        // "Today" has a different WHERE clause (date-bounded) so it still needs its own query —
+        // that's the one remaining round trip beyond the grouped query above.
         // Pinned to UTC, not the JVM default zone — occurredAt is now an unambiguous UTC Instant,
         // so the "today" boundary compared against it needs to be computed the same way.
         Instant startOfToday = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -102,9 +120,36 @@ public class AuditQueryService {
         Map<String, Long> byGroup = new LinkedHashMap<>();
         for (AuditActionGroup g : AuditActionGroup.values()) {
             if (g == AuditActionGroup.ACCESS && !isSuperAdmin) continue; // never surface an access-control count to HR Admin
-            byGroup.put(g.name(), auditLogRepository.count(spec.and(actionIn(g.knownActions()))));
+            long groupCount = 0L;
+            for (Map.Entry<String, Long> e : countsByAction.entrySet()) {
+                if (AuditActionGroup.of(e.getKey()) == g) groupCount += e.getValue();
+            }
+            byGroup.put(g.name(), groupCount);
         }
         return AuditLogStatsDto.builder().totalCount(totalCount).todayCount(todayCount).byGroup(byGroup).build();
+    }
+
+    /**
+     * One {@code SELECT action, COUNT(*) ... GROUP BY action} query, scoped by the same
+     * {@link Specification} predicate the rest of {@code stats()} uses, so results stay in sync
+     * with the row-level filters (actor scoping, target search, date range) automatically.
+     */
+    private Map<String, Long> countByAction(Specification<AuditLog> spec) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        Root<AuditLog> root = cq.from(AuditLog.class);
+        Predicate predicate = spec.toPredicate(root, cq, cb);
+        cq.multiselect(root.get("action"), cb.count(root));
+        if (predicate != null) {
+            cq.where(predicate);
+        }
+        cq.groupBy(root.get("action"));
+
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (Object[] row : entityManager.createQuery(cq).getResultList()) {
+            counts.put((String) row[0], (Long) row[1]);
+        }
+        return counts;
     }
 
     /**

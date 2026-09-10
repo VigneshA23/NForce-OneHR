@@ -4,25 +4,23 @@ import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, Chevro
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
+import { inactiveDimStyle } from '../components/EmployeeStatus';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 const PAGE_SIZE = 25;
 
 /* ── Helpers ──────────────────────────────────────── */
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
-function Avatar({ name, size = 34 }: { name: string; size?: number }) {
+function Avatar({ userId, name, size = 34 }: { userId: string; name: string; size?: number }) {
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'rgba(177,17,22,.18)', color: '#e4373d',
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.33, fontWeight: 700, flexShrink: 0,
-      fontFamily: '"Space Grotesk", sans-serif',
-    }}>
-      {initials(name)}
-    </div>
+    <EmployeeAvatar
+      userId={userId}
+      name={name}
+      size={size}
+      fontSize={size * 0.33}
+      background="rgba(177,17,22,.18)"
+      color="#e4373d"
+      style={{ fontFamily: 'Inter, sans-serif' }}
+    />
   );
 }
 
@@ -59,7 +57,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
       display: 'flex', flexDirection: 'column', overflowY: 'auto',
     }}>
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Employee Details
         </span>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 4, borderRadius: 6, display: 'grid', placeItems: 'center' }}>
@@ -68,9 +66,9 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
       </div>
       <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Avatar name={entry.fullName} size={52} />
+          <Avatar userId={entry.userId} name={entry.fullName} size={52} />
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{entry.designationName ?? '—'}</div>
             <StatusChip active={entry.active} />
           </div>
@@ -231,7 +229,7 @@ export default function DirectoryPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             People Directory
           </h1>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>
@@ -313,7 +311,6 @@ export default function DirectoryPage() {
                       <th style={thStyle('fullName')} onClick={() => handleSort('fullName')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Name <SortIcon col="fullName" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
-                      <th style={{ ...thStyle('fullName'), cursor: 'default', color: 'var(--txt-dim)' }}>Code</th>
                       <th style={thStyle('email')} onClick={() => handleSort('email')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Email <SortIcon col="email" sortKey={sortKey} dir={sortDir} /></div>
                       </th>
@@ -338,17 +335,19 @@ export default function DirectoryPage() {
                       <tr
                         key={e.userId}
                         onClick={() => setSelected(e)}
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'pointer', ...inactiveDimStyle(e.active) }}
                         onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--raised)'; }}
                         onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}
                       >
                         <td style={TD}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Avatar name={e.fullName} />
-                            <span style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</span>
+                            <Avatar userId={e.userId} name={e.fullName} />
+                            <div>
+                              <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</div>
+                              <div style={{ fontSize: 10, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 1 }}>{e.employeeCode}</div>
+                            </div>
                           </div>
                         </td>
-                        <td style={{ ...TD, color: 'var(--txt-mut)', fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5 }}>{e.employeeCode}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.email ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.departmentName ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--txt-mut)' }}>{e.designationName ?? '—'}</td>
@@ -364,11 +363,11 @@ export default function DirectoryPage() {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+                <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
                     Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
                   </span>
-                  <div style={{ display: 'flex', gap: 4 }}>
+                  <div className="nf-tab-scroll" style={{ display: 'flex', gap: 4, maxWidth: '100%' }}>
                     <button
                       disabled={page === 0}
                       onClick={() => setPage(p => p - 1)}

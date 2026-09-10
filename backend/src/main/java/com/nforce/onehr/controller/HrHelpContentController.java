@@ -3,6 +3,7 @@ package com.nforce.onehr.controller;
 import com.nforce.onehr.dto.helpcontent.CreateHelpContentRequest;
 import com.nforce.onehr.dto.helpcontent.HelpContentDetailDto;
 import com.nforce.onehr.dto.helpcontent.HelpContentSummaryDto;
+import com.nforce.onehr.dto.helpcontent.PublishRequest;
 import com.nforce.onehr.dto.helpcontent.ReorderAttachmentsRequest;
 import com.nforce.onehr.dto.helpcontent.UpdateHelpContentRequest;
 import com.nforce.onehr.dto.helpcontent.WithdrawRequest;
@@ -75,8 +76,8 @@ public class HrHelpContentController {
     }
 
     @PostMapping("/{id}/publish")
-    public HelpContentDetailDto publish(@PathVariable UUID id, Principal principal) {
-        return service.publish(id, principal.getName());
+    public HelpContentDetailDto publish(@PathVariable UUID id, @RequestBody PublishRequest req, Principal principal) {
+        return service.publish(id, req, principal.getName());
     }
 
     @PostMapping("/{id}/unpublish")

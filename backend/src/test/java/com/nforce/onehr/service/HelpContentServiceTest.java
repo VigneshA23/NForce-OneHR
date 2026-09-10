@@ -10,6 +10,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.multipart.MultipartFile;
@@ -38,6 +42,7 @@ class HelpContentServiceTest {
 
     @Mock private HelpContentRepository repo;
     @Mock private HelpContentAttachmentRepository attachmentRepo;
+    @Mock private HelpContentAudienceRepository audienceRepo;
     @Mock private HelpContentApprovalRepository approvalRepo;
     @Mock private HelpContentApprovalAttachmentRepository approvalAttachmentRepo;
     @Mock private EmployeeManagerHistoryRepository managerHistoryRepo;
@@ -65,6 +70,11 @@ class HelpContentServiceTest {
         lenient().when(employeeRepo.findById(any())).thenReturn(Optional.empty());
         lenient().when(userRepo.findById(employeeId)).thenReturn(Optional.of(employeeUser));
         lenient().when(userRepo.findById(hrAdminId)).thenReturn(Optional.of(hrAdminUser));
+        lenient().when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        lenient().when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        // No audience rows by default anywhere — "visible to everyone", same as this feature's
+        // pre-existing unfiltered behavior. Tests exercising audience targeting override this.
+        lenient().when(audienceRepo.findByContentId(any())).thenReturn(List.of());
         lenient().when(repo.save(any(HelpContent.class))).thenAnswer(inv -> {
             HelpContent c = inv.getArgument(0);
             if (c.getId() == null) c.setId(UUID.randomUUID());
@@ -72,6 +82,11 @@ class HelpContentServiceTest {
         });
         lenient().when(attachmentRepo.save(any(HelpContentAttachment.class))).thenAnswer(inv -> {
             HelpContentAttachment a = inv.getArgument(0);
+            if (a.getId() == null) a.setId(UUID.randomUUID());
+            return a;
+        });
+        lenient().when(audienceRepo.save(any(HelpContentAudience.class))).thenAnswer(inv -> {
+            HelpContentAudience a = inv.getArgument(0);
             if (a.getId() == null) a.setId(UUID.randomUUID());
             return a;
         });
@@ -85,6 +100,12 @@ class HelpContentServiceTest {
     private HelpContent faq() {
         return HelpContent.builder().id(UUID.randomUUID()).type(HelpContentType.FAQ.name())
                 .title("How do I apply for leave?").createdBy(hrAdminId).build(); // status defaults to DRAFT
+    }
+
+    private static PublishRequest publishRequest(String... audiences) {
+        PublishRequest req = new PublishRequest();
+        req.setAudience(audiences.length == 0 ? null : List.of(audiences));
+        return req;
     }
 
     private static String sha256(byte[] data) {
@@ -129,6 +150,41 @@ class HelpContentServiceTest {
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         CreateHelpContentRequest req = new CreateHelpContentRequest();
         req.setType("NOT_A_TYPE");
+        req.setTitle("x");
+
+        assertThrows(IllegalArgumentException.class, () -> service.create(req, hrAdminEmail));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void create_asHrAdmin_faqSucceeds() {
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        CreateHelpContentRequest req = new CreateHelpContentRequest();
+        req.setType("FAQ");
+        req.setTitle("How do I apply for leave?");
+
+        HelpContentDetailDto detail = service.create(req, hrAdminEmail);
+
+        assertEquals("FAQ", detail.getType());
+        assertEquals("DRAFT", detail.getStatus());
+    }
+
+    @Test
+    void create_withType_QUICK_HELP_isRejected() {
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        CreateHelpContentRequest req = new CreateHelpContentRequest();
+        req.setType("QUICK_HELP");
+        req.setTitle("x");
+
+        assertThrows(IllegalArgumentException.class, () -> service.create(req, hrAdminEmail));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void create_withType_DOCUMENT_isRejected() {
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        CreateHelpContentRequest req = new CreateHelpContentRequest();
+        req.setType("DOCUMENT");
         req.setTitle("x");
 
         assertThrows(IllegalArgumentException.class, () -> service.create(req, hrAdminEmail));
@@ -222,6 +278,20 @@ class HelpContentServiceTest {
     }
 
     // ── Pending approval is locked ───────────────────────────────
+
+    @Test
+    void update_neverChangesType() {
+        HelpContent content = faq(); // type = FAQ, status defaults to DRAFT
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        UpdateHelpContentRequest req = new UpdateHelpContentRequest(); // no type field exists on this DTO
+        req.setTitle("Updated title");
+
+        HelpContentDetailDto result = service.update(content.getId(), req, hrAdminEmail);
+
+        assertEquals("FAQ", result.getType());
+    }
 
     @Test
     void update_onPendingApprovalContent_isLocked() {
@@ -423,7 +493,7 @@ class HelpContentServiceTest {
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(repo.findById(content.getId())).thenReturn(Optional.of(content));
 
-        assertThrows(AccessDeniedException.class, () -> service.publish(content.getId(), hrAdminEmail));
+        assertThrows(AccessDeniedException.class, () -> service.publish(content.getId(), publishRequest("EMPLOYEE"), hrAdminEmail));
     }
 
     @Test
@@ -433,7 +503,7 @@ class HelpContentServiceTest {
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(repo.findById(content.getId())).thenReturn(Optional.of(content));
 
-        HelpContentDetailDto result = service.publish(content.getId(), hrAdminEmail);
+        HelpContentDetailDto result = service.publish(content.getId(), publishRequest("EMPLOYEE"), hrAdminEmail);
 
         assertEquals("PUBLISHED", result.getStatus());
     }
@@ -448,9 +518,87 @@ class HelpContentServiceTest {
         HelpContentDetailDto unpublished = service.unpublish(content.getId(), hrAdminEmail);
         assertEquals("UNPUBLISHED", unpublished.getStatus());
 
-        HelpContentDetailDto republished = service.publish(content.getId(), hrAdminEmail);
+        HelpContentDetailDto republished = service.publish(content.getId(), publishRequest("EMPLOYEE"), hrAdminEmail);
         assertEquals("PUBLISHED", republished.getStatus());
         verifyNoInteractions(approvalRepo);
+    }
+
+    // ── Publish audience targeting — chosen at publish time, not on the Add/Edit form ─────
+
+    @Test
+    void publish_withNoAudience_isRejected() {
+        HelpContent content = faq();
+        content.setStatus("APPROVED");
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        assertThrows(IllegalArgumentException.class, () -> service.publish(content.getId(), publishRequest(), hrAdminEmail));
+        verify(audienceRepo, never()).save(any());
+    }
+
+    @Test
+    void publish_withNullAudienceList_isRejected() {
+        HelpContent content = faq();
+        content.setStatus("APPROVED");
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        assertThrows(IllegalArgumentException.class, () -> service.publish(content.getId(), new PublishRequest(), hrAdminEmail));
+    }
+
+    @Test
+    void publish_withUnknownAudienceCode_isRejected() {
+        HelpContent content = faq();
+        content.setStatus("APPROVED");
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        assertThrows(IllegalArgumentException.class, () -> service.publish(content.getId(), publishRequest("SUPER_ADMIN"), hrAdminEmail));
+    }
+
+    @Test
+    void publish_withDefaultEmployeeOnly_persistsSingleTag() {
+        HelpContent content = faq();
+        content.setStatus("APPROVED");
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        service.publish(content.getId(), publishRequest("EMPLOYEE"), hrAdminEmail);
+
+        verify(audienceRepo).deleteByContentId(content.getId());
+        ArgumentCaptor<HelpContentAudience> captor = ArgumentCaptor.forClass(HelpContentAudience.class);
+        verify(audienceRepo, times(1)).save(captor.capture());
+        assertEquals("EMPLOYEE", captor.getValue().getAudience());
+    }
+
+    @Test
+    void publish_withMultipleAudiences_persistsAllSelectedTags() {
+        HelpContent content = faq();
+        content.setStatus("APPROVED");
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        service.publish(content.getId(), publishRequest("HR", "ADMIN"), hrAdminEmail);
+
+        ArgumentCaptor<HelpContentAudience> captor = ArgumentCaptor.forClass(HelpContentAudience.class);
+        verify(audienceRepo, times(2)).save(captor.capture());
+        Set<String> saved = captor.getAllValues().stream().map(HelpContentAudience::getAudience).collect(java.util.stream.Collectors.toSet());
+        assertEquals(Set.of("HR", "ADMIN"), saved);
+    }
+
+    @Test
+    void publish_replacesPreviousAudienceSelectionRatherThanMerging() {
+        HelpContent content = faq();
+        content.setStatus("UNPUBLISHED"); // previously published with some earlier selection
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        service.publish(content.getId(), publishRequest("MANAGER"), hrAdminEmail);
+
+        verify(audienceRepo).deleteByContentId(content.getId());
+        ArgumentCaptor<HelpContentAudience> captor = ArgumentCaptor.forClass(HelpContentAudience.class);
+        verify(audienceRepo, times(1)).save(captor.capture());
+        assertEquals("MANAGER", captor.getValue().getAudience());
     }
 
     @Test
@@ -467,7 +615,7 @@ class HelpContentServiceTest {
 
         assertEquals("DRAFT", result.getStatus());
         assertEquals(content.getId(), result.getId()); // in-place, no fork — nothing was employee-visible
-        assertThrows(AccessDeniedException.class, () -> service.publish(content.getId(), hrAdminEmail));
+        assertThrows(AccessDeniedException.class, () -> service.publish(content.getId(), publishRequest("EMPLOYEE"), hrAdminEmail));
     }
 
     @Test
@@ -515,7 +663,7 @@ class HelpContentServiceTest {
         when(repo.findById(revision.getId())).thenReturn(Optional.of(revision));
         when(repo.findById(original.getId())).thenReturn(Optional.of(original));
 
-        HelpContentDetailDto result = service.publish(revision.getId(), hrAdminEmail);
+        HelpContentDetailDto result = service.publish(revision.getId(), publishRequest("EMPLOYEE"), hrAdminEmail);
 
         assertEquals("PUBLISHED", result.getStatus());
         assertEquals("ARCHIVED", original.getStatus());
@@ -530,7 +678,7 @@ class HelpContentServiceTest {
 
         service.archive(content.getId(), hrAdminEmail);
 
-        assertThrows(NoSuchElementException.class, () -> service.getPublished(content.getId()));
+        assertThrows(NoSuchElementException.class, () -> service.getPublished(content.getId(), employeeEmail));
     }
 
     @Test
@@ -636,7 +784,7 @@ class HelpContentServiceTest {
         content.setStatus("APPROVED");
         when(repo.findById(content.getId())).thenReturn(Optional.of(content));
 
-        assertThrows(NoSuchElementException.class, () -> service.getPublished(content.getId()));
+        assertThrows(NoSuchElementException.class, () -> service.getPublished(content.getId(), employeeEmail));
     }
 
     @Test
@@ -645,9 +793,183 @@ class HelpContentServiceTest {
         content.setStatus("PUBLISHED");
         when(repo.findById(content.getId())).thenReturn(Optional.of(content));
 
-        HelpContentDetailDto detail = service.getPublished(content.getId());
+        HelpContentDetailDto detail = service.getPublished(content.getId(), employeeEmail);
 
         assertEquals(content.getTitle(), detail.getTitle());
+    }
+
+    @Test
+    void getPublished_untaggedContent_isVisibleToEveryone() {
+        HelpContent content = faq();
+        content.setStatus("PUBLISHED");
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+        // audienceRepo.findByContentId defaults to List.of() in setUp() — no tags at all.
+
+        assertDoesNotThrow(() -> service.getPublished(content.getId(), employeeEmail));
+    }
+
+    @Test
+    void getPublished_deniesViewerWhoseBucketDoesNotMatchAnyTag() {
+        HelpContent content = faq();
+        content.setStatus("PUBLISHED");
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+        when(audienceRepo.findByContentId(content.getId()))
+                .thenReturn(List.of(HelpContentAudience.builder().contentId(content.getId()).audience("MANAGER").build()));
+
+        assertThrows(NoSuchElementException.class, () -> service.getPublished(content.getId(), employeeEmail));
+    }
+
+    @Test
+    void getPublished_allowsManagerWhenTaggedManager() {
+        HelpContent content = faq();
+        content.setStatus("PUBLISHED");
+        UUID managerId = UUID.randomUUID();
+        String managerEmail = "manager@test.com";
+        // Distinct ids — Role's equals/hashCode is id-only (see RoleUtils's class doc), so two
+        // transient (unpersisted) Role instances would otherwise both be id=null and compare
+        // equal, making Set.of(...) throw "duplicate element" even though the codes differ.
+        User managerUser = User.builder().id(managerId).email(managerEmail).active(true)
+                .roles(Set.of(Role.builder().id(101).code("EMPLOYEE").build(), Role.builder().id(102).code("MANAGER").build())).build();
+        when(userRepo.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+        when(audienceRepo.findByContentId(content.getId()))
+                .thenReturn(List.of(HelpContentAudience.builder().contentId(content.getId()).audience("MANAGER").build()));
+
+        // A manager holds EMPLOYEE too (see UserManagementService#rolesFor), but this asserts
+        // the MANAGER-only tag is matched via the MANAGER role specifically, not a hierarchy.
+        assertDoesNotThrow(() -> service.getPublished(content.getId(), managerEmail));
+    }
+
+    // ── View tracking: opening content increments viewCount; searching/listing never does ──
+
+    @Test
+    void trackView_onPublishedFaq_incrementsViewCount() {
+        HelpContent content = faq();
+        content.setStatus("PUBLISHED");
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        service.trackView(content.getId(), employeeEmail);
+
+        verify(repo).incrementViewCount(content.getId());
+    }
+
+    @Test
+    void trackView_onPublishedGuide_incrementsViewCount() {
+        HelpContent content = HelpContent.builder().id(UUID.randomUUID()).type("GUIDE")
+                .title("Leave Policy").status("PUBLISHED").createdBy(hrAdminId).build();
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        service.trackView(content.getId(), employeeEmail);
+
+        verify(repo).incrementViewCount(content.getId());
+    }
+
+    @Test
+    void trackView_onNonPublishedContent_doesNotIncrementViewCount() {
+        HelpContent content = faq(); // status defaults to DRAFT
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        service.trackView(content.getId(), employeeEmail);
+
+        verify(repo, never()).incrementViewCount(any());
+    }
+
+    @Test
+    void trackView_deniedByAudience_doesNotIncrementViewCount() {
+        HelpContent content = faq();
+        content.setStatus("PUBLISHED");
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+        when(audienceRepo.findByContentId(content.getId()))
+                .thenReturn(List.of(HelpContentAudience.builder().contentId(content.getId()).audience("HR").build()));
+
+        service.trackView(content.getId(), employeeEmail);
+
+        verify(repo, never()).incrementViewCount(any());
+    }
+
+    @Test
+    void listPublished_searchingOrListing_neverIncrementsViewCount() {
+        when(repo.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+
+        service.listPublished(null, null, "leave policy", null, 0, 20, employeeEmail); // simulates a search
+
+        verify(repo, never()).incrementViewCount(any());
+    }
+
+    // ── Popularity ranking: featured, then most-viewed, drives employee-facing order ──────
+
+    @Test
+    void listPublished_defaultSort_ranksByFeaturedThenViewCountThenDisplayOrderThenCreatedAt() {
+        when(repo.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+
+        service.listPublished(null, null, null, null, 0, 20, employeeEmail);
+
+        verify(repo).findAll(any(Specification.class), captor.capture());
+        List<Sort.Order> orders = captor.getValue().getSort().toList();
+        assertEquals(List.of(
+                Sort.Order.desc("featured"),
+                Sort.Order.desc("viewCount"),
+                Sort.Order.asc("displayOrder"),
+                Sort.Order.desc("createdAt")
+        ), orders);
+    }
+
+    @Test
+    void listPublished_explicitPopularSort_matchesDefaultSort() {
+        when(repo.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+
+        service.listPublished(null, null, null, null, 0, 20, employeeEmail);       // no sort param at all
+        service.listPublished(null, null, null, "popular", 0, 20, employeeEmail);  // explicit "popular"
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(repo, times(2)).findAll(any(Specification.class), captor.capture());
+        List<Pageable> calls = captor.getAllValues();
+        assertEquals(calls.get(0).getSort(), calls.get(1).getSort());
+    }
+
+    @Test
+    void listPublished_appliesSameSortRegardlessOfType() {
+        when(repo.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+
+        service.listPublished("FAQ", null, null, null, 0, 20, employeeEmail);
+        service.listPublished("GUIDE", null, null, null, 0, 20, employeeEmail);
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(repo, times(2)).findAll(any(Specification.class), captor.capture());
+        List<Pageable> calls = captor.getAllValues();
+        assertEquals(calls.get(0).getSort(), calls.get(1).getSort());
+    }
+
+    // ── Order/displayOrder removal from the form must not break requests ──────────────────
+
+    @Test
+    void create_withoutExplicitDisplayOrder_stillSucceeds() {
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        CreateHelpContentRequest req = new CreateHelpContentRequest();
+        req.setType("FAQ");
+        req.setTitle("How do I apply for leave?");
+        // displayOrder intentionally left unset, same as what the form now sends.
+
+        HelpContentDetailDto detail = service.create(req, hrAdminEmail);
+
+        assertEquals(0, detail.getDisplayOrder());
+        assertEquals("DRAFT", detail.getStatus());
+    }
+
+    @Test
+    void update_withoutExplicitDisplayOrder_leavesExistingDisplayOrderUntouched() {
+        HelpContent content = faq();
+        content.setDisplayOrder(7); // pre-existing hand-curated value from before this change
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        UpdateHelpContentRequest req = new UpdateHelpContentRequest(); // displayOrder left unset
+        req.setTitle("Updated title");
+
+        HelpContentDetailDto result = service.update(content.getId(), req, hrAdminEmail);
+
+        assertEquals(7, result.getDisplayOrder());
     }
 
     // ── Attachments participate in approval ───────────────────────

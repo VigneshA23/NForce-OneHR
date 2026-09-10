@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +18,11 @@ public interface AssetAssignmentRepository extends JpaRepository<AssetAssignment
     Optional<AssetAssignment> findByAssetIdAndEffectiveToIsNull(Long assetId);
 
     List<AssetAssignment> findByEmployeeUserIdInAndEffectiveToIsNull(List<UUID> employeeUserIds);
+
+    // Batch equivalent of findByAssetIdAndEffectiveToIsNull for a set of asset ids — backs
+    // AssetService#listAllAssets's current-custodian lookup so it issues one query for the whole
+    // list instead of one per asset.
+    List<AssetAssignment> findByAssetIdInAndEffectiveToIsNull(Collection<Long> assetIds);
 
     long countByEffectiveToIsNull();
 

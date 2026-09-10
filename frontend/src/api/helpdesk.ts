@@ -92,6 +92,7 @@ export interface HelpdeskDashboard {
 export interface AssignableAgent {
   userId: string;
   name: string;
+  active: boolean;
 }
 
 function qs(params: Record<string, string | number | undefined>) {

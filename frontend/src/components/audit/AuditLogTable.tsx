@@ -3,7 +3,16 @@ import { Users, CalendarCheck, Clock, Package, Shield, Tag, X } from 'lucide-rea
 import type { LucideIcon } from 'lucide-react';
 import type { ActionGroup, AuditLogEntry } from '../../api/audit';
 
+// EMPLOYEE_UPDATED and USER_UPDATED both land under the Employee Management group (see
+// AuditActionCategory) and represent the same kind of edit — HR Admin's path vs Super Admin's
+// parallel one — so both are labeled "User Updated" for a consistent display, rather than
+// surfacing the underlying action string's own naming.
+const ACTION_LABEL_OVERRIDES: Record<string, string> = {
+  EMPLOYEE_UPDATED: 'User Updated',
+};
+
 function humanizeAction(action: string): string {
+  if (ACTION_LABEL_OVERRIDES[action]) return ACTION_LABEL_OVERRIDES[action];
   return action.toLowerCase().split('_').map(w => (w[0]?.toUpperCase() ?? '') + w.slice(1)).join(' ');
 }
 
@@ -96,10 +105,14 @@ const HIDDEN_SNAPSHOT_KEYS = new Set(['managerDecidedBy', 'decidedBy']);
 function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: () => void }) {
   const before = parseState(entry.beforeState);
   const after = parseState(entry.afterState);
-  // Union of keys across both snapshots, after-first so newly-set fields lead — a key present
-  // in both with a changed value renders as "before → after" instead of two separate rows.
+  // Union of keys across both snapshots, after-first so newly-set fields lead, then narrowed to
+  // just the fields that actually changed — an untouched field has the same value in both
+  // snapshots (they're built from the same entity right before/after the edit) and would only
+  // repeat information already implied by "nothing shown = unchanged", so it's dropped rather
+  // than listed as a flat, non-arrow value.
   const keys = Array.from(new Set([...(after ? Object.keys(after) : []), ...(before ? Object.keys(before) : [])]))
-    .filter(key => !HIDDEN_SNAPSHOT_KEYS.has(key));
+    .filter(key => !HIDDEN_SNAPSHOT_KEYS.has(key))
+    .filter(key => (before ? before[key] : undefined) !== (after ? after[key] : undefined));
 
   return (
     <div style={overlayStyle}>
@@ -107,7 +120,7 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <ActionBadge group={entry.actionGroup} />
-            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
               Audit Event Details
             </span>
           </div>
@@ -127,10 +140,7 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
               {keys.map(key => {
                 const beforeVal = before ? before[key] : undefined;
                 const afterVal = after ? after[key] : undefined;
-                const hasBoth = before && key in before && after && key in after;
-                const changed = hasBoth && beforeVal !== afterVal;
-                const value = changed ? `${fmtValue(beforeVal)} → ${fmtValue(afterVal)}` : fmtValue(after && key in after ? afterVal : beforeVal);
-                return <DetailRow key={key} label={humanizeKey(key)} value={value} />;
+                return <DetailRow key={key} label={humanizeKey(key)} value={`${fmtValue(beforeVal)} → ${fmtValue(afterVal)}`} />;
               })}
             </div>
           )}
@@ -166,7 +176,7 @@ export function AuditLogTable({ rows }: Props) {
         <tbody>
           {rows.map(r => (
             <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setViewing(r)}>
-              <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
+              <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
                 {fmtDateTime(r.occurredAt)}
               </td>
               <td style={{ ...tdStyle, color: 'var(--txt-mut)' }}>{r.targetLabel}</td>

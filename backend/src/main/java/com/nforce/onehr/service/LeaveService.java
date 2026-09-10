@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
@@ -7,6 +8,7 @@ import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
+import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
@@ -17,6 +19,7 @@ import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,8 +27,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,6 +59,15 @@ public class LeaveService {
     private static final Set<String> ANNUAL_BALANCE_GROUP_CODES = Set.of("ANNUAL", "SICK", "CASUAL");
     private static final String ANNUAL_LEAVE_TYPE_CODE = "ANNUAL";
 
+    // A REJECTED request never blocks a new overlapping submission — only these two statuses do.
+    private static final Set<String> OVERLAP_BLOCKING_STATUSES = Set.of("PENDING", "APPROVED");
+
+    // Matches RegularizationService's NOTIFICATION_DATE_FMT — same "d MMM yyyy" convention used
+    // app-wide for dates embedded in notification text.
+    private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
+    private static final String APPROVALS_LINK = "/approvals?type=LEAVE";
+    private static final String EMPLOYEE_LEAVE_LINK = "/my-requests?type=LEAVE";
+
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
@@ -61,6 +77,14 @@ public class LeaveService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
+    private final AttendanceProperties attendanceProperties;
+    // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
+    // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
+    // depended on LeaveService since before this change). A lazy proxy defers resolving the real
+    // ExceptionService bean until approve() actually calls it, well after the context has finished
+    // starting up, rather than needing it live during EmployeeService's own construction.
+    @Lazy
+    private final ExceptionService exceptionService;
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
@@ -127,6 +151,22 @@ public class LeaveService {
             throw new IllegalArgumentException("A half-day request must use the same start and end date");
         }
 
+        // "Today" is resolved in the business timezone (same convention as AttendanceProperties'
+        // other consumers), not the JVM default, so a server running in UTC doesn't roll the day
+        // over hours early/late relative to the employee's actual calendar day.
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        if (req.getStartDate().isBefore(today)) {
+            throw new IllegalArgumentException("Leave cannot be requested for a date before today");
+        }
+        // Any existing PENDING/APPROVED request whose date range overlaps this new one blocks the
+        // submission, regardless of whether the new request starts today, in the future, or spans
+        // multiple days; REJECTED never blocks. Overlap test: existing.start <= new.end AND
+        // existing.end >= new.start.
+        if (leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate())) {
+            throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
+        }
+
         BigDecimal totalDays = req.isHalfDay()
                 ? new BigDecimal("0.5")
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
@@ -156,28 +196,52 @@ public class LeaveService {
                 .totalDays(totalDays)
                 .status("PENDING")
                 .employeeReason(req.getReason().trim())
+                // is_half_day stays authoritative (unchanged above); duration_type just mirrors it
+                // for the FULL_DAY/HALF_DAY cases this form actually submits — HOURLY/QUARTER_DAY
+                // have no submission UI yet, so submitRequest never produces them.
+                .durationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY)
                 .build();
         request = leaveRequestRepository.save(request);
 
         auditService.log(actor.getId(), "LEAVE_REQUEST_SUBMITTED", request.getId());
+        notifySubmission(request, type, actor);
         return toRequestResponse(request);
     }
 
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listMyRequests(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()).stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId());
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(Set.of(actor.getId()));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
-    /** Reporting manager sees only own reports' pending requests; HR Admin/Super Admin see all. */
+    /**
+     * Reporting manager sees only own reports' pending requests; HR Admin/Super Admin see all —
+     * EXCEPT a Super Admin's own leave request, which is deliberately excluded from this blanket
+     * override view unless the caller is that request's specific routed approver (see
+     * {@link #resolveSuperAdminApprover}). Without that exclusion, every HR Admin and every other
+     * Super Admin in the org would see (and, per {@link #requireAuthorizedApprover}, still not be
+     * able to decide on) a Super Admin's leave purely by holding an override role — this is the
+     * "HR_ADMIN must never receive a SUPER_ADMIN's Leave Request merely because the requester has
+     * the SUPER_ADMIN role" rule. A manager who is NOT also HR Admin/Super Admin still sees a
+     * Super Admin direct report's request via the branch below exactly as before — that branch is
+     * already scoped to actual direct reports, which is precisely who this routing routes to.
+     */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
         if (hasOverrideRole(actor)) {
-            return leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
-                    .map(this::toRequestResponse)
+            List<LeaveRequest> requests = leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+                    .filter(r -> isVisibleToOverrideActor(r, actor))
+                    .collect(Collectors.toList());
+            Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+            Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+            return requests.stream()
+                    .map(r -> toRequestResponse(r, namesById, codesById))
                     .collect(Collectors.toList());
         }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
@@ -186,9 +250,17 @@ public class LeaveService {
         if (reportIds.isEmpty()) {
             return List.of();
         }
-        return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING").stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING");
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
+    }
+
+    private boolean isVisibleToOverrideActor(LeaveRequest request, User actor) {
+        UUID superAdminApprover = resolveSuperAdminApprover(request.getEmployeeUserId());
+        return superAdminApprover == null || superAdminApprover.equals(actor.getId());
     }
 
     /**
@@ -204,10 +276,12 @@ public class LeaveService {
         if (reportIds.isEmpty()) {
             return List.of();
         }
-        return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -218,10 +292,12 @@ public class LeaveService {
      */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listOrgLeave(LocalDate from, LocalDate to) {
-        return leaveRequestRepository
-                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -243,10 +319,12 @@ public class LeaveService {
         // need to add actor.getId() again here.
         List<UUID> teamIds = historyRepository.findCurrentPeerIds(actor.getId());
 
-        return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -255,7 +333,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor, request.getEmployeeUserId());
+        requireAuthorizedApprover(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -279,18 +357,35 @@ public class LeaveService {
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("APPROVED");
         request.setDecidedBy(actor.getId());
-        request.setDecidedAt(LocalDateTime.now());
+        request.setDecidedAt(LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())));
         request = leaveRequestRepository.save(request);
 
         String after = auditSnapshot.toJson(Map.of("status", "APPROVED", "decidedBy", actor.getId().toString()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId(), before, after);
 
-        notificationService.send(request.getEmployeeUserId(), "LEAVE_APPROVED",
-                "Leave Request Approved",
-                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
-                        + " has been approved by " + employeeName(actor.getId()) + ".",
-                "/requests?type=LEAVE");
+        notifyDecision(request, "LEAVE_APPROVED", "Leave Request Approved", "approved", null, actor);
+        reevaluatePenaltiesForApprovedLeave(request, actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Gap-034: the leave-approval half of the shared re-evaluation engine {@link RegularizationService#approve}
+     * already uses — this request's now-approved days may have lowered expected work minutes (or,
+     * for a full day, removed the working-day expectation entirely) below what a WORK_HOURS_SHORTAGE
+     * or NO_ATTENDANCE penalty on that date assumed when it was applied. Runs once per covered
+     * calendar day — a multi-day request can invalidate a different subset of days than others —
+     * and reverses only the two discrepancy types leave approval can actually affect
+     * ({@link ExceptionService#LEAVE_REEVALUATION_TYPES}), never LATE_ARRIVAL/MISSING_PUNCH, which
+     * a leave approval has no bearing on. Covers both full-day and half-day requests identically:
+     * the engine re-derives "is this still a shortage" from current data, not from this method
+     * knowing which kind of leave was approved.
+     */
+    private void reevaluatePenaltiesForApprovedLeave(LeaveRequest request, User actor) {
+        for (LocalDate date = request.getStartDate(); !date.isAfter(request.getEndDate()); date = date.plusDays(1)) {
+            exceptionService.reevaluateAndReverseIfInvalid(request.getEmployeeUserId(), date,
+                    ExceptionService.LEAVE_REEVALUATION_TYPES, actor.getId(),
+                    "Leave approved for " + date.format(NOTIFICATION_DATE_FMT), "ATTENDANCE_PENALTY_REVERSED");
+        }
     }
 
     @Transactional
@@ -298,7 +393,7 @@ public class LeaveService {
         User actor = requireActor(actorEmail);
         LeaveRequest request = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
-        requireCurrentManagerOf(actor, request.getEmployeeUserId());
+        requireAuthorizedApprover(actor, request.getEmployeeUserId());
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
@@ -307,18 +402,90 @@ public class LeaveService {
         request.setStatus("REJECTED");
         request.setDecisionReason(reason.trim());
         request.setDecidedBy(actor.getId());
-        request.setDecidedAt(LocalDateTime.now());
+        request.setDecidedAt(LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())));
         request = leaveRequestRepository.save(request);
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId(), before, after);
 
-        notificationService.send(request.getEmployeeUserId(), "LEAVE_REJECTED",
-                "Leave Request Rejected",
-                "Your leave request from " + request.getStartDate() + " to " + request.getEndDate()
-                        + " has been rejected by " + employeeName(actor.getId()) + ". Reason: " + request.getDecisionReason(),
-                "/requests?type=LEAVE");
+        notifyDecision(request, "LEAVE_REJECTED", "Leave Request Rejected", "rejected", request.getDecisionReason(), actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Notifies whoever this request actually routes to — mirrors RegularizationService's and
+     * AssetService's submission notifications, which deliberately notify just the resolved
+     * approver rather than broadcasting to every HR Admin/Super Admin: those roles already have
+     * blanket queue visibility (see {@link #listPendingApprovals}), so a per-request notification
+     * to every admin in the org would be exactly the "blindly notify every user" pattern the
+     * project avoids elsewhere.
+     * <p>
+     * For a Super Admin's own request, routing is fully overridden by
+     * {@link #resolveSuperAdminApprover} — their current reporting manager if they have one, else
+     * the Super Admin themselves (the one intentional exception to "never notify the employee
+     * about their own submission": in the no-manager fallback they ARE the approver, so they need
+     * to know a decision is theirs to make). Everyone else keeps the pre-existing behavior: notify
+     * the current reporting manager, no-op if there is none. Reuses {@link NotificationService#send}
+     * as-is — no new notification model/queue/delivery mechanism.
+     */
+    private void notifySubmission(LeaveRequest request, LeaveType type, User actor) {
+        UUID superAdminApprover = resolveSuperAdminApprover(actor.getId());
+        UUID recipient = superAdminApprover != null
+                ? superAdminApprover
+                : historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId())
+                        .map(EmployeeManagerHistory::getManagerUserId)
+                        .orElse(null);
+        if (recipient == null) return;
+
+        notificationService.send(recipient, "LEAVE_REQUEST_SUBMITTED", "New Leave Request",
+                employeeName(actor.getId()) + " has submitted a " + type.getName() + " request from "
+                        + request.getStartDate().format(NOTIFICATION_DATE_FMT) + " to "
+                        + request.getEndDate().format(NOTIFICATION_DATE_FMT) + " (" + dayLabel(request.getTotalDays()) + ").",
+                APPROVALS_LINK);
+    }
+
+    /**
+     * Notifies the employee of the decision — same single recipient as the pre-existing behavior
+     * this method replaces (only the message content is richer: leave type, formatted dates, and
+     * total days are now included alongside the approver/rejecter name and reason). HR Admin/Super
+     * Admin are not separately notified here, matching {@link #notifySubmission}'s reasoning —
+     * their blanket approval visibility already covers this. Reuses the existing
+     * {@code LEAVE_APPROVED}/{@code LEAVE_REJECTED} notification types rather than introducing new
+     * ones, per the project's "reuse the equivalent event" convention.
+     */
+    private void notifyDecision(LeaveRequest request, String type, String title, String verb, String reason, User actor) {
+        String employeeOf = request.getLeaveType().getName() + " request from "
+                + request.getStartDate().format(NOTIFICATION_DATE_FMT) + " to "
+                + request.getEndDate().format(NOTIFICATION_DATE_FMT) + " (" + dayLabel(request.getTotalDays()) + ")";
+        String reasonSuffix = reason != null && !reason.isBlank() ? " Reason: " + reason : "";
+
+        notificationService.send(request.getEmployeeUserId(), type, title,
+                "Your " + employeeOf + " has been " + verb + " by " + employeeName(actor.getId()) + "." + reasonSuffix,
+                EMPLOYEE_LEAVE_LINK);
+    }
+
+    private static String dayLabel(BigDecimal days) {
+        return formatDays(days) + " day" + (days.compareTo(BigDecimal.ONE) == 0 ? "" : "s");
+    }
+
+    /**
+     * Approve/reject authorization gate. For a Super Admin's own request, routing is fully
+     * overridden by {@link #resolveSuperAdminApprover} — the acting user must be exactly that
+     * routed approver; holding HR_ADMIN/SUPER_ADMIN does NOT grant the usual bypass (see
+     * {@link #requireCurrentManagerOf}) the way it does for every other employee's request. This
+     * is what stops an unrelated HR Admin (or another Super Admin) from deciding on a Super
+     * Admin's leave merely by holding an override role. Everyone else's authorization is
+     * completely unchanged.
+     */
+    private void requireAuthorizedApprover(User actor, UUID employeeId) {
+        UUID superAdminApprover = resolveSuperAdminApprover(employeeId);
+        if (superAdminApprover != null) {
+            if (!superAdminApprover.equals(actor.getId())) {
+                throw new AccessDeniedException("You are not authorized to decide on this leave request");
+            }
+            return;
+        }
+        requireCurrentManagerOf(actor, employeeId);
     }
 
     /**
@@ -340,6 +507,36 @@ public class LeaveService {
         return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
+    /**
+     * The ONE routing decision reused by the approval queue ({@link #isVisibleToOverrideActor}),
+     * approval authorization ({@link #requireAuthorizedApprover}), and the submission
+     * notification ({@link #notifySubmission}) — so those three can never disagree about who a
+     * Super Admin's own leave request routes to.
+     * <p>
+     * A Super Admin's leave is deliberately NOT covered by the blanket HR_ADMIN/SUPER_ADMIN
+     * override that every other employee's request is subject to (see {@link #hasOverrideRole}):
+     * it routes to the Super Admin's own current reporting manager, or back to the Super Admin
+     * themselves if they have none. "None" already covers an inactive/removed manager the same
+     * way the rest of this codebase does — {@code findByEmployeeUserIdAndEffectiveToIsNull} only
+     * ever returns a row for the CURRENT manager relationship, so a lapsed one is indistinguishable
+     * from never having had one; no separate fallback is invented for that case.
+     *
+     * @return the routed approver's user id, or {@code null} if {@code employeeId} does not hold
+     *         SUPER_ADMIN — meaning this override does not apply and the normal manager/override
+     *         rules (unchanged) govern the request instead.
+     */
+    private UUID resolveSuperAdminApprover(UUID employeeId) {
+        User employee = userRepository.findById(employeeId).orElse(null);
+        if (employee == null || !hasRole(employee, "SUPER_ADMIN")) return null;
+        return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
+                .map(EmployeeManagerHistory::getManagerUserId)
+                .orElse(employeeId);
+    }
+
+    private boolean hasRole(User user, String roleCode) {
+        return user.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
+    }
+
     private User requireActor(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
@@ -349,6 +546,65 @@ public class LeaveService {
         return employeeRepository.findById(userId)
                 .map(Employee::getFullName)
                 .orElseGet(() -> userRepository.findById(userId).map(User::getEmail).orElse("Unknown"));
+    }
+
+    /** Employee code for the single-record {@link #toRequestResponse(LeaveRequest)} path — null
+     * for a User with no Employee row (auth-only account), same as the batched variant below. */
+    private String employeeCode(UUID userId) {
+        return employeeRepository.findById(userId).map(Employee::getEmployeeCode).orElse(null);
+    }
+
+    /**
+     * Batch counterpart of {@link #employeeName(UUID)} for list-mapping call sites
+     * (listMyRequests/listPendingApprovals/listTeamLeave/listOrgLeave/listPeerLeave): resolves
+     * every id in one {@link EmployeeRepository#findNamesByUserIds} call instead of one query per
+     * row, falling back to a single batch {@code userRepository.findAllById} (email) for any ids
+     * Employee doesn't cover — same two-tier fallback as {@link #employeeName(UUID)}, just batched.
+     */
+    private Map<UUID, String> namesByUserIds(Set<UUID> ids) {
+        if (ids.isEmpty()) return Map.of();
+        Map<UUID, String> namesById = new HashMap<>();
+        for (Object[] row : employeeRepository.findNamesByUserIds(ids)) {
+            namesById.put((UUID) row[0], (String) row[1]);
+        }
+        Set<UUID> missing = new HashSet<>(ids);
+        missing.removeAll(namesById.keySet());
+        if (!missing.isEmpty()) {
+            for (User u : userRepository.findAllById(missing)) {
+                namesById.put(u.getId(), u.getEmail());
+            }
+        }
+        return namesById;
+    }
+
+    /** Collects the distinct ids {@link #toRequestResponse(LeaveRequest, Map, Map)} needs a name for. */
+    private Set<UUID> collectNameIds(Collection<LeaveRequest> requests) {
+        Set<UUID> ids = new HashSet<>();
+        for (LeaveRequest r : requests) {
+            ids.add(r.getEmployeeUserId());
+            if (r.getDecidedBy() != null) ids.add(r.getDecidedBy());
+        }
+        return ids;
+    }
+
+    /** Distinct requester ids only — the input {@link #codesByUserIds} needs, narrower than
+     * {@link #collectNameIds} since decidedBy has no code to resolve. */
+    private Set<UUID> collectEmployeeIds(Collection<LeaveRequest> requests) {
+        return requests.stream().map(LeaveRequest::getEmployeeUserId).collect(Collectors.toSet());
+    }
+
+    /**
+     * Batch counterpart of {@link #employeeCode(UUID)} — only ever needed for the requester
+     * (unlike {@link #collectNameIds}, decidedBy has no code to resolve), so this takes the plain
+     * employeeUserId set rather than duplicating collectNameIds' broader id collection.
+     */
+    private Map<UUID, String> codesByUserIds(Set<UUID> employeeIds) {
+        if (employeeIds.isEmpty()) return Map.of();
+        Map<UUID, String> codesById = new HashMap<>();
+        for (Object[] row : employeeRepository.findCodesByUserIds(employeeIds)) {
+            codesById.put((UUID) row[0], (String) row[1]);
+        }
+        return codesById;
     }
 
     /**
@@ -411,6 +667,7 @@ public class LeaveService {
                 .id(r.getId())
                 .employeeUserId(r.getEmployeeUserId())
                 .employeeName(employeeName(r.getEmployeeUserId()))
+                .employeeCode(employeeCode(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
                 .startDate(r.getStartDate())
@@ -421,6 +678,36 @@ public class LeaveService {
                 .employeeReason(r.getEmployeeReason())
                 .decisionReason(r.getDecisionReason())
                 .decidedByName(r.getDecidedBy() != null ? employeeName(r.getDecidedBy()) : null)
+                .decidedAt(r.getDecidedAt())
+                .createdAt(r.getCreatedAt())
+                .build();
+    }
+
+    /**
+     * List-mapping variant of {@link #toRequestResponse(LeaveRequest)}: looks employeeName/
+     * decidedByName up in a pre-built map (from {@link #namesByUserIds}) instead of issuing a
+     * query per row. Falls back to "Unknown" for an id absent from the map, matching
+     * {@link #employeeName(UUID)}'s own fallback. employeeCode comes from a second pre-built map
+     * ({@link #codesByUserIds}) — null (not "Unknown") for a missing id, matching
+     * {@link #employeeCode(UUID)}'s own fallback, since it's a secondary display detail rather
+     * than the primary identity label.
+     */
+    private LeaveRequestResponse toRequestResponse(LeaveRequest r, Map<UUID, String> namesById, Map<UUID, String> codesById) {
+        return LeaveRequestResponse.builder()
+                .id(r.getId())
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(namesById.getOrDefault(r.getEmployeeUserId(), "Unknown"))
+                .employeeCode(codesById.get(r.getEmployeeUserId()))
+                .leaveTypeCode(r.getLeaveType().getCode())
+                .leaveTypeName(r.getLeaveType().getName())
+                .startDate(r.getStartDate())
+                .endDate(r.getEndDate())
+                .halfDay(r.isHalfDay())
+                .totalDays(r.getTotalDays())
+                .status(r.getStatus())
+                .employeeReason(r.getEmployeeReason())
+                .decisionReason(r.getDecisionReason())
+                .decidedByName(r.getDecidedBy() != null ? namesById.getOrDefault(r.getDecidedBy(), "Unknown") : null)
                 .decidedAt(r.getDecidedAt())
                 .createdAt(r.getCreatedAt())
                 .build();

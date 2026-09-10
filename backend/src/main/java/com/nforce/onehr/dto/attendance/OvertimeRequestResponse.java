@@ -26,6 +26,10 @@ public class OvertimeRequestResponse {
     private UUID notifyUserId;
     private String notifyUserName;
     private String reviewedByName;
+    /** The reviewer's role at response time (e.g. "MANAGER", "HR_ADMIN", "SUPER_ADMIN") — lets
+     * the "Last Action By" column show who acted in what capacity, since HR Admin/Super Admin can
+     * decide a MANAGER-stage request too (see OvertimeRequestService's approver-override). */
+    private String reviewedByRole;
     private LocalDateTime reviewedAt;
     private String reviewComment;
     private LocalDateTime createdAt;

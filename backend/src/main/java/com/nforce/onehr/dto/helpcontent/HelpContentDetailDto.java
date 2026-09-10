@@ -21,6 +21,8 @@ public class HelpContentDetailDto {
     private boolean featured;
     private int displayOrder;
     private long viewCount;
+    // Empty/null = visible to everyone once published — see HelpContentService#publish.
+    private List<String> audience;
     private List<AttachmentDto> attachments;
     private String rejectionReason;
     private String createdByName;

@@ -48,6 +48,14 @@ public class AttendanceRequestController {
         return attendanceRequestService.getPartialDayBalance(principal.getName(), date);
     }
 
+    /** WFH's "Remaining balance" line — days used this month vs. the enforced 2-day/month cap. */
+    @GetMapping("/wfh-balance")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public AttendanceRequestService.WfhBalance wfhBalance(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date, Principal principal) {
+        return attendanceRequestService.getWfhBalance(principal.getName(), date);
+    }
+
     @GetMapping("/pending")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
     public List<AttendanceRequestResponse> pending(Principal principal) {

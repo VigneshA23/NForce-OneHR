@@ -24,4 +24,6 @@ public class PenalizationPolicyResponse {
 
     private UUID createdBy;
     private LocalDateTime createdAt;
+    private UUID updatedBy;
+    private LocalDateTime updatedAt;
 }

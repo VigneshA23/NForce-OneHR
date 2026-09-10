@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myRequestsApi, type MyRequestItem, type RequestType } from '../api/myRequests';
+import { formatDurationMinutes } from '../context/TimeFormatContext';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
@@ -72,6 +73,17 @@ function fmtTime(s?: string | null) {
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
+ * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
+function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
+  if (!startIso || !endIso) return '—';
+  const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
+  if (minutes <= 0) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 // ── Type-aware row detail summary ─────────────────────────
 
 function ItemDetail({ item }: { item: MyRequestItem }) {
@@ -102,7 +114,7 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
   if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
     return (
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${item.partialDayHours}h` : ''}
+        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${formatDurationMinutes(Math.round(item.partialDayHours * 60))}` : ''}
       </div>
     );
   }
@@ -134,7 +146,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TypeBadge type={item.requestType} />
-            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
               Request Details
             </span>
           </div>
@@ -175,16 +187,15 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
             {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
               <>
                 <Row label="Date" value={item.attendanceDate} />
-                {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+                {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
                 <Row label="Reason" value={item.regularizationReason} />
               </>
             )}
 
             {item.requestType === 'OVERTIME' && (
               <>
-                <Row label="Work Date" value={item.attendanceDate} />
-                <Row label="Requested Start" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-                <Row label="Requested End" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
+                <Row label="Date" value={item.attendanceDate} />
+                <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
                 <Row label="Reason" value={item.regularizationReason} />
               </>
             )}
@@ -235,7 +246,7 @@ export default function MyRequestsPage() {
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All your submitted leave and attendance requests in one place.</p>
       </div>
 

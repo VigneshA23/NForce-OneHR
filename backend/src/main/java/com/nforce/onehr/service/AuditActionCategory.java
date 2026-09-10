@@ -23,10 +23,13 @@ import java.util.stream.Stream;
 public enum AuditActionCategory {
 
     ACCESS_CONTROL(Set.of(
-            // UserManagementService — real admin actions performed ON another account (role
-            // changes, resets, activation), not the caller's own auth. AuthService's login and
-            // password self-service events are intentionally absent — see class Javadoc.
-            "USER_CREATED", "USER_UPDATED", "PASSWORD_RESET",
+            // UserManagementService — real admin actions performed ON another account (resets,
+            // activation, removal). USER_CREATED belongs here too — creating a new user account
+            // (with a role, not just an EMPLOYEE-only profile) is Super-Admin-only, unlike
+            // USER_UPDATED, which is classified as HR_OPERATIONAL (Employee Management) instead
+            // — see below. AuthService's login and password self-service events are intentionally
+            // absent — see class Javadoc.
+            "USER_CREATED", "PASSWORD_RESET",
             "USER_ACTIVATED", "USER_DEACTIVATED", "USER_SOFT_DELETED"
     )),
 
@@ -35,8 +38,13 @@ public enum AuditActionCategory {
             "ASSET_REQUEST_APPROVED", "ASSET_REQUEST_REJECTED",
             "ASSET_CREATED", "ASSET_ASSIGNED", "ASSET_REASSIGNED", "ASSET_RETURNED",
             "ASSET_RETIRED", "ASSET_REQUEST_FULFILLED",
-            // EmployeeService
+            // EmployeeService — HR Admin's employee create/update path
             "EMPLOYEE_CREATED", "EMPLOYEE_UPDATED",
+            // UserManagementService — Super Admin's parallel *update* path for the same kind of
+            // edit (same fields, via a different screen/endpoint) as EMPLOYEE_UPDATED above, so
+            // it's classified as Employee Management rather than access-control despite
+            // originating from the same service as USER_CREATED (ACCESS_CONTROL, above).
+            "USER_UPDATED",
             // ExpenseService — EXPENSE_SUBMITTED (self-submitted) intentionally omitted
             "EXPENSE_MANAGER_APPROVED", "EXPENSE_MANAGER_REJECTED",
             "EXPENSE_FINAL_APPROVED", "EXPENSE_FINAL_REJECTED", "EXPENSE_MARKED_PAID",

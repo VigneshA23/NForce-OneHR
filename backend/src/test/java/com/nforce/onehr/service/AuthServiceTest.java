@@ -1,6 +1,8 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.MutableClock;
+import com.nforce.onehr.dto.ChangePasswordRequest;
+import com.nforce.onehr.dto.ChangePasswordResponse;
 import com.nforce.onehr.dto.ForgotPasswordResponse;
 import com.nforce.onehr.dto.LoginRequest;
 import com.nforce.onehr.dto.LoginResponse;
@@ -30,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -84,6 +87,14 @@ class AuthServiceTest {
         LoginRequest r = new LoginRequest();
         r.setEmail(email);
         r.setPassword(password);
+        return r;
+    }
+
+    private ChangePasswordRequest changePasswordRequest(String currentPassword, String newPassword, String confirmPassword) {
+        ChangePasswordRequest r = new ChangePasswordRequest();
+        r.setCurrentPassword(currentPassword);
+        r.setNewPassword(newPassword);
+        r.setConfirmPassword(confirmPassword);
         return r;
     }
 
@@ -235,13 +246,85 @@ class AuthServiceTest {
         when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
         when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
 
-        ForgotPasswordResponse response = authService.forgotPassword(EMAIL.toUpperCase());
+        ForgotPasswordResponse response = authService.forgotPassword(EMAIL.toUpperCase(), "http://localhost:5180");
 
         assertEquals("Password reset instructions have been sent to your email", response.getMessage());
         assertTrue(user.isMustChangePassword());
-        verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString());
+        verify(emailService).sendPasswordResetEmail(eq(EMAIL), eq(EMAIL), anyString(), eq("http://localhost:5180"));
         verify(auditService).log(user.getId(), "PASSWORD_RESET_VIA_FORGOT_FLOW", user.getId());
-        verify(notificationService).send(eq(user.getId()), eq("SECURITY"), anyString(), anyString(), anyString());
+        // linkPath is null so the Notifications tab renders no "Open related page" action
+        // for this Password Reset notification (ONEHR-351); the reset email itself is
+        // unaffected, as asserted above via sendPasswordResetEmail.
+        verify(notificationService).send(eq(user.getId()), eq("SECURITY"), anyString(), anyString(), isNull());
+    }
+
+    @Test
+    void forgotPassword_bumpsTokenVersion_invalidatingSessionsIssuedUnderOldPassword() {
+        user.setTokenVersion(2);
+        when(employeeRepository.findById(user.getId())).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        authService.forgotPassword(EMAIL, "http://localhost:5180");
+
+        assertEquals(3, user.getTokenVersion());
+        verify(userRepository).save(user);
+    }
+
+    // --- changePassword: token-version bump (ONEHR-179) ---------------------------------------
+
+    @Test
+    void changePassword_success_bumpsTokenVersionAndMintsNewTokenWithIt() {
+        user.setTokenVersion(5);
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        ChangePasswordResponse response = authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "NewPassword123!"), EMAIL);
+
+        assertEquals(6, user.getTokenVersion());
+        assertEquals("jwt-token", response.getToken());
+        verify(userRepository).save(user);
+        // The session performing the change must receive a token minted with the POST-bump
+        // version, so it stays valid under the very check that just invalidated every other one.
+        verify(jwtTokenProvider).generateToken(EMAIL, false, 6);
+        verify(auditService).log(user.getId(), "PASSWORD_CHANGED", user.getId());
+    }
+
+    @Test
+    void changePassword_wrongCurrentPassword_doesNotBumpTokenVersion() {
+        user.setTokenVersion(5);
+
+        assertThrows(BadCredentialsException.class, () -> authService.changePassword(
+                changePasswordRequest(WRONG_PASSWORD, "NewPassword123!", "NewPassword123!"), EMAIL));
+
+        assertEquals(5, user.getTokenVersion());
+        verify(userRepository, never()).save(any());
+        verify(jwtTokenProvider, never()).generateToken(anyString(), any(Boolean.class), any(Integer.class));
+    }
+
+    @Test
+    void changePassword_confirmationMismatch_doesNotBumpTokenVersion() {
+        user.setTokenVersion(5);
+
+        assertThrows(IllegalArgumentException.class, () -> authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "Different123!"), EMAIL));
+
+        assertEquals(5, user.getTokenVersion());
+        verify(userRepository, never()).save(any());
+    }
+
+    // confirmPassword carries no @ValidPassword annotation (it only needs to equal newPassword),
+    // so the space check has to be asserted here at the service layer rather than via Bean
+    // Validation on the DTO (see ChangePasswordRequestTest for the newPassword-side coverage).
+    @Test
+    void changePassword_confirmationContainsSpace_rejectedWithSpaceMessageNotMismatch() {
+        user.setTokenVersion(5);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "NewPassword123! "), EMAIL));
+
+        assertEquals("Password cannot contain spaces.", ex.getMessage());
+        assertEquals(5, user.getTokenVersion());
+        verify(userRepository, never()).save(any());
     }
 
     @Test
@@ -249,7 +332,7 @@ class AuthServiceTest {
         when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());
 
         AccountNotFoundException ex = assertThrows(AccountNotFoundException.class,
-                () -> authService.forgotPassword("nobody@test.com"));
+                () -> authService.forgotPassword("nobody@test.com", "http://localhost:5180"));
 
         assertEquals("No account found with this email address", ex.getMessage());
         verifyNoInteractions(emailService);
@@ -262,7 +345,7 @@ class AuthServiceTest {
         user.setActive(false);
 
         DisabledException ex = assertThrows(DisabledException.class,
-                () -> authService.forgotPassword(EMAIL));
+                () -> authService.forgotPassword(EMAIL, "http://localhost:5180"));
 
         assertEquals("This account has been deactivated. Please contact your HR administrator", ex.getMessage());
         verifyNoInteractions(emailService);
@@ -275,7 +358,7 @@ class AuthServiceTest {
         user.setDeletedAt(Instant.now());
 
         DisabledException ex = assertThrows(DisabledException.class,
-                () -> authService.forgotPassword(EMAIL));
+                () -> authService.forgotPassword(EMAIL, "http://localhost:5180"));
 
         assertEquals("This account has been deleted. Please contact your HR administrator", ex.getMessage());
         verifyNoInteractions(emailService);

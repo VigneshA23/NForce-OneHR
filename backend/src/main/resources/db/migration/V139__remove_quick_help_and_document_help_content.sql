@@ -1,0 +1,30 @@
+-- NForce OneHR — Flyway Migration V139
+-- (Originally authored as V133 — renumbered to V139: dev's own V131__fix_manager_cycle_nforce_admin.sql
+-- was independently renumbered upstream to V133 with identical content, the same collision
+-- pattern documented in the V95/V96/V97/V102/V138 headers. That left version 133 double-claimed
+-- by two unrelated migrations; the DELETE below already ran successfully under the old V133
+-- filename before this rename — flyway_schema_history has no row for it because the other V133
+-- migration recorded first — so this rename lets it get recorded properly. The DELETE is
+-- idempotent (WHERE type IN (...) on rows already gone is a no-op), so re-running it here is safe.
+--
+-- Quick Help and Document are retired as creatable Help & Guidance types (see
+-- HelpContentService.CREATABLE_TYPES — only FAQ/GUIDE can be created going forward, enforced at
+-- the service layer). This migration removes the existing QUICK_HELP/DOCUMENT rows themselves,
+-- since they can no longer be edited into a creatable type and would otherwise sit as permanent
+-- dead weight. FAQ and GUIDE rows are untouched. The `type` column and its CHECK constraint
+-- (chk_help_content_type, from V94) are left as-is — dropping/narrowing them is out of scope here.
+--
+-- Relationships verified before writing this delete (see V102 for the FKs):
+--   - help_content_attachment.content_id            -> help_content(id)          ON DELETE CASCADE
+--   - help_content_approval.content_id               -> help_content(id)          ON DELETE CASCADE
+--   - help_content_approval_attachment.approval_id    -> help_content_approval(id) ON DELETE CASCADE
+--   - help_content.supersedes_id (self-referential)   -> help_content(id)          ON DELETE SET NULL
+-- Every dependent relationship is already ON DELETE CASCADE or ON DELETE SET NULL, so a single
+-- DELETE on help_content cleans up every attachment/approval/approval-attachment row it owns and
+-- nulls out any supersedes_id pointer to it, with no orphaned rows and no FK violations. No child
+-- table needs a manual delete first. (A forked draft revision always carries its original's type
+-- — see HelpContentService.forkDraftRevision — so supersedes_id links never cross the FAQ/GUIDE
+-- vs QUICK_HELP/DOCUMENT boundary anyway; the ON DELETE SET NULL is a structural safeguard, not
+-- something this data is expected to exercise.)
+
+DELETE FROM help_content WHERE type IN ('QUICK_HELP', 'DOCUMENT');

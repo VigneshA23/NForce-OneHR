@@ -50,12 +50,20 @@ public class User {
     @Column(name = "locked_until", columnDefinition = "TIMESTAMPTZ")
     private Instant lockedUntil;
 
-    // Bumped whenever this user's role changes (see UserManagementService#updateUser) so any
-    // already-issued JWT — which carries the version it was minted with — fails the check in
-    // JwtAuthenticationFilter on this user's very next request, without needing a session store.
+    // Bumped whenever a Super Admin changes this user's profile through
+    // UserManagementService#updateUser so any already-issued JWT — which carries the version it
+    // was minted with — fails the check in JwtAuthenticationFilter on this user's very next
+    // request, without needing a session store.
     @Column(name = "token_version", nullable = false)
     @Builder.Default
     private int tokenVersion = 0;
+
+    // Why the tokenVersion above was last bumped — "PASSWORD_CHANGED" or "PROFILE_UPDATED" (see
+    // AuthService#changePassword/forgotPassword, UserManagementService#resetPassword/updateUser).
+    // Read by JwtAuthenticationFilter to tell the frontend which forced-logout message to show;
+    // null for rows bumped before this field existed or by any path that doesn't set it.
+    @Column(name = "token_version_reason", length = 32)
+    private String tokenVersionReason;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

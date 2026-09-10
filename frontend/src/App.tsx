@@ -1,5 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
+import LandingPage from './pages/LandingPage';
+import RoleGuidePage from './pages/RoleGuidePage';
 import Login from './pages/auth/Login';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
@@ -14,7 +16,7 @@ import ProfilePage from './pages/ProfilePage';
 import NotificationsPage from './pages/NotificationsPage';
 import DirectoryPage from './pages/DirectoryPage';
 import HierarchyPage from './pages/HierarchyPage';
-import LeavePage from './pages/LeavePage';
+import LeaveHolidaysPage from './pages/LeaveHolidaysPage';
 import MyTeamPage from './pages/MyTeamPage';
 import ApprovalsPage from './pages/ApprovalsPage';
 import MyRequestsPage from './pages/MyRequestsPage';
@@ -66,6 +68,13 @@ function RequestsRouter() {
     : <MyRequestsPage />;
 }
 
+// Unauthenticated → show landing page. Authenticated → redirect to dashboard.
+function LandingOrDashboard() {
+  const token = useAuthStore((s) => s.token);
+  if (token) return <Navigate to="/dashboard" replace />;
+  return <LandingPage />;
+}
+
 function RequirePasswordChanged({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const user  = useAuthStore((s) => s.user);
@@ -79,7 +88,9 @@ export default function App() {
     <ToastProvider>
     <BrowserRouter>
       <Routes>
-        {/* Public */}
+        {/* Public — landing + role guides */}
+        <Route path="/" element={<LandingOrDashboard />} />
+        <Route path="/role-guide/:role" element={<RoleGuidePage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
@@ -105,11 +116,12 @@ export default function App() {
           <Route path="/dashboard"    element={<DashboardPage />} />
           <Route path="/attendance"   element={<AttendancePage />} />
           <Route path="/attendance/regularization/all" element={<SuperAdminRegularizationPage />} />
-          <Route path="/leave"        element={<LeavePage />} />
+          <Route path="/leave"        element={<LeaveHolidaysPage />} />
           <Route path="/my-team"      element={<MyTeamPage />} />
           <Route path="/help"         element={<HelpDeskPage />} />
           <Route path="/approvals"    element={<ApprovalsPage />} />
           <Route path="/requests"     element={<RequestsRouter />} />
+          <Route path="/my-requests"  element={<MyRequestsPage />} />
           <Route path="/assets"       element={<AssetsExpensesPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
@@ -127,7 +139,6 @@ export default function App() {
           <Route path="/audit"          element={<AuditRouter />} />
         </Route>
 
-        <Route path="/"  element={<Navigate to="/dashboard" replace />} />
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

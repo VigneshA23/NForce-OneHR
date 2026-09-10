@@ -5,6 +5,7 @@ import { Eye, EyeOff, AlertCircle, Lock } from 'lucide-react';
 import { AuthLayout } from './AuthLayout';
 import { authApi, LoginLockedError } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
+import { consumeSessionMessage } from '../../lib/authFetch';
 
 // Persists only the lock expiry the server already returned, so a page refresh keeps
 // showing the locked state without sending another login request. Not a client-side
@@ -73,7 +74,9 @@ export default function Login() {
   const [email,      setEmail]      = useState('');
   const [password,   setPassword]   = useState('');
   const [showPass,   setShowPass]   = useState(false);
-  const [error,      setError]      = useState<string | null>(null);
+  // A password-change/session-invalidation redirect (see lib/authFetch.ts) leaves a one-shot
+  // message here for this exact banner to pick up on first render.
+  const [error,      setError]      = useState<string | null>(() => consumeSessionMessage());
   const [submitting, setSubmitting] = useState(false);
   const [lock,       setLock]       = useState<StoredLock | null>(() => readStoredLock());
   const emailRef = useRef<HTMLInputElement>(null);
@@ -131,7 +134,9 @@ export default function Login() {
         role: data.role,
       });
       if (data.mustChangePassword) {
-        navigate('/change-password', { replace: true });
+        // Not `replace: true` — keeps /login in history so the browser back
+        // button can return the user to sign-in from the password-setup page.
+        navigate('/change-password');
       } else {
         navigate('/dashboard', { replace: true });
       }
@@ -161,7 +166,7 @@ export default function Login() {
     >
       <motion.div variants={reduced ? undefined : containerVariants} initial={reduced ? undefined : 'hidden'} animate={reduced ? undefined : 'show'}>
         <motion.div className="nf-login-heading-block" variants={reduced ? undefined : itemVariants} style={{ marginBottom: 28 }}>
-          <h1 className="nf-login-heading" style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
+          <h1 className="nf-login-heading" style={{ fontFamily: 'Inter, sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
             Welcome back
           </h1>
         </motion.div>

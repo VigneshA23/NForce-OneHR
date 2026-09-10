@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -22,6 +23,30 @@ function formatTimestampForExport(iso: string): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
+// Every *_REJECTED action's `afterState` snapshot carries the reviewer's rejection reason, but
+// under a different key per module (see each service's `auditSnapshot.toJson(...)` call) — no
+// single field name is shared across all of them. Try every known key rather than pick one.
+// Gated on the action itself ending in "REJECTED" (not just "does this key happen to exist") —
+// WEB_CLOCK_IN_APPROVED's own snapshot also carries a "reviewComment" (an optional approval
+// note), which would otherwise leak into this column for an approved row.
+const REJECTION_REASON_KEYS = [
+  'reviewComment', 'decisionReason', 'rejectionReason', 'managerRejectionReason', 'finalRejectionReason',
+] as const;
+
+function extractRejectionReason(action: string, afterState: string | null): string {
+  if (!action.endsWith('REJECTED') || !afterState) return '';
+  try {
+    const parsed = JSON.parse(afterState) as Record<string, unknown>;
+    for (const key of REJECTION_REASON_KEYS) {
+      const value = parsed[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+  } catch {
+    // afterState wasn't parseable JSON — leave the reason blank rather than fail the export.
+  }
+  return '';
+}
+
 export interface AuditLogViewConfig {
   title: string;
   subtitle: string;
@@ -35,9 +60,13 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
 
+  // Deep-link support: the Super Admin dashboard's "Audit Events Today" tile links here as
+  // /audit?from=<today>&to=<today> to pre-apply today's date filter — same pattern as
+  // DirectoryPage's ?userId= deep link from the Present Today/On Leave modals.
+  const [searchParams] = useSearchParams();
   const [targetSearch, setTargetSearch] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState(() => searchParams.get('from') ?? '');
+  const [to, setTo] = useState(() => searchParams.get('to') ?? '');
   const [activeGroup, setActiveGroup] = useState<ActionGroup | 'ALL'>('ALL');
   const [page, setPage] = useState(0);
   const [pageData, setPageData] = useState<PagedAuditLogs | null>(null);
@@ -92,6 +121,8 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
         'Category': r.actionCategory,
         'Affected User': r.targetLabel,
         'Affected User ID': r.targetEmployeeCode ?? '',
+        // Populated only for *_REJECTED actions; blank for approvals and everything else.
+        'Reason': extractRejectionReason(r.action, r.afterState),
       }));
       const ws = XLSX.utils.json_to_sheet(sheetRows);
       const wb = XLSX.utils.book_new();
@@ -112,7 +143,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {config.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{config.subtitle}</p>

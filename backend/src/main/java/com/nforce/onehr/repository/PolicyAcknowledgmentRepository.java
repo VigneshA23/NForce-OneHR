@@ -16,7 +16,13 @@ public interface PolicyAcknowledgmentRepository extends JpaRepository<PolicyAckn
 
     List<PolicyAcknowledgment> findByEmployeeUserIdOrderByPolicy_PublishedAtDesc(UUID employeeUserId);
 
-    List<PolicyAcknowledgment> findByPolicyIdOrderByAcknowledgedAtDesc(Long policyId);
+    // Backs PolicyService#listAcknowledgments — the HR-wide "who has/hasn't acknowledged this
+    // policy" view. Joins User to exclude soft-deleted employees' (historical) acknowledgment
+    // rows; PolicyService#publish already only seeds new rows for active employees, so this only
+    // ever hides rows created before the employee was deleted.
+    @Query("SELECT a FROM PolicyAcknowledgment a JOIN User u ON u.id = a.employeeUserId "
+         + "WHERE a.policy.id = :policyId AND u.deletedAt IS NULL ORDER BY a.acknowledgedAt DESC")
+    List<PolicyAcknowledgment> findByPolicyIdOrderByAcknowledgedAtDesc(@Param("policyId") Long policyId);
 
     Optional<PolicyAcknowledgment> findByPolicyIdAndEmployeeUserId(Long policyId, UUID employeeUserId);
 
