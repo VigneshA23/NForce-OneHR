@@ -17,6 +17,7 @@ import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.EmployeeShiftAssignment;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WeeklyOffPolicy;
@@ -244,9 +245,11 @@ public class AttendanceService {
 
     /**
      * Read-only shift/break config for the Today's Timings panel. shiftStart/shiftEnd are
-     * resolved from the caller's assigned Shift (ONEHR-108) — every employee is expected to
-     * always have one, so this throws (via shiftDayPolicy) rather than falling back to any
-     * global default if that invariant is ever violated.
+     * resolved from the Shift Assignment effective today, if any. A brand-new/no-shift employee
+     * (no assignment at all, or one whose first assignment isn't effective yet — a valid,
+     * permanent state, see AttendanceInterpretationService's NO_SHIFT_ASSIGNED handling) simply
+     * has no shift timing to show — shiftName/shiftStart/shiftEnd/lateGraceMinutes are left at
+     * their empty/zero defaults rather than this throwing or fabricating a Shift.
      */
     @Transactional(readOnly = true)
     public AttendanceConfigResponse getConfig(String actorEmail) {
@@ -258,22 +261,28 @@ public class AttendanceService {
         // — not the bare org-wide default — so the displayed shift start/end matches what their
         // own Check-In would actually compute.
         LocalDate configDay = LocalDate.now(attendanceRulesService.resolveEmployeeZoneId(employee));
+        AttendanceConfigResponse.AttendanceConfigResponseBuilder builder = AttendanceConfigResponse.builder()
+                .halfDayMaxHours(attendanceRulesService.getHalfDayMaxHours())
+                .weeklyOffDays(weeklyOffPolicy != null
+                        ? Arrays.stream(weeklyOffPolicy.getOffDays().split(",")).map(String::trim).toList()
+                        : List.of("SATURDAY", "SUNDAY"));
+
         // Resolved from the Shift Assignment effective TODAY (never employee.getShift(), a
         // best-effort display cache — see that field's own Javadoc), then pinned so
         // ShiftDayPolicy's existing Employee-taking methods resolve against exactly this Shift.
-        Shift shift = employeeShiftAssignmentResolver.resolve(employee.getUserId(), configDay).getShift();
+        Optional<EmployeeShiftAssignment> assignment =
+                employeeShiftAssignmentResolver.resolveIfPresent(employee.getUserId(), configDay);
+        if (assignment.isEmpty()) {
+            return builder.build();
+        }
+        Shift shift = assignment.get().getShift();
         Employee pinnedToday = Employee.builder().userId(employee.getUserId()).shift(shift).build();
-
-        return AttendanceConfigResponse.builder()
+        return builder
                 .shiftName(shift.getName())
                 .shiftStart(shiftDayPolicy.resolveShiftStart(pinnedToday, configDay))
                 .shiftEnd(shiftDayPolicy.shiftEndAt(pinnedToday, configDay).toLocalTime())
                 // Per-Shift-Version grace (see V168).
                 .lateGraceMinutes(shiftDayPolicy.resolveLateGraceMinutes(pinnedToday, configDay))
-                .halfDayMaxHours(attendanceRulesService.getHalfDayMaxHours())
-                .weeklyOffDays(weeklyOffPolicy != null
-                        ? Arrays.stream(weeklyOffPolicy.getOffDays().split(",")).map(String::trim).toList()
-                        : List.of("SATURDAY", "SUNDAY"))
                 .build();
     }
 
@@ -360,9 +369,16 @@ public class AttendanceService {
         // isLate (official status, HR/penalty-relevant, grace-aware) and lateByMinutes
         // (employee-facing display only, no grace forgiveness) both come from the interpretation
         // computed above — see AttendanceInterpretationService's own Javadoc for the exact
-        // formula (unchanged from what this method always computed inline).
-        boolean isLate = interpretation.getIsLate();
-        int lateByMinutes = interpretation.getLateByMinutes();
+        // formula (unchanged from what this method always computed inline). NO_SHIFT_ASSIGNED
+        // (no effective EmployeeShiftAssignment — a brand-new/no-shift employee, or one whose
+        // first assignment isn't effective yet) never computes isLate/lateByMinutes/shiftId at
+        // all — an ordinary PRESENT day with no shift interpretation, never a fabricated Shift.
+        // The effective*() derivation is centralized on AttendanceInterpretation itself (shared
+        // with WebClockInService/RegularizationService) so this NO_SHIFT_ASSIGNED degradation is
+        // defined exactly once, never re-derived per caller.
+        boolean isLate = interpretation.effectiveIsLate();
+        int lateByMinutes = interpretation.effectiveLateByMinutes();
+        UUID shiftId = interpretation.effectiveShiftId();
 
         Attendance record;
         try {
@@ -382,8 +398,16 @@ public class AttendanceService {
                     // Snapshotted once, here, at creation — never updated again. This is what lets a
                     // later reassignment of the employee to a different Shift leave this row's own
                     // interpretation (checkout cutoff, staleness boundary) untouched — see
-                    // AttendanceInterpretationService.interpretExistingSession.
-                    .shiftId(interpretation.getShiftId())
+                    // AttendanceInterpretationService.interpretExistingSession. Null for
+                    // NO_SHIFT_ASSIGNED — exactly the same "no Shift context to interpret against"
+                    // signal a legacy pre-snapshot row already carries (see that field's own
+                    // Javadoc); every downstream consumer already treats shiftId == null as
+                    // "cannot/must not be shift-interpreted" rather than a special case to add.
+                    .shiftId(shiftId)
+                    // The discriminator that lets this row's shiftId==null be resolved as a
+                    // valid, current no-Shift state (rather than a genuine legacy row) everywhere
+                    // this row is read again later — see Attendance.noShiftAssigned's own Javadoc.
+                    .noShiftAssigned(interpretation.isNoShiftAssigned())
                     .build());
         } catch (DataIntegrityViolationException e) {
             // The race actually happened — the same clean rejection the open-session check above
@@ -630,9 +654,11 @@ public class AttendanceService {
 
     /**
      * A session left open past its own logical workday (per {@link ShiftDayPolicy#shiftDayOf},
-     * shift-relative to the employee's assigned shift — every employee is expected to have one,
-     * see {@link Shift#DEFAULT_SHIFT_NAME}/{@code ShiftSeedCorrector}) — the employee forgot to
-     * check out and never came back to click it — must not go
+     * shift-relative to the record's own snapshotted Shift — see
+     * {@link AttendanceInterpretationService#interpretExistingSession}; a record with no Shift
+     * snapshot at all, whether legacy or a genuinely no-shift employee, is handled below by the
+     * LEGACY_UNRESOLVED branch instead) — the employee forgot to check out and never came back to
+     * click it — must not go
      * on blocking fresh check-ins ({@link #checkIn}) or showing as "still checked in" / offering a
      * Check Out button forever ({@link #getToday}), no matter how many calendar days have since
      * passed. Flags it {@link #STATUS_MISSING_CHECKOUT} right then — deliberately WITHOUT
@@ -782,10 +808,11 @@ public class AttendanceService {
             // one — see AttendanceInterpretationService.interpretExistingSession.
             AttendanceInterpretation interpretation = attendanceInterpretationService.interpretExistingSession(
                     record, LocalDateTime.now(resolveZone(record, employee)));
-            if (interpretation.isLegacyUnresolved()) {
-                // No reliable "has the shift ended" signal for a legacy pre-snapshot record —
-                // leave status exactly as it is rather than guessing; see closeSession's own
-                // null-cutoff handling for the same principle.
+            if (interpretation.isLegacyUnresolved() || interpretation.isNoShiftAssigned()) {
+                // No reliable "has the shift ended" signal for a legacy pre-snapshot record, and
+                // no shift at all to derive one for a NO_SHIFT_ASSIGNED record — leave status
+                // exactly as it is rather than guessing/fabricating a cutoff; see closeSession's
+                // own null-cutoff handling for the same principle.
                 continue;
             }
             LocalDateTime shiftEnd = interpretation.getCheckoutCutoff();
@@ -798,7 +825,7 @@ public class AttendanceService {
             // `lateByMinutes > 0` would flip an already-correctly-graced PRESENT arrival (within
             // the shift's own allowed-late privilege) to LATE the moment this sweep finalizes the
             // day, contradicting the grace decision check-in already made. Never LEGACY_UNRESOLVED
-            // here — already `continue`d above via the identical shiftId resolution.
+            // or NO_SHIFT_ASSIGNED here — already `continue`d above.
             boolean isLate = attendanceInterpretationService
                     .interpretExistingRecordLateness(record, record.getCheckInAt()).getIsLate();
             String finalStatus = workedMinutes < attendanceRulesService.getHalfDayMaxHours() * 60
@@ -1046,25 +1073,29 @@ public class AttendanceService {
      * approved hourly/quarter-day leave on that date) — the same calculation the Penalization
      * Policy engine uses (see {@link ExpectedWorkHoursService}), so this leaderboard's "expected
      * hours" is never a second, independently-derived figure.
+     *
+     * <p>The no-shift 8h/day fallback is decided PER WORKING DATE, from
+     * {@link ExpectedWorkHoursService#adjustedExpectedMinutes} returning {@code null} (no
+     * effective {@code EmployeeShiftAssignment} covers that specific date) — never from a coarse,
+     * whole-range {@code employee.getShift() == null} gate. {@code Employee.shift} is only a
+     * best-effort display/roster cache (see its own Javadoc): it can already be populated
+     * immediately at creation while the employee's real first assignment isn't effective until
+     * their next working day (see {@code UserManagementService#createUser}), so gating on it
+     * whole-range silently reported 0 (not the fallback) for every date in that gap instead of
+     * falling back per date. A fully unassigned employee still gets the identical result as
+     * before (every date falls back), since {@code schedule.getExpectedWorkingDays()} is exactly
+     * {@code schedule.getWorkingDates().size()}.
      */
     private double expectedHoursFor(Employee employee, WorkingDaySchedule schedule,
                                      Map<String, com.nforce.onehr.entity.LeaveRequest> partialHourLeaveByEmployeeDate) {
-        if (schedule == null) {
+        if (schedule == null || employee == null) {
             return 0.0;
-        }
-        // shiftMinutes(employee, date) is null only when the employee has no assigned shift at
-        // all (an overnight shift's own rollover keeps its minutes positive regardless of date —
-        // see that method's own Javadoc) — so this coarse "does a real shift exist" gate doesn't
-        // need a specific date; the per-date figure below (adjustedExpectedMinutes) is what
-        // actually resolves each working date's own Shift Version.
-        if (employee == null || employee.getShift() == null) {
-            return schedule.getExpectedWorkingDays() * (double) FALLBACK_HOURS_PER_WORKDAY_WHEN_NO_SHIFT;
         }
         long totalMinutes = schedule.getWorkingDates().stream()
                 .mapToLong(date -> {
                     Long minutes = expectedWorkHoursService.adjustedExpectedMinutes(employee, date,
                             partialHourLeaveByEmployeeDate.get(employee.getUserId() + "|" + date));
-                    return minutes != null ? minutes : 0L;
+                    return minutes != null ? minutes : FALLBACK_HOURS_PER_WORKDAY_WHEN_NO_SHIFT * 60L;
                 })
                 .sum();
         return totalMinutes / 60.0;
@@ -1455,7 +1486,7 @@ public class AttendanceService {
     private List<AttendanceResponse> historyFor(Employee employee, LocalDate from, LocalDate to) {
         // Scoped to one specific employee (never an aggregate/roster view), so their own
         // timezone unambiguously answers "what does 'today' mean" for defaulting the range end.
-        LocalDate end = to != null ? to : shiftDayPolicy.shiftDayOf(employee.getUserId(), now(employee));
+        LocalDate end = to != null ? to : defaultHistoryEnd(employee);
         LocalDate start = from != null ? from : end.minusDays(DEFAULT_HISTORY_DAYS);
         return attendanceRepository
                 .findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(
@@ -1463,6 +1494,23 @@ public class AttendanceService {
                 .stream()
                 .map(record -> toResponse(record, employee))
                 .toList();
+    }
+
+    /**
+     * The history range's default end (when the caller doesn't specify one) — today's own
+     * shift-relative work-date, per {@link ShiftDayPolicy#shiftDayOf}. A brand-new/no-shift
+     * employee (no effective {@code EmployeeShiftAssignment} at all — a valid state, see
+     * AttendanceInterpretationService's NO_SHIFT_ASSIGNED handling) falls back to the plain
+     * calendar date instead — there is no Shift to roll an overnight boundary against, and this
+     * must never throw merely because the caller happens to have no Shift assigned yet.
+     */
+    private LocalDate defaultHistoryEnd(Employee employee) {
+        LocalDateTime now = now(employee);
+        LocalDate calendarDate = now.toLocalDate();
+        if (employeeShiftAssignmentResolver.resolveIfPresent(employee.getUserId(), calendarDate).isEmpty()) {
+            return calendarDate;
+        }
+        return shiftDayPolicy.shiftDayOf(employee.getUserId(), now);
     }
 
     /** Left-joins a day's records onto an employee list so non-punchers still appear as a row. */

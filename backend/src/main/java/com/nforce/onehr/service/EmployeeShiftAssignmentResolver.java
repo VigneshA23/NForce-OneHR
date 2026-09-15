@@ -35,7 +35,7 @@ public class EmployeeShiftAssignmentResolver {
      */
     public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
         return resolveIfPresent(employeeUserId, workDate)
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new NoShiftAssignmentException(
                         "Employee " + employeeUserId + " has no Shift assignment effective on or before "
                                 + workDate + " — every employee is expected to have at least an initial "
                                 + "assignment (see EmployeeService#createEmployee/UserManagementService#createUser "

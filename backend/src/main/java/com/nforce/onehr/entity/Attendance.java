@@ -70,15 +70,27 @@ public class Attendance {
 
     // Raw UUID, not a @ManyToOne (same convention as employeeUserId above) — the Shift that was
     // in effect when this row was FIRST created (normal Check-In, Web Clock-In, or a
-    // Regularization-created row), set once and never updated afterward. Null for rows created
-    // before this column existed ("legacy" rows — see AttendanceInterpretationService's
-    // LEGACY_UNRESOLVED handling) or, in principle, for a row predating any Shift assignment;
-    // never silently backfilled from the employee's current Shift. This is what lets an
-    // already-open session or an already-created historical record keep its own original Shift
-    // context even after the employee is reassigned to a different Shift — see V163's migration
-    // comment and AttendanceInterpretationService.
+    // Regularization-created row), set once and never updated afterward. Null for two otherwise-
+    // indistinguishable reasons, disambiguated by noShiftAssigned below: a genuine legacy row
+    // predating this column entirely ("legacy" rows — see AttendanceInterpretationService's
+    // LEGACY_UNRESOLVED handling), or a valid, current NO_SHIFT_ASSIGNED row (the employee simply
+    // had no effective Shift when this row was created). Never silently backfilled from the
+    // employee's current Shift either way. This is what lets an already-open session or an
+    // already-created historical record keep its own original Shift context even after the
+    // employee is reassigned to a different Shift — see V163's migration comment and
+    // AttendanceInterpretationService.
     @Column(name = "shift_id")
     private UUID shiftId;
+
+    // The discriminator between this row's two otherwise-indistinguishable shiftId==null cases
+    // (see V179's migration comment): TRUE only when this row was first created via
+    // AttendanceInterpretationService's NO_SHIFT_ASSIGNED outcome (a valid, current, permanent
+    // no-Shift state — see that outcome's own Javadoc), FALSE for a genuine legacy row predating
+    // the shiftId column entirely (the pre-ONEHR-355 meaning of shiftId==null, preserved as this
+    // column's default for every row that exists already). Set once, at creation, alongside
+    // shiftId, and never updated afterward — same lifecycle as shiftId itself.
+    @Column(name = "no_shift_assigned", nullable = false)
+    private boolean noShiftAssigned;
 
     // Deliberately NOT WallClockDateTimeConverter — these are plain JVM/DB bookkeeping instants
     // (LocalDateTime.now(), no explicit business zone — see onCreate/onUpdate below), never

@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -66,26 +67,47 @@ import java.util.UUID;
  * already exist for this work-date." If yes, its own {@code shiftId} governs, full stop.
  *
  * <h2>Legacy rows — explicit, never guessed</h2>
- * A row with {@code shiftId == null} predates this column entirely (see V163's migration comment)
- * — both {@link #interpretExistingSession} and {@link #interpretExistingRecordLateness} return
- * {@link InterpretationOutcome#LEGACY_UNRESOLVED} for it, with every other field null. It is NEVER
- * resolved by falling back to the employee's current Shift (that would silently reintroduce the
- * exact historical-corruption problem this whole design exists to prevent) and NEVER guessed via
- * a plain calendar-date rollover (a genuinely overnight Shift makes that guess provably wrong).
- * Callers decide what "unresolved" means for their own operation — e.g. an open legacy session is
- * left alone by the existing MISSING_CHECKOUT mechanism rather than assigned a fabricated cutoff;
- * a historical correction surfaces the outcome rather than presenting a computed lateness figure
- * as reliable.
+ * A row with {@code shiftId == null} means one of two things, disambiguated by
+ * {@code Attendance.noShiftAssigned} (see that field's own Javadoc): a genuine legacy row
+ * predating the shiftId column entirely (see V163's migration comment), for which both
+ * {@link #interpretExistingSession} and {@link #interpretExistingRecordLateness} return
+ * {@link InterpretationOutcome#LEGACY_UNRESOLVED} with every other field null; or a valid, current
+ * NO_SHIFT_ASSIGNED row (see the section below), for which both methods return
+ * {@link InterpretationOutcome#NO_SHIFT_ASSIGNED} instead — never conflated, since a valid no-
+ * Shift attendance row must remain regularizable/stale-detectable like any other, while a genuine
+ * legacy row must not. Neither case is ever resolved by falling back to the employee's current
+ * Shift (that would silently reintroduce the exact historical-corruption problem this whole design
+ * exists to prevent) or guessed via a plain calendar-date rollover where a Shift context IS known
+ * (a genuinely overnight Shift makes that guess provably wrong) — LEGACY_UNRESOLVED specifically
+ * leaves every field null; NO_SHIFT_ASSIGNED explicitly degrades to a plain calendar-date
+ * attribution instead, there being no Shift at all to roll against. Callers decide what each
+ * outcome means for their own operation — e.g. an open legacy session is left alone by the
+ * existing MISSING_CHECKOUT mechanism rather than assigned a fabricated cutoff, while an open
+ * no-Shift session participates in that same mechanism normally; a historical correction on a
+ * legacy row surfaces the outcome rather than presenting a computed lateness figure as reliable,
+ * while one on a no-Shift row is approved as an ordinary PRESENT day.
+ *
+ * <h2>No Shift Assignment — a valid state, never an error</h2>
+ * A brand-new employee may legitimately have no {@code EmployeeShiftAssignment} at all (no Shift
+ * was ever selected for them), or one whose first assignment is not yet effective (it takes
+ * effect on their next working day, never the creation/joining day — see
+ * {@code EmployeeService#createEmployee}/{@code UserManagementService#createUser}). {@link
+ * #interpretFreshAction}/{@link #interpretForKnownWorkDate} check
+ * {@link EmployeeShiftAssignmentResolver#resolveIfPresent} FIRST, before ever calling into
+ * {@link ShiftDayPolicy} — an employee in either state above returns
+ * {@link InterpretationOutcome#NO_SHIFT_ASSIGNED} (plain calendar-date work-date attribution, no
+ * lateness, no shiftId), never a fabricated Shift and never a thrown exception.
  *
  * <h2>A genuine invariant violation — loud, never silently degraded</h2>
- * {@link #interpretFreshAction}/{@link #interpretForKnownWorkDate} resolve against
- * {@code employee.getShift()}, which the mandatory-Shift invariant (DB {@code NOT NULL},
- * create-time fail-loud, reassignment rejection) guarantees is never null for a real employee. If
- * {@link ShiftDayPolicy} ever throws here regardless, this class does NOT catch it and does NOT
- * substitute a plain calendar-date attribution (a 22:00→07:00 overnight employee would be
- * silently misattributed to the wrong logical workday) — the exception propagates as-is, exactly
- * the loud, typed, alertable failure it already is today, just from one shared call site instead
- * of three duplicated ones.
+ * Once an effective {@link com.nforce.onehr.entity.EmployeeShiftAssignment} actually exists for
+ * the date in question, its own {@link Shift}/{@link com.nforce.onehr.entity.ShiftVersion} data
+ * is expected to be genuinely resolvable — {@link EmployeeShiftAssignmentResolver#resolve}/
+ * {@link ShiftVersionResolver#resolve} guard exactly that invariant (an assignment referencing a
+ * Shift with no version covering the date, for instance). If either ever throws here regardless,
+ * this class does NOT catch it and does NOT substitute a plain calendar-date attribution (a
+ * 22:00→07:00 overnight employee would be silently misattributed to the wrong logical workday) —
+ * the exception propagates as-is, a loud, typed, alertable failure, clearly distinct from the
+ * ordinary NO_SHIFT_ASSIGNED case above.
  */
 @Service
 @RequiredArgsConstructor
@@ -108,7 +130,30 @@ public class AttendanceInterpretationService {
      */
     @Transactional(readOnly = true)
     public AttendanceInterpretation interpretFreshAction(Employee employee, AttendanceContext context) {
-        LocalDate workDate = shiftDayPolicy.shiftDayOf(employee.getUserId(), context.getNow());
+        // Checked BEFORE any shift-relative computation — ShiftDayPolicy#shiftDayOf has no
+        // fallback for "no assignment at all" (by design: it guards a genuine invariant
+        // violation for a Shift ALREADY on the employee). A brand-new/no-shift employee, or one
+        // whose first assignment isn't effective yet, is a valid, permanent state, not that
+        // invariant violation — see InterpretationOutcome#NO_SHIFT_ASSIGNED. Work-date
+        // attribution falls back to the plain calendar date (there is no Shift to roll an
+        // overnight boundary against) and no Shift-dependent fact is computed.
+        LocalDate calendarDate = context.getNow().toLocalDate();
+        Optional<EmployeeShiftAssignment> assignment =
+                employeeShiftAssignmentResolver.resolveIfPresent(employee.getUserId(), calendarDate);
+        if (assignment.isEmpty()) {
+            return AttendanceInterpretation.noShiftAssigned(calendarDate);
+        }
+        // Passed through rather than re-resolved: ShiftDayPolicy#shiftDayOf would otherwise
+        // immediately re-query this exact employee+date pair for Rule 1 (today's own start) — see
+        // that overload's own Javadoc. Rule 2 (yesterday's boundary), if it applies, still
+        // resolves yesterday's assignment independently; this never reuses today's for that.
+        LocalDate workDate = shiftDayPolicy.shiftDayOf(employee.getUserId(), context.getNow(), assignment.get());
+        if (workDate.equals(calendarDate)) {
+            return interpretForKnownWorkDate(pin(employee.getUserId(), assignment.get()), workDate, context.getNow());
+        }
+        // The rarer overnight-rollover case: workDate is yesterday relative to calendarDate, so
+        // today's already-resolved assignment must NOT be reused for it — falls through to
+        // interpretForKnownWorkDate's own independent resolution for that (different) date.
         return interpretForKnownWorkDate(employee.getUserId(), workDate, context.getNow());
     }
 
@@ -124,7 +169,16 @@ public class AttendanceInterpretationService {
      */
     @Transactional(readOnly = true)
     public AttendanceInterpretation interpretForKnownWorkDate(UUID employeeUserId, LocalDate workDate, LocalDateTime checkInAt) {
-        return interpretForKnownWorkDate(pinForDate(employeeUserId, workDate), workDate, checkInAt);
+        // Same no-assignment guard as interpretFreshAction above (which delegates here) — also
+        // covers a Regularization-created row for a date with no prior punch, backdated to a
+        // date before the employee's first assignment (or a still-fully-shift-less employee).
+        Optional<EmployeeShiftAssignment> assignment = employeeShiftAssignmentResolver.resolveIfPresent(employeeUserId, workDate);
+        if (assignment.isEmpty()) {
+            return AttendanceInterpretation.noShiftAssigned(workDate);
+        }
+        // Pinned directly from the assignment just resolved above, rather than pinForDate (which
+        // would re-resolve the identical employeeUserId+workDate pair a second time).
+        return interpretForKnownWorkDate(pin(employeeUserId, assignment.get()), workDate, checkInAt);
     }
 
     /**
@@ -164,12 +218,23 @@ public class AttendanceInterpretationService {
      * snapshotted {@code shiftId}, never the employee's current Shift. {@code now} is the caller's
      * already-resolved "current instant" (from the record's own locked-in timezone — see
      * {@code resolveZone} — unrelated to this method).
+     *
+     * <p>{@code shiftId == null} is NO_SHIFT_ASSIGNED (never LEGACY_UNRESOLVED) when
+     * {@code record.isNoShiftAssigned()} — see that field's own Javadoc. There is no Shift to roll
+     * an overnight boundary against, so {@code workDate} degrades to {@code now}'s own plain
+     * calendar date — the EXISTING staleness comparison in
+     * {@code AttendanceService#flagMissingCheckoutIfStale} (this outcome's {@code workDate} vs. the
+     * record's own stored {@code workDate}) still applies completely unmodified: the session goes
+     * stale the moment the calendar date rolls over, exactly the same mechanism a shift-assigned
+     * employee's session uses, just without a Shift to roll against.
      */
     @Transactional(readOnly = true)
     public AttendanceInterpretation interpretExistingSession(Attendance record, LocalDateTime now) {
         Employee shiftContext = resolveShiftContextOrNull(record);
         if (shiftContext == null) {
-            return AttendanceInterpretation.legacyUnresolved();
+            return record.isNoShiftAssigned()
+                    ? AttendanceInterpretation.noShiftAssigned(now.toLocalDate())
+                    : AttendanceInterpretation.legacyUnresolved();
         }
         LocalDate workDateOfNow = shiftDayPolicy.shiftDayOf(shiftContext, now);
         LocalDateTime cutoff = shiftDayPolicy.shiftEndAt(shiftContext, record.getWorkDate());
@@ -189,12 +254,20 @@ public class AttendanceInterpretationService {
      * {@code shiftId} and its own {@code workDate}, never the employee's current Shift. This is
      * the direct fix for "employee reassigned to a different Shift since this historical record's
      * date" silently changing a regularization correction's computed lateness.
+     *
+     * <p>{@code shiftId == null} is NO_SHIFT_ASSIGNED (never LEGACY_UNRESOLVED) when
+     * {@code record.isNoShiftAssigned()} — a valid, current no-Shift row must remain regularizable
+     * (approvable) rather than rejected as an unrecoverable legacy row (see that field's own
+     * Javadoc). {@code workDate} is the record's own already-known {@code workDate} — there is
+     * nothing to derive, same as the RESOLVED branch below.
      */
     @Transactional(readOnly = true)
     public AttendanceInterpretation interpretExistingRecordLateness(Attendance record, LocalDateTime checkInAt) {
         Employee shiftContext = resolveShiftContextOrNull(record);
         if (shiftContext == null) {
-            return AttendanceInterpretation.legacyUnresolved();
+            return record.isNoShiftAssigned()
+                    ? AttendanceInterpretation.noShiftAssigned(record.getWorkDate())
+                    : AttendanceInterpretation.legacyUnresolved();
         }
         return interpretForKnownWorkDate(shiftContext, record.getWorkDate(), checkInAt);
     }
@@ -273,24 +346,60 @@ public class AttendanceInterpretationService {
      * above): this is a pre-submission sanity check, not the final authority, and {@link
      * #interpretExistingRecordLateness} already throws its own clear, explicit error for a legacy
      * row at APPROVAL time.
+     *
+     * <p>NO_SHIFT_ASSIGNED (a brand-new correction, no prior row, and no {@code
+     * EmployeeShiftAssignment} effective on {@code workDate} — a brand-new/no-shift employee, or
+     * one whose first assignment isn't effective yet) degrades to a plain calendar-date check:
+     * there is no Shift to roll an overnight boundary against, so {@code timestamp} belongs to
+     * {@code workDate} exactly when its own calendar date is {@code workDate} — mirrors {@link
+     * AttendanceInterpretationService}'s own NO_SHIFT_ASSIGNED handling for check-in/check-out
+     * elsewhere in this class, never a thrown exception from {@link ShiftDayPolicy#shiftDayOf}.
      */
     @Transactional(readOnly = true)
     public boolean belongsToWorkday(Employee employee, Attendance existingRecordOrNull, LocalDate workDate, LocalDateTime timestamp) {
         if (existingRecordOrNull != null) {
             Employee shiftContext = resolveShiftContextOrNull(existingRecordOrNull);
             if (shiftContext == null) {
-                return true; // legacy row — fails open, exactly like every other legacy case here
+                // A valid, current no-Shift row (see Attendance.noShiftAssigned's own Javadoc)
+                // degrades to a plain calendar-date check, same as the brand-new-correction branch
+                // below — never "fails open" for it the way a genuine legacy row does, since there
+                // IS a well-defined answer here (no Shift to roll an overnight boundary against).
+                if (existingRecordOrNull.isNoShiftAssigned()) {
+                    return timestamp.toLocalDate().equals(workDate);
+                }
+                return true; // genuine legacy row — fails open, exactly like every other legacy case here
             }
             return shiftDayPolicy.shiftDayOf(shiftContext, timestamp).equals(workDate);
         }
         if (employee == null) {
             return true; // no employee to validate against — fails open, exactly like the legacy-row case above
         }
+        if (employeeShiftAssignmentResolver.resolveIfPresent(employee.getUserId(), workDate).isEmpty()) {
+            return timestamp.toLocalDate().equals(workDate);
+        }
         // Brand-new correction, no prior row — day-aware resolution against the employee's REAL
         // assignment history (never Employee.shift, a best-effort display cache — see that
         // field's own Javadoc), since a reassignment could land exactly on the boundary this
         // examines. See ShiftDayPolicy#shiftDayOf(UUID, LocalDateTime)'s own Javadoc.
-        return shiftDayPolicy.shiftDayOf(employee.getUserId(), timestamp).equals(workDate);
+        try {
+            return shiftDayPolicy.shiftDayOf(employee.getUserId(), timestamp).equals(workDate);
+        } catch (NoShiftAssignmentException e) {
+            // workDate itself has an effective assignment (just confirmed above), but the
+            // REQUESTED timestamp's own calendar date does not — an inconsistent/out-of-range
+            // correction (e.g. a requested check-in dated well before the employee's first
+            // assignment while attendanceDate itself is on/after it), not a legitimate no-shift
+            // case. Rejected as an ordinary "does not belong to this workday" answer — the exact
+            // same controlled IllegalArgumentException RegularizationService.resolveTimes already
+            // throws for this method's false return. Only this specific "no assignment for that
+            // date" exception is caught here — a genuine Shift/ShiftVersion invariant violation
+            // (plain IllegalStateException from ShiftVersionResolver#resolve) is NOT this subtype
+            // and propagates uncaught, exactly as this class's own Javadoc requires.
+            log.warn("belongsToWorkday: employee {} has no resolvable Shift context for the requested "
+                            + "timestamp's own calendar date even though workDate={} does — rejecting as "
+                            + "an out-of-range correction: {}",
+                    employee.getUserId(), workDate, e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -298,13 +407,18 @@ public class AttendanceInterpretationService {
      * exposed separately purely so a caller can phrase a helpful validation message ("must fall
      * between X and Y") instead of a bare rejection. Same shift-context resolution as {@link
      * #belongsToWorkday}; returns {@code null} in the exact same legacy-row case that method fails
-     * open for.
+     * open for, and the plain calendar-date window (midnight to midnight) in the same
+     * NO_SHIFT_ASSIGNED case that method degrades to a calendar-date check for.
      */
     @Transactional(readOnly = true)
     public WorkdayWindow resolveWorkdayWindowFor(Employee employee, Attendance existingRecordOrNull, LocalDate workDate) {
         if (existingRecordOrNull != null) {
             Employee shiftContext = resolveShiftContextOrNull(existingRecordOrNull);
             if (shiftContext == null) {
+                // Same no-Shift-assigned vs. genuine-legacy distinction as belongsToWorkday above.
+                if (existingRecordOrNull.isNoShiftAssigned()) {
+                    return new WorkdayWindow(workDate.atStartOfDay(), workDate.plusDays(1).atStartOfDay());
+                }
                 return null;
             }
             return new WorkdayWindow(shiftDayPolicy.workdayStartAt(shiftContext, workDate),
@@ -313,10 +427,28 @@ public class AttendanceInterpretationService {
         if (employee == null) {
             return null; // no employee to validate against — same fail-open case as the legacy-row branch above
         }
+        if (employeeShiftAssignmentResolver.resolveIfPresent(employee.getUserId(), workDate).isEmpty()) {
+            return new WorkdayWindow(workDate.atStartOfDay(), workDate.plusDays(1).atStartOfDay());
+        }
         // Brand-new correction, no prior row — same day-aware reasoning as belongsToWorkday above.
-        LocalDateTime start = shiftDayPolicy.workdayStartAt(employee.getUserId(), workDate);
-        LocalDateTime end = shiftDayPolicy.workdayEndAt(pinForDate(employee.getUserId(), workDate), workDate);
-        return new WorkdayWindow(start, end);
+        // Same edge case too: workDate has an effective assignment but workdayStartAt's own
+        // previous-day lookup, or workdayEndAt's pinForDate, can still throw if some OTHER date
+        // this window touches doesn't — degrades to the plain calendar-date window rather than an
+        // uncaught 500, exactly like belongsToWorkday's own try/catch.
+        try {
+            LocalDateTime start = shiftDayPolicy.workdayStartAt(employee.getUserId(), workDate);
+            LocalDateTime end = shiftDayPolicy.workdayEndAt(pinForDate(employee.getUserId(), workDate), workDate);
+            return new WorkdayWindow(start, end);
+        } catch (NoShiftAssignmentException e) {
+            // Only "no assignment for that date" is caught here — a genuine Shift/ShiftVersion
+            // invariant violation (plain IllegalStateException from ShiftVersionResolver#resolve)
+            // is NOT this subtype and propagates uncaught, same rationale as belongsToWorkday above.
+            log.warn("resolveWorkdayWindowFor: employee {} has no resolvable Shift context for a date "
+                            + "this workday window touches even though workDate={} does — falling back to "
+                            + "the plain calendar-date window: {}",
+                    employee.getUserId(), workDate, e.getMessage());
+            return new WorkdayWindow(workDate.atStartOfDay(), workDate.plusDays(1).atStartOfDay());
+        }
     }
 
     /**
@@ -327,7 +459,11 @@ public class AttendanceInterpretationService {
      * nothing else off {@code Employee} (see its own class Javadoc).
      */
     private Employee pinForDate(UUID employeeUserId, LocalDate date) {
-        EmployeeShiftAssignment assignment = employeeShiftAssignmentResolver.resolve(employeeUserId, date);
+        return pin(employeeUserId, employeeShiftAssignmentResolver.resolve(employeeUserId, date));
+    }
+
+    /** Builds the same minimal pinned {@link Employee} stand-in as {@link #pinForDate}, given an already-resolved assignment — for a caller that has one on hand and must not re-resolve it. */
+    private Employee pin(UUID employeeUserId, EmployeeShiftAssignment assignment) {
         return Employee.builder().userId(employeeUserId).shift(assignment.getShift()).build();
     }
 
@@ -349,9 +485,15 @@ public class AttendanceInterpretationService {
      */
     private Employee resolveShiftContextOrNull(Attendance record) {
         if (record.getShiftId() == null) {
-            log.warn("Attendance {} (employee {}, workDate {}) has no Shift snapshot — treating as "
-                            + "LEGACY_UNRESOLVED rather than substituting the employee's current Shift",
-                    record.getId(), record.getEmployeeUserId(), record.getWorkDate());
+            // Every caller distinguishes NO_SHIFT_ASSIGNED (a valid, current state) from a
+            // genuine legacy row via record.isNoShiftAssigned() right after this returns null —
+            // logged only for the latter, so an expected, everyday no-Shift row never spams a
+            // warning that (accurately) only applies to genuine legacy data.
+            if (!record.isNoShiftAssigned()) {
+                log.warn("Attendance {} (employee {}, workDate {}) has no Shift snapshot — treating as "
+                                + "LEGACY_UNRESOLVED rather than substituting the employee's current Shift",
+                        record.getId(), record.getEmployeeUserId(), record.getWorkDate());
+            }
             return null;
         }
         Shift snapshotShift = shiftRepository.findById(record.getShiftId())

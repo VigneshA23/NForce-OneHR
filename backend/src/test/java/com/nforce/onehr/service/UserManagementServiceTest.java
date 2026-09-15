@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateUserRequest;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.UpdateUserRequest;
@@ -57,6 +58,9 @@ class UserManagementServiceTest {
     @Mock private ForceLogoutBroadcaster forceLogoutBroadcaster;
     @Mock private EmployeeCodeGenerator employeeCodeGenerator;
     @Mock private EmployeeService employeeService;
+    @Mock private EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
+    @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    @Mock private AttendanceProperties attendanceProperties;
 
     @InjectMocks private UserManagementService userManagementService;
 
@@ -119,6 +123,9 @@ class UserManagementServiceTest {
         inactiveShift = Shift.builder().id(inactiveShiftId).name("Retired Shift").active(false).build();
         lenient().when(shiftRepository.findById(activeShiftId)).thenReturn(Optional.of(activeShift));
         lenient().when(shiftRepository.findById(inactiveShiftId)).thenReturn(Optional.of(inactiveShift));
+        // The org-wide business-day clock the "Effective From cannot be in the past" check reads
+        // from (see AttendanceProperties.zone's own Javadoc) — never the JVM default.
+        lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
     }
 
     private UpdateUserRequest requestWithRole(String roleCode) {
@@ -417,13 +424,8 @@ class UserManagementServiceTest {
                 return u;
             });
             lenient().when(employeeRepository.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
-            // Default-shift lookup (see UserManagementService#createUser) — every employee
-            // created must always end up with a real assigned Shift (product invariant,
-            // ONEHR-108), so tests here that don't care about shift assignment (no shiftId on
-            // the request) get a normal active Regular Shift by default; the one test that
-            // specifically exercises the inactive-default-shift scenario overrides this below.
-            lenient().when(shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME))
-                    .thenReturn(Optional.of(Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(true).build()));
+            lenient().when(employeeShiftAssignmentRepository.save(any(EmployeeShiftAssignment.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
 
             req = new CreateUserRequest();
             req.setFullName("Jane Smith");
@@ -479,46 +481,114 @@ class UserManagementServiceTest {
             verify(employeeRepository, never()).save(any());
         }
 
+        /**
+         * Employee.shift is set immediately (display/roster cache only); the authoritative
+         * EmployeeShiftAssignment is created effective EXACTLY the date the admin chose in the
+         * Effective From field — never derived from joining date or "next working day" (the
+         * previous, incorrect rule this replaces — see the business rule's own worked examples).
+         */
         @Test
-        void assigningActiveShift_succeeds() {
+        void assigningActiveShift_succeeds_andCreatesAssignmentEffectiveOnTheChosenDate() {
             req.setShiftId(activeShiftId);
+            LocalDate chosenDate = LocalDate.now().plusDays(3);
+            req.setEffectiveFrom(chosenDate);
             when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
 
             userManagementService.createUser(req, actorEmail);
 
             verify(employeeRepository).save(argThat(e -> activeShift.equals(e.getShift())));
+            verify(employeeShiftAssignmentRepository).save(argThat(a ->
+                    activeShift.equals(a.getShift())
+                            && chosenDate.equals(a.getEffectiveFrom())
+                            && targetUserId.equals(a.getEmployeeUserId())));
         }
 
-        /**
-         * No shiftId in the request at all — defaults server-side to the organization's default
-         * shift (Regular Shift), resolved by its stable seeded name, never a hardcoded id. This is
-         * the actual guarantee that an API-created employee can never accidentally end up with no
-         * shift — the frontend preselecting the same shift is only a UX convenience on top of it.
-         */
+        /** Business rule Case 2: today is a VALID choice — the assignment is effective today itself. */
         @Test
-        void noShiftSpecified_defaultsToRegularShift() {
-            Shift regularShift = Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(true).build();
-            when(shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME)).thenReturn(Optional.of(regularShift));
+        void assigningActiveShift_effectiveToday_isAccepted() {
+            req.setShiftId(activeShiftId);
+            LocalDate today = LocalDate.now();
+            req.setEffectiveFrom(today);
             when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
 
             userManagementService.createUser(req, actorEmail);
 
-            verify(employeeRepository).save(argThat(e -> regularShift.equals(e.getShift())));
+            verify(employeeShiftAssignmentRepository).save(argThat(a -> today.equals(a.getEffectiveFrom())));
         }
 
         /**
-         * An inactive Regular Shift is never silently assigned — same "must be active" rule as an
-         * explicit selection. Every employee having a real assigned Shift is a hard invariant now,
-         * not a tolerated absence — so this fails loudly rather than saving a shift-less employee.
+         * Business rule Case 1: an Effective From date that happens to be a weekly off is honored
+         * exactly as selected — never silently moved to the next working day. (This test doesn't
+         * itself configure a weekly-off policy; it documents that nothing here would even look at
+         * one — the chosen date is persisted verbatim regardless.)
          */
         @Test
-        void noShiftSpecified_failsLoudly_whenTheOnlyRegularShiftIsInactive() {
-            Shift inactiveRegularShift = Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(false).build();
-            when(shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME)).thenReturn(Optional.of(inactiveRegularShift));
+        void assigningActiveShift_effectiveDateOnAWeeklyOff_isHonoredExactly_neverMovedToNextWorkingDay() {
+            req.setShiftId(activeShiftId);
+            LocalDate saturday = LocalDate.now().with(java.time.DayOfWeek.SATURDAY).isBefore(LocalDate.now())
+                    ? LocalDate.now().with(java.time.DayOfWeek.SATURDAY).plusWeeks(1) : LocalDate.now().with(java.time.DayOfWeek.SATURDAY);
+            req.setEffectiveFrom(saturday);
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
 
-            assertThrows(IllegalStateException.class, () -> userManagementService.createUser(req, actorEmail));
+            userManagementService.createUser(req, actorEmail);
+
+            verify(employeeShiftAssignmentRepository).save(argThat(a -> saturday.equals(a.getEffectiveFrom())));
+        }
+
+        /**
+         * Code-review corrective pass: the "cannot be in the past" check must read the org-wide
+         * business-day clock (AttendanceProperties.zone) rather than the JVM default zone — this
+         * fails if that dependency is ever removed/bypassed again.
+         */
+        @Test
+        void assigningActiveShift_effectiveFromValidation_readsConfiguredBusinessZone_notJvmDefault() {
+            req.setShiftId(activeShiftId);
+            req.setEffectiveFrom(LocalDate.now().plusDays(1));
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            userManagementService.createUser(req, actorEmail);
+
+            verify(attendanceProperties, atLeastOnce()).getZone();
+        }
+
+        /** Business rule Case 4: a past Effective From is rejected outright. */
+        @Test
+        void assigningActiveShift_rejectsPastEffectiveFrom() {
+            req.setShiftId(activeShiftId);
+            req.setEffectiveFrom(LocalDate.now().minusDays(1));
+
+            assertThrows(IllegalArgumentException.class, () -> userManagementService.createUser(req, actorEmail));
 
             verify(employeeRepository, never()).save(any());
+            verifyNoInteractions(employeeShiftAssignmentRepository);
+        }
+
+        /** Effective From is required whenever a Shift is picked — never silently defaulted to "today". */
+        @Test
+        void assigningActiveShift_rejectsMissingEffectiveFrom() {
+            req.setShiftId(activeShiftId);
+
+            assertThrows(IllegalArgumentException.class, () -> userManagementService.createUser(req, actorEmail));
+
+            verify(employeeRepository, never()).save(any());
+            verifyNoInteractions(employeeShiftAssignmentRepository);
+        }
+
+        /**
+         * No shiftId in the request at all — a shift-less employee is now a valid, permanent state
+         * (ONEHR-355 fix): this must never be silently defaulted onto the organization's Default
+         * Shift (that fabrication was itself ONEHR-355's root cause), and no
+         * EmployeeShiftAssignment row is created either, since there is no Shift to assign. No
+         * Effective From is required either, since there is no Shift to make effective.
+         */
+        @Test
+        void noShiftSpecified_leavesEmployeeShiftLess() {
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            userManagementService.createUser(req, actorEmail);
+
+            verify(employeeRepository).save(argThat(e -> e.getShift() == null));
+            verifyNoInteractions(employeeShiftAssignmentRepository);
         }
     }
 
@@ -601,6 +671,70 @@ class UserManagementServiceTest {
             var results = userManagementService.listUsers();
 
             assertNull(results.get(0).getCurrentManager());
+        }
+    }
+
+    /**
+     * Code-review fix: the Super Admin response's shiftId/shiftName must read the employee's
+     * CURRENTLY-effective {@link EmployeeShiftAssignment} (via {@link EmployeeShiftAssignmentResolver}),
+     * never the stale {@code Employee.shift} display cache that Bulk-Edit Team Assignment/CSV
+     * import (EmployeeAssignmentService#assignShift) do not keep in sync.
+     */
+    @Nested
+    class EffectiveShiftInResponse {
+
+        @Test
+        void activeAssignment_isReflectedInTheResponse() {
+            when(employeeShiftAssignmentResolver.resolveIfPresent(eq(targetUserId), any(LocalDate.class)))
+                    .thenReturn(Optional.of(EmployeeShiftAssignment.builder()
+                            .employeeUserId(targetUserId).shift(activeShift).effectiveFrom(LocalDate.now().minusDays(5)).build()));
+
+            EmployeeResponse response = userManagementService.setActiveStatus(targetUserId, true, actorEmail);
+
+            assertEquals(activeShiftId.toString(), response.getShiftId());
+            assertEquals("Day Shift", response.getShiftName());
+        }
+
+        /**
+         * A real, existing assignment whose effectiveFrom hasn't arrived yet simply isn't returned
+         * by resolveIfPresent (its own "as of this date" contract) — the response must show no
+         * shift at all, never the not-yet-effective one, until its Effective From date arrives.
+         */
+        @Test
+        void pendingFutureAssignment_doesNotAppearActiveBeforeItsEffectiveFromDate() {
+            when(employeeShiftAssignmentResolver.resolveIfPresent(eq(targetUserId), any(LocalDate.class)))
+                    .thenReturn(Optional.empty());
+
+            EmployeeResponse response = userManagementService.setActiveStatus(targetUserId, true, actorEmail);
+
+            assertNull(response.getShiftId());
+            assertNull(response.getShiftName());
+        }
+
+        @Test
+        void noShiftAssigned_returnsNullShift() {
+            targetEmployee.setShift(null);
+            when(employeeShiftAssignmentResolver.resolveIfPresent(eq(targetUserId), any(LocalDate.class)))
+                    .thenReturn(Optional.empty());
+
+            EmployeeResponse response = userManagementService.setActiveStatus(targetUserId, true, actorEmail);
+
+            assertNull(response.getShiftId());
+            assertNull(response.getShiftName());
+        }
+
+        /** Employee.shift is a best-effort display cache only — a resolver value that disagrees with it must win. */
+        @Test
+        void staleEmployeeShiftCache_isIgnored_authoritativeAssignmentWins() {
+            targetEmployee.setShift(inactiveShift); // stale cache: still points at the OLD shift
+            when(employeeShiftAssignmentResolver.resolveIfPresent(eq(targetUserId), any(LocalDate.class)))
+                    .thenReturn(Optional.of(EmployeeShiftAssignment.builder()
+                            .employeeUserId(targetUserId).shift(activeShift).effectiveFrom(LocalDate.now()).build()));
+
+            EmployeeResponse response = userManagementService.setActiveStatus(targetUserId, true, actorEmail);
+
+            assertEquals(activeShiftId.toString(), response.getShiftId());
+            assertEquals("Day Shift", response.getShiftName());
         }
     }
 }

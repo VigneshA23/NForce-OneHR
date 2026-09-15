@@ -25,6 +25,7 @@ import { kudosApi } from '../api/kudos';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType } from '../components/TypeBadge';
+import { businessTodayIsoDate } from '../utils/businessDate';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -80,6 +81,10 @@ function fmtShiftRange(start: string, end: string): string {
 function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+/** "Sep 16, 2026" — full date incl. year, for Effective From displays (a scheduled date can be far enough out that the bare day/month above would be ambiguous). */
+function fmtEffectiveDate(iso: string) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEK_CHIPS = ['M', 'T', 'W', 'T', 'F'];
@@ -769,6 +774,12 @@ function AssignmentsTab({ token }: { token: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkModal, setBulkModal] = useState<null | 'shift' | 'weeklyOff' | 'penalisation'>(null);
   const [bulkPickerValue, setBulkPickerValue] = useState('');
+  // Shift-only — defaults to today in the org's BUSINESS timezone (see businessTodayIsoDate's own
+  // doc comment — matches the backend's own "cannot be in the past" validation of this exact
+  // field, unlike the plain UTC-derived todayIsoDate() this page uses for unrelated date ranges
+  // elsewhere). A genuinely valid, final choice, never auto-advanced to "the next working day".
+  // Ignored by the weeklyOff/penalisation modals, which have no date picker of their own.
+  const [bulkEffectiveFrom, setBulkEffectiveFrom] = useState(businessTodayIsoDate());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -804,13 +815,20 @@ function AssignmentsTab({ token }: { token: string }) {
 
   async function applyBulk() {
     if (!bulkModal || !bulkPickerValue || selected.size === 0) return;
+    // Shift-only: Effective From is required, today or any future date — never a past one.
+    // Defense-in-depth: the date input's own `min` already keeps this from happening through
+    // normal use — the backend independently rejects it too regardless.
+    if (bulkModal === 'shift' && (!bulkEffectiveFrom || bulkEffectiveFrom < businessTodayIsoDate())) {
+      showToast('error', 'Effective From is required and cannot be in the past.');
+      return;
+    }
     setBulkBusy(true);
     try {
       const ids = Array.from(selected);
       const fn = bulkModal === 'shift' ? employeeAssignmentsApi.bulkUpdateShift
         : bulkModal === 'weeklyOff' ? employeeAssignmentsApi.bulkUpdateWeeklyOff
         : employeeAssignmentsApi.bulkUpdatePenalisationPolicy;
-      const result = await fn(ids, bulkPickerValue, token);
+      const result = await fn(ids, bulkPickerValue, bulkModal === 'shift' ? bulkEffectiveFrom : undefined, token);
       showToast(result.failed.length === 0 ? 'success' : 'error',
         `${result.succeededIds.length} updated${result.failed.length ? `, ${result.failed.length} failed` : ''}`);
       setLastResult({
@@ -907,7 +925,7 @@ function AssignmentsTab({ token }: { token: string }) {
       </div>
 
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <BulkButton label="Update Shift" disabled={selected.size === 0} onClick={() => { setBulkModal('shift'); setBulkPickerValue(''); }} />
+        <BulkButton label="Update Shift" disabled={selected.size === 0} onClick={() => { setBulkModal('shift'); setBulkPickerValue(''); setBulkEffectiveFrom(businessTodayIsoDate()); }} />
         <BulkButton label="Update Weekly Off" disabled={selected.size === 0} onClick={() => { setBulkModal('weeklyOff'); setBulkPickerValue(''); }} />
         <BulkButton label="Update Penalisation Policy" disabled={selected.size === 0} onClick={() => { setBulkModal('penalisation'); setBulkPickerValue(''); }} />
         <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
@@ -973,6 +991,20 @@ function AssignmentsTab({ token }: { token: string }) {
                       {r.employeeTimezone ? ` · ${r.employeeTimezone}` : ''}
                     </div>
                   )}
+                  {r.shiftName && r.shiftEffectiveSince && (
+                    <div style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>
+                      Active since {fmtEffectiveDate(r.shiftEffectiveSince)}
+                    </div>
+                  )}
+                  {r.pendingShiftName && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 10,
+                      color: 'var(--info, #3b82f6)', background: 'var(--info-bg, rgba(59,130,246,.10))',
+                      border: '1px solid var(--info, #3b82f6)', borderRadius: 4, padding: '2px 6px',
+                    }}>
+                      Scheduled: {r.pendingShiftName} from {r.pendingShiftEffectiveFrom && fmtEffectiveDate(r.pendingShiftEffectiveFrom)}
+                    </div>
+                  )}
                 </td>
                 <td style={assignmentCellStyle}>{r.weeklyOffPolicyName ?? '—'}</td>
                 <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
@@ -988,18 +1020,43 @@ function AssignmentsTab({ token }: { token: string }) {
             <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>
               {bulkModal === 'shift' ? 'Update Shift' : bulkModal === 'weeklyOff' ? 'Update Weekly Off' : 'Update Penalisation Policy'}
             </div>
-            <div style={{ padding: 18 }}>
-              <label style={labelStyle}>New value for {selected.size} selected {selected.size === 1 ? 'employee' : 'employees'}</label>
-              <select value={bulkPickerValue} onChange={e => setBulkPickerValue(e.target.value)} style={inputStyle}>
-                <option value="">Select…</option>
-                {pickerOptions?.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
+            <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={labelStyle}>New value for {selected.size} selected {selected.size === 1 ? 'employee' : 'employees'}</label>
+                <select value={bulkPickerValue} onChange={e => setBulkPickerValue(e.target.value)} style={inputStyle}>
+                  <option value="">Select…</option>
+                  {pickerOptions?.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+              {bulkModal === 'shift' && (
+                <div>
+                  <label style={labelStyle}>Effective From *</label>
+                  <input
+                    type="date"
+                    style={inputStyle}
+                    value={bulkEffectiveFrom}
+                    min={businessTodayIsoDate()}
+                    required
+                    onChange={e => setBulkEffectiveFrom(e.target.value)}
+                  />
+                  {bulkEffectiveFrom && (
+                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 5 }}>
+                      This shift will become active for the {selected.size === 1 ? 'employee' : 'selected employees'} from {fmtEffectiveDate(bulkEffectiveFrom)}.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div style={{ padding: 18, display: 'flex', gap: 8, borderTop: '1px solid var(--line)' }}>
               <button onClick={() => setBulkModal(null)} disabled={bulkBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>Cancel</button>
-              <button onClick={applyBulk} disabled={!bulkPickerValue || bulkBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: !bulkPickerValue || bulkBusy ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
-                {bulkBusy ? 'Applying…' : 'Apply'}
-              </button>
+              {(() => {
+                const disabled = !bulkPickerValue || bulkBusy || (bulkModal === 'shift' && !bulkEffectiveFrom);
+                return (
+                  <button onClick={applyBulk} disabled={disabled} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+                    {bulkBusy ? 'Applying…' : 'Apply'}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1011,7 +1068,7 @@ function AssignmentsTab({ token }: { token: string }) {
             <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-                CSV with columns <code>employee_code,shift_name,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched.
+                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code> (YYYY-MM-DD) is required whenever <code>shift_name</code> is set — today or any future date, never a past one.
               </div>
               <input type="file" accept=".csv,text/csv" onChange={e => setImportFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12.5, color: 'var(--txt)' }} />
             </div>

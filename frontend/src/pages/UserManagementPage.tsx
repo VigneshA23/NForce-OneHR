@@ -8,13 +8,20 @@ import { useToast } from '../context/ToastContext';
 import { KebabMenu } from '../components/KebabMenu';
 import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
 import { StatusBadge, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
+import { businessTodayIsoDate } from '../utils/businessDate';
 
-// The organization's default shift — mirrors the backend's Shift.DEFAULT_SHIFT_NAME (same stable,
-// unique, seeded name; never a hardcoded id). The backend already defaults a newly-created
-// employee to this shift server-side when none is explicitly chosen (see
-// UserManagementService#createUser) — preselecting it here is purely a UX convenience so the
-// admin sees what will actually be assigned, and can still freely pick a different active shift.
-const DEFAULT_SHIFT_NAME = 'Default Shift';
+/** "Sep 16, 2026" from a plain "YYYY-MM-DD" date-input value — for the Effective From helper text. */
+function fmtEffectiveDate(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** Today as "YYYY-MM-DD" in the org's business timezone (see businessTodayIsoDate's own doc
+ * comment) — matches what a plain <input type="date"> compares against, and matches the
+ * backend's own "cannot be in the past" validation of this exact field. Business rule: today is
+ * a valid, final Effective From choice, never auto-advanced. */
+function todayIso(): string {
+  return businessTodayIsoDate();
+}
 
 const ROLES = [
   { value: 'EMPLOYEE',    label: 'Employee' },
@@ -237,7 +244,14 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
 }) {
   const { showToast } = useToast();
-  const [form, setForm] = useState<CreateUserPayload>({ fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10), workMode: 'ONSITE' });
+  // effectiveFrom defaults to today (the business rule's own default) — today is a genuinely
+  // valid, final choice, never auto-advanced to "the next working day" or any other date; the
+  // admin can still move it to any future date, but never to the past (enforced both by the
+  // date input's own `min` and, independently, by the backend).
+  const [form, setForm] = useState<CreateUserPayload>({
+    fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10),
+    workMode: 'ONSITE', effectiveFrom: todayIso(),
+  });
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -265,16 +279,11 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
       .finally(() => setPreviewLoading(false));
   }, [token]);
 
-  // Preselects the organization's default shift (Default Shift) once the reference shift list is
-  // available — matches what the backend will actually assign server-side if the admin submits
-  // without touching this field at all (see UserManagementService#createUser). Never overrides a
-  // selection already present (an admin's own pick, or a re-run of this effect after `opts.shifts`
-  // reloads post-inline-create) — only ever fills a still-empty field.
-  useEffect(() => {
-    if (form.shiftId) return;
-    const regularShift = opts.shifts.find(s => s.name === DEFAULT_SHIFT_NAME && s.active);
-    if (regularShift) setForm(f => (f.shiftId ? f : { ...f, shiftId: regularShift.id }));
-  }, [opts.shifts]);
+  // No shift is preselected — a shift-less employee is a valid, permanent state (ONEHR-355): the
+  // backend no longer defaults a newly-created employee onto the organization's Default Shift, so
+  // this form must not silently reintroduce that assignment on the admin's behalf either. Default
+  // Shift remains a completely ordinary, pickable option in the dropdown below for an admin who
+  // deliberately wants it.
 
   // Fetches a fresh suggestion via the same non-consuming preview endpoint used on open, and
   // drops it straight into the Employee ID field — nothing else in the form is touched, and the
@@ -305,6 +314,12 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
+    // Defense-in-depth: the date input's own `required`/`min` already keep this from happening
+    // through normal use — the backend independently rejects it too regardless.
+    if (form.shiftId && (!form.effectiveFrom || form.effectiveFrom < todayIso())) {
+      setError('Effective From is required and cannot be in the past.');
+      return;
+    }
     setSubmitting(true); setError(null); setEmployeeCodeConflict(false);
     // Submit the Employee ID exactly as displayed — untouched or edited — and let the backend
     // validate that exact value. If it's already taken (e.g. another admin's form showed the
@@ -503,6 +518,25 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
               />
             </Field>
           </div>
+          {form.shiftId && (
+            <div style={{ gridColumn: '1/-1' }}>
+              <Field label="Effective From *">
+                <input
+                  type="date"
+                  style={inputStyle}
+                  value={form.effectiveFrom ?? todayIso()}
+                  min={todayIso()}
+                  required
+                  onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))}
+                />
+              </Field>
+              {form.effectiveFrom && (
+                <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 5 }}>
+                  This shift will become active for the employee from {fmtEffectiveDate(form.effectiveFrom)}.
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ gridColumn: '1/-1' }}>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', cursor: 'pointer' }}>
               <input

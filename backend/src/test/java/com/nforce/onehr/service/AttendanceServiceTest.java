@@ -79,6 +79,12 @@ class AttendanceServiceTest {
     // prior Attendance record) must update this alongside the Employee fixture's own .shift(...);
     // a test resolving against an EXISTING record's own snapshotted shiftId never touches it.
     private Shift currentEmployeeShift;
+    // The date currentEmployeeShift's assignment becomes effective — LocalDate.MIN by default (see
+    // setUp()), so every pre-existing test resolves it as already effective "as of right now."
+    // Overridden by the one test that specifically exercises a real assignment that simply hasn't
+    // taken effect YET (e.g. a Shift assigned at employee-creation time with an admin-chosen
+    // Effective From of tomorrow, never auto-derived) — see checkIn_shiftAssignedButNotYetEffective_...
+    private LocalDate currentEmployeeShiftEffectiveFrom;
 
     private final UUID employeeId = UUID.randomUUID();
     private final String employeeEmail = "employee@test.com";
@@ -124,14 +130,14 @@ class AttendanceServiceTest {
         EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver = new EmployeeShiftAssignmentResolver(null) {
             @Override
             public Optional<EmployeeShiftAssignment> resolveIfPresent(UUID employeeUserId, LocalDate workDate) {
-                return currentEmployeeShift == null ? Optional.empty()
+                return currentEmployeeShift == null || workDate.isBefore(currentEmployeeShiftEffectiveFrom) ? Optional.empty()
                         : Optional.of(EmployeeShiftAssignment.builder()
-                                .employeeUserId(employeeUserId).shift(currentEmployeeShift).effectiveFrom(LocalDate.MIN).build());
+                                .employeeUserId(employeeUserId).shift(currentEmployeeShift).effectiveFrom(currentEmployeeShiftEffectiveFrom).build());
             }
             @Override
             public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
                 return resolveIfPresent(employeeUserId, workDate)
-                        .orElseThrow(() -> new IllegalStateException("no assignment effective on or before " + workDate));
+                        .orElseThrow(() -> new NoShiftAssignmentException("no assignment effective on or before " + workDate));
             }
         };
         ShiftDayPolicy shiftDayPolicy = new ShiftDayPolicy(new ShiftWeeklyOffRulesService(shiftWeeklyOffRulesRepository), shiftVersionResolver, employeeShiftAssignmentResolver);
@@ -159,6 +165,7 @@ class AttendanceServiceTest {
 
         defaultShift = shift("Regular", LocalTime.of(15, 30), LocalTime.of(0, 30));
         currentEmployeeShift = defaultShift;
+        currentEmployeeShiftEffectiveFrom = LocalDate.MIN;
         // Active, non-deleted User by default — every checkIn/checkOut test implicitly exercises
         // assertEligibleToPunch's gate; tests that specifically want an inactive/deleted account
         // override this with their own Employee/User fixture.
@@ -242,6 +249,125 @@ class AttendanceServiceTest {
         when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(deleted));
 
         assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
+    }
+
+    // ── ONEHR-355 fix: no effective EmployeeShiftAssignment is a valid, permanent state ─────────
+    // A brand-new (or never-assigned) employee has no EmployeeShiftAssignment at all — resolved via
+    // the fake EmployeeShiftAssignmentResolver's currentEmployeeShift == null branch (see setUp()) —
+    // must still be able to Check-In/Check-Out/load Today, with attendance recorded as an ordinary
+    // PRESENT day and no Shift interpretation at all, never a thrown IllegalStateException (the
+    // exact ONEHR-355 reproduction).
+
+    private Employee noShiftEmployee() {
+        return Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(null).user(User.builder().id(employeeId).active(true).build()).build();
+    }
+
+    @Test
+    void checkIn_noShiftAssigned_recordsOrdinaryPresentAttendance_withNoShiftInterpretation() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+
+        assertDoesNotThrow(() -> service.checkIn(employeeEmail, null));
+
+        org.mockito.ArgumentCaptor<Attendance> captor = org.mockito.ArgumentCaptor.forClass(Attendance.class);
+        verify(attendanceRepository).saveAndFlush(captor.capture());
+        Attendance saved = captor.getValue();
+        assertEquals("PRESENT", saved.getStatus());
+        assertNull(saved.getShiftId());
+        assertEquals(0, saved.getLateByMinutes());
+        assertEquals(LocalDate.now(), saved.getWorkDate());
+        // Code-review corrective pass, finding 1: the discriminator that lets this row be
+        // resolved as a valid no-Shift state later (never a genuine legacy row) — see
+        // Attendance.noShiftAssigned's own Javadoc.
+        assertTrue(saved.isNoShiftAssigned());
+        verifyNoInteractions(latePenaltyService);
+    }
+
+    @Test
+    void getToday_noShiftAssigned_loadsWithoutThrowing_andOffersCheckIn() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any())).thenReturn(Optional.empty());
+
+        TodayAttendanceResponse response = assertDoesNotThrow(() -> service.getToday(employeeEmail, null));
+
+        assertTrue(response.isCanCheckIn());
+        assertFalse(response.isCanCheckOut());
+        assertNull(response.getRecord());
+    }
+
+    @Test
+    void checkOut_noShiftAssignedAttendance_succeeds_uncappedLikeALegacyRecord() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+        LocalDateTime checkInAt = LocalDateTime.of(LocalDate.now(), LocalTime.of(9, 0));
+        Attendance record = Attendance.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).workDate(checkInAt.toLocalDate())
+                .checkInAt(checkInAt).sessionStartedAt(checkInAt).status("PRESENT").lateByMinutes(0)
+                .shiftId(null).timezone("Asia/Kolkata").build();
+        stubOpenNormalSession(record);
+
+        assertDoesNotThrow(() -> service.checkOut(employeeEmail, null));
+
+        assertNotNull(record.getCheckOutAt());
+    }
+
+    /**
+     * Code-review corrective pass, finding 2: a valid, current no-Shift session left open past the
+     * calendar date it started on must still be caught by the EXISTING MISSING_CHECKOUT mechanism
+     * — never left open forever just because there's no Shift to compute an overnight boundary
+     * against. Reuses that same mechanism's own threshold/comparison unmodified (see
+     * AttendanceInterpretationService.interpretExistingSession's own comment): no new timeout, no
+     * fabricated Shift.
+     */
+    @Test
+    void checkOut_flagsMissingCheckout_forANoShiftSession_onceTheCalendarDateHasRolledOver() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+        LocalDate workDate = LocalDate.now().minusDays(2);
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(9, 0));
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).workDate(workDate)
+                .checkInAt(checkInAt).sessionStartedAt(checkInAt).status("PRESENT").lateByMinutes(0)
+                .shiftId(null).noShiftAssigned(true).timezone("Asia/Kolkata").build();
+        stubOpenNormalSession(open);
+
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
+
+        assertEquals("MISSING_CHECKOUT", open.getStatus());
+        assertNull(open.getCheckOutAt());
+        assertNull(open.getWorkedMinutes());
+    }
+
+    /**
+     * The literal ONEHR-355 reproduction: a Shift created today, and a brand-new employee created
+     * the SAME day and immediately assigned that Shift with an Effective From of tomorrow (the
+     * admin's own explicit choice — UserManagementService#createUser/EmployeeService#createEmployee
+     * never auto-derive this date; see their own Javadoc) — so a real, existing assignment simply
+     * hasn't taken effect yet. Today's Check-In must behave exactly like the fully-shiftless case
+     * above: an ordinary PRESENT day, no lateness, no shiftId — never a thrown IllegalStateException.
+     * Employee.shift is already set to the new Shift (a display-cache-only field — see its own
+     * Javadoc) at this point; that must not change the outcome here.
+     */
+    @Test
+    void checkIn_shiftAssignedButNotYetEffective_recordsOrdinaryPresentAttendance() {
+        currentEmployeeShiftEffectiveFrom = LocalDate.now().plusDays(1);
+
+        assertDoesNotThrow(() -> service.checkIn(employeeEmail, null));
+
+        org.mockito.ArgumentCaptor<Attendance> captor = org.mockito.ArgumentCaptor.forClass(Attendance.class);
+        verify(attendanceRepository).saveAndFlush(captor.capture());
+        Attendance saved = captor.getValue();
+        assertEquals("PRESENT", saved.getStatus());
+        assertNull(saved.getShiftId());
+        assertEquals(0, saved.getLateByMinutes());
+        assertEquals(LocalDate.now(), saved.getWorkDate());
+        // Code-review corrective pass, finding 1: the discriminator that lets this row be
+        // resolved as a valid no-Shift state later (never a genuine legacy row) — see
+        // Attendance.noShiftAssigned's own Javadoc.
+        assertTrue(saved.isNoShiftAssigned());
+        verifyNoInteractions(latePenaltyService);
     }
 
     @Test
@@ -1251,6 +1377,61 @@ class AttendanceServiceTest {
         assertEquals("PRESENT", closed.getStatus(),
                 "5 minutes late is within the shift's 10-minute allowed-late privilege — the sweep "
                         + "must never flip it to LATE from raw lateByMinutes alone");
+    }
+
+    /**
+     * Code-review fix: a closed NO_SHIFT_ASSIGNED record (no EmployeeShiftAssignment at all) has no
+     * checkout cutoff to compare "has the shift ended" against — the sweep must leave it untouched
+     * rather than NPE on a null cutoff, and must keep processing every other candidate in the same
+     * sweep run rather than aborting the whole batch.
+     */
+    @Test
+    void finalizeStatusPastShiftEnd_noShiftAssignedRecord_leftUntouched_neverThrowsAndOthersStillProcess() {
+        Employee noShiftEmployee = noShiftEmployee();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(noShiftEmployee));
+
+        LocalDate workDate = LocalDate.now().minusDays(1);
+        Attendance noShiftRecord = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(9, 0)))
+                .checkOutAt(LocalDateTime.of(workDate, LocalTime.of(9, 30)))
+                .workedMinutes(30)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .shiftId(null)
+                .noShiftAssigned(true)
+                .build();
+
+        UUID otherEmployeeId = UUID.randomUUID();
+        Employee otherEmployee = Employee.builder().userId(otherEmployeeId).employeeCode("E2").fullName("Other Employee")
+                .shift(defaultShift).user(User.builder().id(otherEmployeeId).active(true).build()).build();
+        when(employeeRepository.findById(otherEmployeeId)).thenReturn(Optional.of(otherEmployee));
+        LocalDate otherWorkDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(3);
+        Attendance otherRecord = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(otherEmployeeId)
+                .workDate(otherWorkDate)
+                .checkInAt(LocalDateTime.of(otherWorkDate, LocalTime.of(15, 35)))
+                .checkOutAt(LocalDateTime.of(otherWorkDate, LocalTime.of(15, 40)))
+                .workedMinutes(5)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .shiftId(defaultShift.getId())
+                .build();
+
+        when(attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(any(), any()))
+                .thenReturn(List.of(noShiftRecord, otherRecord));
+
+        assertDoesNotThrow(() -> service.finalizeStatusPastShiftEnd());
+
+        assertEquals("PRESENT", noShiftRecord.getStatus(), "no shift to derive a checkout cutoff from — must be left exactly as is");
+        verify(attendanceRepository, never()).saveAndFlush(noShiftRecord);
+        // The other (properly shifted) record in the same sweep run must still be finalized —
+        // the NO_SHIFT_ASSIGNED record must not abort the whole batch.
+        assertEquals("HALF_DAY", otherRecord.getStatus());
+        verify(attendanceRepository).saveAndFlush(otherRecord);
     }
 
     // ---------------------------------------------------------------- break minutes
