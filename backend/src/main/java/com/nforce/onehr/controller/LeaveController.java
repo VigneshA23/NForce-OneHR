@@ -1,11 +1,14 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
+import com.nforce.onehr.dto.CreateLeaveTypeRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.RejectLeaveRequestRequest;
+import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
 import com.nforce.onehr.service.LeaveService;
+import com.nforce.onehr.service.LeaveTypeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -24,10 +27,27 @@ import java.util.UUID;
 public class LeaveController {
 
     private final LeaveService leaveService;
+    private final LeaveTypeService leaveTypeService;
 
     @GetMapping("/types")
     public List<LeaveTypeResponse> listTypes() {
         return leaveService.listTypes();
+    }
+
+    /** Organization Masters > Leave — create a Leave Type. Super Admin/HR Admin only. */
+    @PostMapping("/types")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public LeaveTypeResponse createType(@Valid @RequestBody CreateLeaveTypeRequest req, Principal principal) {
+        return leaveTypeService.create(req, principal.getName());
+    }
+
+    /** Organization Masters > Leave — edit a Leave Type, including its Paid/Unpaid classification. */
+    @PatchMapping("/types/{id}")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public LeaveTypeResponse updateType(@PathVariable UUID id, @Valid @RequestBody UpdateLeaveTypeRequest req,
+                                         Principal principal) {
+        return leaveTypeService.update(id, req, principal.getName());
     }
 
     @GetMapping("/balances")
