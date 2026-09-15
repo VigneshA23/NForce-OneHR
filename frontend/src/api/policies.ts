@@ -145,15 +145,15 @@ export async function deleteAnnouncement(token: string, id: number): Promise<voi
 }
 
 export async function resetAcknowledgment(token: string, policyId: number, userId: string): Promise<void> {
-  const res = await fetch(`/api/policies/${policyId}/acknowledgments/${userId}`, { method: 'DELETE', headers: authHeaders(token) });
+  const res = await fetch(`${BASE_POLICIES}/${policyId}/acknowledgments/${userId}`, { method: 'DELETE', headers: authHeaders(token) });
   if (!res.ok) throw new Error(`Reset failed (${res.status})`);
 }
 
 export async function remindEmployee(token: string, policyId: number, userId: string): Promise<void> {
-  const res = await fetch(`/api/policies/${policyId}/remind/${userId}`, { method: 'POST', headers: authHeaders(token) });
+  const res = await fetch(`${BASE_POLICIES}/${policyId}/remind/${userId}`, { method: 'POST', headers: authHeaders(token) });
   if (!res.ok) throw new Error(`Remind failed (${res.status})`);
 }
 
 export async function globalPendingAckCount(token: string): Promise<number> {
-  return handle(await fetch('/api/policies/pending-ack-count', { headers: authHeaders(token) }));
+  return handle(await fetch(`${BASE_POLICIES}/pending-ack-count`, { headers: authHeaders(token) }));
 }
