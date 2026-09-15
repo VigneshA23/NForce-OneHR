@@ -23,6 +23,11 @@ public class PolicyService {
     private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final Set<String> ALL_ROLE_CODES = Set.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
 
+    // Policy notification "Open Related Page" destinations — HR/SA manage policies on the admin
+    // page, everyone else acknowledges them from their own My Documents & Policies tab.
+    private static final String ADMIN_POLICY_LINK = "/policies";
+    private static final String EMPLOYEE_POLICY_LINK = "/documents?tab=policies";
+
     private final PolicyRepository policyRepo;
     private final PolicyAcknowledgmentRepository ackRepo;
     private final UserRepository userRepo;
@@ -117,7 +122,7 @@ public class PolicyService {
             notificationService.send(emp.getUserId(), "POLICY_PUBLISHED",
                     "New Policy: " + p.getTitle(),
                     "Please review and acknowledge version " + p.getVersion() + ".",
-                    "/policies");
+                    policyLinkFor(emp));
         }
 
         return PolicyResponse.from(p);
@@ -214,7 +219,7 @@ public class PolicyService {
         notificationService.send(employeeUserId, "POLICY_REMINDER",
                 "Policy Reminder: " + p.getTitle(),
                 "Please review and acknowledge version " + p.getVersion() + " of this policy.",
-                "/policies");
+                policyLinkFor(employeeUserId));
     }
 
     // ── Helpers ──
@@ -242,6 +247,18 @@ public class PolicyService {
                 .map(String::trim)
                 .collect(Collectors.toSet());
         return audienceRoles.stream().anyMatch(userRoles::contains);
+    }
+
+    private String policyLinkFor(Employee emp) {
+        boolean isAdmin = emp.getUser().getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
+        return isAdmin ? ADMIN_POLICY_LINK : EMPLOYEE_POLICY_LINK;
+    }
+
+    private String policyLinkFor(UUID userId) {
+        boolean isAdmin = userRepo.findById(userId)
+                .map(u -> u.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode())))
+                .orElse(false);
+        return isAdmin ? ADMIN_POLICY_LINK : EMPLOYEE_POLICY_LINK;
     }
 
     private User requireUser(String email) {
