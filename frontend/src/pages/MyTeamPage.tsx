@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -370,23 +371,152 @@ function NotInYetListModal({ people, onSelect, onClose }: {
   );
 }
 
-/* ── KPI card ── */
-function KpiCard({ icon, iconColor, label, value, note, onView }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onView?: () => void }) {
+/* ── Tooltip (hover/focus-only, portal-rendered) — same minimal pattern as AttendancePage's
+ * local Tooltip (no shared tooltip component exists yet in this project, and no UI library is
+ * installed); duplicated here rather than extracted/shared to keep this change scoped to this
+ * page. Rendered through a portal so it always sits above the KPI card's own stacking context. */
+function Tooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
+  const [coords, setCoords] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const TOOLTIP_MAX_WIDTH = 240;
+  const GAP = 8;
+
+  function show() {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const placement: 'top' | 'bottom' = rect.top >= 60 + GAP ? 'top' : 'bottom';
+    const maxLeft = Math.max(GAP, window.innerWidth - GAP - TOOLTIP_MAX_WIDTH);
+    const left = Math.min(Math.max(rect.left, GAP), maxLeft);
+    setCoords({ top: placement === 'top' ? rect.top - GAP : rect.bottom + GAP, left, placement });
+  }
+  function hide() {
+    setCoords(null);
+  }
+
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
+    <>
+      <span ref={anchorRef} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} style={{ display: 'block', minWidth: 0 }}>
+        {children}
+      </span>
+      {coords && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            top: coords.top,
+            left: coords.left,
+            transform: coords.placement === 'top' ? 'translateY(-100%)' : undefined,
+            maxWidth: TOOLTIP_MAX_WIDTH,
+            width: 'max-content',
+            background: 'var(--raised2)',
+            color: 'var(--txt)',
+            border: '1px solid var(--line2)',
+            borderRadius: 7,
+            padding: '7px 10px',
+            fontSize: 11.5,
+            fontWeight: 600,
+            lineHeight: 1.4,
+            boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+            zIndex: 1000,
+            pointerEvents: 'none',
+          }}
+        >
+          {content}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+/**
+ * Generic "employees behind this KPI" modal — every employee-related KPI card opens this
+ * instead of ever printing a name directly on the card (ONEHR-334). Reuses the same overlay/
+ * modal chrome and Avatar as the other My Team modals (NotInYetListModal, EmployeeDetailModal)
+ * rather than introducing a new modal system. Long names ellipsis instead of wrapping/pushing
+ * the row height around, and the list scrolls independently past a handful of people so the
+ * modal itself never grows unbounded.
+ */
+/** One row's worth of `KpiEmployeesModal` data. `active` defaults to true (attendance-derived
+ * KPIs have no inactive-employee concept today); `badge` is an optional trailing element — e.g.
+ * "Needs your attention" uses it for the LEAVE/REGULARIZATION TypeBadge, since that KPI's count
+ * is pending *requests* (an employee with two open requests appears twice, by design — see the
+ * KpiCard call sites) rather than unique employees. */
+interface KpiPerson {
+  userId: string;
+  fullName: string;
+  active?: boolean;
+  badge?: React.ReactNode;
+}
+
+function KpiEmployeesModal({ title, description, people, onClose }: {
+  title: string;
+  description: string;
+  people: KpiPerson[];
+  onClose: () => void;
+}) {
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
+          <span style={panelTitleStyle}>{title}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '12px 18px', fontSize: 12, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)' }}>{description}</div>
+        {people.length === 0 ? (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No employees to show.</div>
+        ) : (
+          <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+            {people.map((p, i) => (
+              <div key={`${p.userId}-${i}`} style={{ ...inactiveDimStyle(p.active ?? true), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+                <Avatar userId={p.userId} name={p.fullName} size={30} />
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fullName}</span>
+                {p.active === false && <StatusBadge active={false} />}
+                {p.badge}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── KPI card — `onClick` (only passed when the count is > 0) makes the whole card a button
+ * that opens KpiEmployeesModal, with a "Click to view employees" tooltip as the hover/focus
+ * affordance; cards with no employee-level drilldown (e.g. Team size, Needs your attention)
+ * stay static, exactly as before. ── */
+function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onClick?: () => void }) {
+  const [hover, setHover] = useState(false);
+  const card = (
+    <div
+      {...(onClick ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick,
+        onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } },
+        onMouseEnter: () => setHover(true),
+        onMouseLeave: () => setHover(false),
+        onFocus: () => setHover(true),
+        onBlur: () => setHover(false),
+        'aria-label': `${label} — click to view employees`,
+      } : {})}
+      style={{
+        background: 'var(--panel)', borderRadius: 10, padding: '16px 18px',
+        border: `1px solid ${onClick && hover ? 'var(--brand-bright)' : 'var(--line)'}`,
+        cursor: onClick ? 'pointer' : 'default', transition: 'border-color .15s ease',
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: iconColor }}>
         {icon}
         <span style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--txt-mut)' }}>{label}</span>
       </div>
       <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
-      {onView && (
-        <button onClick={onView} style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
-          View Employees
-        </button>
-      )}
     </div>
   );
+  return onClick ? <Tooltip content="Click to view employees">{card}</Tooltip> : card;
 }
 
 /* ── Calendar day-cell classification ── */
@@ -1379,6 +1509,7 @@ function PeersView({ token }: { token: string }) {
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
+  const [kpiModal, setKpiModal] = useState<null | 'onTime' | 'late' | 'wfh' | 'remote'>(null);
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
@@ -1419,10 +1550,26 @@ function PeersView({ token }: { token: string }) {
 
   const notInYet = peerRows.filter(r => r.status === 'NOT_IN_YET');
   const onLeaveList = peerRows.filter(r => r.status === 'LEAVE');
-  const onTimeCount = todayRecords.filter(r => r.status === 'PRESENT').length;
-  const lateCount = todayRecords.filter(r => r.status === 'LATE').length;
-  const remoteClockInCount = todayRecords.filter(r => r.source === 'WEB_REMOTE').length;
-  const wfhOnDutyCount = new Set(todayRecords.filter(r => r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE')).map(r => r.employeeUserId)).size;
+  // Employee lists first, counts derived from their length — so a KPI card's modal can never
+  // show a different set of people than the number printed on the card (ONEHR-334).
+  const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { userId: string; fullName: string }[] = [];
+    todayRecords.forEach(r => {
+      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
+        seen.add(r.employeeUserId);
+        list.push({ userId: r.employeeUserId, fullName: r.fullName });
+      }
+    });
+    return list;
+  }, [todayRecords]);
+  const onTimeCount = onTimeEmployees.length;
+  const lateCount = lateEmployees.length;
+  const remoteClockInCount = remoteClockInEmployees.length;
+  const wfhOnDutyCount = wfhOnDutyEmployees.length;
 
   const filteredPeers = peerRows.filter(r => {
     const q = search.trim().toLowerCase();
@@ -1537,11 +1684,24 @@ function PeersView({ token }: { token: string }) {
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
       <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
       </div>
+      {kpiModal && (
+        <KpiEmployeesModal
+          title={kpiModal === 'onTime' ? 'Employees On Time' : kpiModal === 'late' ? 'Late Arrivals' : kpiModal === 'wfh' ? 'WFH / On Duty' : 'Remote Clock-ins'}
+          description={
+            kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
+              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
+              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
+              : `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
+          }
+          people={kpiModal === 'onTime' ? onTimeEmployees : kpiModal === 'late' ? lateEmployees : kpiModal === 'wfh' ? wfhOnDutyEmployees : remoteClockInEmployees}
+          onClose={() => setKpiModal(null)}
+        />
+      )}
 
 
       {/* Team calendar */}
@@ -2044,6 +2204,7 @@ export default function MyTeamPage() {
   });
   const [viewing, setViewing] = useState<RosterRow | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
+  const [kpiModal, setKpiModal] = useState<null | 'teamSize' | 'onTime' | 'late' | 'wfh' | 'remote' | 'attention'>(null);
   // Separate from `viewing`/EmployeeDetailModal (the main roster's "View" button, unchanged) —
   // avatars inside the "Not in yet today" card open employment details instead.
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
@@ -2163,10 +2324,38 @@ export default function MyTeamPage() {
   // not DirectReport — this maps a leave record's employeeUserId back to whether that direct
   // report is still active, for the same dim + Inactive badge treatment as the roster above.
   const directReportsById = useMemo(() => new Map(directReports.map(dr => [dr.userId, dr])), [directReports]);
-  const onTimeCount = todayRecords.filter(r => r.status === 'PRESENT').length;
-  const lateCount = todayRecords.filter(r => r.status === 'LATE').length;
-  const remoteClockInCount = todayRecords.filter(r => r.source === 'WEB_REMOTE').length;
-  const wfhOnDutyCount = new Set(todayRecords.filter(r => r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE')).map(r => r.employeeUserId)).size;
+  // Employee lists first, counts derived from their length — so a KPI card's modal can never
+  // show a different set of people than the number printed on the card (ONEHR-334).
+  const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { userId: string; fullName: string }[] = [];
+    todayRecords.forEach(r => {
+      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
+        seen.add(r.employeeUserId);
+        list.push({ userId: r.employeeUserId, fullName: r.fullName });
+      }
+    });
+    return list;
+  }, [todayRecords]);
+  const onTimeCount = onTimeEmployees.length;
+  const lateCount = lateEmployees.length;
+  const remoteClockInCount = remoteClockInEmployees.length;
+  const wfhOnDutyCount = wfhOnDutyEmployees.length;
+  // Team size represents the whole roster (inactive reports included, same as the roster/
+  // calendar below), so its modal carries the same Inactive badge those already show.
+  const teamSizeEmployees: KpiPerson[] = useMemo(() => directReports.map(dr => ({ userId: dr.userId, fullName: dr.fullName, active: dr.active })), [directReports]);
+  // "Needs your attention" counts pending REQUESTS, not unique employees (see attentionItems'
+  // own definition above) — one row per item, so an employee with two open requests appears
+  // twice here too, keeping the modal's row count identical to the number on the card.
+  const attentionEmployees: KpiPerson[] = useMemo(() => attentionItems.map(item => ({
+    userId: item.employeeUserId,
+    fullName: item.employeeName,
+    active: directReportsById.get(item.employeeUserId)?.active ?? true,
+    badge: <TypeBadge type={item.requestType as 'LEAVE' | 'REGULARIZATION'} />,
+  })), [attentionItems, directReportsById]);
 
   const filteredRoster = rosterRows.filter(r => {
     const matchesFilter = statusFilter === 'all' || r.status === statusFilter;
@@ -2322,13 +2511,42 @@ export default function MyTeamPage() {
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
       <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '—' : directReports.length} note="direct reports" />
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
-        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '—' : attentionItems.length} note="pending leave & regularization requests" />
+        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '—' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
+        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '—' : attentionItems.length} note="pending leave & regularization requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
       </div>
+      {kpiModal && (
+        <KpiEmployeesModal
+          title={
+            kpiModal === 'teamSize' ? 'Team Size'
+              : kpiModal === 'onTime' ? 'Employees On Time'
+              : kpiModal === 'late' ? 'Late Arrivals'
+              : kpiModal === 'wfh' ? 'WFH / On Duty'
+              : kpiModal === 'remote' ? 'Remote Clock-ins'
+              : 'Needs Your Attention'
+          }
+          description={
+            kpiModal === 'teamSize' ? `${directReports.length} direct report${directReports.length === 1 ? '' : 's'}`
+              : kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
+              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
+              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
+              : kpiModal === 'remote' ? `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
+              : `${attentionItems.length} pending leave & regularization request${attentionItems.length === 1 ? '' : 's'}`
+          }
+          people={
+            kpiModal === 'teamSize' ? teamSizeEmployees
+              : kpiModal === 'onTime' ? onTimeEmployees
+              : kpiModal === 'late' ? lateEmployees
+              : kpiModal === 'wfh' ? wfhOnDutyEmployees
+              : kpiModal === 'remote' ? remoteClockInEmployees
+              : attentionEmployees
+          }
+          onClose={() => setKpiModal(null)}
+        />
+      )}
 
       {/* Team calendar */}
       <div style={{ ...panelStyle, marginBottom: 16 }}>
