@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, X, ChevronDown } from 'lucide-react';
+import { UserPlus, X, ChevronDown, Info } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi, type ShiftRow } from '../api/org';
@@ -26,6 +26,15 @@ const NAME_PATTERN = /^(?=.*\p{L})[\p{L}\s'-]+$/u;
 // no dot (e.g. "a@99999999999") and trailing junk after the TLD (e.g. "a@example.com123").
 // Mirrors the backend's CreateUserRequest @Pattern so both sides reject the same inputs.
 const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+// Domain match is case-insensitive and purely derived from the email the admin is typing —
+// there is no separate persisted field, so this can never drift out of sync with the address.
+const NFORCE_DOMAIN = 'nforceone.com';
+function isNforceEmail(email: string): boolean {
+  const at = email.lastIndexOf('@');
+  if (at === -1) return false;
+  return email.slice(at + 1).toLowerCase() === NFORCE_DOMAIN;
+}
 
 const ROLE_COLOR: Record<string, string> = {
   EMPLOYEE: '#2FB67C', MANAGER: '#4C8DD6', HR_ADMIN: '#E0A93B', SUPER_ADMIN: '#E4373D',
@@ -197,6 +206,14 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
   const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
+  const [showEmailDomainInfo, setShowEmailDomainInfo] = useState(false);
+
+  // Derived, not stored — recomputed from form.email on every render so the toggle can never
+  // be manually set and can never fall out of sync with what's actually typed.
+  const nforceEmail = isNforceEmail(form.email);
+  const domainInfoText = nforceEmail
+    ? 'NForceOne Email: ON — Email belongs to nforceone.com'
+    : 'NForceOne Email: OFF — External email domain';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -283,6 +300,34 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <div style={{ gridColumn: '1/-1' }}><Field label="Full Name *"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field></div>
           <div style={{ gridColumn: '1/-1' }}><Field label="Company Email *"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field></div>
+          <div style={{ gridColumn: '1/-1', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>NForceOne Email</span>
+              <span
+                aria-hidden
+                style={{
+                  position: 'relative', display: 'inline-flex', width: 34, height: 18, borderRadius: 9, flexShrink: 0,
+                  background: nforceEmail ? 'var(--brand)' : 'var(--line2)', transition: 'background .15s',
+                }}
+              >
+                <span style={{ position: 'absolute', top: 2, left: nforceEmail ? 18 : 2, width: 14, height: 14, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: nforceEmail ? '#2FB67C' : 'var(--txt-mut)' }}>{nforceEmail ? 'ON' : 'OFF'}</span>
+              <button
+                type="button"
+                title={domainInfoText}
+                onClick={() => setShowEmailDomainInfo(v => !v)}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: 'var(--txt-mut)', display: 'inline-flex' }}
+              >
+                <Info size={15} />
+              </button>
+            </div>
+            {showEmailDomainInfo && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--txt-mut)', background: 'var(--raised2)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' }}>
+                {domainInfoText}
+              </div>
+            )}
+          </div>
           <Field label="Role *">
             <select style={inputStyle} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
