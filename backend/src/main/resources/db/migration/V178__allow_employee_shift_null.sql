@@ -1,0 +1,22 @@
+-- NForce OneHR — Flyway Migration V178
+-- Reverts V160's "every employee must have a Shift" invariant (ONEHR-355 follow-up).
+--
+-- V160 enforced employees.shift_id NOT NULL because, at the time, ShiftDayPolicy had no fallback
+-- for a null-shift employee anywhere and every create path unconditionally defaulted onto the
+-- organization's Default Shift. That invariant is now known to be wrong: a brand-new employee
+-- with no Shift explicitly chosen is a valid, permanent product state (Check-In/Check-Out still
+-- work and attendance is still recorded — see AttendanceInterpretationService's NO_SHIFT_ASSIGNED
+-- outcome; Shift-dependent interpretation such as lateness/scheduled hours is simply skipped,
+-- never guessed). Silently forcing every such employee onto the Default Shift just to satisfy
+-- this column's NOT NULL was itself a bug (ONEHR-355's root cause), not a safeguard worth keeping.
+--
+-- employees.shift_id was ALREADY only ever a best-effort display/roster cache, never the
+-- authoritative source for which Shift governs a given date (see V172's employee_shift_assignments
+-- table and EmployeeShiftAssignmentResolver, the actual source of truth) — this migration changes
+-- nothing about that; it only stops forcing a value into it that the employee never actually chose.
+--
+-- No data backfill needed in either direction: existing rows keep whatever shift_id they already
+-- have (nothing here nulls out a real, admin-chosen assignment), and no new NULL rows are created
+-- by this migration itself — only future application-level saves may now legitimately leave it
+-- NULL.
+ALTER TABLE employees ALTER COLUMN shift_id DROP NOT NULL;

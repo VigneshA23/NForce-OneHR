@@ -4,6 +4,7 @@ import './index.css';
 import App from './App.tsx';
 import { ThemeProvider } from './lib/theme';
 import { installAuthFetch } from './lib/authFetch';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 installAuthFetch();
 
@@ -31,8 +32,10 @@ window.addEventListener('orientationchange', setAppHeight);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider>
-      <App />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
+    </ErrorBoundary>
   </StrictMode>
 );

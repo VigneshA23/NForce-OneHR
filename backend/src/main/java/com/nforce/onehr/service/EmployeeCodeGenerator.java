@@ -1,6 +1,8 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.EmployeeCreationLockProperties;
 import com.nforce.onehr.exception.EmployeeCodeConflictException;
+import com.nforce.onehr.exception.EmployeeCreationLockedException;
 import com.nforce.onehr.repository.EmployeeCodeSequenceRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,13 +30,15 @@ import java.util.regex.Pattern;
  * the next sequence value — see {@link #claim(String)}'s own doc for why.
  *
  * <p>Every successful claim also keeps the sequence caught up: if the accepted code is shaped
- * like {@code NF-YYYYNNNN}, the sequence is bumped up to at least its numeric suffix (never
- * down — see {@link EmployeeCodeSequenceRepository#advanceAtLeastTo}), so a hand-typed ID that
- * jumps ahead of the current counter (e.g. skipping from {@code NF-20260025} to
- * {@code NF-20260050}) makes the next suggestion continue from {@code NF-20260051}, not silently
- * fall back to re-offering {@code NF-20260026}. A code that isn't shaped like that at all (e.g.
- * a fully custom string) can't be synced to, so the counter just ticks forward by one instead —
- * still enough to keep {@link #preview()} from re-suggesting the same slot forever.
+ * like {@code NF-YYYYNNNN} for the <em>current</em> year, the sequence is bumped up to at least
+ * its numeric suffix (never down — see {@link EmployeeCodeSequenceRepository#advanceAtLeastTo}),
+ * so a hand-typed ID that jumps ahead of the current counter (e.g. skipping from
+ * {@code NF-20260025} to {@code NF-20260050}) makes the next suggestion continue from
+ * {@code NF-20260051}, not silently fall back to re-offering {@code NF-20260026}. A code that
+ * isn't shaped like that at all, or is shaped like it but for some other year (e.g. a legacy or
+ * imported value such as {@code NF-1789058833031}), can't be synced to, so the counter just ticks
+ * forward by one instead — still enough to keep {@link #preview()} from re-suggesting the same
+ * slot forever, without letting an unrelated number poison the sequence.
  */
 @Component
 @RequiredArgsConstructor
@@ -48,14 +52,16 @@ public class EmployeeCodeGenerator {
 
     /**
      * Matches exactly what {@link #format(long)} produces: {@code NF-} + a 4-digit year +
-     * the zero-padded (or wider) sequence number. Used to pull the sequence number back out of
-     * an accepted code so the sequence can be caught up to it — see {@link #claim(String)}.
+     * the zero-padded (or wider) sequence number. Year and sequence are captured separately so
+     * {@link #parseSequenceValue(String)} can confirm the year is the current one before treating
+     * the rest as a sequence value to catch up to — see {@link #claim(String)}.
      */
     private static final Pattern GENERATED_CODE_PATTERN =
-            Pattern.compile("^" + PREFIX + "-\\d{4}(\\d{" + MIN_WIDTH + ",})$");
+            Pattern.compile("^" + PREFIX + "-(\\d{4})(\\d{" + MIN_WIDTH + ",})$");
 
     private final EmployeeCodeSequenceRepository sequenceRepository;
     private final EmployeeRepository employeeRepository;
+    private final EmployeeCreationLockProperties lockProperties;
 
     /**
      * Read-only suggestion for the Employee ID field's initial value. Never consumes the
@@ -94,8 +100,15 @@ public class EmployeeCodeGenerator {
      * </ul>
      *
      * @throws EmployeeCodeConflictException if {@code requestedCode} is already in use.
+     * @throws EmployeeCreationLockedException if the temporary migration lock
+     *         ({@link EmployeeCreationLockProperties#isLocked()}) is enabled — checked first, before
+     *         anything else, so a locked request never advances the sequence or checks the
+     *         requested code's availability.
      */
     public String claim(String requestedCode) {
+        if (lockProperties.isLocked()) {
+            throw new EmployeeCreationLockedException();
+        }
         if (requestedCode == null || requestedCode.isBlank()) {
             return format(sequenceRepository.nextValue());
         }
@@ -121,14 +134,24 @@ public class EmployeeCodeGenerator {
         return String.format("%s-%d%0" + MIN_WIDTH + "d", PREFIX, Year.now().getValue(), sequenceValue);
     }
 
-    /** Extracts the sequence number from a code shaped like {@link #format(long)} produces. */
+    /**
+     * Extracts the sequence number from a code shaped like {@link #format(long)} produces, but
+     * only when its year matches the current year — a code that merely looks like
+     * {@code NF-YYYYNNNN} for some other year (e.g. a legacy/imported timestamp-like value such
+     * as {@code NF-1789058833031}) isn't part of this year's numbering and must be treated as
+     * fully custom instead, or it would catch the sequence up to an unrelated, potentially huge
+     * number.
+     */
     private Long parseSequenceValue(String normalizedCode) {
         Matcher matcher = GENERATED_CODE_PATTERN.matcher(normalizedCode);
         if (!matcher.matches()) {
             return null;
         }
+        if (Integer.parseInt(matcher.group(1)) != Year.now().getValue()) {
+            return null;
+        }
         try {
-            return Long.parseLong(matcher.group(1));
+            return Long.parseLong(matcher.group(2));
         } catch (NumberFormatException e) {
             return null;
         }

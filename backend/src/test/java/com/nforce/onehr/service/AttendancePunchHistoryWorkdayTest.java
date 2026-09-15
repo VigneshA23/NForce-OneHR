@@ -105,7 +105,7 @@ class AttendancePunchHistoryWorkdayTest {
             @Override
             public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
                 return resolveIfPresent(employeeUserId, workDate)
-                        .orElseThrow(() -> new IllegalStateException("no assignment effective on or before " + workDate));
+                        .orElseThrow(() -> new NoShiftAssignmentException("no assignment effective on or before " + workDate));
             }
         };
         ShiftDayPolicy shiftDayPolicy = new ShiftDayPolicy(new ShiftWeeklyOffRulesService(shiftWeeklyOffRulesRepository), shiftVersionResolver, employeeShiftAssignmentResolver);

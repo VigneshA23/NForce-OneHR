@@ -492,13 +492,14 @@ public class OrgService {
             throw new IllegalArgumentException("Grace period cannot be negative");
         }
         validateShiftDuration(req.getStartTime(), req.getEndTime());
-        // flexible/workingDays are no longer settable through this API (P2/dead — see
-        // CreateShiftRequest's own comment) — left at their entity defaults (flexible=false,
-        // workingDays=null); the DB columns still exist but are never populated by new saves.
+        // flexible is still not settable through this API (P2 — see CreateShiftRequest's own
+        // comment) — left at its entity default (false).
+        String workingDays = resolveApplicableDays(req.getWorkingDays());
         Shift saved = shiftRepo.save(Shift.builder()
                 .name(trimmedName)
                 .code(trimmedCode)
                 .description(blankToNull(req.getDescription()))
+                .workingDays(workingDays)
                 .build());
         // A brand-new Shift has no employees assigned yet and no prior configuration to protect —
         // its first version is effective immediately (today), unlike every subsequent change (see
@@ -524,11 +525,10 @@ public class OrgService {
         if (!shift.getName().equalsIgnoreCase(trimmedName) && shiftRepo.existsByNameIgnoreCase(trimmedName)) {
             throw new IllegalArgumentException("A shift named '" + trimmedName + "' already exists");
         }
-        // The organization's default shift is looked up by this exact, stable name everywhere
-        // (Shift.DEFAULT_SHIFT_NAME) — every employee-creation path and ShiftSeedCorrector's
-        // startup backfill depend on it always resolving. Renaming it away would silently break
-        // that invariant while leaving the (now differently-named) row otherwise intact, so this
-        // is blocked outright rather than tolerated as an ordinary edit.
+        // The organization's default shift is looked up by this exact, stable name
+        // (Shift.DEFAULT_SHIFT_NAME) wherever it's still referenced by name. Renaming it away
+        // would silently break that lookup while leaving the (now differently-named) row otherwise
+        // intact, so this is blocked outright rather than tolerated as an ordinary edit.
         if (shift.getName().equals(Shift.DEFAULT_SHIFT_NAME) && !trimmedName.equals(Shift.DEFAULT_SHIFT_NAME)) {
             throw new IllegalArgumentException(
                     "'" + Shift.DEFAULT_SHIFT_NAME + "' is the organization's default shift and cannot be renamed.");
@@ -556,11 +556,14 @@ public class OrgService {
         if (!req.getEffectiveFrom().isAfter(today)) {
             throw new IllegalArgumentException("Effective From must be a future date (after today)");
         }
+        // Validated (and applied) before any field is mutated below, so an invalid (explicitly
+        // empty) Applicable Days list rejects the whole update rather than partially applying it.
+        applyApplicableDaysUpdate(shift, req.getWorkingDays());
         shift.setName(trimmedName);
         shift.setCode(trimmedCode);
         shift.setDescription(blankToNull(req.getDescription()));
-        // flexible/workingDays intentionally left untouched here (not reset, not updated) — see
-        // createShift's own comment; this API no longer accepts either field.
+        // flexible intentionally remains untouched here (not reset, not updated) — see
+        // createShift's own comment; this API doesn't accept it.
         shiftRepo.save(shift);
 
         // At most one pending (not-yet-effective) version per Shift — editing again before the
@@ -672,16 +675,81 @@ public class OrgService {
         return (value == null || value.isBlank()) ? null : value.trim();
     }
 
-    /** Comma-separated java.time.DayOfWeek names, e.g. "SATURDAY,SUNDAY" — same convention WeeklyOffPolicy.offDays already uses. Null/empty in, null out. */
+    /**
+     * A brand-new Shift's Applicable Days (see Shift.workingDays's own Javadoc) — {@code null}/
+     * omitted defaults to {@link Shift#ALL_WORKING_DAYS} (the UI always sends an explicit list,
+     * all 7 selected by default; this default is only for a caller that omits the field entirely
+     * — there is no existing value to fall back to for a Shift that doesn't exist yet, unlike
+     * {@link #applyApplicableDaysUpdate}). Same empty-rejected/normalize-and-validate idiom as
+     * {@link #createWeeklyOffPolicy}/{@link #updateWeeklyOffPolicy} use for
+     * {@code WeeklyOffPolicy.offDays} below.
+     */
+    private String resolveApplicableDays(List<String> requestedDays) {
+        if (requestedDays == null) {
+            return Shift.ALL_WORKING_DAYS;
+        }
+        String workingDays = normalizeDayOfWeekList(requestedDays);
+        if (workingDays == null) {
+            throw new IllegalArgumentException("At least one applicable weekday is required");
+        }
+        return workingDays;
+    }
+
+    /**
+     * Applies an UpdateShiftRequest's Applicable Days to an existing Shift — {@code null}/omitted
+     * leaves the Shift's current value completely untouched (a caller unaware of this field, or
+     * an edit that simply isn't changing it, must never silently reset it back to
+     * {@link Shift#ALL_WORKING_DAYS}), unlike {@link #resolveApplicableDays}'s create-time
+     * default. Deliberately NOT versioned/effective-dated like startTime/endTime/breakMinutes/
+     * lateGraceMinutes above: workingDays is a plain Shift-row attribute never read by any
+     * attendance/workday calculation (see its own Javadoc), so there is no already-effective
+     * configuration for an immediate change to retroactively disturb — it takes effect
+     * immediately, exactly like name/code/description.
+     */
+    private void applyApplicableDaysUpdate(Shift shift, List<String> requestedDays) {
+        if (requestedDays == null) {
+            return;
+        }
+        String workingDays = normalizeDayOfWeekList(requestedDays);
+        if (workingDays == null) {
+            throw new IllegalArgumentException("At least one applicable weekday is required");
+        }
+        shift.setWorkingDays(workingDays);
+    }
+
+    /**
+     * Comma-separated java.time.DayOfWeek names, e.g. "SATURDAY,SUNDAY" — same convention
+     * WeeklyOffPolicy.offDays already uses. Null/empty in, null out — including a non-empty input
+     * that normalizes down to nothing (e.g. {@code [" "]}, a list of blank strings only): the
+     * empty-string result {@code Collectors.joining} would otherwise produce is deliberately
+     * folded into {@code null} too, so every caller's existing {@code == null} rejection already
+     * catches it, rather than silently persisting {@code ""} as a "valid" day list.
+     */
     private String normalizeDayOfWeekList(List<String> days) {
         if (days == null || days.isEmpty()) return null;
-        return days.stream()
+        String joined = days.stream()
                 .map(String::trim)
                 .filter(d -> !d.isBlank())
                 .map(d -> DayOfWeek.valueOf(d.toUpperCase())) // throws IllegalArgumentException on an invalid day name
                 .map(Enum::name)
                 .distinct()
                 .collect(Collectors.joining(","));
+        return joined.isEmpty() ? null : joined;
+    }
+
+    /**
+     * Code-review corrective pass, finding 6: at least one working day must always exist for a
+     * WeeklyOffPolicy — enforced here (the only place a policy's offDays can ever be written) so
+     * a policy with all 7 days off, which would make {@code WorkingDayService#nextWorkingDay}'s
+     * search loop unable to ever terminate for any employee on it, can never be saved in the
+     * first place. {@code offDays} is already {@link #normalizeDayOfWeekList}'d (deduplicated), so
+     * a plain entry count is exact — no need to re-parse into {@link DayOfWeek} here.
+     */
+    private void assertNotAllSevenDaysOff(String offDays) {
+        if (offDays.split(",").length >= DayOfWeek.values().length) {
+            throw new IllegalArgumentException(
+                    "At least one working day is required — a Weekly Off Policy cannot mark every day of the week off");
+        }
     }
 
     // ── Weekly Off Policies ───────────────────────────────────────────────────
@@ -709,6 +777,7 @@ public class OrgService {
         if (offDays == null) {
             throw new IllegalArgumentException("At least one off day is required");
         }
+        assertNotAllSevenDaysOff(offDays);
         WeeklyOffPolicy saved = weeklyOffPolicyRepo.save(WeeklyOffPolicy.builder()
                 .name(trimmedName)
                 .offDays(offDays)
@@ -729,6 +798,7 @@ public class OrgService {
         if (offDays == null) {
             throw new IllegalArgumentException("At least one off day is required");
         }
+        assertNotAllSevenDaysOff(offDays);
         policy.setName(trimmedName);
         policy.setOffDays(offDays);
         long count = employeeRepo.countByWeeklyOffPolicyId(id);
