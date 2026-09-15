@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock, CalendarDays } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -14,6 +14,7 @@ import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
 } from '../api/documents';
+import { leaveApi, type LeaveType, type LeaveTypeClassification } from '../api/leave';
 import PolicyListSection from './penalization/PolicyListSection';
 import PenalizationPolicyAllocationSection from './penalization/PenalizationPolicyAllocationSection';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
@@ -21,7 +22,7 @@ import { inactiveDimStyle } from '../components/EmployeeStatus';
 // 'shiftweeklyoff' is ONE top-level Organization Masters tab — Shifts/Weekly Offs/Shift and
 // Weekly Off Rules live as nested sub-tabs inside it (see shiftWeeklyOffSubTab below), matching
 // the approved reference design. They must never become separate top-level entries here again.
-type OrgTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shiftweeklyoff' | 'doctypes' | 'penalization' | 'attendance';
+type OrgTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shiftweeklyoff' | 'doctypes' | 'leavetypes' | 'penalization' | 'attendance';
 
 interface TabDef {
   label: string;
@@ -73,6 +74,12 @@ const TABS: Record<OrgTab, TabDef> = {
     addLabel: 'Add Document Type',
     emptyLine: 'No document types configured yet. Add one to start collecting employee documents.',
   },
+  leavetypes: {
+    label: 'Leave', icon: CalendarDays,
+    columns: ['Leave Type', 'Code', 'Classification'],
+    addLabel: 'Add Leave Type',
+    emptyLine: 'No leave types configured yet. Add one to start collecting leave requests.',
+  },
   // Not a row-per-item table like the other tabs above — the Policy List (Section 5), rendered
   // by PolicyListSection, which in turn opens PenalizationPolicySection per-policy for editing.
   // columns/addLabel/emptyLine are unused for this tab (see the search/add-button and
@@ -120,6 +127,20 @@ function StatusBadge({ active }: { active: boolean }) {
       color: active ? 'var(--ok)' : 'var(--txt-dim)',
     }}>
       {active ? 'Active' : 'Inactive'}
+    </span>
+  );
+}
+
+function ClassificationBadge({ classification }: { classification: LeaveTypeClassification }) {
+  const isPaid = classification === 'PAID';
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+      background: isPaid ? 'rgba(47,182,124,.15)' : 'rgba(228,155,15,.15)',
+      color: isPaid ? 'var(--ok)' : 'var(--warn, #b7791f)',
+    }}>
+      {isPaid ? 'Paid' : 'Unpaid'}
     </span>
   );
 }
@@ -563,6 +584,95 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
           <div style={{ marginBottom: 20 }}>
             <label style={labelS}>Applicable Locations <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(comma-separated, blank = all)</span></label>
             <input style={inputS} value={locs} onChange={e => setLocs(e.target.value)} placeholder="e.g. Chennai HQ,Bangalore Office" />
+          </div>
+          {error && <div style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading} style={{ padding: '7px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+              {loading ? 'Saving…' : isEdit ? 'Save Changes' : 'Add'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── LeaveTypeModal ─────────────────────────────────────────────────────────────
+// Create/edit are Super Admin/HR Admin — enforced by LeaveController (@PreAuthorize) regardless
+// of whether this modal is reachable, same convention as DocTypeModal above.
+
+interface LeaveTypeModalProps {
+  editRow?: LeaveType;
+  token: string;
+  onClose(): void;
+  onSaved(): void;
+}
+
+function LeaveTypeModal({ editRow, token, onClose, onSaved }: LeaveTypeModalProps) {
+  const isEdit = !!editRow;
+  const [code, setCode] = useState(editRow?.code ?? '');
+  const [name, setName] = useState(editRow?.name ?? '');
+  const [classification, setClassification] = useState<LeaveTypeClassification>(editRow?.classification ?? 'PAID');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError('Name is required'); return; }
+    if (!isEdit && !code.trim()) { setError('Code is required'); return; }
+    setError('');
+    setLoading(true);
+    try {
+      if (isEdit && editRow) {
+        await leaveApi.updateType(editRow.id, { name: name.trim(), classification }, token);
+      } else {
+        await leaveApi.createType({ code: code.trim(), name: name.trim(), classification }, token);
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
+  const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
+
+  return (
+    <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
+        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Leave Type' : 'Add Leave Type'}</h2>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelS}>Leave Type Name *</label>
+            <input style={inputS} value={name} onChange={e => setName(e.target.value)} required autoFocus />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelS}>Code {isEdit ? '' : '*'}</label>
+            <input
+              style={{ ...inputS, opacity: isEdit ? 0.6 : 1 }}
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              maxLength={20}
+              disabled={isEdit}
+              placeholder="e.g. LOP"
+            />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelS}>Classification *</label>
+            <div style={{ display: 'flex', gap: 20 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" name="classification" checked={classification === 'PAID'} onChange={() => setClassification('PAID')} />
+                Paid
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" name="classification" checked={classification === 'UNPAID'} onChange={() => setClassification('UNPAID')} />
+                Unpaid
+              </label>
+            </div>
           </div>
           {error && <div style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -1149,6 +1259,7 @@ export default function OrgSetupPage() {
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
@@ -1158,6 +1269,7 @@ export default function OrgSetupPage() {
     key: number;
   }>({ open: false, key: 0 });
   const [docTypeModal, setDocTypeModal] = useState<{ open: boolean; row?: DocumentType; key: number }>({ open: false, key: 0 });
+  const [leaveTypeModal, setLeaveTypeModal] = useState<{ open: boolean; row?: LeaveType; key: number }>({ open: false, key: 0 });
   const [shiftModal, setShiftModal] = useState<{ open: boolean; row?: ShiftRow; key: number }>({ open: false, key: 0 });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   // The Shift & Weekly Off tab's own nested sub-tab — see TABS.shiftweeklyoff's own comment.
@@ -1172,13 +1284,14 @@ export default function OrgSetupPage() {
   // (empty on first load) and their specific error is surfaced, not swallowed into one generic
   // "unexpected error" that gives no clue which section actually failed.
   async function fetchAll() {
-    const [bus, deps, desigs, locs, shiftRows, dts] = await Promise.allSettled([
+    const [bus, deps, desigs, locs, shiftRows, dts, lts] = await Promise.allSettled([
       orgApi.listBusinessUnits(token),
       orgApi.listDepartments(token),
       orgApi.listDesignations(token),
       orgApi.listLocations(token),
       orgApi.listShifts(token),
       listAllDocTypes(token),
+      leaveApi.listTypes(token),
     ]);
     const failed: string[] = [];
     if (bus.status === 'fulfilled') setBusinessUnits(bus.value); else failed.push(`Business Units (${bus.reason instanceof Error ? bus.reason.message : 'failed to load'})`);
@@ -1187,6 +1300,7 @@ export default function OrgSetupPage() {
     if (locs.status === 'fulfilled') setLocations(locs.value); else failed.push(`Locations (${locs.reason instanceof Error ? locs.reason.message : 'failed to load'})`);
     if (shiftRows.status === 'fulfilled') setShifts(shiftRows.value); else failed.push(`Shifts (${shiftRows.reason instanceof Error ? shiftRows.reason.message : 'failed to load'})`);
     if (dts.status === 'fulfilled') setDocTypes(dts.value); else failed.push(`Document Types (${dts.reason instanceof Error ? dts.reason.message : 'failed to load'})`);
+    if (lts.status === 'fulfilled') setLeaveTypes(lts.value); else failed.push(`Leave Types (${lts.reason instanceof Error ? lts.reason.message : 'failed to load'})`);
     setLoadError(failed.length > 0 ? `Couldn't load: ${failed.join(', ')}` : '');
   }
 
@@ -1201,6 +1315,7 @@ export default function OrgSetupPage() {
     l.name.toLowerCase().includes(q) || (l.city ?? '').toLowerCase().includes(q)
   );
   const visibleDocTypes = docTypes.filter(d => d.name.toLowerCase().includes(q));
+  const visibleLeaveTypes = leaveTypes.filter(t => t.name.toLowerCase().includes(q));
   // Shifts no longer participates in the shared search/generic-table plumbing above — its master-
   // detail layout (ShiftsMasterDetail) filters the full, unfiltered `shifts` list with its own
   // internal search state instead (see the reference design's dedicated left-panel search box).
@@ -1209,10 +1324,12 @@ export default function OrgSetupPage() {
     activeTab === 'departments' ? visibleDepts :
     activeTab === 'designations' ? visibleDesigs :
     activeTab === 'doctypes' ? visibleDocTypes :
+    activeTab === 'leavetypes' ? visibleLeaveTypes :
     visibleLocs;
 
   function openAdd() {
     if (activeTab === 'doctypes') { setDocTypeModal(s => ({ open: true, key: s.key + 1 })); return; }
+    if (activeTab === 'leavetypes') { setLeaveTypeModal(s => ({ open: true, key: s.key + 1 })); return; }
     if (activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts') { setShiftModal(s => ({ open: true, key: s.key + 1 })); return; }
     setAddEditModal(s => ({ open: true, key: s.key + 1 }));
   }
@@ -1221,6 +1338,9 @@ export default function OrgSetupPage() {
   }
   function openEditDocType(dt: DocumentType) {
     setDocTypeModal(s => ({ open: true, row: dt, key: s.key + 1 }));
+  }
+  function openEditLeaveType(lt: LeaveType) {
+    setLeaveTypeModal(s => ({ open: true, row: lt, key: s.key + 1 }));
   }
   function openEditShift(row: ShiftRow) {
     setShiftModal(s => ({ open: true, row, key: s.key + 1 }));
@@ -1417,6 +1537,18 @@ export default function OrgSetupPage() {
           onSaved={() => {
             fetchAll();
             showToast('success', docTypeModal.row ? 'Updated successfully' : 'Document type created');
+          }}
+        />
+      )}
+      {leaveTypeModal.open && (
+        <LeaveTypeModal
+          key={leaveTypeModal.key}
+          editRow={leaveTypeModal.row}
+          token={token}
+          onClose={() => setLeaveTypeModal(s => ({ ...s, open: false }))}
+          onSaved={() => {
+            fetchAll();
+            showToast('success', leaveTypeModal.row ? 'Updated successfully' : 'Leave type created');
           }}
         />
       )}
@@ -1710,7 +1842,7 @@ export default function OrgSetupPage() {
                     </td>
                   </tr>
                 ))
-              ) : (
+              ) : activeTab === 'doctypes' ? (
                 visibleDocTypes.map(dt => (
                   <tr key={dt.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{dt.name}</td>
@@ -1725,6 +1857,19 @@ export default function OrgSetupPage() {
                         { label: 'Edit', onClick: () => openEditDocType(dt) },
                         { label: dt.active ? 'Deactivate' : 'Reactivate', onClick: () => triggerDocTypeToggle(dt), dividerBefore: true },
                         { label: 'Delete', danger: true, onClick: () => triggerDocTypeDelete(dt) },
+                      ]} />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                visibleLeaveTypes.map(lt => (
+                  <tr key={lt.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{lt.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{lt.code}</td>
+                    <td style={{ padding: '10px 16px' }}><ClassificationBadge classification={lt.classification} /></td>
+                    <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                      <KebabMenu items={[
+                        { label: 'Edit', onClick: () => openEditLeaveType(lt) },
                       ]} />
                     </td>
                   </tr>

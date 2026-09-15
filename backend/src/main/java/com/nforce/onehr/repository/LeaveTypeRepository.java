@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface LeaveTypeRepository extends JpaRepository<LeaveType, UUID> {
 
     Optional<LeaveType> findByCode(String code);
+
+    boolean existsByCodeIgnoreCase(String code);
 }

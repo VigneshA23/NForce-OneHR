@@ -16,6 +16,7 @@ public class LeaveRequestResponse {
     private String employeeCode;
     private String leaveTypeCode;
     private String leaveTypeName;
+    private String leaveTypeClassification;
     private LocalDate startDate;
     private LocalDate endDate;
     private boolean halfDay;
