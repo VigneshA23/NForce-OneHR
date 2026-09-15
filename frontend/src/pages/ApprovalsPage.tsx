@@ -7,7 +7,6 @@ import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApp
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
 import { leaveApi } from '../api/leave';
 import { regularizationApi } from '../api/attendance';
-import { webClockInApi } from '../api/webClockIn';
 import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
 import { attendanceRequestApi } from '../api/attendanceRequests';
@@ -25,7 +24,6 @@ const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
-  WEB_CLOCK_IN: 'Web Clock-In',
   EXPENSE: 'Expense',
   ASSET_REQUEST: 'Asset Request',
   WFH: 'Work From Home',
@@ -45,7 +43,6 @@ const EMPTY_STATE_TYPE_LABELS: Record<RequestType, string> = {
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
-  WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
   EXPENSE: 'rgba(16,185,129,.18)',
   ASSET_REQUEST: 'rgba(139,92,246,.18)',
   WFH: 'rgba(76,141,214,.18)',
@@ -57,7 +54,6 @@ const TYPE_COLORS: Record<RequestType, string> = {
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
-  WEB_CLOCK_IN: '#4C8DD6',
   EXPENSE: '#10B981',
   ASSET_REQUEST: '#8B5CF6',
   WFH: '#4C8DD6',
@@ -83,7 +79,6 @@ function rowKey(item: Pick<ApprovalItem, 'id' | 'requestType'>): string {
 function approveItem(item: ApprovalItem, token: string) {
   if (item.requestType === 'LEAVE') return leaveApi.approve(item.id, token);
   if (item.requestType === 'REGULARIZATION') return regularizationApi.approve(item.id, token);
-  if (item.requestType === 'WEB_CLOCK_IN') return webClockInApi.approve(item.id, token);
   if (item.requestType === 'EXPENSE') {
     return item.approvalStage === 'MANAGER'
       ? expensesApi.managerApprove(item.id, token)
@@ -99,7 +94,6 @@ function approveItem(item: ApprovalItem, token: string) {
 function rejectItem(item: ApprovalItem, reason: string, token: string) {
   if (item.requestType === 'LEAVE') return leaveApi.reject(item.id, reason, token);
   if (item.requestType === 'REGULARIZATION') return regularizationApi.reject(item.id, reason, token);
-  if (item.requestType === 'WEB_CLOCK_IN') return webClockInApi.reject(item.id, reason, token);
   if (item.requestType === 'EXPENSE') {
     return item.approvalStage === 'MANAGER'
       ? expensesApi.managerReject(item.id, reason, token)
@@ -149,11 +143,19 @@ function getRequestedDates(item: ApprovalItem) {
     if (!item.leaveStartDate) return EMPTY_VALUE;
     return `${item.leaveStartDate}${item.leaveEndDate && item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
   }
-  if (item.requestType === 'REGULARIZATION' || item.requestType === 'WEB_CLOCK_IN' || item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY' || item.requestType === 'OVERTIME') {
+  if (item.requestType === 'REGULARIZATION' || item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY' || item.requestType === 'OVERTIME') {
     return item.attendanceDate ?? EMPTY_VALUE;
   }
   if (item.requestType === 'EXPENSE') {
     return item.expenseDate ?? EMPTY_VALUE;
+  }
+  // Asset requests only ever collect Category + Reason (see RequestAssetModal) — there's no
+  // separate "requested date" field to show. Rather than leave the column looking blank/broken,
+  // fall back to the submission date, which is a real, already-captured date for every request
+  // (item.createdAt is always populated). Sliced to a plain date to match the un-formatted
+  // ISO date strings the other branches above show in this same column.
+  if (item.requestType === 'ASSET_REQUEST') {
+    return item.createdAt.slice(0, 10);
   }
   return EMPTY_VALUE;
 }
@@ -164,7 +166,6 @@ function getReason(item: ApprovalItem) {
   if (item.requestType === 'ASSET_REQUEST') return item.assetRequestReason ?? EMPTY_VALUE;
   if (
     item.requestType === 'REGULARIZATION' ||
-    item.requestType === 'WEB_CLOCK_IN' ||
     item.requestType === 'WFH' ||
     item.requestType === 'PARTIAL_DAY' ||
     item.requestType === 'OVERTIME'
@@ -399,14 +400,6 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
             </div>
           )}
 
-          {item.requestType === 'WEB_CLOCK_IN' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Work Date" value={item.attendanceDate} />
-              <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-              <Row label="Reason" value={item.regularizationReason} />
-            </div>
-          )}
-
           {item.requestType === 'EXPENSE' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Pending Final Approval (HR/Admin)' : 'Pending Manager Review'} />
@@ -603,7 +596,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
 
 export default function ApprovalsPage() {
   const token = useAuthStore(s => s.token)!;
@@ -619,6 +612,17 @@ export default function ApprovalsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<ReviewMode | null>(null);
 
+  // Background refresh of the pending queue — used after an approve/reject action to correct
+  // `items` (and therefore the badge counts and visible list) against the true server state.
+  // Deliberately silent: no loading spinner and no toast on failure, since this runs after the
+  // optimistic local removal already gave the user feedback and a transient refetch failure
+  // shouldn't interrupt them — the queue simply stays as optimistically updated until the next
+  // successful reload (matches AssetsExpensesPage's reload()/PoliciesPage's
+  // refreshPendingAckTotal() pattern of a silent best-effort refetch).
+  function reloadQueue() {
+    approvalCenterApi.listPending(token).then(setItems).catch(() => {});
+  }
+
   useEffect(() => {
     approvalCenterApi.listPending(token)
       .then(setItems)
@@ -632,8 +636,11 @@ export default function ApprovalsPage() {
   const searched = searchTerm ? items.filter(i => i.employeeName.toLowerCase().includes(searchTerm)) : items;
   const filtered = typeFilter === 'ALL' ? searched : searched.filter(i => i.requestType === typeFilter);
 
-  const counts: Record<string, number> = { ALL: searched.length };
-  ALL_TYPES.forEach(t => { counts[t] = searched.filter(i => i.requestType === t).length; });
+  // Badge counts are totals over the full pending queue (`items`), not the search-narrowed
+  // `searched`/`filtered` subsets — typing in the employee search box should narrow the visible
+  // list below without making the "ALL"/per-type badge numbers shift.
+  const counts: Record<string, number> = { ALL: items.length };
+  ALL_TYPES.forEach(t => { counts[t] = items.filter(i => i.requestType === t).length; });
 
   // "Select all" only ever governs the currently-filtered/searched rows, not the whole queue —
   // selecting under one category filter and switching to another leaves that selection intact
@@ -643,10 +650,15 @@ export default function ApprovalsPage() {
   const someVisibleSelected = visibleKeys.some(k => selected.has(k));
   const selectedItems = items.filter(i => selected.has(rowKey(i)));
 
+  // Removes the acted-on item immediately for a snappy UI, then kicks off a silent background
+  // refetch of the full queue (reloadQueue) so `items` — and therefore the badge counts and
+  // visible list — self-corrects if this optimistic removal turns out to be incomplete, or if
+  // another approver acted on the same queue concurrently in a different session.
   function removeFromQueue(id: string, type: RequestType) {
     const key = `${type}:${id}`;
     setItems(prev => prev.filter(i => !(i.id === id && i.requestType === type)));
     setSelected(prev => { if (!prev.has(key)) return prev; const next = new Set(prev); next.delete(key); return next; });
+    reloadQueue();
   }
 
   function toggleSelected(key: string) {
@@ -674,6 +686,7 @@ export default function ApprovalsPage() {
       succeededKeys.forEach(k => next.delete(k));
       return next;
     });
+    reloadQueue();
   }
 
   return (

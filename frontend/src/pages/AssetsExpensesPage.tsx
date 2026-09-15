@@ -45,6 +45,19 @@ function fmtDate(s?: string | null) {
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+export function todayIsoDate(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function isExpenseDateInFuture(dateStr: string, todayStr: string = todayIsoDate()): boolean {
+  if (!dateStr) return false;
+  return dateStr > todayStr;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string }> = {
     SUBMITTED: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
@@ -199,7 +212,7 @@ function EmployeeView({ token }: { token: string }) {
     try {
       const updated = await assetsApi.acknowledge(id, token);
       setAssignments(prev => prev.map(a => a.id === updated.id ? updated : a));
-      assetsApi.employeeTiles(token).then(setTiles).catch(() => {});
+      reload();
       showToast('success', 'Receipt acknowledged');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed');
@@ -440,7 +453,7 @@ function EmployeeView({ token }: { token: string }) {
           categories={categories}
           token={token}
           onClose={() => setShowRequestModal(false)}
-          onCreated={r => { setRequests(prev => [r, ...prev]); assetsApi.employeeTiles(token).then(setTiles).catch(() => {}); showToast('success', 'Asset request submitted — pending manager approval'); }}
+          onCreated={r => { setRequests(prev => [r, ...prev]); reload(); showToast('success', 'Asset request submitted — pending manager approval'); }}
         />
       )}
       {showExpModal && (
@@ -448,7 +461,7 @@ function EmployeeView({ token }: { token: string }) {
           categories={expCategories}
           token={token}
           onClose={() => setShowExpModal(false)}
-          onCreated={c => { setClaims(prev => [c, ...prev]); expensesApi.employeeTiles(token).then(setExpTiles).catch(() => {}); showToast('success', 'Expense claim submitted'); }}
+          onCreated={c => { setClaims(prev => [c, ...prev]); reload(); showToast('success', 'Expense claim submitted'); }}
         />
       )}
     </div>
@@ -530,9 +543,15 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
   const selectedCat = categories.find(c => c.id === Number(categoryId));
   const amountNum = parseFloat(amount) || 0;
   const receiptRequired = selectedCat != null && amountNum > selectedCat.requiresReceiptAbove;
+  const maxDate = todayIsoDate();
+  const isFutureDate = isExpenseDateInFuture(expenseDate, maxDate);
 
   async function submit() {
     if (!categoryId || !amount || !expenseDate || !businessPurpose.trim()) return;
+    if (isFutureDate) {
+      showToast('error', 'Expense date cannot be in the future');
+      return;
+    }
     if (receiptRequired && !receiptFile) { showToast('error', `Receipt required for ${selectedCat!.name} amounts above ${fmtCurrency(selectedCat!.requiresReceiptAbove)}`); return; }
     setSubmitting(true);
     try {
@@ -567,7 +586,21 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Expense Date *</label>
-        <input type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)} style={inputStyle} />
+        <input
+          type="date"
+          max={maxDate}
+          value={expenseDate}
+          onChange={e => setExpenseDate(e.target.value)}
+          style={{
+            ...inputStyle,
+            borderColor: isFutureDate ? '#E4373D' : undefined,
+          }}
+        />
+        {isFutureDate && (
+          <div style={{ fontSize: 11, color: '#E4373D', marginTop: 4 }}>
+            Expense date cannot be in the future.
+          </div>
+        )}
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Business Purpose *</label>
@@ -584,7 +617,7 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <BtnGhost onClick={onClose}>Cancel</BtnGhost>
-        <BtnPrimary onClick={submit} disabled={!categoryId || !amount || !expenseDate || !businessPurpose.trim() || (receiptRequired && !receiptFile) || submitting}>{submitting ? 'Submitting…' : 'Submit Claim'}</BtnPrimary>
+        <BtnPrimary onClick={submit} disabled={!categoryId || !amount || !expenseDate || isFutureDate || !businessPurpose.trim() || (receiptRequired && !receiptFile) || submitting}>{submitting ? 'Submitting…' : 'Submit Claim'}</BtnPrimary>
       </div>
     </Modal>
   );
@@ -816,7 +849,6 @@ function HRView({ token }: { token: string }) {
   const [assetRequests, setAssetRequests] = useState<AssetRequestResponse[]>([]);
   const [expCategories, setExpCategories] = useState<ExpenseCategory[]>([]);
   const [payrollClaims, setPayrollClaims] = useState<ExpenseClaimResponse[]>([]);
-  const [inventoryFilter, setInventoryFilter] = useState<'ALL' | 'OVERDUE'>('ALL');
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCatFilter, setInventoryCatFilter] = useState('');
   const [inventoryStatusFilter, setInventoryStatusFilter] = useState('');
@@ -846,7 +878,6 @@ function HRView({ token }: { token: string }) {
   const inventoryStatusOptions = Array.from(new Set(inventory.map(a => a.status)));
 
   const filteredInventory = inventory
-    .filter(a => inventoryFilter === 'ALL' || a.status === 'ASSIGNED')
     .filter(a => !inventorySearch || a.assetTag.toLowerCase().includes(inventorySearch.toLowerCase()) || (a.serialNumber ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.brand ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.model ?? '').toLowerCase().includes(inventorySearch.toLowerCase()))
     .filter(a => !inventoryCatFilter || a.categoryName === inventoryCatFilter)
     .filter(a => !inventoryStatusFilter || a.status === inventoryStatusFilter);
@@ -855,6 +886,7 @@ function HRView({ token }: { token: string }) {
     try {
       const updated = await assetsApi.retireAsset(assetId, token);
       setInventory(prev => prev.map(a => a.id === updated.id ? updated : a));
+      reload();
       showToast('success', 'Asset retired');
     } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
   }
@@ -878,9 +910,14 @@ function HRView({ token }: { token: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => setActiveTab('inventory')} />
-        <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => setActiveTab('inventory')} />
-        <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryFilter('OVERDUE'); setActiveTab('inventory'); }} />
+        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
+        <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
+        {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
+            model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
+            see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
+            predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
+            filter rather than silently showing "assigned" assets under an "overdue" label. */}
+        <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
         <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
         <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
       </div>
@@ -918,10 +955,6 @@ function HRView({ token }: { token: string }) {
           <select value={inventoryStatusFilter} onChange={e => setInventoryStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
             <option value="">All Statuses</option>
             {inventoryStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-          </select>
-          <select value={inventoryFilter} onChange={e => setInventoryFilter(e.target.value as 'ALL' | 'OVERDUE')} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
-            <option value="ALL">All Assets</option>
-            <option value="OVERDUE">Overdue Returns</option>
           </select>
         </div>
         <div style={panelStyle}>
@@ -1070,8 +1103,8 @@ function HRView({ token }: { token: string }) {
       {showAddAsset && <AddAssetModal token={token} onClose={() => setShowAddAsset(false)} onCreated={a => { setInventory(prev => [a, ...prev]); showToast('success', 'Asset added'); }} />}
       {showAssignModal && <AssignAssetModal asset={showAssignModal} token={token} mode="assign" onClose={() => setShowAssignModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); showToast('success', 'Asset assigned'); setShowAssignModal(null); }} />}
       {showReassignModal && <AssignAssetModal asset={showReassignModal} token={token} mode="reassign" onClose={() => setShowReassignModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); showToast('success', 'Asset reassigned'); setShowReassignModal(null); }} />}
-      {showReturnModal && <MarkReturnedModal asset={showReturnModal} token={token} onClose={() => setShowReturnModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); setShowReturnModal(null); showToast('success', 'Asset marked returned'); }} />}
-      {showFulfillModal && <FulfillRequestModal request={showFulfillModal} token={token} onClose={() => setShowFulfillModal(null)} onDone={r => { setAssetRequests(prev => prev.map(x => x.id === r.id ? r : x)); setShowFulfillModal(null); showToast('success', 'Request fulfilled'); }} />}
+      {showReturnModal && <MarkReturnedModal asset={showReturnModal} token={token} onClose={() => setShowReturnModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); setShowReturnModal(null); showToast('success', 'Asset marked returned'); }} />}
+      {showFulfillModal && <FulfillRequestModal request={showFulfillModal} token={token} onClose={() => setShowFulfillModal(null)} onDone={r => { setAssetRequests(prev => prev.map(x => x.id === r.id ? r : x)); reload(); setShowFulfillModal(null); showToast('success', 'Request fulfilled'); }} />}
       {showCatModal && <ExpenseCategoryModal category={showCatModal === 'new' ? null : showCatModal} token={token} onClose={() => setShowCatModal(null)} onSaved={c => { setExpCategories(prev => { const idx = prev.findIndex(x => x.id === c.id); return idx >= 0 ? prev.map((x, i) => i === idx ? c : x) : [c, ...prev]; }); showToast('success', 'Category saved'); setShowCatModal(null); }} />}
     </div>
   );
@@ -1276,7 +1309,15 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
   function setPositiveDecimal(k: string, v: string) { set(k, sanitizePositiveDecimalInput(v)); }
 
   async function submit() {
-    if (!form.name.trim()) return;
+    const trimmedName = form.name.trim();
+    if (!trimmedName) return;
+    // Mirrors OrgSetupPage's Department/Designation name check: must include at least one
+    // letter, rejecting numeric-only ("123"), negative-number ("-5"), and symbol-only ("@#$")
+    // category names before they ever reach the backend's identical @Pattern check.
+    if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmedName)) {
+      showToast('error', 'Category name must contain letters and cannot contain numbers or be made up of special characters only');
+      return;
+    }
     const dailyLimitNum = form.dailyLimit ? parseFloat(form.dailyLimit) : null;
     const secondApprovalNum = form.secondApprovalAbove ? parseFloat(form.secondApprovalAbove) : null;
     if (dailyLimitNum != null && (isNaN(dailyLimitNum) || dailyLimitNum < 0)) {
@@ -1290,7 +1331,7 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
     setSubmitting(true);
     try {
       const payload = {
-        name: form.name.trim(),
+        name: trimmedName,
         requiresReceiptAbove: parseFloat(form.requiresReceiptAbove) || 0,
         dailyLimit: dailyLimitNum,
         secondApprovalAbove: secondApprovalNum,

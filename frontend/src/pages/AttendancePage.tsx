@@ -35,8 +35,10 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole } from '../lib/nav.config';
+import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { TimeFormatProvider, useTimeFormat, formatLateBySeconds } from '../context/TimeFormatContext';
 import { minutesSinceMidnight, secondsBetween, shiftMarkerPositions, segmentBarPosition, breakMarkerPosition, resolveWorkdayWindow, punchCalendarDateIfDiffers } from '../utils/shiftMarkers';
+import { computeWorkedMinutesFromPunches, msToMinuteEpoch } from '../utils/workedMinutes';
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 // Server timestamps are wall-clock strings in the business timezone (no offset), so they are
@@ -85,6 +87,17 @@ function wallClockMs(iso: string): number {
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** The latest of any number of ISO timestamps (nulls/undefined ignored), or null if none are set
+ * — used to combine a normal session's own checkOutAt with any Web Clock-Out(s) the same work
+ * day, since Web Clock-Out never writes the shared Attendance record's own checkOutAt (see
+ * WebClockInService's own class Javadoc) and the displayed Check Out must reflect whichever of
+ * the two actually happened most recently, however many Normal/Web cycles occurred in between. */
+function latestIso(...candidates: (string | null | undefined)[]): string | null {
+  const valid = candidates.filter((v): v is string => !!v);
+  if (valid.length === 0) return null;
+  return valid.reduce((latest, cur) => (wallClockMs(cur) > wallClockMs(latest) ? cur : latest));
 }
 
 /**
@@ -488,14 +501,17 @@ function PunchHistoryList({ date, token, refreshKey }: { date: string; token: st
   if (punches === null) {
     return <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Loading punch history…</div>;
   }
-  if (punches.length <= 1) return null; // a single session adds nothing beyond the bookends above
+  if (punches.length === 0) return null;
 
   // Oldest first, matching the Keka reference (earliest punch at top, latest at bottom) — the
   // API doesn't guarantee an order, so this is display-only, not a data change.
   const sortedPunches = [...punches].sort((a, b) => a.checkInAt.localeCompare(b.checkInAt));
-  const officeSessions = sortedPunches.filter(p => p.source !== 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
-  const webSessions = sortedPunches.filter(p => p.source === 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt }));
+  const officeSessions = sortedPunches.filter(p => p.source !== 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, note: p.note }));
+  const webSessions = sortedPunches.filter(p => p.source === 'WEB_REMOTE').map(p => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, note: p.note }));
 
+  // Every punch — including a single still-open office session right after the first
+  // check-in of the day — is shown here; the only suppression is the "no punches yet"
+  // empty case handled above (punches.length === 0).
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
@@ -2340,14 +2356,16 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
-  // for every later cycle the same day/shift so the employee is only asked once. Mirrors
+  // Whether this employee has ANY Web Clock-In cycle on file today — a note is mandatory only
+  // for the very first cycle of the resolved work day (enforced server-side); every later cycle
+  // needs no note at all, so this click can skip the modal entirely. Mirrors
   // AttendanceHeroBanner's WebClockInRow.
-  const [reusableReason, setReusableReason] = useState<string | null>(null);
-  // The currently-open Web session (PENDING/APPROVED, not yet checked out), if any — not just a
-  // boolean: this button must offer Web Clock-Out once one is open (mirrors AttendanceHeroBanner's
+  const [isFirstCycleToday, setIsFirstCycleToday] = useState(true);
+  // The currently-open Web session (not yet checked out), if any — not just a boolean: this
+  // button must offer Web Clock-Out once one is open (mirrors AttendanceHeroBanner's
   // WebClockInRow, which already does this on the Dashboard — this Actions-panel button used to
-  // just sit disabled forever with no way to check out from here once open).
+  // just sit disabled forever with no way to check out from here once open). No approval/review
+  // status at all anymore (see WebClockInService's own class Javadoc).
   const [openWeb, setOpenWeb] = useState<WebClockInRecord | null>(null);
   // Synchronous re-entrancy guards — the `disabled`/`busy`/`checkingOut` state alone only blocks
   // a real click once React has committed the re-render, which isn't guaranteed before a second
@@ -2358,26 +2376,26 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
 
   // Returns the fetch's own promise (not fire-and-forget) — submitReason/handleWebCheckOut below
   // await this before releasing their re-entrancy guard, so the button never re-enables while
-  // still showing stale openWeb/reusableReason state. A bare (unreturned) `.then(...)` call here
-  // would make `await refreshMine()` resolve immediately without actually waiting for it.
+  // still showing stale openWeb/isFirstCycleToday state. A bare (unreturned) `.then(...)` call
+  // here would make `await refreshMine()` resolve immediately without actually waiting for it.
   const refreshMine = useCallback(() => {
     // Filtered by the business/Location-zone work date (today.workDate) — never the browser's
     // own UTC calendar date, which can disagree with it near midnight or whenever the employee's
     // device zone differs from their assigned Location's zone.
     const businessTodayIso = today?.workDate;
-    if (!businessTodayIso) { setReusableReason(null); setOpenWeb(null); return Promise.resolve(); }
+    if (!businessTodayIso) { setIsFirstCycleToday(true); setOpenWeb(null); return Promise.resolve(); }
     return webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
       const todays = list.filter(r => r.workDate === businessTodayIso);
-      setReusableReason(todays[0]?.reason ?? null);
-      setOpenWeb(todays.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null);
-    }).catch(() => { setReusableReason(null); setOpenWeb(null); });
+      setIsFirstCycleToday(todays.length === 0);
+      setOpenWeb(todays.find(r => !r.checkedOutAt) ?? null);
+    }).catch(() => { setIsFirstCycleToday(true); setOpenWeb(null); });
   }, [token, today]);
 
   useEffect(() => { refreshMine(); }, [refreshMine]);
 
   const disabled = loading || !!openWeb;
 
-  async function submitReason(trimmed: string) {
+  async function submitReason(trimmed: string | undefined) {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -2447,7 +2465,7 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   return (
     <>
       <button
-        onClick={() => (reusableReason ? submitReason(reusableReason) : setOpen(true))}
+        onClick={() => (isFirstCycleToday ? setOpen(true) : submitReason(undefined))}
         disabled={disabled || busy}
         style={{ ...actionStyle, opacity: (disabled || busy) ? 0.6 : 1, cursor: (disabled || busy) ? 'default' : 'pointer' }}
       >
@@ -2944,7 +2962,7 @@ function punchDateSuffix(iso: string, workDate: string): string {
  * instead of being indistinguishable from a same-day punch. */
 function PunchSourceGroup({ label, sessions, workDate }: {
   label: string;
-  sessions: { key: string; checkInAt: string; checkOutAt: string | null }[];
+  sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null }[];
   workDate: string;
 }) {
   const { formatTime } = useTimeFormat();
@@ -2959,6 +2977,17 @@ function PunchSourceGroup({ label, sessions, workDate }: {
           <div key={s.key ?? i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11.5 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--ok)', fontWeight: 600 }}>
               <ArrowDownLeft size={12} /> {inTime ? `${inTime}${punchDateSuffix(s.checkInAt, workDate)}` : dash}
+              {s.note && (
+                <Tooltip content={s.note}>
+                  <button
+                    type="button"
+                    aria-label="Web clock-in note"
+                    style={{ display: 'inline-flex', background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', color: 'var(--txt-dim)' }}
+                  >
+                    <Info size={12} />
+                  </button>
+                </Tooltip>
+              )}
             </span>
             {s.checkOutAt ? (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--txt)', fontWeight: 600 }}>
@@ -2988,11 +3017,11 @@ function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] 
   // info.iso, since recordByDate is itself keyed by workDate), else info.iso as a same-value
   // fallback for the (structurally unreachable once sessions is non-empty) no-record case.
   const workDate = record?.workDate ?? info.iso;
-  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source'] }[] =
+  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source']; note: string | null }[] =
     punches && punches.length > 0
-      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source }))
+      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source, note: p.note }))
       : record?.checkInAt
-        ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: record.source === 'WEB_REMOTE' ? 'WEB_REMOTE' : 'SYSTEM' }]
+        ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: record.source === 'WEB_REMOTE' ? 'WEB_REMOTE' : 'SYSTEM', note: null }]
         : [];
 
   // Oldest first, matching the Keka reference (earliest punch at top, latest at bottom) — the
@@ -3020,14 +3049,33 @@ function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] 
  * DayPunchIntervals. Shared by the calendar's side panel AND the View-button modal below, so
  * both present exactly the same information.
  */
-function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay }: {
+function DayDetailsBody({ info, config, punches, workedMinutesToday, businessTodayIso, webSessions, onRegularize, onApplyPartialDay }: {
   info: DayInfo;
   config: AttendanceConfig | null;
   punches: Punch[] | undefined;
+  // Today's live-aware worked-minutes figure and the business/Location-zone "today" ISO it
+  // applies to — same two inputs computeRowMetrics already takes for the Attendance Log's
+  // "Effective Hours" column, so this modal's own figure is computed identically instead of
+  // reading info.record.workedMinutes directly (a second, independent source that only ever
+  // reflects the last *settled* total and can disagree with Effective Hours). Both are optional:
+  // this component only ever needs them for info.iso === businessTodayIso.
+  workedMinutesToday: number | null;
+  businessTodayIso: string | undefined;
+  // This day's Web Clock-In records (if any) — needed so Check Out can reflect the LATEST of the
+  // normal session's own checkOutAt and any Web Clock-Out(s) the same day, since Web Clock-Out
+  // never writes the shared record's own checkOutAt (see WebClockInService's own class Javadoc).
+  webSessions: WebClockInRecord[];
   onRegularize: () => void;
   onApplyPartialDay: () => void;
 }) {
   const { formatTime, formatDuration } = useTimeFormat();
+  const metrics = info.record ? computeRowMetrics(info, punches, workedMinutesToday, businessTodayIso) : null;
+  // Check In is always the day's original checkInAt (frozen across every resume regardless of
+  // source, see AttendanceService.checkIn's own doc comment) — never replaced by a later
+  // Check-In/Web Clock-In cycle. Check Out is the latest close from either source.
+  const checkOutDisplay = info.record
+    ? latestIso(info.record.checkOutAt, ...webSessions.map((r) => r.checkedOutAt))
+    : null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>{formatDay(info.iso)}</div>
@@ -3071,28 +3119,32 @@ function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                 <LogIn size={11} /> Check In
               </div>
-              {/* sessionStartedAt (not checkInAt) — checkInAt is the day's *original* check-in,
-                  deliberately frozen across a same-day resume, so on a day with more than one
-                  Check-In/Check-Out cycle it showed the first session's time here even though
-                  DayPunchIntervals below correctly lists every session including the latest.
-                  sessionStartedAt updates on every resume, matching the last punch. */}
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.sessionStartedAt ?? info.record.checkInAt) ?? missingPunch}</div>
+              {/* The day's original checkInAt — locked for the entire resolved work day
+                  regardless of source, never replaced by a later Check-In/Web Clock-In cycle
+                  (see AttendanceService.checkIn's own doc comment). DayPunchIntervals below still
+                  lists every individual session, including the latest. */}
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkInAt) ?? missingPunch}</div>
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                 <LogOut size={11} /> Check Out
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(info.record.checkOutAt) ?? missingPunch}</div>
+              {/* Latest of the normal session's own checkOutAt and any Web Clock-Out(s) this day
+                  — see checkOutDisplay's own comment above. */}
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(checkOutDisplay) ?? missingPunch}</div>
             </div>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
-              <Clock size={11} /> Hours
+              <Clock size={11} /> Worked Today
             </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(info.record.workedMinutes) ?? dash}</div>
+            {/* Same calculation as the Attendance Log's "Effective Hours" column (both go through
+                computeRowMetrics) — previously this read info.record.workedMinutes directly, a
+                static total that never reflects today's still-open session live. */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatDuration(metrics?.effectiveMinutes ?? null) ?? dash}</div>
           </div>
           <StatusPill status={info.record.status} />
-          <LateBadge minutes={info.record.lateByMinutes} checkInAt={info.record.checkInAt} shiftStartAt={info.record.shiftStartAt} graceMinutes={config?.lateGraceMinutes} workedMinutes={info.record.workedMinutes} config={config} />
+          <LateBadge minutes={info.record.lateByMinutes} checkInAt={info.record.checkInAt} shiftStartAt={info.record.shiftStartAt} graceMinutes={config?.lateGraceMinutes} workedMinutes={metrics?.effectiveMinutes ?? info.record.workedMinutes} config={config} />
           <DayShiftAndActions info={info} config={config} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
           <DayPunchIntervals info={info} punches={punches} />
         </>
@@ -3110,10 +3162,13 @@ function DayDetailsBody({ info, config, punches, onRegularize, onApplyPartialDay
  * on the calendar's side panel, which can be scrolled out of view) showing the exact same
  * DayDetailsBody: shift timing, Regularize, Apply Partial Day, and the full punch history.
  */
-function DayDetailsModal({ info, config, punches, onClose, onRegularize, onApplyPartialDay }: {
+function DayDetailsModal({ info, config, punches, workedMinutesToday, businessTodayIso, webSessions, onClose, onRegularize, onApplyPartialDay }: {
   info: DayInfo;
   config: AttendanceConfig | null;
   punches: Punch[] | undefined;
+  workedMinutesToday: number | null;
+  businessTodayIso: string | undefined;
+  webSessions: WebClockInRecord[];
   onClose: () => void;
   onRegularize: () => void;
   onApplyPartialDay: () => void;
@@ -3123,7 +3178,7 @@ function DayDetailsModal({ info, config, punches, onClose, onRegularize, onApply
       <div style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title="Attendance Details" onClose={onClose} />
         <div style={{ padding: 24 }}>
-          <DayDetailsBody info={info} config={config} punches={punches} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
+          <DayDetailsBody info={info} config={config} punches={punches} workedMinutesToday={workedMinutesToday} businessTodayIso={businessTodayIso} webSessions={webSessions} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
         </div>
       </div>
     </div>
@@ -3353,6 +3408,38 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     profileApi.get(token).then((p) => setJoiningDate(p.joiningDate)).catch(() => setJoiningDate(null));
   }, [token]);
 
+  // AttendancePage has no leave-apply UI of its own (leave is only submitted from LeavePage), so
+  // `leaves` can only go stale here, never be optimistically patched on submit. Mirror LeavePage's
+  // fix for the same staleness problem: react to LEAVE_APPROVED/LEAVE_REJECTED notifications as
+  // the app-wide notification poll (Shell) detects them, and re-fetch just `leaves` so the
+  // "Leave / Holidays" tile (and calendar) reflect the decision without a full page reload.
+  const leaveRefreshInFlightRef = useRef(false);
+  const leaveRefreshQueuedRef = useRef(false);
+  const refreshLeaves = useCallback(async () => {
+    if (leaveRefreshInFlightRef.current) { leaveRefreshQueuedRef.current = true; return; }
+    leaveRefreshInFlightRef.current = true;
+    try {
+      const fresh = await leaveApi.listMine(token);
+      setLeaves(fresh);
+    } catch {
+      // Keep showing whatever leaves are already loaded rather than clearing them on error.
+    } finally {
+      leaveRefreshInFlightRef.current = false;
+      if (leaveRefreshQueuedRef.current) {
+        leaveRefreshQueuedRef.current = false;
+        refreshLeaves();
+      }
+    }
+  }, [token]);
+
+  useEffect(() => {
+    return subscribeToNewNotifications((items) => {
+      if (items.some((n) => n.type === 'LEAVE_APPROVED' || n.type === 'LEAVE_REJECTED')) {
+        refreshLeaves();
+      }
+    });
+  }, [refreshLeaves]);
+
   const refreshMonth = useCallback(() => {
     setMonthLoading(true);
     const from = isoOf(viewYear, viewMonth, 1);
@@ -3527,6 +3614,17 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   // DayPunchIntervals in the View/details side panel), fetched once per punched day and cached
   // across month switches via the existing per-date /attendance/punches/{date} endpoint.
   const [punchesByDate, setPunchesByDate] = useState<Map<string, Punch[]>>(new Map());
+
+  // This employee's full Web Clock-In history, refreshed alongside `today` — needed so the Check
+  // In/Check Out summary can combine Web Clock-In/Out with the normal session (Web Clock-Out
+  // never writes the shared Attendance record's own checkOutAt, see WebClockInService's own class
+  // Javadoc). Deliberately separate from punchesByDate/Punch History's own fetch — this state is
+  // only ever read by the summary fields below, never by PunchHistoryList/DayPunchIntervals.
+  const [webRecords, setWebRecords] = useState<WebClockInRecord[]>([]);
+  const webForIso = useCallback(
+    (iso: string) => webRecords.filter((r) => r.workDate === iso),
+    [webRecords],
+  );
   useEffect(() => {
     const datesNeeded = logRows
       .filter((info) => info.record?.checkInAt && !punchesByDate.has(info.iso))
@@ -3570,39 +3668,49 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
         if (!cancelled) showToast('error', err instanceof Error ? err.message : 'Failed to load attendance');
       })
       .finally(() => { if (!cancelled) setLoading(false); });
+    webClockInApi.mine(token).then((list) => { if (!cancelled) setWebRecords(list); }).catch(() => {});
     return () => { cancelled = true; };
   }, [token, showToast]);
 
-  // sessionStartedAt (not checkInAt) — the currently-open session's own start, so a resumed
-  // session after a break shows its own elapsed time instead of counting from the day's
-  // original check-in (which would wrongly include the break in "elapsed").
-  const openSince = today?.canCheckOut ? today.record?.sessionStartedAt ?? today.record?.checkInAt ?? null : null;
+  // Today's punches (already fetched for Punch History via the same /attendance/punches endpoint
+  // — reused here as-is, never re-fetched or recomputed differently) — the exact input
+  // computeWorkedMinutesFromPunches needs to mirror the backend's own Effective Hours model.
+  const todaysPunches = today ? punchesByDate.get(today.workDate) : undefined;
+  // Whether ANY punch today — normal or Web Clock-In, there can be one of each open at once — is
+  // still open. Drives both the live-tick interval below and whether "now" is substituted for a
+  // missing checkOutAt in the calculation itself.
+  const hasOpenPunchToday = todaysPunches?.some((p) => p.checkOutAt == null) ?? false;
 
   useEffect(() => {
-    if (!openSince) return;
+    if (!hasOpenPunchToday) return;
     const id = setInterval(() => setTick((n) => n + 1), 60000);
     return () => clearInterval(id);
-  }, [openSince]);
+  }, [hasOpenPunchToday]);
 
-  const elapsed = useMemo(() => {
-    if (!openSince) return null;
-    void tick; // re-derive on each tick
-    const minutes = Math.floor(
-      (Date.now() + serverOffsetMs.current - wallClockMs(openSince)) / 60000,
-    );
-    return minutes >= 0 ? formatDuration(minutes) : null;
-  }, [openSince, tick]);
-
-  // Raw minutes-worked-so-far-today (same clock as `elapsed`), for the Today's Timings
-  // progress bar / break panel, which need a number rather than a formatted string.
+  // The single source of truth for "Worked Today"/"Effective Hours" today: computed via
+  // computeWorkedMinutesFromPunches (see its own Javadoc-style comment) — the SAME merge-and-sum
+  // model as the backend's recomputeCombinedWorkedMinutes, not a separate raw calculation — fed
+  // today's real punches plus "now" for whichever punch(es) are still open. Read by the Today's
+  // Timings progress bar / break panel, the Attendance Log's "Effective Hours" column, and the
+  // Calendar's "Worked Today" figure alike, so none of them can drift from one another.
   const workedMinutesToday = useMemo(() => {
-    if (openSince) {
-      void tick;
-      const minutes = Math.floor((Date.now() + serverOffsetMs.current - wallClockMs(openSince)) / 60000);
-      return minutes >= 0 ? minutes : null;
-    }
-    return today?.record?.workedMinutes ?? null;
-  }, [openSince, tick, today]);
+    if (!today) return null;
+    if (!todaysPunches) return today.record?.workedMinutes ?? null;
+    void tick; // re-derive every tick so a live open interval keeps advancing
+    const nowMinuteEpoch = hasOpenPunchToday ? msToMinuteEpoch(Date.now() + serverOffsetMs.current) : null;
+    return computeWorkedMinutesFromPunches(todaysPunches, nowMinuteEpoch);
+  }, [today, todaysPunches, hasOpenPunchToday, tick]);
+
+  // Check In/Check Out summary for today: Check In is always the day's original checkInAt
+  // (frozen across every resume regardless of source, see AttendanceService.checkIn's own doc
+  // comment) — locked for the entire resolved work day, never the latest In. Check Out is the
+  // LATEST of the normal session's own checkOutAt and any Web Clock-Out(s) the same work day
+  // (Web Clock-Out never writes the shared record's own checkOutAt, see WebClockInService's own
+  // class Javadoc) — so it keeps updating to whichever source most recently closed a session.
+  const todayCheckOutDisplay = useMemo(() => {
+    if (!today) return null;
+    return latestIso(today.record?.checkOutAt, ...webForIso(today.workDate).map((r) => r.checkedOutAt));
+  }, [today, webForIso]);
 
   // Re-read /today so canCheckIn/canCheckOut always come from the server, never inferred — the
   // ONE shared refresh every check-in/check-out/web-check-in entry point calls afterward, so
@@ -3624,6 +3732,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     attendanceApi.punches(refreshed.workDate, token)
       .then((p) => setPunchesByDate((prev) => new Map(prev).set(refreshed.workDate, p)))
       .catch(() => {});
+    // Same followup-refresh treatment for the Check In/Check Out summary's own Web Clock-In
+    // history — see webRecords' own comment.
+    webClockInApi.mine(token).then(setWebRecords).catch(() => {});
     return refreshed;
   }, [token, refreshMonth]);
 
@@ -3734,28 +3845,33 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                           <LogIn size={11} /> Check In
                         </div>
-                        {/* sessionStartedAt, falling back to the day's original checkInAt when
-                            there's been no resume yet — checkInAt alone would keep showing the
-                            first session's time after a later Check-In → Check-Out → Check-In
-                            again cycle, even though this same panel's Elapsed timer below
-                            already correctly tracks the latest session via sessionStartedAt. */}
+                        {/* The day's original checkInAt — locked for the entire resolved work
+                            day regardless of source (see AttendanceService.checkIn's own doc
+                            comment: never touched on a resume), so a later Check-In/Web Clock-In
+                            cycle never replaces what's shown here. */}
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
-                          {formatTime(today.record?.sessionStartedAt ?? today.record?.checkInAt ?? null) ?? dash}
+                          {formatTime(today.record?.checkInAt ?? null) ?? dash}
                         </div>
                       </div>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
                           <LogOut size={11} /> Check Out
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(today.record?.checkOutAt ?? null) ?? dash}</div>
+                        {/* Latest of the normal session's own checkOutAt and any Web Clock-Out(s)
+                            today — see todayCheckOutDisplay's own comment. */}
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{formatTime(todayCheckOutDisplay) ?? dash}</div>
                       </div>
                     </div>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>
-                        <Clock size={11} /> {today.canCheckOut ? 'Elapsed' : 'Worked Today'}
+                        <Clock size={11} /> Worked Today
                       </div>
+                      {/* Same underlying figure as the Attendance Log's "Effective Hours" column
+                          for today's row (both read workedMinutesToday) — previously this read
+                          today.record?.workedMinutes directly instead, a second, independent
+                          source that could disagree with Effective Hours rather than matching it. */}
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
-                        {(today.canCheckOut ? elapsed : formatDuration(today.record?.workedMinutes ?? null)) ?? dash}
+                        {formatDuration(workedMinutesToday) ?? dash}
                       </div>
                     </div>
                     {today.record?.status && <StatusPill status={today.record.status} />}
@@ -3796,6 +3912,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                 info={selectedInfo}
                 config={config}
                 punches={punchesByDate.get(selectedInfo.iso)}
+                workedMinutesToday={workedMinutesToday}
+                businessTodayIso={today?.workDate}
+                webSessions={webForIso(selectedInfo.iso)}
                 onRegularize={() => setRegularizeDate(selectedInfo.iso)}
                 onApplyPartialDay={() => setPartialDayDate(selectedInfo.iso)}
               />
@@ -3924,6 +4043,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
             info={viewInfo}
             config={config}
             punches={punchesByDate.get(viewDetailsIso)}
+            workedMinutesToday={workedMinutesToday}
+            businessTodayIso={today?.workDate}
+            webSessions={webForIso(viewDetailsIso)}
             onClose={() => setViewDetailsIso(null)}
             onRegularize={() => { setViewDetailsIso(null); setRegularizeDate(viewDetailsIso); }}
             onApplyPartialDay={() => { setViewDetailsIso(null); setPartialDayDate(viewDetailsIso); }}
@@ -4404,15 +4526,17 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
   const [loading, setLoading] = useState(true);
   const [showRequest, setShowRequest] = useState(false);
   const [month, setMonth] = useState(ALL_MONTHS_VALUE);
-  const [acting, setActing] = useState<{ request: AttendanceRequestRecord; action: 'APPROVE' | 'REJECT' } | null>(null);
-  const [comment, setComment] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  // WFH's own "View Request" drawer (Keka-style) — separate from the plain `acting` confirm
-  // modal Partial Day still uses. A "group" is a groupWfhRequests() batch: one decision here
-  // applies to every date in that batch, since the drawer displays the whole range as one row.
+  // WFH's own "View Request" drawer (Keka-style). A "group" is a groupWfhRequests() batch: one
+  // decision here applies to every date in that batch, since the drawer displays the whole range
+  // as one row.
   const [wfhDrawer, setWfhDrawer] = useState<{ group: AttendanceRequestRecord[]; mode: 'VIEW' | 'APPROVE' | 'REJECT' } | null>(null);
   const [wfhComment, setWfhComment] = useState('');
   const [wfhSubmitting, setWfhSubmitting] = useState(false);
+  // Same "View Request" drawer pattern for a single Partial Day record — no grouping, since
+  // unlike WFH a Partial Day request is never split across dates.
+  const [partialDayDrawer, setPartialDayDrawer] = useState<{ request: AttendanceRequestRecord; mode: 'VIEW' | 'APPROVE' | 'REJECT' } | null>(null);
+  const [partialDayComment, setPartialDayComment] = useState('');
+  const [partialDaySubmitting, setPartialDaySubmitting] = useState(false);
 
   const loadAll = useCallback(() => {
     const calls: Promise<unknown>[] = [attendanceRequestApi.mine(token).then(setMyRequests)];
@@ -4429,22 +4553,23 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
     [myRequests, month],
   );
 
-  async function handleAct() {
-    if (!acting) return;
-    if (acting.action === 'REJECT' && !comment.trim()) { showToast('error', 'A comment is required when rejecting'); return; }
-    setSubmitting(true);
+  function closePartialDayDrawer() { setPartialDayDrawer(null); setPartialDayComment(''); }
+
+  async function handleActPartialDay() {
+    if (!partialDayDrawer || partialDayDrawer.mode === 'VIEW') return;
+    if (partialDayDrawer.mode === 'REJECT' && !partialDayComment.trim()) { showToast('error', 'A comment is required when rejecting'); return; }
+    setPartialDaySubmitting(true);
     try {
-      const updated = acting.action === 'APPROVE'
-        ? await attendanceRequestApi.approve(acting.request.id, token, comment.trim() || undefined)
-        : await attendanceRequestApi.reject(acting.request.id, comment.trim(), token);
+      const updated = partialDayDrawer.mode === 'APPROVE'
+        ? await attendanceRequestApi.approve(partialDayDrawer.request.id, token, partialDayComment.trim() || undefined)
+        : await attendanceRequestApi.reject(partialDayDrawer.request.id, partialDayComment.trim(), token);
       setPending((prev) => prev.filter((r) => r.id !== updated.id));
-      showToast('success', acting.action === 'APPROVE' ? 'Request approved' : 'Request rejected');
-      setActing(null);
-      setComment('');
+      showToast('success', partialDayDrawer.mode === 'APPROVE' ? 'Request approved' : 'Request rejected');
+      closePartialDayDrawer();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Action failed');
     } finally {
-      setSubmitting(false);
+      setPartialDaySubmitting(false);
     }
   }
 
@@ -4471,15 +4596,6 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
     } finally {
       setWfhSubmitting(false);
     }
-  }
-
-  function typeLabel(r: AttendanceRequestRecord) {
-    if (r.requestType === 'WFH') {
-      const wfhModeLabel = WFH_SINGLE_DAY_MODE_OPTIONS.find((o) => o.value === r.partialDayMode)?.label;
-      return wfhModeLabel && wfhModeLabel !== 'Full Day' ? `Work From Home (${wfhModeLabel})` : 'Work From Home';
-    }
-    const modeLabel = PARTIAL_DAY_MODE_OPTIONS.find((o) => o.value === r.partialDayMode)?.label;
-    return modeLabel ? `Partial Day (${modeLabel})` : 'Partial Day';
   }
 
   function partialDayModeLabel(r: AttendanceRequestRecord) {
@@ -4617,8 +4733,10 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                 {/* Employee only shown for Pending Approvals (showActions) — in "My Requests"
                     every row is the viewer's own, so the name would be redundant. Mirrors
                     RegularizationSection's own Employee column, shown only in its reviewer-facing
-                    Pending Approvals table for the same reason. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Mode', 'Hours', 'Reason', 'Approver', 'Status', ...(showActions ? ['Actions'] : [])].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                    Pending Approvals table for the same reason. The Actions column, unlike
+                    Employee, is unconditional — every row (own or pending-approval) can at least
+                    be viewed, matching renderWfhTable. */}
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Mode', 'Hours', 'Reason', 'Approver', 'Status', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
@@ -4632,16 +4750,15 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                     <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
                     <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
                     <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                    {showActions && (
-                      <td style={tdStyle}>
-                        {r.status === 'PENDING' ? (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => setActing({ request: r, action: 'APPROVE' })} style={{ background: 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>Approve</button>
-                            <button onClick={() => setActing({ request: r, action: 'REJECT' })} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#E4373D', cursor: 'pointer', fontWeight: 600 }}>Reject</button>
-                          </div>
-                        ) : dash}
-                      </td>
-                    )}
+                    <td style={tdStyle}>
+                      <PartialDayActionMenu
+                        request={r}
+                        canApprove={showActions && canApprove}
+                        onView={() => setPartialDayDrawer({ request: r, mode: 'VIEW' })}
+                        onApprove={() => setPartialDayDrawer({ request: r, mode: 'APPROVE' })}
+                        onReject={() => setPartialDayDrawer({ request: r, mode: 'REJECT' })}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -4704,31 +4821,6 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
           onSaved={(r) => setMyRequests((prev) => [r, ...prev])}
         />
       )}
-      {acting && (
-        <div style={overlayStyle}>
-          <div style={{ ...modalStyle, maxWidth: 420 }}>
-            <ModalHeader title={`${acting.action === 'APPROVE' ? 'Approve' : 'Reject'} — ${acting.request.employeeName}`} onClose={() => setActing(null)} />
-            <div style={{ padding: 24 }}>
-              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 14 }}>
-                {typeLabel(acting.request)} · {formatDay(acting.request.requestDate)}
-              </div>
-              <Field label={acting.action === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
-                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
-              </Field>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-                <button onClick={() => setActing(null)} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
-                <button
-                  onClick={handleAct}
-                  disabled={submitting}
-                  style={{ background: acting.action === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting…' : acting.action === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {wfhDrawer && (
         <WfhDetailDrawer
           group={wfhDrawer.group}
@@ -4738,6 +4830,17 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
           submitting={wfhSubmitting}
           onClose={closeWfhDrawer}
           onConfirmAction={handleActWfh}
+        />
+      )}
+      {partialDayDrawer && (
+        <PartialDayDetailDrawer
+          request={partialDayDrawer.request}
+          mode={partialDayDrawer.mode}
+          comment={partialDayComment}
+          setComment={setPartialDayComment}
+          submitting={partialDaySubmitting}
+          onClose={closePartialDayDrawer}
+          onConfirmAction={handleActPartialDay}
         />
       )}
     </div>
@@ -4903,6 +5006,69 @@ function WfhActionMenu({ group, canApprove, onView, onApprove, onReject }: {
   );
 }
 
+/** Same "•••" row menu as OvertimeActionMenu/WfhActionMenu, keyed to a single Partial Day record
+ * — no grouping, since a Partial Day request never spans more than one date. */
+function PartialDayActionMenu({ request, canApprove, onView, onApprove, onReject }: {
+  request: AttendanceRequestRecord; canApprove: boolean;
+  onView: () => void; onApprove: () => void; onReject: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Actions"
+        style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+      >
+        <MoreVertical size={14} />
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 40, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.35)', minWidth: 150, overflow: 'hidden' }}>
+          <button
+            onClick={() => { setOpen(false); onView(); }}
+            style={dropdownMenuItemStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            View Request
+          </button>
+          {canApprove && request.status === 'PENDING' && (
+            <>
+              <button
+                onClick={() => { setOpen(false); onApprove(); }}
+                style={{ ...dropdownMenuItemStyle, color: '#2FB67C' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => { setOpen(false); onReject(); }}
+                style={{ ...dropdownMenuItemStyle, color: '#E4373D' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                Reject
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Day-number-over-weekday chip used in the WFH detail drawer's date range header (Keka's "25 THU"
  * boxes) — zone-less, same parsing convention as formatDay/formatShortDay above. */
 function DateBox({ isoDate }: { isoDate: string }) {
@@ -5011,6 +5177,116 @@ function WfhDetailDrawer({ group, mode, comment, setComment, submitting, onClose
                   {lastAction.reviewedAt && <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}> · {formatDay(lastAction.reviewedAt.slice(0, 10))}</span>}
                 </div>
                 {lastAction.reviewComment && <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 3 }}>{lastAction.reviewComment}</div>}
+              </div>
+            </div>
+          )}
+
+          {mode !== 'VIEW' && (
+            <div>
+              <Field label={mode === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
+                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
+              </Field>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
+                <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
+                <button
+                  onClick={onConfirmAction}
+                  disabled={submitting}
+                  style={{ background: mode === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
+                >
+                  {submitting ? 'Submitting…' : mode === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Right-side slide-out detail drawer for a single Partial Day record — same shape as
+ * WfhDetailDrawer (requestor summary, date/mode/hours, who it was routed to, the free-text note,
+ * the approval/rejection event, and — only in APPROVE/REJECT mode — the comment field), just
+ * without the date-range grouping WFH needs, since a Partial Day request never spans more than
+ * one date.
+ */
+function PartialDayDetailDrawer({ request, mode, comment, setComment, submitting, onClose, onConfirmAction }: {
+  request: AttendanceRequestRecord;
+  mode: 'VIEW' | 'APPROVE' | 'REJECT';
+  comment: string;
+  setComment: (v: string) => void;
+  submitting: boolean;
+  onClose: () => void;
+  onConfirmAction: () => void;
+}) {
+  const { formatDuration } = useTimeFormat();
+  const initials = request.employeeName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
+  const modeLabel = PARTIAL_DAY_MODE_OPTIONS.find((o) => o.value === request.partialDayMode)?.label ?? dash;
+  const hoursLabel = request.partialDayHours != null ? formatDuration(Math.round(request.partialDayHours * 60)) ?? dash : dash;
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 600 }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 100vw)', background: 'var(--panel)', borderLeft: '1px solid var(--line)', boxShadow: '-12px 0 32px rgba(0,0,0,.4)', zIndex: 601, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Partial Day Request Details</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
+              {initials || <User size={16} />}
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{request.employeeName}</div>
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requested on {formatDay(request.createdAt.slice(0, 10))}</div>
+            </div>
+          </div>
+
+          <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <DateBox isoDate={request.requestDate} />
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{modeLabel}</div>
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{hoursLabel}</div>
+            </div>
+          </div>
+
+          {request.assignedApproverName && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Approver</div>
+              <div style={{ fontSize: 12.5, color: 'var(--txt)' }}>{request.assignedApproverName}</div>
+              {request.notifyUserName && request.notifyUserName !== request.assignedApproverName && <div style={{ fontSize: 12.5, color: 'var(--txt)', marginTop: 2 }}>{request.notifyUserName}</div>}
+            </div>
+          )}
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Note</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
+                {initials || <User size={13} />}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
+                  {request.employeeName} <span style={{ fontWeight: 400, color: 'var(--txt-dim)', fontSize: 10.5 }}>{formatDay(request.createdAt.slice(0, 10))}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>{request.reason}</div>
+              </div>
+            </div>
+          </div>
+
+          {request.reviewedByName && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: request.status === 'REJECTED' ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)', border: `1px solid ${request.status === 'REJECTED' ? 'rgba(228,55,61,.25)' : 'rgba(47,182,124,.25)'}`, borderRadius: 8, padding: '10px 12px' }}>
+              {request.status === 'REJECTED'
+                ? <XCircle size={15} style={{ color: '#E4373D', flexShrink: 0, marginTop: 1 }} />
+                : <CheckCircle2 size={15} style={{ color: '#2FB67C', flexShrink: 0, marginTop: 1 }} />}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
+                  {request.status === 'REJECTED' ? 'Rejected' : 'Approved'} by {request.reviewedByName}
+                  {request.reviewedAt && <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}> · {formatDay(request.reviewedAt.slice(0, 10))}</span>}
+                </div>
+                {request.reviewComment && <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 3 }}>{request.reviewComment}</div>}
               </div>
             </div>
           )}
