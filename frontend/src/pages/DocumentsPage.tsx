@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, Upload, XCircle, AlertTriangle, Eye, Search } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -196,7 +197,10 @@ function ViewButton({ docId }: { docId: string }) {
 export default function DocumentsPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
-  const [tab, setTab] = useState<'docs' | 'policies' | 'announcements'>('docs');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<'docs' | 'policies' | 'announcements'>(() =>
+    searchParams.get('tab') === 'policies' ? 'policies' : 'docs'
+  );
   const [section, setSection] = useState<'verified' | 'pending' | 'missing'>('pending');
   const [search, setSearch] = useState('');
   const [required, setRequired] = useState<RequiredDocument[]>([]);

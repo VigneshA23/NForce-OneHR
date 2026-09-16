@@ -2286,10 +2286,10 @@ function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
 
 // Approved discrepancy/anomaly identifiers (ExceptionType constants) — not every one has a
 // detector wired up yet, but all six are valid values a future policy engine may produce.
-const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH', 'LEAVE_ATTENDANCE_CONFLICT'];
+const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH'];
 const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
   NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
-  EARLY_DEPARTURE: 'Early Departure', MISSING_PUNCH: 'Missing Punch', LEAVE_ATTENDANCE_CONFLICT: 'Leave/Attendance Conflict',
+  EARLY_DEPARTURE: 'Early Departure', MISSING_PUNCH: 'Missing Punch',
 };
 
 function fmtDateTimeShort(iso?: string | null) {
