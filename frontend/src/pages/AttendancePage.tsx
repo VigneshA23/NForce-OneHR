@@ -1387,6 +1387,12 @@ function primaryDayBadge(info: DayInfo): React.ReactNode {
       ? <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>WFH</span>
       : <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.18)', color: '#E0A93B' }}>Partial Day</span>;
   }
+  // Reflects an actually-persisted, still-active penalty (see AttendanceRecord.penalized) — never
+  // a frontend-computed eligibility guess. Checked before the plain status pill, same precedence
+  // Regularization/WFH get above, so a penalized day never just looks like an ordinary LATE/PRESENT day.
+  if (info.record?.penalized) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(166,52,46,.15)', color: '#E08A83' }}>Penalized</span>;
+  }
   if (info.record) {
     return <StatusPill status={info.record.status} />;
   }
@@ -3223,6 +3229,11 @@ function InlineDayBadge({ info }: { info: DayInfo }) {
     return info.attendanceRequest.requestType === 'WFH'
       ? <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>WFH</span>
       : <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.18)', color: '#E0A93B' }}>PARTIAL DAY</span>;
+  }
+  // See primaryDayBadge's identical check — an actually-persisted, still-active penalty, never a
+  // frontend-computed guess.
+  if (info.record?.penalized) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(166,52,46,.15)', color: '#E08A83' }}>PENALIZED</span>;
   }
   if (info.isWeekend && !info.record) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(155,161,172,.15)', color: '#9BA1AC' }}>W-OFF</span>;

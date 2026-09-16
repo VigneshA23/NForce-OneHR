@@ -5,8 +5,11 @@ import com.nforce.onehr.dto.attendance.PolicyDecisionType;
 import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.entity.AttendancePenalty;
+import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.ExceptionType;
+import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
+import com.nforce.onehr.repository.EmployeeRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,6 +40,8 @@ class AttendancePenaltyEvaluationServiceTest {
     @Mock private PenaltyDeductionService penaltyDeductionService;
     @Mock private NotificationService notificationService;
     @Mock private EmployeeService employeeService;
+    @Mock private EmployeeRepository employeeRepository;
+    @Mock private EmailService emailService;
     @Mock private AuditService auditService;
     @Spy private AuditSnapshotSerializer auditSnapshot = new AuditSnapshotSerializer(new ObjectMapper());
 
@@ -219,5 +224,42 @@ class AttendancePenaltyEvaluationServiceTest {
                 .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
 
         verifyNoInteractions(notificationService);
+        verifyNoInteractions(emailService);
+    }
+
+    // ── Penalty email ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void applyPenalty_emailsTheEmployee_whenAnAddressIsResolvable() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1)
+                .deductionDays(new java.math.BigDecimal("1")).build());
+        when(attendancePenaltyRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        Employee employee = Employee.builder().userId(employeeId).fullName("Jane Doe")
+                .user(User.builder().id(employeeId).email("jane.doe@example.com").build()).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        service.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+        verify(emailService).sendPenaltyEmail(org.mockito.ArgumentMatchers.eq("jane.doe@example.com"), any(),
+                org.mockito.ArgumentMatchers.eq("Jane Doe"), org.mockito.ArgumentMatchers.eq(date), any(), any(), any(), any());
+    }
+
+    @Test
+    void applyPenalty_noEmployeeProfile_noEmailSent() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1).build());
+        when(attendancePenaltyRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.empty());
+
+        service.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+        verifyNoInteractions(emailService);
     }
 }

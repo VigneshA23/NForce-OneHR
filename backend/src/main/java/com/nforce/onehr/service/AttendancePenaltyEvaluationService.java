@@ -7,6 +7,7 @@ import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
+import com.nforce.onehr.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -49,6 +50,8 @@ public class AttendancePenaltyEvaluationService {
     private final PenaltyDeductionService penaltyDeductionService;
     private final NotificationService notificationService;
     private final EmployeeService employeeService;
+    private final EmployeeRepository employeeRepository;
+    private final EmailService emailService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
 
@@ -127,10 +130,16 @@ public class AttendancePenaltyEvaluationService {
         auditService.log(null, "ATTENDANCE_PENALTY_CREATED", penalty.getId(), null, auditSnapshot.toJson(snapshot));
     }
 
-    /** Section 19: tells the employee (and their current manager, if resolvable) what was applied and why. */
+    /**
+     * Section 19: tells the employee (and their current manager, if resolvable) what was applied
+     * and why — an in-app notification (always) plus an email (whenever the employee's account
+     * has a resolvable address). Both fire exactly once per persisted penalty, guarded by the same
+     * "only called from evaluate() on a genuinely new row" contract as this class's own Javadoc.
+     */
     private void notifyPenaltyApplied(AttendancePenalty penalty) {
+        String reason = humanizeDiscrepancyType(penalty.getDiscrepancyType());
         StringBuilder message = new StringBuilder("A ")
-                .append(penalty.getDiscrepancyType() != null ? penalty.getDiscrepancyType().replace('_', ' ').toLowerCase() : "policy")
+                .append(reason.toLowerCase())
                 .append(" penalty of ").append(penalty.getDeductionDays() != null ? penalty.getDeductionDays() : BigDecimal.ZERO)
                 .append(" day(s) has been applied for ").append(penalty.getIncidentDate().format(NOTIFICATION_DATE_FMT)).append('.');
         if (penalty.getLopDays() != null && penalty.getLopDays().signum() > 0) {
@@ -145,11 +154,28 @@ public class AttendancePenaltyEvaluationService {
 
         EmployeeResponse.ManagerRef manager = employeeService.findCurrentManagersBulk(List.of(penalty.getEmployeeUserId()))
                 .get(penalty.getEmployeeUserId());
+
+        // ccEmail (the employee's current manager) is optional — same convention as
+        // ExceptionService.notifyEmployee's late-arrival/missing-punch/leave-conflict emails.
+        employeeRepository.findById(penalty.getEmployeeUserId()).ifPresent(employee -> {
+            if (employee.getUser() != null && employee.getUser().getEmail() != null) {
+                emailService.sendPenaltyEmail(employee.getUser().getEmail(), manager != null ? manager.getEmail() : null,
+                        employee.getFullName(), penalty.getIncidentDate(), reason, penalty.getDeductionDays(),
+                        penalty.getLopDays(), penalty.getLeaveDeductionDays());
+            }
+        });
+
         if (manager != null) {
             notificationService.send(UUID.fromString(manager.getUserId()), "ATTENDANCE_PENALTY_APPLIED",
                     "Attendance Penalty Applied",
                     "A team member's attendance incurred a penalty for " + penalty.getIncidentDate().format(NOTIFICATION_DATE_FMT) + ".",
                     "/my-team");
         }
+    }
+
+    private String humanizeDiscrepancyType(String discrepancyType) {
+        return discrepancyType != null
+                ? discrepancyType.replace('_', ' ').substring(0, 1).toUpperCase() + discrepancyType.replace('_', ' ').substring(1).toLowerCase()
+                : "Policy";
     }
 }
