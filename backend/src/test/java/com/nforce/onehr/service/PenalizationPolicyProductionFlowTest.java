@@ -78,7 +78,7 @@ class PenalizationPolicyProductionFlowTest {
         PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, snapshotSerializer);
         AttendancePenaltyEvaluationService penaltyEvaluationService =
                 new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
-                        notificationService, employeeService, auditService, snapshotSerializer);
+                        notificationService, employeeService, employeeRepository, emailService, auditService, snapshotSerializer);
         WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
                 lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,

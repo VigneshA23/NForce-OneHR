@@ -15,6 +15,8 @@ import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
 import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
 import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.entity.Attendance;
+import com.nforce.onehr.entity.AttendancePenalty;
+import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeShiftAssignment;
@@ -23,6 +25,7 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WeeklyOffPolicy;
 import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -107,6 +110,9 @@ public class AttendanceService {
     // ShiftDayPolicy's pinned-vs-day-aware overload split. Added last for the same
     // explicit-constructor-test reason as the others above.
     private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    // Only for historyFor's PENALIZED badge lookup — see its own comment. Added last for the same
+    // explicit-constructor-test reason as the others above.
+    private final AttendancePenaltyRepository attendancePenaltyRepository;
 
     // ---------------------------------------------------------------- self-service
 
@@ -1488,12 +1494,20 @@ public class AttendanceService {
         // timezone unambiguously answers "what does 'today' mean" for defaulting the range end.
         LocalDate end = to != null ? to : defaultHistoryEnd(employee);
         LocalDate start = from != null ? from : end.minusDays(DEFAULT_HISTORY_DAYS);
-        return attendanceRepository
+        List<AttendanceResponse> responses = attendanceRepository
                 .findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(
                         employee.getUserId(), start, end)
                 .stream()
                 .map(record -> toResponse(record, employee))
                 .toList();
+        if (!responses.isEmpty()) {
+            Set<LocalDate> penalizedDates = attendancePenaltyRepository
+                    .findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
+                            employee.getUserId(), start, end, AttendancePenaltyStatus.PENDING_REVIEW)
+                    .stream().map(AttendancePenalty::getIncidentDate).collect(Collectors.toSet());
+            responses.forEach(r -> r.setPenalized(penalizedDates.contains(r.getWorkDate())));
+        }
+        return responses;
     }
 
     /**

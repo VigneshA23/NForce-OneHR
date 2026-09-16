@@ -52,4 +52,9 @@ public class AttendanceResponse {
      * ShiftDayPolicy#workdayEndAt (the same instant as ShiftDayPolicy#maximumAttendanceBoundary
      * for this workDate). Null for a legacy row. */
     private LocalDateTime workdayEndAt;
+    /** True when this employee has a still-active (PENDING_REVIEW) Attendance Penalty for this
+     * workDate — see AttendancePenaltyEvaluationService. Powers the Attendance Log's PENALIZED
+     * badge; false (never null) for a date with no penalty, or one that was cancelled/reversed. */
+    @Builder.Default
+    private boolean penalized = false;
 }
