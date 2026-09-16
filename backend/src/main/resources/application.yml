@@ -52,6 +52,11 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5180,http://localhost:5173,http://localhost:3000}
   base-url: ${APP_BASE_URL:http://localhost:5180}
+  employee-creation:
+    # Temporary migration safety switch — see EmployeeCreationLockProperties. Off by default;
+    # set EMPLOYEE_CREATION_LOCKED=true only for the duration of a live Employee ID migration
+    # window, then unset it (or redeploy without it) once the migration is verified complete.
+    locked: ${EMPLOYEE_CREATION_LOCKED:false}
   attendance:
     # Business timezone — deploy-time default. Deliberately explicit, since the JVM default is
     # UTC on Railway. As of the Phase 2 timezone pass, the Attendance/Web-Clock-In/Regularization
@@ -60,12 +65,14 @@ app:
     # remains the source for every OTHER org-wide "what business day is it" consumer (Leave,
     # Penalization Policy, EmployeeAssignmentService, ExceptionService, AttendanceRequestService).
     zone: ${ATTENDANCE_ZONE:Asia/Kolkata}
-    # A fixed fallback shift-start was removed entirely (no replacement) — every employee is now
-    # a hard invariant to always have a real assigned Shift (see Shift.DEFAULT_SHIFT_NAME's
-    # server-side default on creation, ShiftSeedCorrector's startup backfill, and OrgService's
-    # refusal to rename/deactivate/delete the default shift itself). ShiftDayPolicy throws for a
-    # null-shift employee everywhere, including resolveShiftStart/shiftEndAt — there is no
-    # fixed-clock-time fallback anywhere in that class by design.
+    # A fixed fallback shift-start was removed entirely (no replacement). A brand-new employee
+    # with no Shift assigned (or one whose first Shift Assignment isn't effective yet) is a valid,
+    # permanent state — see AttendanceInterpretationService's NO_SHIFT_ASSIGNED handling, which
+    # skips Shift-dependent interpretation entirely rather than guessing. ShiftDayPolicy itself
+    # still throws for a null-shift employee reaching ITS methods directly (resolveShiftStart/
+    # shiftEndAt/etc.) — those are only ever called once an effective assignment is already known
+    # to exist, never speculatively — there is no fixed-clock-time fallback anywhere in that class
+    # by design.
     # late-grace-minutes previously lived here as the sole org-wide LATE/PRESENT status gate. As
     # of the Phase 3 grace pass, grace is no longer a single global value — every Shift Version
     # now has its own (shift_versions.late_grace_minutes, see V168), Admin-editable per Shift via

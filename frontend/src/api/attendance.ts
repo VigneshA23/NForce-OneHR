@@ -122,10 +122,14 @@ export interface AttendanceStats {
  * global defaults (shiftEnd null, weeklyOffDays Sat/Sun) — see AttendanceService.getConfig.
  */
 export interface AttendanceConfig {
-  /** Null only if the caller has no Shift assigned. */
+  /** Null if the caller has no Shift assigned (ONEHR-355: a valid, permanent state — no Shift
+   * is ever auto-assigned at creation, and a freshly-picked one isn't effective until the
+   * employee's next working day). */
   shiftName: string | null;
-  shiftStart: string; // "HH:mm:ss"
-  /** Null only if the caller has no Shift assigned — every employee is seeded with one, so this is normally always set. */
+  /** Null in the same no-Shift-assigned case as {@link shiftName} — see its own doc comment. */
+  shiftStart: string | null; // "HH:mm:ss"
+  /** Null for the same no-Shift-assigned case as {@link shiftName}, or for an assigned Shift with
+   * no scheduled end. */
   shiftEnd: string | null;
   lateGraceMinutes: number;
   /** Sourced from the persisted, Admin-editable Attendance Rules setting — see orgApi.getAttendanceRules. */

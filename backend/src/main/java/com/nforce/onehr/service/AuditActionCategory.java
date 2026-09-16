@@ -59,7 +59,10 @@ public enum AuditActionCategory {
             // PenalizationPolicyService — Organization Masters configuration changes, not a
             // self-service action, so both HR Admin and Super Admin see them (unlike
             // ACCESS_CONTROL, which is Super-Admin-only).
-            "PENALIZATION_POLICY_CREATED", "PENALIZATION_POLICY_UPDATED"
+            "PENALIZATION_POLICY_CREATED", "PENALIZATION_POLICY_UPDATED",
+            // LeaveTypeService — Organization Masters > Leave configuration changes, same
+            // treatment as PenalizationPolicyService above.
+            "LEAVE_TYPE_CREATED", "LEAVE_TYPE_UPDATED"
     ));
 
     private final Set<String> actions;

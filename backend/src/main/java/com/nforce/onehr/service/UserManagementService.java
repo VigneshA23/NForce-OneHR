@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
@@ -14,7 +15,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,10 +45,21 @@ public class UserManagementService {
     private final LeaveService leaveService;
     private final ForceLogoutBroadcaster forceLogoutBroadcaster;
     private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for createUser's initial EmployeeShiftAssignment (effective the admin's own chosen
+    // Effective From date, when a Shift is explicitly chosen at creation) — see
+    // EmployeeShiftAssignment's own Javadoc.
+    private final EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
+    // Resolves the CURRENTLY-effective assignment for the user list / Edit User response — never
+    // Employee.shift (a best-effort display cache that assignShift/bulk-assign/CSV import do not
+    // keep in sync — see that field's own Javadoc).
+    private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
     // Only for the package-private findCurrentManagersBulk bulk manager lookup used by
     // listUsers() below — reuses EmployeeService's existing bulk implementation instead of a
     // second copy of the same N+1-prone-if-done-per-row logic.
     private final EmployeeService employeeService;
+    // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
+    // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
+    private final AttendanceProperties attendanceProperties;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -104,10 +118,16 @@ public class UserManagementService {
             validateAssignableLocation(loc);
             emp.setLocation(loc);
         }
+        // No shift explicitly chosen is now a valid, permanent state — a brand-new employee with
+        // no Shift is never defaulted onto the organization's Default Shift just to satisfy a
+        // schema invariant that no longer exists (employees.shift_id is nullable — see V178).
+        // Shift-dependent interpretation (lateness, scheduled hours) is simply skipped for them
+        // until someone explicitly assigns a Shift — see AttendanceInterpretationService's
+        // NO_SHIFT_ASSIGNED handling.
+        Shift selectedShift = null;
         if (req.getShiftId() != null) {
-            // A bogus/stale shift id must never silently leave the employee shift-less — every
-            // employee having a real assigned Shift is a hard invariant now, not a tolerated
-            // absence (see ShiftDayPolicy, which throws for a null-shift employee everywhere).
+            // A bogus/stale shift id must never silently leave the employee on an unintended
+            // Shift.
             Shift shift = shiftRepository.findById(req.getShiftId())
                     .orElseThrow(() -> new IllegalArgumentException("Shift not found"));
             // A brand-new employee can never have a legitimate pre-existing assignment to
@@ -115,28 +135,38 @@ public class UserManagementService {
             // rejects an actual change to a currently-inactive shift).
             if (!shift.isActive())
                 throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+            // The admin's own explicit Effective From choice is the ONLY source of this date — see
+            // EmployeeShiftAssignment.effectiveFrom's own Javadoc. Required whenever a Shift is
+            // picked (never silently defaulted to an "immediately active" assignment the business
+            // rule requires an explicit date for); today and any future date are valid, a past date
+            // is rejected — mirrors EmployeeAssignmentService#bulkUpdateShift's identical rule.
+            // Deliberately NOT derived from joiningDate or "next working day" (the previous,
+            // incorrect rule this replaces) — a weekly-off/holiday selected date is honored exactly
+            // as chosen; applicable-day/weekly-off rules decide attendance applicability
+            // independently, never the effective date itself. Validated before any mutation below.
+            if (req.getEffectiveFrom() == null
+                    || req.getEffectiveFrom().isBefore(LocalDate.now(ZoneId.of(attendanceProperties.getZone())))) {
+                throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+            }
+            // Employee.shift is only a display/roster cache (see its own Javadoc) — set here for
+            // that purpose only; it is never what makes this Shift effective for attendance. The
+            // EmployeeShiftAssignment row below is the sole authoritative source
+            // EmployeeShiftAssignmentResolver reads.
             emp.setShift(shift);
-        } else {
-            // No shift explicitly chosen — default to the organization's default shift, resolved
-            // server-side so an API-created employee can never accidentally end up with none (the
-            // frontend also preselects this same shift, but this is the actual guarantee). Looked
-            // up by its stable, seeded name — never a hardcoded id. Every employee is a hard
-            // invariant to always have an assigned shift (see ShiftDayPolicy, which has no
-            // fallback for a null one) — so unlike before, a missing/deactivated default shift now
-            // fails account creation loudly rather than leaving the employee shift-less and
-            // relying on ShiftSeedCorrector's next startup sweep to quietly fix it later.
-            // OrgService also refuses to rename/deactivate/delete the default shift itself, so
-            // this should be unreachable in practice — it still must fail clearly if it ever isn't.
-            Shift defaultShift = defaultShift()
-                    .filter(Shift::isActive)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "The organization's default shift ('" + Shift.DEFAULT_SHIFT_NAME + "') is missing or "
-                                    + "inactive — an employee cannot be created without a Shift. Contact an administrator."));
-            emp.setShift(defaultShift);
+            selectedShift = shift;
         }
 
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
+
+        if (selectedShift != null) {
+            employeeShiftAssignmentRepository.save(EmployeeShiftAssignment.builder()
+                    .employeeUserId(newUser.getId())
+                    .shift(selectedShift)
+                    .effectiveFrom(req.getEffectiveFrom())
+                    .createdBy(actor.getId())
+                    .build());
+        }
 
         if (req.getManagerId() != null) {
             validateNoCycle(newUser.getId(), req.getManagerId());
@@ -172,20 +202,6 @@ public class UserManagementService {
     }
 
     /**
-     * The organization's default shift ({@link Shift#DEFAULT_SHIFT_NAME}, "Default Shift",
-     * 15:30-00:30 as seeded — but this always reads the shift's CURRENT admin-configured timing,
-     * never a cached/duplicated copy: if an admin edits its timing through the Shift Management
-     * UI, every employee defaulted to it from that point on picks up the new timing automatically,
-     * since this is a live lookup of the same row, not a snapshot), looked up by its stable name
-     * — never a hardcoded id, since ids differ per environment/seed run. Used to default a
-     * newly-created employee's shift when the admin doesn't explicitly pick one — see
-     * {@link #createUser}.
-     */
-    private Optional<Shift> defaultShift() {
-        return shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME);
-    }
-
-    /**
      * Super Admin: list all users across all roles.
      *
      * Resolves every employee's current manager in one bulk lookup (see
@@ -198,8 +214,17 @@ public class UserManagementService {
         List<Employee> emps = employeeRepository.findAllWithDetails();
         Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
                 employeeService.findCurrentManagersBulk(emps.stream().map(Employee::getUserId).toList());
+        // Batch-resolved ONCE for the whole list — the CURRENTLY-effective assignment per employee,
+        // via the same authoritative source (never Employee.shift) and the same batch query
+        // EmployeeAssignmentService#listTeamAssignments uses, rather than one resolver call per row.
+        List<UUID> employeeIds = emps.stream().map(Employee::getUserId).toList();
+        Map<UUID, Shift> effectiveShiftByEmployee = new HashMap<>();
+        for (EmployeeShiftAssignment a : employeeShiftAssignmentRepository
+                .findByEmployeeUserIdInAndEffectiveFromLessThanEqualOrderByEmployeeUserIdAscEffectiveFromDesc(employeeIds, currentBusinessDate())) {
+            effectiveShiftByEmployee.putIfAbsent(a.getEmployeeUserId(), a.getShift()); // first seen per employee = latest effectiveFrom
+        }
         return emps.stream()
-                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
+                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null, effectiveShiftByEmployee.get(e.getUserId())))
                 .collect(Collectors.toList());
     }
 
@@ -649,6 +674,16 @@ public class UserManagementService {
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {
+        return toResponse(emp, manager, user, tempPassword, effectiveShiftOf(emp.getUserId(), currentBusinessDate()));
+    }
+
+    /**
+     * @param effectiveShift the employee's CURRENTLY-effective Shift (see {@link #effectiveShiftOf})
+     *                       — never {@code emp.getShift()}, a best-effort display cache only (see
+     *                       that field's own Javadoc). Null for NO_SHIFT_ASSIGNED or an assignment
+     *                       that hasn't taken effect yet, exactly as it should read to an admin.
+     */
+    private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword, Shift effectiveShift) {
         String role = RoleUtils.primaryRoleCode(user.getRoles(), "");
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
@@ -664,8 +699,8 @@ public class UserManagementService {
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                 .locationId(emp.getLocation() != null ? emp.getLocation().getId().toString() : null)
                 .locationName(emp.getLocation() != null ? emp.getLocation().getName() : null)
-                .shiftId(emp.getShift() != null ? emp.getShift().getId().toString() : null)
-                .shiftName(emp.getShift() != null ? emp.getShift().getName() : null)
+                .shiftId(effectiveShift != null ? effectiveShift.getId().toString() : null)
+                .shiftName(effectiveShift != null ? effectiveShift.getName() : null)
                 .employmentType(emp.getEmploymentType())
                 .workMode(emp.getWorkMode())
                 .joiningDate(emp.getJoiningDate())
@@ -673,6 +708,24 @@ public class UserManagementService {
                 .currentManager(manager)
                 .tempPassword(tempPassword)
                 .build();
+    }
+
+    /** The org-wide business "today" (see {@code AttendanceProperties.zone}'s own Javadoc), never the JVM default. */
+    private LocalDate currentBusinessDate() {
+        return LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+    }
+
+    /**
+     * The employee's CURRENTLY-effective Shift, resolved the same authoritative way the attendance
+     * engine and My Team (EmployeeAssignmentService#listTeamAssignments) do — never
+     * {@code Employee.shift}, a best-effort display cache that assignShift (Bulk-Edit Team
+     * Assignment/CSV import) does not keep in sync. Null for a no-shift employee or one whose
+     * assignment isn't effective yet.
+     */
+    private Shift effectiveShiftOf(UUID employeeUserId, LocalDate asOf) {
+        return employeeShiftAssignmentResolver.resolveIfPresent(employeeUserId, asOf)
+                .map(EmployeeShiftAssignment::getShift)
+                .orElse(null);
     }
 
     private User requireActor(String email) {

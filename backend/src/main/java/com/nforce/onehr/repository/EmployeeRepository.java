@@ -128,10 +128,6 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     @Query("SELECT e FROM Employee e LEFT JOIN FETCH e.department WHERE e.userId IN :ids")
     List<Employee> findAllByIdWithDepartment(@Param("ids") Collection<UUID> ids);
 
-    // Backs ShiftSeedCorrector's startup backfill for employees created after V95's one-time
-    // "assign everyone the default shift" migration ran (e.g. anyone onboarded since).
-    List<Employee> findByShiftIsNull();
-
     // Backs the Policy List's "Employee Count" column (Section 5) — the legacy-FK-only half of
     // the authoritative count; see PenalizationPolicyResolutionService#resolveCurrentEmployeeCount
     // for the actual allocation-aware count callers should use instead.

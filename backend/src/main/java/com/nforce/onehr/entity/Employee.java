@@ -45,12 +45,20 @@ public class Employee {
 
     // Shift/weekly-off/penalisation assignments (ONEHR-108) — separate from workMode above,
     // which is a self-service ONSITE/REMOTE/HYBRID profile attribute, not a policy assignment.
-    // Every employee is expected to always have a Shift (product invariant; see
-    // ShiftDayPolicy's class Javadoc) — nullable=false mirrors the DB-level NOT NULL added by
-    // V160, so a stray direct save with no shift set fails at flush time instead of silently
-    // persisting a shift-less employee.
+    //
+    // NULLABLE (V160's NOT NULL was reverted by V178 — ONEHR-355 follow-up): a brand-new employee
+    // with no Shift explicitly chosen is a valid, permanent state, not a defect to paper over with
+    // a fabricated Default Shift — see EmployeeService#createEmployee/UserManagementService
+    // #createUser. This field is ALSO only ever a best-effort display/roster cache, never the
+    // authoritative source for which Shift governs a given date, whether null or set —
+    // {@link EmployeeShiftAssignment} (resolved via {@link
+    // com.nforce.onehr.service.EmployeeShiftAssignmentResolver}, keyed by the specific date in
+    // question) is that source. Shift-dependent attendance interpretation (lateness, scheduled
+    // hours) is skipped entirely, never guessed, when no assignment is effective for the date in
+    // question — see {@link com.nforce.onehr.service.AttendanceInterpretationService}'s
+    // NO_SHIFT_ASSIGNED handling.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "shift_id", nullable = false)
+    @JoinColumn(name = "shift_id")
     private Shift shift;
 
     @ManyToOne(fetch = FetchType.LAZY)

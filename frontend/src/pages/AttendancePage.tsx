@@ -35,6 +35,7 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole } from '../lib/nav.config';
+import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { TimeFormatProvider, useTimeFormat, formatLateBySeconds } from '../context/TimeFormatContext';
 import { minutesSinceMidnight, secondsBetween, shiftMarkerPositions, segmentBarPosition, breakMarkerPosition, resolveWorkdayWindow, punchCalendarDateIfDiffers } from '../utils/shiftMarkers';
 import { computeWorkedMinutesFromPunches, msToMinuteEpoch } from '../utils/workedMinutes';
@@ -109,8 +110,10 @@ function latestIso(...candidates: (string | null | undefined)[]): string | null 
  * here (the old global full-day-min-hours target was removed as dead code once that invariant
  * shipped).
  */
-function fullDayTargetMinutesFor(config: AttendanceConfig | null): number | null {
-  if (!config?.shiftEnd) return null;
+export function fullDayTargetMinutesFor(config: AttendanceConfig | null): number | null {
+  // shiftStart/shiftEnd are independently nullable (see AttendanceConfig's own doc comment) —
+  // both are required for a meaningful duration, so guard both rather than only shiftEnd.
+  if (!config?.shiftStart || !config?.shiftEnd) return null;
   const startMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0;
   const endMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0;
   return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
@@ -2185,10 +2188,11 @@ function AttendanceStatsPanel({ token }: { token: string }) {
 }
 
 // ─── Today's Timings ────────────────────────────────────────────────────────────
-// Every employee is expected to always have an assigned Shift (ONEHR-108 shipped as a hard DB
-// invariant), so config.shiftEnd is effectively always populated here — see
-// fullDayTargetMinutesFor's own comment. The break-used/break-budget progress bar this panel used
-// to show was removed along with app.attendance.daily-break-budget-minutes (Workstream B): it was
+// config.shiftStart/shiftEnd are both null for an employee with no effective Shift assignment
+// (ONEHR-355: a valid, permanent state, not an invariant violation) — see this component's own
+// null-guard below and fullDayTargetMinutesFor's own comment. The break-used/break-budget
+// progress bar this panel used to show was removed along with app.attendance.daily-break-budget-minutes
+// (Workstream B): it was
 // a display-only denominator with no enforcement and no other config to source it from (Shift's
 // own per-shift breakMinutes is a separate, admin-metadata concept — not an org-wide live budget).
 // Break used time itself (real, computed from actual punch gaps) is still shown, just without a
@@ -2209,7 +2213,13 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
   return (
     <div style={{ ...panelStyle, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 9 }}>
       <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Today's Timings</span>
-      {config && (
+      {/* config.shiftStart is null for a NO_SHIFT_ASSIGNED employee (a valid, permanent state —
+          no Shift is ever auto-assigned at creation, and a freshly-picked one isn't effective
+          until the employee's next working day) — guarded here exactly like
+          AttendanceHeroBanner's own shiftInfo, so this line is simply omitted rather than
+          rendering a garbled "Shift starts  · grace 0m" from formatTime failing to parse a null
+          time. Never fabricates a 07:00 (or any other) fallback start time. */}
+      {config?.shiftStart && (
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>
           {config.shiftEnd
             ? <>Shift {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} – {formatTime(`${todayIsoDate()}T${config.shiftEnd}`)} · grace {config.lateGraceMinutes}m</>
@@ -3406,6 +3416,38 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     });
     profileApi.get(token).then((p) => setJoiningDate(p.joiningDate)).catch(() => setJoiningDate(null));
   }, [token]);
+
+  // AttendancePage has no leave-apply UI of its own (leave is only submitted from LeavePage), so
+  // `leaves` can only go stale here, never be optimistically patched on submit. Mirror LeavePage's
+  // fix for the same staleness problem: react to LEAVE_APPROVED/LEAVE_REJECTED notifications as
+  // the app-wide notification poll (Shell) detects them, and re-fetch just `leaves` so the
+  // "Leave / Holidays" tile (and calendar) reflect the decision without a full page reload.
+  const leaveRefreshInFlightRef = useRef(false);
+  const leaveRefreshQueuedRef = useRef(false);
+  const refreshLeaves = useCallback(async () => {
+    if (leaveRefreshInFlightRef.current) { leaveRefreshQueuedRef.current = true; return; }
+    leaveRefreshInFlightRef.current = true;
+    try {
+      const fresh = await leaveApi.listMine(token);
+      setLeaves(fresh);
+    } catch {
+      // Keep showing whatever leaves are already loaded rather than clearing them on error.
+    } finally {
+      leaveRefreshInFlightRef.current = false;
+      if (leaveRefreshQueuedRef.current) {
+        leaveRefreshQueuedRef.current = false;
+        refreshLeaves();
+      }
+    }
+  }, [token]);
+
+  useEffect(() => {
+    return subscribeToNewNotifications((items) => {
+      if (items.some((n) => n.type === 'LEAVE_APPROVED' || n.type === 'LEAVE_REJECTED')) {
+        refreshLeaves();
+      }
+    });
+  }, [refreshLeaves]);
 
   const refreshMonth = useCallback(() => {
     setMonthLoading(true);

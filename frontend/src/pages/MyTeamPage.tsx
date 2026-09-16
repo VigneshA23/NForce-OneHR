@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -25,6 +26,7 @@ import { kudosApi } from '../api/kudos';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType } from '../components/TypeBadge';
+import { businessTodayIsoDate } from '../utils/businessDate';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -80,6 +82,10 @@ function fmtShiftRange(start: string, end: string): string {
 function fmtDateShort(iso?: string | null) {
   if (!iso) return '—';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+/** "Sep 16, 2026" — full date incl. year, for Effective From displays (a scheduled date can be far enough out that the bare day/month above would be ambiguous). */
+function fmtEffectiveDate(iso: string) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEK_CHIPS = ['M', 'T', 'W', 'T', 'F'];
@@ -365,23 +371,152 @@ function NotInYetListModal({ people, onSelect, onClose }: {
   );
 }
 
-/* ── KPI card ── */
-function KpiCard({ icon, iconColor, label, value, note, onView }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onView?: () => void }) {
+/* ── Tooltip (hover/focus-only, portal-rendered) — same minimal pattern as AttendancePage's
+ * local Tooltip (no shared tooltip component exists yet in this project, and no UI library is
+ * installed); duplicated here rather than extracted/shared to keep this change scoped to this
+ * page. Rendered through a portal so it always sits above the KPI card's own stacking context. */
+function Tooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
+  const [coords, setCoords] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const TOOLTIP_MAX_WIDTH = 240;
+  const GAP = 8;
+
+  function show() {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const placement: 'top' | 'bottom' = rect.top >= 60 + GAP ? 'top' : 'bottom';
+    const maxLeft = Math.max(GAP, window.innerWidth - GAP - TOOLTIP_MAX_WIDTH);
+    const left = Math.min(Math.max(rect.left, GAP), maxLeft);
+    setCoords({ top: placement === 'top' ? rect.top - GAP : rect.bottom + GAP, left, placement });
+  }
+  function hide() {
+    setCoords(null);
+  }
+
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
+    <>
+      <span ref={anchorRef} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} style={{ display: 'block', minWidth: 0 }}>
+        {children}
+      </span>
+      {coords && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            top: coords.top,
+            left: coords.left,
+            transform: coords.placement === 'top' ? 'translateY(-100%)' : undefined,
+            maxWidth: TOOLTIP_MAX_WIDTH,
+            width: 'max-content',
+            background: 'var(--raised2)',
+            color: 'var(--txt)',
+            border: '1px solid var(--line2)',
+            borderRadius: 7,
+            padding: '7px 10px',
+            fontSize: 11.5,
+            fontWeight: 600,
+            lineHeight: 1.4,
+            boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+            zIndex: 1000,
+            pointerEvents: 'none',
+          }}
+        >
+          {content}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+/**
+ * Generic "employees behind this KPI" modal — every employee-related KPI card opens this
+ * instead of ever printing a name directly on the card (ONEHR-334). Reuses the same overlay/
+ * modal chrome and Avatar as the other My Team modals (NotInYetListModal, EmployeeDetailModal)
+ * rather than introducing a new modal system. Long names ellipsis instead of wrapping/pushing
+ * the row height around, and the list scrolls independently past a handful of people so the
+ * modal itself never grows unbounded.
+ */
+/** One row's worth of `KpiEmployeesModal` data. `active` defaults to true (attendance-derived
+ * KPIs have no inactive-employee concept today); `badge` is an optional trailing element — e.g.
+ * "Needs your attention" uses it for the LEAVE/REGULARIZATION TypeBadge, since that KPI's count
+ * is pending *requests* (an employee with two open requests appears twice, by design — see the
+ * KpiCard call sites) rather than unique employees. */
+interface KpiPerson {
+  userId: string;
+  fullName: string;
+  active?: boolean;
+  badge?: React.ReactNode;
+}
+
+function KpiEmployeesModal({ title, description, people, onClose }: {
+  title: string;
+  description: string;
+  people: KpiPerson[];
+  onClose: () => void;
+}) {
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
+          <span style={panelTitleStyle}>{title}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '12px 18px', fontSize: 12, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)' }}>{description}</div>
+        {people.length === 0 ? (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No employees to show.</div>
+        ) : (
+          <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+            {people.map((p, i) => (
+              <div key={`${p.userId}-${i}`} style={{ ...inactiveDimStyle(p.active ?? true), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
+                <Avatar userId={p.userId} name={p.fullName} size={30} />
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fullName}</span>
+                {p.active === false && <StatusBadge active={false} />}
+                {p.badge}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── KPI card — `onClick` (only passed when the count is > 0) makes the whole card a button
+ * that opens KpiEmployeesModal, with a "Click to view employees" tooltip as the hover/focus
+ * affordance; cards with no employee-level drilldown (e.g. Team size, Needs your attention)
+ * stay static, exactly as before. ── */
+function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onClick?: () => void }) {
+  const [hover, setHover] = useState(false);
+  const card = (
+    <div
+      {...(onClick ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick,
+        onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } },
+        onMouseEnter: () => setHover(true),
+        onMouseLeave: () => setHover(false),
+        onFocus: () => setHover(true),
+        onBlur: () => setHover(false),
+        'aria-label': `${label} — click to view employees`,
+      } : {})}
+      style={{
+        background: 'var(--panel)', borderRadius: 10, padding: '16px 18px',
+        border: `1px solid ${onClick && hover ? 'var(--brand-bright)' : 'var(--line)'}`,
+        cursor: onClick ? 'pointer' : 'default', transition: 'border-color .15s ease',
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: iconColor }}>
         {icon}
         <span style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--txt-mut)' }}>{label}</span>
       </div>
       <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
-      {onView && (
-        <button onClick={onView} style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
-          View Employees
-        </button>
-      )}
     </div>
   );
+  return onClick ? <Tooltip content="Click to view employees">{card}</Tooltip> : card;
 }
 
 /* ── Calendar day-cell classification ── */
@@ -769,6 +904,12 @@ function AssignmentsTab({ token }: { token: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkModal, setBulkModal] = useState<null | 'shift' | 'weeklyOff' | 'penalisation'>(null);
   const [bulkPickerValue, setBulkPickerValue] = useState('');
+  // Shift-only — defaults to today in the org's BUSINESS timezone (see businessTodayIsoDate's own
+  // doc comment — matches the backend's own "cannot be in the past" validation of this exact
+  // field, unlike the plain UTC-derived todayIsoDate() this page uses for unrelated date ranges
+  // elsewhere). A genuinely valid, final choice, never auto-advanced to "the next working day".
+  // Ignored by the weeklyOff/penalisation modals, which have no date picker of their own.
+  const [bulkEffectiveFrom, setBulkEffectiveFrom] = useState(businessTodayIsoDate());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -804,13 +945,20 @@ function AssignmentsTab({ token }: { token: string }) {
 
   async function applyBulk() {
     if (!bulkModal || !bulkPickerValue || selected.size === 0) return;
+    // Shift-only: Effective From is required, today or any future date — never a past one.
+    // Defense-in-depth: the date input's own `min` already keeps this from happening through
+    // normal use — the backend independently rejects it too regardless.
+    if (bulkModal === 'shift' && (!bulkEffectiveFrom || bulkEffectiveFrom < businessTodayIsoDate())) {
+      showToast('error', 'Effective From is required and cannot be in the past.');
+      return;
+    }
     setBulkBusy(true);
     try {
       const ids = Array.from(selected);
       const fn = bulkModal === 'shift' ? employeeAssignmentsApi.bulkUpdateShift
         : bulkModal === 'weeklyOff' ? employeeAssignmentsApi.bulkUpdateWeeklyOff
         : employeeAssignmentsApi.bulkUpdatePenalisationPolicy;
-      const result = await fn(ids, bulkPickerValue, token);
+      const result = await fn(ids, bulkPickerValue, bulkModal === 'shift' ? bulkEffectiveFrom : undefined, token);
       showToast(result.failed.length === 0 ? 'success' : 'error',
         `${result.succeededIds.length} updated${result.failed.length ? `, ${result.failed.length} failed` : ''}`);
       setLastResult({
@@ -907,7 +1055,7 @@ function AssignmentsTab({ token }: { token: string }) {
       </div>
 
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <BulkButton label="Update Shift" disabled={selected.size === 0} onClick={() => { setBulkModal('shift'); setBulkPickerValue(''); }} />
+        <BulkButton label="Update Shift" disabled={selected.size === 0} onClick={() => { setBulkModal('shift'); setBulkPickerValue(''); setBulkEffectiveFrom(businessTodayIsoDate()); }} />
         <BulkButton label="Update Weekly Off" disabled={selected.size === 0} onClick={() => { setBulkModal('weeklyOff'); setBulkPickerValue(''); }} />
         <BulkButton label="Update Penalisation Policy" disabled={selected.size === 0} onClick={() => { setBulkModal('penalisation'); setBulkPickerValue(''); }} />
         <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
@@ -973,6 +1121,20 @@ function AssignmentsTab({ token }: { token: string }) {
                       {r.employeeTimezone ? ` · ${r.employeeTimezone}` : ''}
                     </div>
                   )}
+                  {r.shiftName && r.shiftEffectiveSince && (
+                    <div style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>
+                      Active since {fmtEffectiveDate(r.shiftEffectiveSince)}
+                    </div>
+                  )}
+                  {r.pendingShiftName && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 10,
+                      color: 'var(--info, #3b82f6)', background: 'var(--info-bg, rgba(59,130,246,.10))',
+                      border: '1px solid var(--info, #3b82f6)', borderRadius: 4, padding: '2px 6px',
+                    }}>
+                      Scheduled: {r.pendingShiftName} from {r.pendingShiftEffectiveFrom && fmtEffectiveDate(r.pendingShiftEffectiveFrom)}
+                    </div>
+                  )}
                 </td>
                 <td style={assignmentCellStyle}>{r.weeklyOffPolicyName ?? '—'}</td>
                 <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
@@ -988,18 +1150,43 @@ function AssignmentsTab({ token }: { token: string }) {
             <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>
               {bulkModal === 'shift' ? 'Update Shift' : bulkModal === 'weeklyOff' ? 'Update Weekly Off' : 'Update Penalisation Policy'}
             </div>
-            <div style={{ padding: 18 }}>
-              <label style={labelStyle}>New value for {selected.size} selected {selected.size === 1 ? 'employee' : 'employees'}</label>
-              <select value={bulkPickerValue} onChange={e => setBulkPickerValue(e.target.value)} style={inputStyle}>
-                <option value="">Select…</option>
-                {pickerOptions?.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
+            <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={labelStyle}>New value for {selected.size} selected {selected.size === 1 ? 'employee' : 'employees'}</label>
+                <select value={bulkPickerValue} onChange={e => setBulkPickerValue(e.target.value)} style={inputStyle}>
+                  <option value="">Select…</option>
+                  {pickerOptions?.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+              {bulkModal === 'shift' && (
+                <div>
+                  <label style={labelStyle}>Effective From *</label>
+                  <input
+                    type="date"
+                    style={inputStyle}
+                    value={bulkEffectiveFrom}
+                    min={businessTodayIsoDate()}
+                    required
+                    onChange={e => setBulkEffectiveFrom(e.target.value)}
+                  />
+                  {bulkEffectiveFrom && (
+                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 5 }}>
+                      This shift will become active for the {selected.size === 1 ? 'employee' : 'selected employees'} from {fmtEffectiveDate(bulkEffectiveFrom)}.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div style={{ padding: 18, display: 'flex', gap: 8, borderTop: '1px solid var(--line)' }}>
               <button onClick={() => setBulkModal(null)} disabled={bulkBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>Cancel</button>
-              <button onClick={applyBulk} disabled={!bulkPickerValue || bulkBusy} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: !bulkPickerValue || bulkBusy ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
-                {bulkBusy ? 'Applying…' : 'Apply'}
-              </button>
+              {(() => {
+                const disabled = !bulkPickerValue || bulkBusy || (bulkModal === 'shift' && !bulkEffectiveFrom);
+                return (
+                  <button onClick={applyBulk} disabled={disabled} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, padding: '9px', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+                    {bulkBusy ? 'Applying…' : 'Apply'}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1011,7 +1198,7 @@ function AssignmentsTab({ token }: { token: string }) {
             <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-                CSV with columns <code>employee_code,shift_name,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched.
+                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code> (YYYY-MM-DD) is required whenever <code>shift_name</code> is set — today or any future date, never a past one.
               </div>
               <input type="file" accept=".csv,text/csv" onChange={e => setImportFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12.5, color: 'var(--txt)' }} />
             </div>
@@ -1322,6 +1509,7 @@ function PeersView({ token }: { token: string }) {
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
+  const [kpiModal, setKpiModal] = useState<null | 'onTime' | 'late' | 'wfh' | 'remote'>(null);
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
@@ -1362,10 +1550,26 @@ function PeersView({ token }: { token: string }) {
 
   const notInYet = peerRows.filter(r => r.status === 'NOT_IN_YET');
   const onLeaveList = peerRows.filter(r => r.status === 'LEAVE');
-  const onTimeCount = todayRecords.filter(r => r.status === 'PRESENT').length;
-  const lateCount = todayRecords.filter(r => r.status === 'LATE').length;
-  const remoteClockInCount = todayRecords.filter(r => r.source === 'WEB_REMOTE').length;
-  const wfhOnDutyCount = new Set(todayRecords.filter(r => r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE')).map(r => r.employeeUserId)).size;
+  // Employee lists first, counts derived from their length — so a KPI card's modal can never
+  // show a different set of people than the number printed on the card (ONEHR-334).
+  const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { userId: string; fullName: string }[] = [];
+    todayRecords.forEach(r => {
+      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
+        seen.add(r.employeeUserId);
+        list.push({ userId: r.employeeUserId, fullName: r.fullName });
+      }
+    });
+    return list;
+  }, [todayRecords]);
+  const onTimeCount = onTimeEmployees.length;
+  const lateCount = lateEmployees.length;
+  const remoteClockInCount = remoteClockInEmployees.length;
+  const wfhOnDutyCount = wfhOnDutyEmployees.length;
 
   const filteredPeers = peerRows.filter(r => {
     const q = search.trim().toLowerCase();
@@ -1480,11 +1684,24 @@ function PeersView({ token }: { token: string }) {
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
       <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
       </div>
+      {kpiModal && (
+        <KpiEmployeesModal
+          title={kpiModal === 'onTime' ? 'Employees On Time' : kpiModal === 'late' ? 'Late Arrivals' : kpiModal === 'wfh' ? 'WFH / On Duty' : 'Remote Clock-ins'}
+          description={
+            kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
+              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
+              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
+              : `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
+          }
+          people={kpiModal === 'onTime' ? onTimeEmployees : kpiModal === 'late' ? lateEmployees : kpiModal === 'wfh' ? wfhOnDutyEmployees : remoteClockInEmployees}
+          onClose={() => setKpiModal(null)}
+        />
+      )}
 
 
       {/* Team calendar */}
@@ -1565,7 +1782,7 @@ function PeersView({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <div>
-            <span style={panelTitleStyle}>Project Team ({peers.length})</span>
+            <span style={panelTitleStyle}>Project Team ({filteredPeers.length})</span>
             <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 3 }}>Avatar, designation, live status, location, department and email — find and reach a teammate without leaving this page.</div>
           </div>
         </div>
@@ -1987,6 +2204,7 @@ export default function MyTeamPage() {
   });
   const [viewing, setViewing] = useState<RosterRow | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
+  const [kpiModal, setKpiModal] = useState<null | 'teamSize' | 'onTime' | 'late' | 'wfh' | 'remote' | 'attention'>(null);
   // Separate from `viewing`/EmployeeDetailModal (the main roster's "View" button, unchanged) —
   // avatars inside the "Not in yet today" card open employment details instead.
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
@@ -2106,10 +2324,38 @@ export default function MyTeamPage() {
   // not DirectReport — this maps a leave record's employeeUserId back to whether that direct
   // report is still active, for the same dim + Inactive badge treatment as the roster above.
   const directReportsById = useMemo(() => new Map(directReports.map(dr => [dr.userId, dr])), [directReports]);
-  const onTimeCount = todayRecords.filter(r => r.status === 'PRESENT').length;
-  const lateCount = todayRecords.filter(r => r.status === 'LATE').length;
-  const remoteClockInCount = todayRecords.filter(r => r.source === 'WEB_REMOTE').length;
-  const wfhOnDutyCount = new Set(todayRecords.filter(r => r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE')).map(r => r.employeeUserId)).size;
+  // Employee lists first, counts derived from their length — so a KPI card's modal can never
+  // show a different set of people than the number printed on the card (ONEHR-334).
+  const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { userId: string; fullName: string }[] = [];
+    todayRecords.forEach(r => {
+      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
+        seen.add(r.employeeUserId);
+        list.push({ userId: r.employeeUserId, fullName: r.fullName });
+      }
+    });
+    return list;
+  }, [todayRecords]);
+  const onTimeCount = onTimeEmployees.length;
+  const lateCount = lateEmployees.length;
+  const remoteClockInCount = remoteClockInEmployees.length;
+  const wfhOnDutyCount = wfhOnDutyEmployees.length;
+  // Team size represents the whole roster (inactive reports included, same as the roster/
+  // calendar below), so its modal carries the same Inactive badge those already show.
+  const teamSizeEmployees: KpiPerson[] = useMemo(() => directReports.map(dr => ({ userId: dr.userId, fullName: dr.fullName, active: dr.active })), [directReports]);
+  // "Needs your attention" counts pending REQUESTS, not unique employees (see attentionItems'
+  // own definition above) — one row per item, so an employee with two open requests appears
+  // twice here too, keeping the modal's row count identical to the number on the card.
+  const attentionEmployees: KpiPerson[] = useMemo(() => attentionItems.map(item => ({
+    userId: item.employeeUserId,
+    fullName: item.employeeName,
+    active: directReportsById.get(item.employeeUserId)?.active ?? true,
+    badge: <TypeBadge type={item.requestType as 'LEAVE' | 'REGULARIZATION'} />,
+  })), [attentionItems, directReportsById]);
 
   const filteredRoster = rosterRows.filter(r => {
     const matchesFilter = statusFilter === 'all' || r.status === statusFilter;
@@ -2265,13 +2511,42 @@ export default function MyTeamPage() {
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
       <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={directReportCount} note="direct reports" />
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={todayRecords.find(r => r.status === 'LATE')?.fullName ?? 'none today'} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" />
-        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={attentionItems.length} note="pending leave & regularization requests" />
+        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '—' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
+        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '—' : attentionItems.length} note="pending leave & regularization requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
       </div>
+      {kpiModal && (
+        <KpiEmployeesModal
+          title={
+            kpiModal === 'teamSize' ? 'Team Size'
+              : kpiModal === 'onTime' ? 'Employees On Time'
+              : kpiModal === 'late' ? 'Late Arrivals'
+              : kpiModal === 'wfh' ? 'WFH / On Duty'
+              : kpiModal === 'remote' ? 'Remote Clock-ins'
+              : 'Needs Your Attention'
+          }
+          description={
+            kpiModal === 'teamSize' ? `${directReports.length} direct report${directReports.length === 1 ? '' : 's'}`
+              : kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
+              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
+              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
+              : kpiModal === 'remote' ? `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
+              : `${attentionItems.length} pending leave & regularization request${attentionItems.length === 1 ? '' : 's'}`
+          }
+          people={
+            kpiModal === 'teamSize' ? teamSizeEmployees
+              : kpiModal === 'onTime' ? onTimeEmployees
+              : kpiModal === 'late' ? lateEmployees
+              : kpiModal === 'wfh' ? wfhOnDutyEmployees
+              : kpiModal === 'remote' ? remoteClockInEmployees
+              : attentionEmployees
+          }
+          onClose={() => setKpiModal(null)}
+        />
+      )}
 
       {/* Team calendar */}
       <div style={{ ...panelStyle, marginBottom: 16 }}>

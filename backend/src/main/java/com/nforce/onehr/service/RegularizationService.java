@@ -804,15 +804,28 @@ public class RegularizationService {
                             + "tracking and has no recorded Shift context. This record cannot be safely "
                             + "corrected through the normal regularization flow — contact an administrator.");
         }
+        // NO_SHIFT_ASSIGNED (a brand-new row, backdated to a date with no effective
+        // EmployeeShiftAssignment — a brand-new/no-shift employee, or one whose first assignment
+        // isn't effective yet; OR an already-EXISTING valid no-Shift row being corrected, per
+        // Attendance.noShiftAssigned) never computes isLate/lateByMinutes at all — an ordinary
+        // PRESENT/HALF_DAY day with no shift interpretation, never a fabricated Shift. Mirrors
+        // AttendanceService.checkIn/WebClockInService's identical handling; the effective*()
+        // derivation is centralized on AttendanceInterpretation itself so it's defined exactly
+        // once, never re-derived per caller.
         if (isNewRecord) {
-            record.setShiftId(interpretation.getShiftId());
+            record.setShiftId(interpretation.effectiveShiftId());
+            // Set once, at creation, exactly like shiftId above — an EXISTING record (the
+            // isNewRecord==false branch) never touches either field: its own noShiftAssigned was
+            // already fixed at ITS creation and must not be re-derived from this correction's own
+            // interpretation.
+            record.setNoShiftAssigned(interpretation.isNoShiftAssigned());
         }
-        int lateByMinutes = interpretation.getLateByMinutes();
-        record.setLateByMinutes(lateByMinutes);
+        record.setLateByMinutes(interpretation.effectiveLateByMinutes());
+        boolean isLate = interpretation.effectiveIsLate();
 
         if (record.getCheckOutAt() == null) {
             record.setWorkedMinutes(null);
-            record.setStatus(interpretation.getIsLate() ? STATUS_LATE : STATUS_PRESENT);
+            record.setStatus(isLate ? STATUS_LATE : STATUS_PRESENT);
             return;
         }
 
@@ -823,7 +836,7 @@ public class RegularizationService {
         record.setWorkedMinutes(workedMinutes);
         record.setStatus(workedMinutes < attendanceRulesService.getHalfDayMaxHours() * 60
                 ? STATUS_HALF_DAY
-                : (interpretation.getIsLate() ? STATUS_LATE : STATUS_PRESENT));
+                : (isLate ? STATUS_LATE : STATUS_PRESENT));
     }
 
     /**
