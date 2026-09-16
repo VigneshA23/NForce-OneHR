@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Lock, Shield, X } from 'lucide-react';
+import { Camera, Lock, Shield, X, Mail, Phone as PhoneIcon, MapPin, Building2, Users, Hash } from 'lucide-react';
 import { profileApi, type ProfileData, type UpdateProfilePayload } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { invalidateEmployeePhoto } from '../components/EmployeeAvatar';
+import { useAccentColor, type AccentColor } from '../lib/accentColor';
+import profileBannerRed from '../assets/profile-banner-red.png';
+import profileBannerBlue from '../assets/profile-banner-blue.png';
+import profileBannerPink from '../assets/profile-banner-pink.png';
+import profileBannerGreen from '../assets/profile-banner-green.png';
+import profileBannerPurple from '../assets/profile-banner-purple.png';
 
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -225,6 +231,7 @@ export default function ProfilePage() {
   const setAuth   = useAuthStore(s => s.setAuth);
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { accent } = useAccentColor();
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile]   = useState<ProfileData | null>(null);
@@ -375,84 +382,139 @@ export default function ProfilePage() {
 
   const initials = profile.fullName ? profile.fullName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : profile.email.slice(0, 2).toUpperCase();
 
+  // Every Theme color now has a real banner image (orange has none — it was dropped from the
+  // accent palette entirely, see accentColor.tsx). Each is square with a watermark sitting in its
+  // vertical middle; "top center" plus this short/wide banner box means CSS only ever paints
+  // roughly the top 15-20% of any of them, which is comfortably above the watermark in every one
+  // — no manual cropping needed.
+  const BANNER_IMAGES: Partial<Record<AccentColor, string>> = {
+    red: profileBannerRed,
+    blue: profileBannerBlue,
+    pink: profileBannerPink,
+    green: profileBannerGreen,
+    purple: profileBannerPurple,
+  };
+  const bannerImage = BANNER_IMAGES[accent];
+  const heroBackground = bannerImage
+    ? `url(${bannerImage}) top center / cover no-repeat`
+    : 'linear-gradient(135deg, var(--brand-deep) 0%, var(--brand) 100%)';
+
+  // Employee summary strip — every field here is a real column already returned by
+  // GET /api/profile (see ProfileData); nothing here is fabricated. "Business unit" was asked
+  // for too, but there's no such field anywhere in the profile API today, so it's left out
+  // rather than shown with made-up data.
+  const summaryItems: { icon: typeof Mail; label: string; value: string }[] = [
+    { icon: Mail,       label: 'Email',             value: profile.email },
+    { icon: PhoneIcon,  label: 'Phone',              value: profile.phone || '—' },
+    { icon: MapPin,     label: 'Location',           value: profile.locationName || '—' },
+    { icon: Hash,       label: 'Employee ID',        value: profile.employeeCode },
+    { icon: Building2,  label: 'Department',         value: profile.departmentName || '—' },
+    { icon: Users,      label: 'Reporting Manager',  value: profile.managerName || '—' },
+  ];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 900 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Page header */}
       <div>
         <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Profile</h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>View and update your personal information.</p>
       </div>
 
-      {/* Avatar + identity card */}
-      <div className="nf-profile-header" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 20 }}>
-        <div className="nf-profile-top" style={{ display: 'flex', alignItems: 'center', gap: 20, flex: 1, minWidth: 0 }}>
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => { if (profile.hasEmployeeRecord) setShowPhotoModal(true); }}
-              aria-label={profile.hasEmployeeRecord ? 'View profile photo' : 'Profile photo'}
-              style={{ padding: 0, border: 'none', background: 'none', cursor: profile.hasEmployeeRecord ? 'pointer' : 'default', display: 'block', borderRadius: '50%' }}
-            >
-              {profile.photoDataUrl ? (
-                <img src={profile.photoDataUrl} alt="Profile" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--line2)' }} />
-              ) : (
-                <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 22, fontWeight: 700, border: '2px solid rgba(177,17,22,.4)' }}>
-                  {initials}
-                </div>
-              )}
-            </button>
-            {profile.hasEmployeeRecord && (
-              <>
-                <button
-                  onClick={() => setShowPhotoModal(true)}
-                  aria-label="Change photo"
-                  style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
-                >
-                  <Camera size={11} color="#fff" aria-hidden />
-                </button>
-                <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
-              </>
-            )}
-          </div>
+      {/* Hero banner + identity card */}
+      <div className="nf-profile-header" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ height: 'clamp(130px, 14vw, 160px)', background: heroBackground }} />
 
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{profile.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{profile.email}</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(177,17,22,.18)', color: '#e4373d' }}>
-                {ROLE_LABELS[profile.role] ?? profile.role}
-              </span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(47,182,124,.15)', color: 'var(--ok)' }}>
-                {profile.active ? 'Active' : 'Inactive'}
-              </span>
-              <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: 'rgba(107,114,128,.15)', color: 'var(--txt-dim)' }}>
-                {profile.employeeCode}
-              </span>
+        {/* Normal document flow, no negative margin on the row itself — only the avatar (fixed,
+            known size) pokes up into the banner via its own small negative margin below. Pulling
+            the *whole* row (name/badges/Edit button) up here previously made the outer card's
+            auto-computed height unreliable, clipping the row's bottom unpredictably. Name/
+            designation now sit on the plain panel background instead of over the image, which
+            also sidesteps needing a contrast-scrim over the banner. */}
+        <div className="nf-profile-row" style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '0 24px 20px' }}>
+          <div className="nf-profile-top" style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flex: 1, minWidth: 0 }}>
+            <div style={{ position: 'relative', flexShrink: 0, marginTop: 'clamp(-56px, -7vw, -44px)' }}>
+              <button
+                type="button"
+                onClick={() => { if (profile.hasEmployeeRecord) setShowPhotoModal(true); }}
+                aria-label={profile.hasEmployeeRecord ? 'View profile photo' : 'Profile photo'}
+                style={{ padding: 0, border: 'none', background: 'none', cursor: profile.hasEmployeeRecord ? 'pointer' : 'default', display: 'block', borderRadius: '50%' }}
+              >
+                {profile.photoDataUrl ? (
+                  <img src={profile.photoDataUrl} alt="Profile" style={{ width: 104, height: 104, borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--panel)', boxShadow: '0 2px 10px rgba(0,0,0,.25)' }} />
+                ) : (
+                  <div style={{ width: 104, height: 104, borderRadius: '50%', background: 'var(--brand)', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 30, fontWeight: 700, border: '4px solid var(--panel)', boxShadow: '0 2px 10px rgba(0,0,0,.25)' }}>
+                    {initials}
+                  </div>
+                )}
+              </button>
+              {profile.hasEmployeeRecord && (
+                <>
+                  <button
+                    onClick={() => setShowPhotoModal(true)}
+                    aria-label="Change photo"
+                    style={{ position: 'absolute', bottom: 4, right: 4, width: 26, height: 26, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
+                  >
+                    <Camera size={12} color="#fff" aria-hidden />
+                  </button>
+                  <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+                </>
+              )}
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0, paddingBottom: 4 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{profile.fullName}</div>
+              <div style={{ fontSize: 13.5, color: 'var(--txt-mut)', marginBottom: 8 }}>{profile.designationName ?? ROLE_LABELS[profile.role] ?? profile.role}</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'color-mix(in srgb, var(--brand) 16%, transparent)', color: 'var(--brand-bright)' }}>
+                  {ROLE_LABELS[profile.role] ?? profile.role}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(47,182,124,.15)', color: 'var(--ok)' }}>
+                  {profile.active ? 'Active' : 'Inactive'}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: 'rgba(107,114,128,.15)', color: 'var(--txt-dim)' }}>
+                  {profile.employeeCode}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {profile.hasEmployeeRecord && (
-          <div className="nf-profile-actions" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            {editing ? (
-              <>
-                <button onClick={() => { setEditing(false); setForm(toForm(profile)); }}
-                  style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-                  Cancel
+          {profile.hasEmployeeRecord && (
+            <div className="nf-profile-actions" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              {editing ? (
+                <>
+                  <button onClick={() => { setEditing(false); setForm(toForm(profile)); }}
+                    style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleSave} disabled={saving || hasErrors}
+                    style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: (saving || hasErrors) ? 'not-allowed' : 'pointer', opacity: (saving || hasErrors) ? .7 : 1 }}>
+                    {saving ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setEditing(true)}
+                  style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+                  Edit Profile
                 </button>
-                <button onClick={handleSave} disabled={saving || hasErrors}
-                  style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: (saving || hasErrors) ? 'not-allowed' : 'pointer', opacity: (saving || hasErrors) ? .7 : 1 }}>
-                  {saving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </>
-            ) : (
-              <button onClick={() => setEditing(true)}
-                style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
-                Edit Profile
-              </button>
-            )}
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Employee summary strip */}
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 24px', display: 'flex', flexWrap: 'wrap', gap: '18px 32px' }}>
+        {summaryItems.map(({ icon: Icon, label, value }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 180, flex: '1 1 200px' }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'color-mix(in srgb, var(--brand) 12%, var(--raised2))', color: 'var(--brand-bright)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <Icon size={15} aria-hidden="true" />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>{label}</div>
+              <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+            </div>
           </div>
-        )}
+        ))}
       </div>
 
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>

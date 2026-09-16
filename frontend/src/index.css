@@ -766,10 +766,12 @@ input[type="date"] {
    identity text squeezed into overlapping space instead of the row simply
    getting taller. Stack the header into two rows (avatar+identity, then
    actions) on mobile and give the actions their own full-width row below,
-   so the buttons never share horizontal space with the name/email/badges
-   again. Desktop/tablet keep the original single-row layout, untouched. */
+   so the buttons never share horizontal space with the name/badges again.
+   Desktop/tablet keep the original single-row layout, untouched.
+   Targets .nf-profile-row (the flex row below the hero banner), not
+   .nf-profile-header (now the outer card wrapping the banner + this row). */
 @media (max-width: 767px) {
-  .nf-profile-header { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; }
+  .nf-profile-row { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; }
   .nf-profile-actions { width: 100% !important; }
   .nf-profile-actions button { flex: 1 1 0; justify-content: center; }
 }
