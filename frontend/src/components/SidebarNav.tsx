@@ -104,7 +104,7 @@ function NavLeaf({ node, depth, currentKey, onLeafClick }: NavRowProps & { node:
       }}
     >
       {isActive && (
-        <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: '#E4373D', borderRadius: '0 3px 3px 0' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'var(--brand-bright)', borderRadius: '0 3px 3px 0' }} />
       )}
       <Icon size={15} aria-hidden="true" />
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.item.label}</span>
@@ -139,7 +139,7 @@ function NavGroup({ node: group, depth, openKeys, activeAncestors, currentKey, o
         }}
       >
         {isInActivePath && (
-          <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'rgba(228,55,61,.55)', borderRadius: '0 3px 3px 0' }} />
+          <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'color-mix(in srgb, var(--brand-bright) 55%, transparent)', borderRadius: '0 3px 3px 0' }} />
         )}
         <Icon size={15} aria-hidden="true" />
         <span

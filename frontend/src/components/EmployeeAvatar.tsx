@@ -91,7 +91,7 @@ export function EmployeeAvatar({
     <div
       style={{
         width: size, height: size, borderRadius: '50%',
-        background: src ? `url(${src}) center/cover no-repeat` : (background ?? '#B11116'),
+        background: src ? `url(${src}) center/cover no-repeat` : (background ?? 'var(--brand)'),
         display: 'grid', placeItems: 'center', color: color ?? '#fff',
         fontSize: fontSize ?? Math.max(10, Math.round(size * 0.4)), fontWeight: 700,
         flexShrink: 0, boxSizing: 'border-box',

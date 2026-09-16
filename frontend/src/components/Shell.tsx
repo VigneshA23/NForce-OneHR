@@ -1,9 +1,11 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Outlet, useNavigate, Link } from 'react-router-dom';
-import { Search, Bell, Sun, Moon, Shield, User, LogOut, Menu, X as CloseIcon } from 'lucide-react';
+import {
+  Search, Bell, Settings, KeyRound,
+  Shield, User, LogOut, Menu, X as CloseIcon,
+} from 'lucide-react';
 import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
-import { useTheme } from '../lib/theme';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
@@ -48,6 +50,38 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
   );
 }
 
+function DropdownItem({ icon: Icon, label, onClick, trailing, danger }: {
+  icon: typeof User;
+  label: string;
+  onClick: () => void;
+  trailing?: React.ReactNode;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+        background: 'none', border: 'none', cursor: 'pointer',
+        color: danger ? '#E4373D' : '#C8CCD2', fontSize: 13, textAlign: 'left',
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = danger ? 'rgba(228,55,61,.08)' : '#1E2128';
+        if (!danger) (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = 'none';
+        if (!danger) (e.currentTarget as HTMLButtonElement).style.color = '#C8CCD2';
+      }}
+    >
+      <Icon size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>{label}</span>
+      {trailing}
+    </button>
+  );
+}
+
 function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
   name: string;
   email: string;
@@ -69,7 +103,7 @@ function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
       style={{
         position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 220,
         background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10,
-        boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'visible',
       }}
       role="menu"
     >
@@ -84,35 +118,16 @@ function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
         </div>
       </div>
 
-      {[
-        { icon: User, label: 'My Profile', action: () => { onClose(); navigate('/profile'); } },
-      ].map(({ icon: Icon, label, action }) => (
-        <button
-          key={label}
-          role="menuitem"
-          onClick={action}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-            background: 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#1E2128'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; (e.currentTarget as HTMLButtonElement).style.color = '#C8CCD2'; }}
-        >
-          <Icon size={14} aria-hidden="true" />
-          {label}
-        </button>
-      ))}
+      <div style={{ padding: '4px 0' }}>
+        <DropdownItem icon={User} label="My Profile" onClick={() => { onClose(); navigate('/profile'); }} />
+        {/* Display mode / Theme color live only in User preferences → Appearance now — no
+            duplicate controls here. */}
+        <DropdownItem icon={Settings} label="User preferences" onClick={() => { onClose(); navigate('/user-preferences'); }} />
+        <DropdownItem icon={KeyRound} label="Change password" onClick={() => { onClose(); navigate('/change-password'); }} />
+      </div>
 
       <div style={{ borderTop: '1px solid #2A2E37', marginTop: 2 }}>
-        <button
-          role="menuitem"
-          onClick={handleSignOut}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-            background: 'none', border: 'none', cursor: 'pointer', color: '#E4373D', fontSize: 13, textAlign: 'left' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(228,55,61,.08)'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-        >
-          <LogOut size={14} aria-hidden="true" />
-          Sign out
-        </button>
+        <DropdownItem icon={LogOut} label="Sign out" onClick={handleSignOut} danger />
       </div>
     </div>
   );
@@ -124,7 +139,6 @@ export function Shell() {
   const token      = useAuthStore((s) => s.token) ?? '';
   const clearAuth  = useAuthStore((s) => s.clearAuth);
   const navigate   = useNavigate();
-  const { theme, toggleTheme } = useTheme();
   const location   = useLocation();
   const [dropdownOpen, setDropdownOpen]   = useState(false);
   const [unreadCount, setUnreadCount]     = useState(0);
@@ -485,8 +499,8 @@ export function Shell() {
         <header
           style={{
             height: 56,
-            background: 'linear-gradient(90deg, #050506 0%, #6B0C10 40%, #A01418 100%)',
-            borderBottom: '1px solid rgba(228,55,61,.22)',
+            background: 'linear-gradient(90deg, #050506 0%, var(--brand-deep) 40%, var(--brand) 100%)',
+            borderBottom: '1px solid color-mix(in srgb, var(--brand-bright) 22%, transparent)',
             position: 'sticky', top: 0, zIndex: 30,
             display: 'flex', alignItems: 'center', padding: '0 18px', gap: 10,
           }}
@@ -577,25 +591,18 @@ export function Shell() {
                 <Search size={15} aria-hidden="true" />
               </button>
 
-              <button
-                onClick={toggleTheme}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                className="nf-topbar-item"
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 7, borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-              >
-                {theme === 'dark' ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}
-                {theme === 'dark' ? 'Light' : 'Dark'}
-              </button>
-
               <Link
                 to="/notifications"
                 aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
                 className="nf-topbar-item"
                 style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, borderRadius: 6, color: 'inherit', textDecoration: 'none' }}
               >
-                <Bell size={15} aria-hidden="true" />
+                <Bell size={19} aria-hidden="true" />
                 {unreadCount > 0 && (
-                  <span style={{ position: 'absolute', top: 3, right: 3, minWidth: 14, height: 14, borderRadius: 7, background: '#e4373d', color: '#fff', fontSize: 9, fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 3px', lineHeight: 1 }}>
+                  // Deliberately var(--risk), not the accent-following var(--brand-bright) — an
+                  // unread-count badge reads as an attention/urgency signal, so it stays red
+                  // regardless of the user's chosen Theme color (same reasoning as "Sign out").
+                  <span style={{ position: 'absolute', top: 3, right: 3, minWidth: 14, height: 14, borderRadius: 7, background: 'var(--risk)', color: '#fff', fontSize: 9, fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 3px', lineHeight: 1 }}>
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
@@ -633,7 +640,7 @@ export function Shell() {
                         display: 'grid', placeItems: 'center',
                       }}
                     >
-                      <Shield size={8} color="#E4373D" aria-hidden="true" />
+                      <Shield size={8} color="var(--brand-bright)" aria-hidden="true" />
                     </span>
                   )}
                 </button>

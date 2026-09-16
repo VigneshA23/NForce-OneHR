@@ -60,7 +60,7 @@ function minutesOfDay(ms: number): number {
 // ── Gradient background — matches the auth layout's left-panel dark treatment. ──
 
 const HERO_BG = [
-  'radial-gradient(120% 100% at 80% 10%, rgba(177,17,22,.34) 0%, transparent 55%)',
+  'radial-gradient(120% 100% at 80% 10%, color-mix(in srgb, var(--brand) 34%, transparent) 0%, transparent 55%)',
   'linear-gradient(160deg, #0a0b0e 0%, #12141a 100%)',
 ].join(', ');
 
@@ -433,7 +433,7 @@ export function AttendanceHeroBanner() {
           disabled={submitting}
           style={{
             alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 7,
-            padding: '8px 18px', background: '#B11116', color: '#fff',
+            padding: '8px 18px', background: 'var(--brand)', color: '#fff',
             border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
             cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1,
           }}
@@ -470,7 +470,7 @@ export function AttendanceHeroBanner() {
             disabled={submitting}
             style={{
               display: 'flex', alignItems: 'center', gap: 7,
-              padding: '8px 18px', background: '#B11116', color: '#fff',
+              padding: '8px 18px', background: 'var(--brand)', color: '#fff',
               border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
               cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1,
             }}
@@ -521,7 +521,7 @@ export function AttendanceHeroBanner() {
           disabled={submitting}
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
-            padding: '8px 18px', background: '#B11116', color: '#fff',
+            padding: '8px 18px', background: 'var(--brand)', color: '#fff',
             border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
             cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1,
           }}

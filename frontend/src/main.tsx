@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
 import { ThemeProvider } from './lib/theme';
+import { AccentColorProvider } from './lib/accentColor';
+import { AccessibilityProvider } from './lib/accessibilityPrefs';
 import { installAuthFetch } from './lib/authFetch';
 
 installAuthFetch();
@@ -32,7 +34,11 @@ window.addEventListener('orientationchange', setAppHeight);
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <App />
+      <AccentColorProvider>
+        <AccessibilityProvider>
+          <App />
+        </AccessibilityProvider>
+      </AccentColorProvider>
     </ThemeProvider>
   </StrictMode>
 );
