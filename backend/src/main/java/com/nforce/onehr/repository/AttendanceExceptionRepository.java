@@ -31,4 +31,10 @@ public interface AttendanceExceptionRepository extends JpaRepository<AttendanceE
     // minutesLate to compute the grace-excluded cumulative total, not just a count.
     List<AttendanceException> findByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
             UUID employeeUserId, String exceptionType, LocalDate from, LocalDate to);
+
+    // Backs ExceptionService#notifyUnnotifiedExceptions — the scheduled job is the only caller
+    // that ever emails an employee about one of these occurrences, regardless of whether the row
+    // itself was created moments ago by the same run or earlier by someone opening the Exceptions
+    // dashboard. No date bound: any never-notified row, however it was created, gets caught up.
+    List<AttendanceException> findByExceptionTypeInAndNotifiedAtIsNull(List<String> exceptionTypes);
 }
