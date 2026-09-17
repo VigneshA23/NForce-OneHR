@@ -103,6 +103,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('assets', 'Assets & Expenses', Package, 1),
     item('workflows', 'Workflow Studio', GitBranch, 2),
     item('masters', 'Organization Masters', FileText, 1),
+    item('policies', 'Policies & Announcements', FileText, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
     item('integrations', 'Integrations', FileText, 2),
