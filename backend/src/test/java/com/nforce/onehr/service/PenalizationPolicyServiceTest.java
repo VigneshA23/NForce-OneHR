@@ -150,9 +150,19 @@ class PenalizationPolicyServiceTest {
         assertNotNull(v1.getEffectiveTo());
         assertEquals(actorId, v1.getUpdatedBy(), "closing v1 on supersede is itself a row mutation worth attributing");
 
+        // Closing v1 must be flushed (saveAndFlush) before v2 is inserted (plain save): Hibernate's
+        // default flush ordering runs INSERTs before UPDATEs regardless of call order, so a plain
+        // save() on v1 here would let v2's INSERT reach the DB while v1's effective_to was still
+        // NULL, tripping V155's "at most one open version per policy" unique index as a false
+        // self-conflict — the exact defect this test now guards against.
         ArgumentCaptor<PenalizationPolicyVersion> savedV1 = ArgumentCaptor.forClass(PenalizationPolicyVersion.class);
-        verify(versionRepository, times(2)).save(savedV1.capture());
-        assertEquals(10, savedV1.getAllValues().get(0).getLaGracePeriodMinutes());
+        verify(versionRepository).saveAndFlush(savedV1.capture());
+        assertEquals(10, savedV1.getValue().getLaGracePeriodMinutes());
+        assertSame(v1, savedV1.getValue());
+
+        ArgumentCaptor<PenalizationPolicyVersion> savedV2 = ArgumentCaptor.forClass(PenalizationPolicyVersion.class);
+        verify(versionRepository).save(savedV2.capture());
+        assertEquals(15, savedV2.getValue().getLaGracePeriodMinutes());
 
         verify(auditService).log(eq(actorId), eq("PENALIZATION_POLICY_UPDATED"), any(), any(), any());
     }

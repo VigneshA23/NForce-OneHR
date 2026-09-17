@@ -141,7 +141,15 @@ public class PenalizationPolicyService {
             current.ifPresent(previous -> {
                 previous.setEffectiveTo(effectiveFrom.minusNanos(1));
                 previous.setUpdatedBy(actor.getId());
-                versionRepository.save(previous);
+                // saveAndFlush (not save): flush the UPDATE before the new version's INSERT below
+                // is enqueued — Hibernate's default flush ordering runs INSERTs before UPDATEs
+                // regardless of call order, so a plain save() here would let the new (open)
+                // version's INSERT hit the DB while this row's effective_to was still NULL,
+                // tripping V155's idx_penalization_policy_versions_current partial unique index
+                // ("at most one open version per policy") as a false self-conflict. Same fix
+                // already applied for the identical close-current/open-new shape in
+                // AssetService#reassignAsset.
+                versionRepository.saveAndFlush(previous);
             });
         }
 
