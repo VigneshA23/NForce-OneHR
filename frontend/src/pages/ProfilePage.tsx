@@ -248,7 +248,11 @@ const AVATAR_SEEDS = ['Aria', 'Milo', 'Nova', 'Leo', 'Zara', 'Kai', 'Luna', 'Fin
 // background) so every generated avatar reads as calm and monochrome instead of DiceBear's
 // default randomized, often brightly-colored look clashing with whatever's around it.
 const AVATAR_STYLE_PARAMS =
-  'backgroundColor=f0f0f2&skinColor=e4e4e6&hairColor=3f4247&outlineColor=3f4247' +
+  // backgroundType=solid is required for backgroundColor to actually paint a fill — without it
+  // DiceBear leaves the background transparent regardless of backgroundColor, letting whatever
+  // sits behind the avatar (the topbar's gradient, a panel, etc.) show through unevenly whenever
+  // the character illustration itself doesn't reach every edge of the square.
+  'backgroundType=solid&backgroundColor=f0f0f2&skinColor=e4e4e6&hairColor=3f4247&outlineColor=3f4247' +
   '&eyebrowsColor=3f4247&eyesColor=3f4247&noseColor=3f4247&mouthColor=3f4247' +
   '&frecklesColor=3f4247&glassesColor=3f4247&earringsColor=3f4247&hairAccessoriesColor=3f4247';
 

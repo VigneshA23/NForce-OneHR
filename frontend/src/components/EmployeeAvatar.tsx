@@ -86,12 +86,18 @@ export function EmployeeAvatar({
 
   const src = directPhoto ? (photoDataUrl ?? null) : resolvedUrl;
   const initials = getInitials(name);
+  // Generated DiceBear avatars often draw their character a little off-center within the square
+  // canvas (varies by seed/pose) — an exact "cover" crop then shows visibly more plain background
+  // on one side than the other once it's cropped into a circle, reading as a lopsided "gap".
+  // Cropping in tighter (a background-size well past 100%, still centered) pushes that
+  // off-center margin outside the visible circle. Real uploaded photos keep an exact cover crop.
+  const isGeneratedAvatar = !!src && src.startsWith('https://api.dicebear.com/');
 
   return (
     <div
       style={{
         width: size, height: size, borderRadius: '50%',
-        background: src ? `url(${src}) center/cover no-repeat` : (background ?? 'var(--brand)'),
+        background: src ? `url(${src}) center / ${isGeneratedAvatar ? '145%' : 'cover'} no-repeat` : (background ?? 'var(--brand)'),
         display: 'grid', placeItems: 'center', color: color ?? '#fff',
         fontSize: fontSize ?? Math.max(10, Math.round(size * 0.4)), fontWeight: 700,
         flexShrink: 0, boxSizing: 'border-box',
