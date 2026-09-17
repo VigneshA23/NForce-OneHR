@@ -22,6 +22,7 @@ import {
   employeeAssignmentsApi, type EmployeeAssignmentRow, type AssignmentLookups, type AssignmentFilters,
 } from '../api/employeeAssignments';
 import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestReportRow } from '../api/reports';
+import { orgApi, type DepartmentRow, type LocationRow } from '../api/org';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
@@ -2362,11 +2363,16 @@ function PenaltiesTab({ token }: { token: string }) {
   const [lastResult, setLastResult] = useState<{ succeeded: number; failures: { label: string; reason: string }[] } | null>(null);
   const [historyFor, setHistoryFor] = useState<PenaltyRow | null>(null);
 
-  // Department/location option lists — reuses the same manager-scoped lookups endpoint the
-  // Employee Assignments tab already calls, rather than a new lookup just for this filter.
-  const [lookups, setLookups] = useState<AssignmentLookups | null>(null);
+  // Department/location option lists — sourced from the Org master data (Super Admin
+  // configuration), same as SuperAdminRegularizationPage/PenalizationPolicyAllocationSection,
+  // rather than the manager-scoped Employee Assignments lookups endpoint, so HR Admin/Manager
+  // see every active configured department/location, not just those on the manager's current
+  // direct reports.
+  const [departments, setDepartments] = useState<DepartmentRow[]>([]);
+  const [locations, setLocations] = useState<LocationRow[]>([]);
   useEffect(() => {
-    employeeAssignmentsApi.lookups(token).then(setLookups).catch(() => {});
+    orgApi.listDepartments(token).then(setDepartments).catch(() => {});
+    orgApi.listLocations(token).then(setLocations).catch(() => {});
   }, [token]);
 
   const filters: PenaltyFilters = useMemo(() => ({
@@ -2452,14 +2458,14 @@ function PenaltiesTab({ token }: { token: string }) {
           <label style={labelStyle}>Department</label>
           <select value={department} onChange={e => setDepartment(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
             <option value="">All departments</option>
-            {lookups?.departments.map(d => <option key={d} value={d}>{d}</option>)}
+            {departments.filter(d => d.active).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
           </select>
         </div>
         <div>
           <label style={labelStyle}>Location</label>
           <select value={location} onChange={e => setLocation(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
             <option value="">All locations</option>
-            {lookups?.locations.map(l => <option key={l} value={l}>{l}</option>)}
+            {locations.filter(l => l.active).map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
           </select>
         </div>
         <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
