@@ -15,6 +15,7 @@ import { ComplianceBanner } from './ComplianceBanner';
 import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
 import { StatusBadge, inactiveDimStyle } from './EmployeeStatus';
+import { SidebarNetworkDecor } from './decor/SidebarNetworkDecor';
 import { EmployeeAvatar } from './EmployeeAvatar';
 
 function toRoleTagline(role: Role): string {
@@ -468,6 +469,9 @@ export function Shell() {
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
+
+        {/* Reference artwork — fills the empty space above the profile card, never overlapping nav items */}
+        <SidebarNetworkDecor />
 
         {/* Profile card (sidebar) */}
         <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
