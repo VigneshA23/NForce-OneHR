@@ -117,6 +117,11 @@ public class Employee {
     @Column(name = "profile_photo", columnDefinition = "BYTEA")
     private byte[] profilePhoto;
 
+    // Alternative to profilePhoto — a generated avatar (DiceBear) URL, mutually exclusive with
+    // an uploaded photo. See ProfileService.setAvatar/uploadPhoto/removePhoto.
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
     @Column(name = "created_by")
     private UUID createdBy;
 

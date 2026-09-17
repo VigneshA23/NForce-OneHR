@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.ProfileResponse;
+import com.nforce.onehr.dto.SetAvatarRequest;
 import com.nforce.onehr.dto.UpdateProfileRequest;
 import com.nforce.onehr.service.ProfileService;
 import jakarta.validation.Valid;
@@ -41,5 +42,12 @@ public class ProfileController {
     @DeleteMapping("/photo")
     public ResponseEntity<ProfileResponse> removePhoto(Authentication auth) {
         return ResponseEntity.ok(profileService.removePhoto(auth.getName()));
+    }
+
+    @PutMapping("/avatar")
+    public ResponseEntity<ProfileResponse> setAvatar(
+            @Valid @RequestBody SetAvatarRequest req,
+            Authentication auth) {
+        return ResponseEntity.ok(profileService.setAvatar(auth.getName(), req));
     }
 }

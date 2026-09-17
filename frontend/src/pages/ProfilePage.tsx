@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Lock, Shield, X, Mail, Phone as PhoneIcon, MapPin, Building2, Users, Hash } from 'lucide-react';
+import { Camera, Lock, Shield, X, Mail, Phone as PhoneIcon, MapPin, Building2, Users, Hash, Sparkles, Check } from 'lucide-react';
 import { profileApi, type ProfileData, type UpdateProfilePayload } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -139,13 +139,14 @@ function PhoneField({ label, value, onChange, placeholder, error }: {
 // `clamp()` driven by `vw`, with no max-width media query gating it, so it resizes smoothly at
 // every viewport width — phone through ultrawide desktop — rather than jumping between a
 // handful of fixed breakpoint sizes.
-function PhotoModal({ photoDataUrl, initials, uploading, removing, onEditClick, onRemove, onClose }: {
+function PhotoModal({ photoDataUrl, initials, uploading, removing, onEditClick, onRemove, onChooseAvatarClick, onClose }: {
   photoDataUrl: string | null;
   initials: string;
   uploading: boolean;
   removing: boolean;
   onEditClick: () => void;
   onRemove: () => void;
+  onChooseAvatarClick: () => void;
   onClose: () => void;
 }) {
   const busy = uploading || removing;
@@ -220,6 +221,98 @@ function PhotoModal({ photoDataUrl, initials, uploading, removing, onEditClick, 
             {uploading ? 'Uploading…' : 'Edit'}
           </button>
         </div>
+
+        <button
+          onClick={onChooseAvatarClick}
+          disabled={busy}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%',
+            padding: 'clamp(8px, 1.4vw, 10px) clamp(10px, 2vw, 16px)', background: 'none',
+            border: '1px dashed var(--line2)', borderRadius: 7, fontSize: 'clamp(12px, 1.3vw, 13.5px)',
+            fontWeight: 600, color: 'var(--txt-mut)', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? .7 : 1,
+          }}
+        >
+          <Sparkles size={14} aria-hidden="true" /> Choose an avatar instead
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// DiceBear "lorelei" avatars — a fixed set of seeds so the grid is stable across renders (a random
+// seed per render would make every option change every time the modal reopens). Picking one
+// replaces any uploaded photo (see ProfileService#setAvatar on the backend — the two are
+// mutually exclusive), matching "either a real photo or a generated avatar, not both".
+const AVATAR_SEEDS = ['Aria', 'Milo', 'Nova', 'Leo', 'Zara', 'Kai', 'Luna', 'Finn', 'Iris', 'Theo', 'Maya', 'Ezra'];
+// A fixed, neutral slate-gray palette (skin/hair/outline/eyes/etc. all one muted tone, light
+// background) so every generated avatar reads as calm and monochrome instead of DiceBear's
+// default randomized, often brightly-colored look clashing with whatever's around it.
+const AVATAR_STYLE_PARAMS =
+  'backgroundColor=f0f0f2&skinColor=e4e4e6&hairColor=3f4247&outlineColor=3f4247' +
+  '&eyebrowsColor=3f4247&eyesColor=3f4247&noseColor=3f4247&mouthColor=3f4247' +
+  '&frecklesColor=3f4247&glassesColor=3f4247&earringsColor=3f4247&hairAccessoriesColor=3f4247';
+
+function dicebearUrl(seed: string): string {
+  return `https://api.dicebear.com/10.x/lorelei/svg?seed=${encodeURIComponent(seed)}&${AVATAR_STYLE_PARAMS}`;
+}
+
+function AvatarPickerModal({ currentAvatarUrl, settingAvatar, onPick, onClose }: {
+  currentAvatarUrl: string | null;
+  settingAvatar: string | null;
+  onPick: (seed: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 610, padding: 'clamp(16px, 4vw, 40px)' }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'clamp(10px, 1.4vw, 16px)',
+          padding: 'clamp(20px, 3.4vw, 32px)', display: 'flex', flexDirection: 'column',
+          gap: 'clamp(14px, 2.4vw, 20px)', width: 'clamp(280px, 42vw, 480px)', maxWidth: '92vw',
+          boxShadow: '0 24px 64px rgba(0,0,0,.55)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 'clamp(13px, 1.4vw, 15px)', fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
+            Choose an avatar
+          </span>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          {AVATAR_SEEDS.map(seed => {
+            const url = dicebearUrl(seed);
+            const isCurrent = currentAvatarUrl === url;
+            const isBusy = settingAvatar === seed;
+            return (
+              <button
+                key={seed}
+                onClick={() => onPick(seed)}
+                disabled={settingAvatar !== null}
+                aria-label={`Use the ${seed} avatar`}
+                style={{
+                  position: 'relative', padding: 6, borderRadius: '50%', aspectRatio: '1',
+                  border: isCurrent ? '2px solid var(--brand)' : '2px solid var(--line)',
+                  background: 'var(--raised2)', cursor: settingAvatar !== null ? 'not-allowed' : 'pointer',
+                  opacity: settingAvatar !== null && !isBusy ? .5 : 1,
+                }}
+              >
+                <img src={url} alt="" aria-hidden="true" style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'block' }} />
+                {isCurrent && (
+                  <span style={{ position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center' }}>
+                    <Check size={10} color="#fff" aria-hidden="true" />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -241,6 +334,8 @@ export default function ProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [settingAvatar, setSettingAvatar] = useState<string | null>(null);
   const [form, setForm]         = useState<UpdateProfilePayload>({});
 
   const errors = {
@@ -363,6 +458,23 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleSetAvatar(seed: string) {
+    setSettingAvatar(seed);
+    try {
+      const updated = await profileApi.setAvatar(token, dicebearUrl(seed));
+      setProfile(updated);
+      if (storeUser) setAuth(token, { ...storeUser, photoDataUrl: updated.photoDataUrl });
+      invalidateEmployeePhoto(updated.userId);
+      showToast('success', 'Avatar updated');
+      setShowAvatarPicker(false);
+      setShowPhotoModal(false);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to set avatar');
+    } finally {
+      setSettingAvatar(null);
+    }
+  }
+
   function field(key: keyof UpdateProfilePayload) {
     return (String(form[key] ?? ''));
   }
@@ -422,7 +534,13 @@ export default function ProfilePage() {
 
       {/* Hero banner + identity card */}
       <div className="nf-profile-header" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ height: 'clamp(130px, 14vw, 160px)', background: heroBackground }} />
+        <div style={{ position: 'relative', height: 'clamp(130px, 14vw, 160px)' }}>
+          <div style={{ position: 'absolute', inset: 0, background: heroBackground }} />
+          {/* Fades the banner's bottom edge into the panel background instead of cutting off
+              abruptly — var(--panel) matches the solid color the row below sits on, in both
+              themes, so the seam disappears rather than needing to match each banner image. */}
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 85%, var(--panel) 100%)' }} />
+        </div>
 
         {/* Normal document flow, no negative margin on the row itself — only the avatar (fixed,
             known size) pokes up into the banner via its own small negative margin below. Pulling
@@ -627,7 +745,17 @@ export default function ProfilePage() {
           removing={removing}
           onEditClick={() => photoInputRef.current?.click()}
           onRemove={handleRemovePhoto}
+          onChooseAvatarClick={() => setShowAvatarPicker(true)}
           onClose={() => setShowPhotoModal(false)}
+        />
+      )}
+
+      {showAvatarPicker && profile.hasEmployeeRecord && (
+        <AvatarPickerModal
+          currentAvatarUrl={profile.photoDataUrl}
+          settingAvatar={settingAvatar}
+          onPick={handleSetAvatar}
+          onClose={() => setShowAvatarPicker(false)}
         />
       )}
     </div>
