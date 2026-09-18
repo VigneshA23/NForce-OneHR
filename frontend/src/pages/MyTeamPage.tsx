@@ -1277,10 +1277,31 @@ function reportFilename(title: string, from: string, to: string): string {
   return `${slug}_${from}_to_${to}.xlsx`;
 }
 
+// SheetJS has no autofit — columns default to a fixed narrow width, truncating headers/content
+// (names, dates, reasons) until the user manually resizes. Width is derived from the longest of
+// the header and each row's value for that column (in characters), padded for readability and
+// capped so a long free-text Reason/Remarks value can't blow out the whole sheet.
+export function autoSizeColumns(ws: XLSX.WorkSheet, rows: Record<string, unknown>[], headers: string[]) {
+  const MIN_WIDTH = 8;
+  const MAX_WIDTH = 50;
+  const PADDING = 2;
+  ws['!cols'] = headers.map(header => {
+    let longest = header.length;
+    for (const row of rows) {
+      const value = row[header];
+      if (value == null) continue;
+      const len = String(value).length;
+      if (len > longest) longest = len;
+    }
+    return { wch: Math.min(Math.max(longest + PADDING, MIN_WIDTH), MAX_WIDTH) };
+  });
+}
+
 function downloadExcel(sheets: { name: string; rows: Record<string, unknown>[] }[], filename: string) {
   const wb = XLSX.utils.book_new();
   for (const sheet of sheets) {
     const ws = XLSX.utils.json_to_sheet(sheet.rows);
+    if (sheet.rows.length > 0) autoSizeColumns(ws, sheet.rows, Object.keys(sheet.rows[0]));
     // Excel sheet names can't contain : \ / ? * [ ] (XLSX.utils.book_append_sheet throws
     // otherwise) — "Working Remotely (WFH/OD) Requests" has a "/", so this can't just slice(0, 31).
     const safeName = sheet.name.replace(/[:\\/?*[\]]/g, '-').slice(0, 31);
@@ -1309,12 +1330,14 @@ interface ReportColumn {
   exportValue: (r: AttendanceRequestReportRow) => unknown;
 }
 
-const REPORT_COLUMN_SETS: Record<string, ReportColumn[]> = {
+export const REPORT_COLUMN_SETS: Record<string, ReportColumn[]> = {
+  // No OT start/end clock time is ever captured — the overtime request modal only takes a date
+  // range + hh:mm duration, and requestedStart/requestedEnd are a midnight-anchored placeholder
+  // span sized to that duration (see AttendancePage.tsx OvertimeRequestModal.handleSubmit), not
+  // real clock times. Showing them here previously surfaced fake "12:00 AM"/"2:00 AM" columns.
   OVERTIME: [
     { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
-    { header: 'Start Time', cell: r => fmtTime(r.checkIn), exportValue: r => fmtTime(r.checkIn) },
-    { header: 'End Time', cell: r => fmtTime(r.checkOut), exportValue: r => fmtTime(r.checkOut) },
     { header: 'Overtime Hours', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
     { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
     { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
