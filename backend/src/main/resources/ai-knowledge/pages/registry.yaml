@@ -221,6 +221,14 @@ pages:
         route: /access
         description: "User accounts and role assignment: invite users, change roles, reset passwords, and deactivate or restore accounts."
 
+  - pageId: workflows
+    module: administration
+    variants:
+      - roles: [SUPER_ADMIN]
+        label: "Workflow Studio"
+        route: /workflows
+        description: "Visual approval-rule builder. Configure amount-threshold rules for Expense claims (e.g. \"over $500 requires a second approval from HR\"), preview how a rule routes a sample amount before saving, and activate/deactivate rules - the Approval Center then routes new Expense submissions accordingly. Currently Expense-only; Leave, Regularization and Asset rules are not yet supported."
+
   # ---------------------------------------------------------------- reachable, but not nav items
 
   - pageId: profile
@@ -269,15 +277,6 @@ pages:
         label: "Reports & Analytics"
         route: /reports
         description: "Planned for a future phase and currently a roadmap placeholder. Some attendance-request reporting and Excel export does already exist, but it lives inside My Team rather than on a reports page."
-
-  - pageId: workflows
-    module: administration
-    placeholder: true
-    variants:
-      - roles: [SUPER_ADMIN]
-        label: "Workflow Studio"
-        route: /workflows
-        description: "Planned for a future phase. Currently shows a roadmap placeholder."
 
   - pageId: integrations
     module: administration

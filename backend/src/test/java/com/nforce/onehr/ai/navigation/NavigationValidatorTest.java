@@ -164,7 +164,9 @@ class NavigationValidatorTest {
 
         @Test
         void everyPhaseTwoPlaceholderIsRefusedForEveryRole() {
-            for (String placeholder : Set.of("performance", "reports", "workflows", "integrations", "featurelab")) {
+            // workflows shipped (Workflow Studio) and is no longer a placeholder — see its real
+            // registry entry in ai-knowledge/pages/registry.yaml.
+            for (String placeholder : Set.of("performance", "reports", "integrations", "featurelab")) {
                 for (ShellRole role : ShellRole.values()) {
                     assertThat(validator.validate(placeholder, contextFor(role, AudienceBucket.EMPLOYEE)))
                             .as("placeholder %s must never be a navigation target (role %s)", placeholder, role)

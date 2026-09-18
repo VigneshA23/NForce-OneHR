@@ -29,6 +29,7 @@ public class ExpenseService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
+    private final ApprovalRuleEvaluationService approvalRuleEvaluationService;
 
     // ── Categories ────────────────────────────────────────
 
@@ -85,6 +86,11 @@ public class ExpenseService {
                     + " claims above " + category.getRequiresReceiptAbove());
         }
 
+        // Workflow Studio: snapshot the routing decision NOW, at submission, from whichever rule
+        // is active for EXPENSE at this exact moment — see ExpenseClaim.requiresSecondApproval's
+        // own Javadoc for why this is never re-evaluated later at managerApprove() time.
+        ApprovalRuleEvaluationService.Decision decision = approvalRuleEvaluationService.evaluateExpense(req.getAmount());
+
         ExpenseClaim claim = ExpenseClaim.builder()
                 .employeeUserId(actor.getId())
                 .categoryId(req.getCategoryId())
@@ -93,6 +99,8 @@ public class ExpenseService {
                 .businessPurpose(req.getBusinessPurpose().trim())
                 .receiptUrl(req.getReceiptUrl())
                 .status("SUBMITTED")
+                .requiresSecondApproval(decision.secondApprovalRequired())
+                .evaluatedRuleId(decision.evaluatedRuleId())
                 .build();
         claim = claimRepo.save(claim);
         auditService.log(actor.getId(), "EXPENSE_SUBMITTED", actor.getId());
@@ -160,17 +168,41 @@ public class ExpenseService {
         requireCurrentManagerOf(actor, claim.getEmployeeUserId());
 
         String before = auditSnapshot.toJson(Map.of("status", "SUBMITTED"));
-        claim.setStatus("MANAGER_APPROVED");
         claim.setManagerDecidedBy(actor.getId());
         claim.setManagerDecidedAt(Instant.now());
+
+        // Workflow Studio: a claim whose submission-time rule evaluation decided the HR/final
+        // stage wasn't required (see ExpenseClaim.requiresSecondApproval) is fully cleared by
+        // Manager approval alone — it skips MANAGER_APPROVED entirely and never appears in
+        // pendingForFinalApprover, since that query only ever looks at status. This is the one
+        // place the configured rule actually changes real approval routing, not just what a
+        // dashboard displays.
+        if (claim.isRequiresSecondApproval()) {
+            claim.setStatus("MANAGER_APPROVED");
+        } else {
+            claim.setStatus("CLEARED_FOR_PAYROLL");
+        }
         claimRepo.save(claim);
-        String after = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED", "managerDecidedBy", actor.getId().toString()));
+        String after = auditSnapshot.toJson(Map.of("status", claim.getStatus(), "managerDecidedBy", actor.getId().toString()));
         auditService.log(actor.getId(), "EXPENSE_MANAGER_APPROVED", claimId, before, after);
-        notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
-                "Expense Claim Approved",
-                "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was approved by your manager.",
-                "/assets");
-        return toClaimResponse(claim, categoryName(claim.getCategoryId()));
+
+        String amountStr = String.format("₹%.2f", claim.getAmount());
+        String catName = categoryName(claim.getCategoryId());
+        if (claim.isRequiresSecondApproval()) {
+            notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
+                    "Expense Claim Approved",
+                    "Your " + catName + " claim for " + amountStr + " was approved by your manager.",
+                    "/assets");
+        } else {
+            // No HR/final stage required for this claim — Manager approval was the only approval
+            // needed, so tell the employee it's fully cleared rather than "approved by your
+            // manager" (which would incorrectly imply an HR step still remains).
+            notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
+                    "Expense Cleared for Payroll",
+                    "Your " + catName + " claim for " + amountStr + " was approved by your manager and cleared for payroll — no further approval required.",
+                    "/assets");
+        }
+        return toClaimResponse(claim, catName);
     }
 
     @Transactional
@@ -408,6 +440,7 @@ public class ExpenseService {
                 .finalRejectionReason(c.getFinalRejectionReason())
                 .paidAt(c.getPaidAt())
                 .createdAt(c.getCreatedAt())
+                .requiresSecondApproval(c.isRequiresSecondApproval())
                 .build();
     }
 

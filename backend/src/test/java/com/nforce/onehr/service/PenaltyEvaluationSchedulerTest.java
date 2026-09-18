@@ -32,8 +32,24 @@ class PenaltyEvaluationSchedulerTest {
         scheduler.run();
 
         verify(exceptionService, times(1)).runScheduledPenaltyEvaluation(60);
+        // Section-45-era pipeline plus the later attendance-exception-notification step (see
+        // ExceptionService#notifyUnnotifiedExceptions) — these are the only two calls this
+        // scheduler ever makes onto exceptionService.
         verify(exceptionService, times(1)).notifyUnnotifiedExceptions();
         verifyNoMoreInteractions(exceptionService);
+    }
+
+    @Test
+    void run_notifyUnnotifiedExceptionsThrows_doesNotPropagate_andPenaltyEvaluationStillRan() {
+        doThrow(new RuntimeException("email provider unavailable")).when(exceptionService).notifyUnnotifiedExceptions();
+
+        // Must not throw — same "never silently disable future scheduled runs" guarantee as the
+        // penalty-evaluation branch, and in its own try/catch so a notification failure can never
+        // suppress the (already-completed) penalty evaluation above it, or vice versa.
+        scheduler.run();
+
+        verify(exceptionService).runScheduledPenaltyEvaluation(60);
+        verify(exceptionService).notifyUnnotifiedExceptions();
     }
 
     @Test
@@ -54,6 +70,9 @@ class PenaltyEvaluationSchedulerTest {
         scheduler.run();
 
         verify(exceptionService).runScheduledPenaltyEvaluation(60);
+        // Its own independent try/catch — a penalty-evaluation failure must never suppress the
+        // notification step that follows it.
+        verify(exceptionService).notifyUnnotifiedExceptions();
     }
 
     @Test
@@ -65,5 +84,6 @@ class PenaltyEvaluationSchedulerTest {
         // see MultiPolicyAssignmentIsolationTest / AttendancePenaltyEvaluationServiceTest) — this
         // only proves the scheduler always re-enters the one existing pipeline, never a second one.
         verify(exceptionService, times(2)).runScheduledPenaltyEvaluation(60);
+        verify(exceptionService, times(2)).notifyUnnotifiedExceptions();
     }
 }

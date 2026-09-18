@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
 import com.nforce.onehr.dto.expense.SubmitExpenseClaimRequest;
+import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.ExpenseCategory;
 import com.nforce.onehr.entity.ExpenseClaim;
 import com.nforce.onehr.entity.User;
@@ -36,6 +37,7 @@ class ExpenseServiceTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private NotificationService notificationService;
     @Mock private AttendanceProperties attendanceProperties;
+    @Mock private ApprovalRuleEvaluationService approvalRuleEvaluationService;
 
     @InjectMocks
     private ExpenseService expenseService;
@@ -59,6 +61,11 @@ class ExpenseServiceTest {
                 .build();
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        // Regression default: no Workflow Studio rule active — this app's one and only original
+        // behavior (both stages, unconditionally). Individual tests below override this to
+        // exercise the rule-driven skip-HR-stage path.
+        lenient().when(approvalRuleEvaluationService.evaluateExpense(any()))
+                .thenReturn(new ApprovalRuleEvaluationService.Decision(true, java.util.List.of("MANAGER", "HR_ADMIN"), null));
     }
 
     @Test
@@ -126,5 +133,81 @@ class ExpenseServiceTest {
         assertEquals("SUBMITTED", res.getStatus());
         assertEquals(today, res.getExpenseDate());
         verify(claimRepo, times(1)).save(any(ExpenseClaim.class));
+    }
+
+    // ── Workflow Studio: regression — no active rule ─────────
+
+    @Test
+    void submit_noActiveRule_snapshotsLegacyDefault_requiresSecondApproval() {
+        when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(employeeUser));
+        when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
+        when(claimRepo.save(any(ExpenseClaim.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SubmitExpenseClaimRequest req = new SubmitExpenseClaimRequest();
+        req.setCategoryId(1);
+        req.setAmount(new BigDecimal("50.00"));
+        req.setExpenseDate(LocalDate.now(ZoneId.of("Asia/Kolkata")));
+        req.setBusinessPurpose("Regression check");
+
+        ExpenseClaimResponse res = expenseService.submit(req, actorEmail);
+        assertTrue(res.isRequiresSecondApproval(), "with no active rule, both stages must still be required (unchanged legacy behavior)");
+    }
+
+    // ── Workflow Studio: managerApprove branches on the submission-time snapshot ─────────
+
+    private ExpenseClaim claimInStatus(String status, boolean requiresSecondApproval) {
+        return ExpenseClaim.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(UUID.randomUUID())
+                .categoryId(1)
+                .amount(new BigDecimal("750.00"))
+                .expenseDate(LocalDate.now())
+                .businessPurpose("Test")
+                .status(status)
+                .requiresSecondApproval(requiresSecondApproval)
+                .build();
+    }
+
+    private void stubManagerOf(User manager, UUID employeeUserId) {
+        EmployeeManagerHistory history = EmployeeManagerHistory.builder()
+                .employeeUserId(employeeUserId)
+                .managerUserId(manager.getId())
+                .build();
+        when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(employeeUserId)).thenReturn(Optional.of(history));
+    }
+
+    @Test
+    void managerApprove_requiresSecondApproval_movesToManagerApprovedOnly() {
+        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        stubManagerOf(manager, claim.getEmployeeUserId());
+
+        when(userRepo.findByEmail("manager@test.com")).thenReturn(Optional.of(manager));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+        when(claimRepo.save(any(ExpenseClaim.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
+
+        ExpenseClaimResponse res = expenseService.managerApprove(claim.getId(), "manager@test.com");
+
+        assertEquals("MANAGER_APPROVED", res.getStatus());
+    }
+
+    @Test
+    void managerApprove_secondApprovalNotRequired_autoclearsToPayroll() {
+        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        ExpenseClaim claim = claimInStatus("SUBMITTED", false);
+        stubManagerOf(manager, claim.getEmployeeUserId());
+
+        when(userRepo.findByEmail("manager@test.com")).thenReturn(Optional.of(manager));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+        when(claimRepo.save(any(ExpenseClaim.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
+
+        ExpenseClaimResponse res = expenseService.managerApprove(claim.getId(), "manager@test.com");
+
+        // Skips MANAGER_APPROVED entirely — this is the actual routing change the rule engine
+        // produces, not just a display difference: pendingForFinalApprover only ever queries by
+        // status, so a claim landing directly on CLEARED_FOR_PAYROLL never surfaces at the HR stage.
+        assertEquals("CLEARED_FOR_PAYROLL", res.getStatus());
     }
 }
