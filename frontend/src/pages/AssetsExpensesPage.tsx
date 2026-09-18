@@ -24,6 +24,7 @@ import {
   type ExpenseTileManager,
 } from '../api/expenses';
 import { employeesApi } from '../api/employees';
+import { ReceiptViewerModal } from '../components/expenses/ReceiptViewerModal';
 
 // ── Shared styles ─────────────────────────────────────────
 
@@ -193,6 +194,7 @@ function EmployeeView({ token }: { token: string }) {
   const [reqStatusFilter, setReqStatusFilter] = useState('');
   const [claimStatusFilter, setClaimStatusFilter] = useState('');
   const [claimCatFilter, setClaimCatFilter] = useState('');
+  const [viewingReceiptClaimId, setViewingReceiptClaimId] = useState<string | null>(null);
 
   function reload() {
     assetsApi.employeeTiles(token).then(setTiles).catch(() => {});
@@ -380,10 +382,10 @@ function EmployeeView({ token }: { token: string }) {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr>{['Category', 'Amount', 'Expense Date', 'Purpose', 'Status', 'Submitted'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                  <tr>{['Category', 'Amount', 'Expense Date', 'Purpose', 'Status', 'Submitted', 'Receipt'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {filteredClaims.length === 0 ? <EmptyRow cols={6} msg="No expense claims yet." /> : filteredClaims.map(c => (
+                  {filteredClaims.length === 0 ? <EmptyRow cols={7} msg="No expense claims yet." /> : filteredClaims.map(c => (
                     <tr key={c.id}>
                       <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.categoryName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
@@ -396,6 +398,14 @@ function EmployeeView({ token }: { token: string }) {
                         )}
                       </td>
                       <td style={tdStyle}>{fmtDate(c.createdAt)}</td>
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => setViewingReceiptClaimId(c.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', fontSize: 11.5, color: 'var(--brand)', cursor: 'pointer' }}
+                        >
+                          <Paperclip size={12} /> View Receipt
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -462,6 +472,13 @@ function EmployeeView({ token }: { token: string }) {
           token={token}
           onClose={() => setShowExpModal(false)}
           onCreated={c => { setClaims(prev => [c, ...prev]); reload(); showToast('success', 'Expense claim submitted'); }}
+        />
+      )}
+      {viewingReceiptClaimId && (
+        <ReceiptViewerModal
+          claimId={viewingReceiptClaimId}
+          token={token}
+          onClose={() => setViewingReceiptClaimId(null)}
         />
       )}
     </div>

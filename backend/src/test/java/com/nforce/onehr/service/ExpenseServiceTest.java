@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.expense.SubmitExpenseClaimRequest;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.ExpenseCategory;
 import com.nforce.onehr.entity.ExpenseClaim;
+import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,11 +15,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -209,5 +213,148 @@ class ExpenseServiceTest {
         // produces, not just a display difference: pendingForFinalApprover only ever queries by
         // status, so a claim landing directly on CLEARED_FOR_PAYROLL never surfaces at the HR stage.
         assertEquals("CLEARED_FOR_PAYROLL", res.getStatus());
+    }
+
+    // ── View Receipt: backend role-based authorization ─────────
+
+    // A minimal, real 1x1 transparent PNG, base64-encoded — exercised end-to-end through
+    // Base64.getDecoder() the same way ExpenseService#decodeReceiptDataUri does, not a fake string.
+    private static final String PNG_BASE64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+    private ExpenseClaim claimWithReceipt(UUID employeeUserId, String dataUri) {
+        return ExpenseClaim.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeUserId)
+                .categoryId(1)
+                .amount(new BigDecimal("100.00"))
+                .expenseDate(LocalDate.now())
+                .businessPurpose("Test")
+                .status("SUBMITTED")
+                .receiptUrl(dataUri)
+                .build();
+    }
+
+    private User hrAdminUser() {
+        return User.builder().id(UUID.randomUUID()).email("hr@test.com")
+                .roles(Set.of(Role.builder().id(1).code("HR_ADMIN").displayName("HR Admin").build()))
+                .build();
+    }
+
+    private User superAdminUser() {
+        return User.builder().id(UUID.randomUUID()).email("superadmin@test.com")
+                .roles(Set.of(Role.builder().id(2).code("SUPER_ADMIN").displayName("Super Admin").build()))
+                .build();
+    }
+
+    @Test
+    void getReceipt_ownerOfClaim_allowed() {
+        ExpenseClaim claim = claimWithReceipt(employeeUser.getId(), "data:image/png;base64," + PNG_BASE64);
+        when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(employeeUser));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+
+        ExpenseService.ReceiptFile receipt = expenseService.getReceipt(claim.getId(), actorEmail);
+
+        assertEquals("image/png", receipt.contentType());
+        assertTrue(receipt.data().length > 0);
+    }
+
+    @Test
+    void getReceipt_currentManagerOfEmployee_allowed() {
+        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        ExpenseClaim claim = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
+        stubManagerOf(manager, claim.getEmployeeUserId());
+
+        when(userRepo.findByEmail("manager@test.com")).thenReturn(Optional.of(manager));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+
+        assertDoesNotThrow(() -> expenseService.getReceipt(claim.getId(), "manager@test.com"));
+    }
+
+    @Test
+    void getReceipt_unrelatedManager_deniedAccessDenied() {
+        // A manager with no manager-history record at all for this employee — not their report.
+        User unrelatedManager = User.builder().id(UUID.randomUUID()).email("other-manager@test.com").build();
+        ExpenseClaim claim = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
+
+        when(userRepo.findByEmail("other-manager@test.com")).thenReturn(Optional.of(unrelatedManager));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+        when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(claim.getEmployeeUserId())).thenReturn(Optional.empty());
+
+        assertThrows(AccessDeniedException.class,
+                () -> expenseService.getReceipt(claim.getId(), "other-manager@test.com"));
+    }
+
+    @Test
+    void getReceipt_hrAdmin_allowedRegardlessOfManagerRelationship() {
+        User hr = hrAdminUser();
+        ExpenseClaim claim = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
+
+        when(userRepo.findByEmail("hr@test.com")).thenReturn(Optional.of(hr));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+
+        assertDoesNotThrow(() -> expenseService.getReceipt(claim.getId(), "hr@test.com"));
+        // HR's blanket authority is checked before any manager-history lookup — see
+        // requireCurrentManagerOf's own isFinalApprover short-circuit.
+        verify(historyRepo, never()).findByEmployeeUserIdAndEffectiveToIsNull(any());
+    }
+
+    @Test
+    void getReceipt_superAdmin_allowedRegardlessOfManagerRelationship() {
+        User superAdmin = superAdminUser();
+        ExpenseClaim claim = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
+
+        when(userRepo.findByEmail("superadmin@test.com")).thenReturn(Optional.of(superAdmin));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+
+        assertDoesNotThrow(() -> expenseService.getReceipt(claim.getId(), "superadmin@test.com"));
+    }
+
+    @Test
+    void getReceipt_employeeViewingSomeoneElsesClaim_deniedWhenNotTheirManager() {
+        // A different EMPLOYEE (no manager/HR/SA role at all) trying to view a co-worker's receipt.
+        User otherEmployee = User.builder().id(UUID.randomUUID()).email("coworker@test.com").build();
+        ExpenseClaim claim = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
+
+        when(userRepo.findByEmail("coworker@test.com")).thenReturn(Optional.of(otherEmployee));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+        when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(claim.getEmployeeUserId())).thenReturn(Optional.empty());
+
+        assertThrows(AccessDeniedException.class,
+                () -> expenseService.getReceipt(claim.getId(), "coworker@test.com"));
+    }
+
+    @Test
+    void getReceipt_noReceiptAttached_throwsNoSuchElementWithClearMessage() {
+        ExpenseClaim claim = claimWithReceipt(employeeUser.getId(), null);
+        when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(employeeUser));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+
+        NoSuchElementException ex = assertThrows(NoSuchElementException.class,
+                () -> expenseService.getReceipt(claim.getId(), actorEmail));
+        assertEquals("No receipt attached to this claim", ex.getMessage());
+    }
+
+    @Test
+    void getReceipt_claimNotFound_throwsNoSuchElement() {
+        UUID missingId = UUID.randomUUID();
+        when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(employeeUser));
+        when(claimRepo.findById(missingId)).thenReturn(Optional.empty());
+
+        assertThrows(NoSuchElementException.class, () -> expenseService.getReceipt(missingId, actorEmail));
+    }
+
+    @Test
+    void getReceipt_pdfReceipt_decodesWithPdfContentType() {
+        String pdfBase64 = java.util.Base64.getEncoder().encodeToString("%PDF-1.4 fake pdf bytes".getBytes());
+        ExpenseClaim claim = claimWithReceipt(employeeUser.getId(), "data:application/pdf;base64," + pdfBase64);
+        when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(employeeUser));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+
+        ExpenseService.ReceiptFile receipt = expenseService.getReceipt(claim.getId(), actorEmail);
+
+        assertEquals("application/pdf", receipt.contentType());
+        assertTrue(receipt.fileName().endsWith(".pdf"));
+        assertEquals("%PDF-1.4 fake pdf bytes", new String(receipt.data()));
     }
 }
