@@ -656,10 +656,12 @@ export default function PoliciesPage() {
                           : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Inactive</span>}
                       </td>
                       <td style={tdS}>
-                        <button onClick={() => setAckPolicy(p)}
-                          style={{ padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>
-                          View Acknowledgments
-                        </button>
+                        {p.required && (
+                          <button onClick={() => setAckPolicy(p)}
+                            style={{ padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>
+                            View Acknowledgments
+                          </button>
+                        )}
                       </td>
                       <td style={{ ...tdS, width: 48 }}>
                         <KebabMenu items={[
