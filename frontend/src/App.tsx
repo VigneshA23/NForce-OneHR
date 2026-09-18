@@ -31,6 +31,7 @@ import AuditSecurityPage from './pages/AuditSecurityPage';
 import HelpDeskPage from './pages/HelpDeskPage';
 import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
 import WorkflowStudioPage from './pages/WorkflowStudioPage';
+import SearchResultsPage from './pages/SearchResultsPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -146,6 +147,7 @@ export default function App() {
           <Route path="/onboarding"     element={<OnboardingPage />} />
           <Route path="/workflows"      element={<WorkflowStudioPage />} />
           <Route path="/audit"          element={<AuditRouter />} />
+          <Route path="/search"         element={<SearchResultsPage />} />
         </Route>
 
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />

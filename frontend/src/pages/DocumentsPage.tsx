@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, Upload, XCircle, AlertTriangle, Eye, Search } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -196,9 +197,13 @@ function ViewButton({ docId }: { docId: string }) {
 export default function DocumentsPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
-  const [tab, setTab] = useState<'docs' | 'policies' | 'announcements'>('docs');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<'docs' | 'policies' | 'announcements'>(() => {
+    const t = searchParams.get('tab');
+    return t === 'policies' || t === 'announcements' ? t : 'docs';
+  });
   const [section, setSection] = useState<'verified' | 'pending' | 'missing'>('pending');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
   const [required, setRequired] = useState<RequiredDocument[]>([]);
   const [myDocs, setMyDocs] = useState<EmployeeDocument[]>([]);
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
@@ -259,6 +264,9 @@ export default function DocumentsPage() {
   const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : missing;
   const q = search.trim().toLowerCase();
   const filteredDocs = q ? sectionDocs.filter(r => r.documentTypeName.toLowerCase().includes(q)) : sectionDocs;
+  const filteredAnnouncements = q
+    ? announcements.filter(a => a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
+    : announcements;
 
   if (loading) return <p style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</p>;
 
@@ -444,8 +452,16 @@ export default function DocumentsPage() {
       {/* ── Announcements Tab ── */}
       {tab === 'announcements' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {announcements.length === 0 && <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No announcements yet.</p>}
-          {announcements.map(a => (
+          <div className="nf-search-full-mobile" style={{ position: 'relative', marginBottom: 2 }}>
+            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search announcements…"
+              className="nf-search-full-mobile-input"
+              style={{ paddingLeft: 28, padding: '6px 10px 6px 28px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 12, width: 200, outline: 'none' }} />
+          </div>
+          {filteredAnnouncements.length === 0 && (
+            <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>{q ? 'No announcements match your search.' : 'No announcements yet.'}</p>
+          )}
+          {filteredAnnouncements.map(a => (
             <div key={a.id} style={{ ...card, padding: 20 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
               <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6 }}>{a.body}</p>

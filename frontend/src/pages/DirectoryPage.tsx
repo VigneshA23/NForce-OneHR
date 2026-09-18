@@ -148,6 +148,15 @@ export default function DirectoryPage() {
     if (match) setSelected(match);
   }, [searchParams, all]);
 
+  // Deep-link support: the header/global search's "Refine in Directory" links here as
+  // /directory?search=<term> to pre-fill this page's own search box (seeded once, on mount —
+  // the user's further typing here is never overwritten by a stale query param).
+  useEffect(() => {
+    const q = searchParams.get('search');
+    if (q) setSearch(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function closeDetail() {
     setSelected(null);
     if (searchParams.has('userId')) {

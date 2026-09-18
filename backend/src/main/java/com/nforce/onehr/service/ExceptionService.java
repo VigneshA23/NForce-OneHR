@@ -40,11 +40,11 @@ public class ExceptionService {
     private static final String STATUS_LATE = "LATE";
 
     // Still detected and evaluated against the Penalization Policy exactly as before (see
-    // detectExceptions/runScheduledPenaltyEvaluation) — these three just no longer surface as
+    // detectExceptions/runScheduledPenaltyEvaluation) — these just no longer surface as
     // rows on the Exception Dashboard itself, per explicit request. Removing an entry here only
     // changes what getExceptionsForCaller returns, never what gets detected or penalized.
     private static final Set<String> HIDDEN_FROM_EXCEPTION_DASHBOARD = Set.of(
-            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
+            ExceptionType.NO_ATTENDANCE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
 
     // The four penalizable discrepancy types — see notifyUnnotifiedExceptions' own javadoc for why
     // these, and only these, are emailed exclusively by the scheduled job rather than immediately
@@ -141,39 +141,10 @@ public class ExceptionService {
                 .filter(e -> !HIDDEN_FROM_EXCEPTION_DASHBOARD.contains(e.getExceptionType()))
                 .map(this::toResponse)
                 .collect(Collectors.toCollection(java.util.ArrayList::new));
-        responses.addAll(pendingLeaveApprovals(scopeIds, from, to));
         responses.sort(Comparator.comparing(ExceptionResponse::getExceptionDate)
                 .thenComparing(ExceptionResponse::getDetectedAt)
                 .reversed());
         return responses;
-    }
-
-    /**
-     * A leave request still awaiting approval, surfaced as a dashboard row alongside real
-     * attendance exceptions — see ExceptionType.PENDING_LEAVE_APPROVAL's javadoc. Dated by when
-     * it was requested (createdAt), not its leave start date, so the dashboard's From/To filter
-     * means the same thing here as it does for every other row: "when did this need attention."
-     */
-    private List<ExceptionResponse> pendingLeaveApprovals(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
-        return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(scopeIds, "PENDING").stream()
-                .filter(r -> {
-                    LocalDate requestedOn = r.getCreatedAt().toLocalDate();
-                    return !requestedOn.isBefore(from) && !requestedOn.isAfter(to);
-                })
-                .map(r -> {
-                    Optional<Employee> employee = employeeRepository.findById(r.getEmployeeUserId());
-                    return ExceptionResponse.builder()
-                            .id(r.getId())
-                            .employeeUserId(r.getEmployeeUserId())
-                            .employeeCode(employee.map(Employee::getEmployeeCode).orElse(null))
-                            .employeeFullName(employee.map(Employee::getFullName).orElse(null))
-                            .exceptionDate(r.getCreatedAt().toLocalDate())
-                            .exceptionType(ExceptionType.PENDING_LEAVE_APPROVAL)
-                            .status("OPEN")
-                            .detectedAt(r.getCreatedAt())
-                            .build();
-                })
-                .collect(Collectors.toList());
     }
 
     /**

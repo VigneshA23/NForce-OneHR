@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
@@ -915,6 +916,22 @@ export default function HelpDeskPage() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAllRequests, setShowAllRequests] = useState(false);
+
+  // Deep-link support: the header/global search's Helpdesk and Help & Guidance results link
+  // here as /help?ticketId=<id>, /help?ticketSearch=<term> or /help?contentId=<id>/
+  // ?contentSearch=<term> — read once on mount, same as DirectoryPage's ?userId= convention.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const ticketId = searchParams.get('ticketId');
+    if (ticketId) { setSelectedId(ticketId); setShowAllRequests(true); }
+    const ticketSearch = searchParams.get('ticketSearch');
+    if (ticketSearch) { setSearch(ticketSearch); setShowAllRequests(true); }
+    const contentId = searchParams.get('contentId');
+    if (contentId) setActiveContentId(contentId);
+    const contentSearch = searchParams.get('contentSearch');
+    if (contentSearch) setContentSearch(contentSearch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function loadTickets(p = page) {
     setLoading(true);

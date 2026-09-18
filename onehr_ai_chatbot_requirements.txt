@@ -1,0 +1,456 @@
+ONEHR AI SUPPORT ASSISTANT — REQUIREMENTS
+Repository baseline: VigneshA23/NForce-OneHR, dev branch
+Prepared from architecture discussions plus inspection of the current dev branch.
+
+1. PURPOSE
+Build an authenticated, OneHR-specific AI support assistant embedded in the existing React application. The assistant must answer questions about OneHR functionality only. It must understand application concepts at action/workflow level, provide accurate explanations and step-by-step instructions, identify relevant navigation destinations, and respect the current user's role and permissions.
+
+The assistant is NOT a general-purpose chatbot. It must not answer unrelated general-knowledge questions.
+
+2. CORE USER CAPABILITIES
+The assistant must support:
+- General questions about OneHR features/modules.
+- How-to questions for every supported application action.
+- Navigation questions such as "Where do I find...?"
+- Workflow questions such as "What happens after I submit...?"
+- Role/permission questions.
+- Troubleshooting and error explanations.
+- Questions using informal wording, synonyms, or alternate terminology.
+- Context-aware questions using the user's current page/module where useful.
+- Step-by-step guidance.
+- Direct navigation to the correct existing OneHR page when a deterministic page mapping exists.
+- Follow-up questions within the same chat session.
+
+Examples:
+"How do I apply for leave?"
+"What is the Approval Center?"
+"Who can approve a leave request?"
+"Why can't I approve this?"
+"Where can I regularize my attendance?"
+"What happens after I submit a request?"
+"Take me to my attendance."
+
+3. STRICT SCOPE
+Supported:
+- OneHR features, modules, pages, UI elements, actions, workflows, roles, permissions, terminology, validations, errors, navigation, and documented application behavior.
+Not supported:
+- Unrelated general knowledge.
+- Invented or undocumented OneHR behavior.
+- Guessing when relevant knowledge is missing.
+
+When sufficient OneHR knowledge is not available, the assistant must explicitly say it does not have enough information and may direct the user to the existing Help & Guidance / support workflow. It must never fabricate an answer or route.
+
+4. EXISTING APPLICATION BASELINE TO PRESERVE
+Backend:
+- Spring Boot 3.3.4
+- Java 17
+- Spring Web, Security, Data JPA, Validation, PostgreSQL, Flyway
+- JWT/JJWT 0.12.6
+- Stateless security
+- Existing authenticated API convention under /api/*
+Frontend:
+- React 19 + TypeScript
+- Vite
+- React Router DOM 7
+- Zustand auth store
+- Existing Shell layout and centralized navigation configuration
+- Existing API modules under frontend/src/api
+Do not replace or unnecessarily restructure the existing architecture.
+
+5. EXISTING ROLE MODEL
+The current UI role model is:
+- Employee
+- Manager
+- HR Admin
+- Super Admin
+
+The frontend maps DB roles through toShellRole(). The backend security/authentication remains authoritative.
+
+The assistant must obtain role/permission context from the authenticated backend context, not trust a role value supplied by the client.
+
+6. EXISTING NAVIGATION TO REUSE
+The frontend already defines role-specific navigation centrally in:
+frontend/src/lib/nav.config.ts
+
+Important existing paths include, where accessible to the current role:
+- /dashboard
+- /attendance
+- /attendance/regularization/all
+- /leave
+- /my-team
+- /help
+- /approvals
+- /requests
+- /my-requests
+- /assets
+- /employees
+- /exceptions
+- /organization
+- /access
+- /masters
+- /profile
+- /notifications
+- /directory
+- /hierarchy
+- /documents
+- /my-documents
+- /policies
+- /onboarding
+- /audit
+and existing Phase 2/locked navigation entries that must not be presented as currently usable unless their real application route/functionality is available.
+
+Navigation must be represented by stable page IDs/route registry rather than asking the LLM to invent URLs.
+
+7. EXISTING HELP & GUIDANCE SYSTEM
+OneHR already has a Help & Guidance content system:
+- Help content types include FAQ, QUICK_HELP, GUIDE, DOCUMENT (historical types may remain in the enum).
+- Published content is role/audience filtered.
+- HR Admin/Super Admin manage content lifecycle.
+- Content lifecycle includes DRAFT, PENDING_APPROVAL, APPROVED, PUBLISHED, UNPUBLISHED, ARCHIVED.
+- Content has descriptions, body text, category, attachments, view count, audience targeting, and audit fields.
+- Employee-facing content is read-only and audience filtered.
+This system should be reused/integrated where appropriate instead of creating a duplicate FAQ/help-content concept.
+
+Do NOT automatically treat every help-content row as sufficient action-level knowledge. Enhance/extend the model or introduce a complementary AI knowledge representation where required.
+
+8. KNOWLEDGE BASE REQUIREMENTS
+The knowledge base must be application-specific, structured, machine-readable, versionable, and retrievable.
+
+Top-level domains:
+A. Application foundations
+- What OneHR is
+- Modules overview
+- Global terminology
+- Global rules/constraints
+- Application navigation concepts
+
+B. Roles & permissions
+- Role definitions
+- Permissions/capabilities
+- Role-specific access
+- Role-specific behavior
+- Permission prerequisites for actions
+
+C. Modules
+For every module:
+- Overview
+- Purpose
+- Related pages
+- Related workflows
+- Related actions
+- Supported roles
+
+D. Pages
+For every relevant page:
+- Stable page_id
+- Display name
+- Module
+- Route
+- Navigation path
+- Description
+- Accessible roles/permissions
+- Important UI elements
+- Related actions/workflows
+
+E. UI elements
+For relevant controls:
+- Stable element/action identifier
+- Control name
+- Type (button, dropdown, tab, table action, etc.)
+- Purpose
+- Preconditions
+- Related action
+
+F. Actions
+This is the most important knowledge unit.
+Every supported action should describe:
+- action_id
+- Name
+- Module
+- page_id
+- Purpose
+- Description
+- Roles
+- Required permissions
+- Navigation path
+- Preconditions
+- Step-by-step instructions
+- Required inputs
+- Field meanings
+- Validation rules
+- Possible errors
+- Error resolution
+- Result/outcome
+- Status transitions where applicable
+- Related actions
+- Related workflows
+- Synonyms/alternate phrases
+
+G. Workflows
+For multi-step/multi-actor processes:
+- workflow_id
+- Purpose
+- Trigger
+- Actors
+- Ordered steps
+- Action references
+- State/status transitions
+- Approval/rejection paths
+- Cancellation/withdrawal paths
+- Result
+- Exceptions
+- Related pages/actions
+
+H. Troubleshooting
+For each known error/issue:
+- error_id/code
+- Module/page/action
+- User-visible error message
+- Meaning
+- Causes
+- Resolution steps
+- When to contact support
+
+I. FAQs / how-to content
+- Common questions
+- Concise answers
+- Related action/page/workflow references
+- Audience
+These complement, but do not replace, action-level knowledge.
+
+J. Terminology/synonyms
+Map user language to canonical concepts:
+- Canonical term
+- Synonyms
+- Common informal phrases
+- Related page/action/workflow
+Example: attendance regularization = fix attendance = correct attendance = missing punch correction.
+
+K. Navigation registry
+Maintain a canonical map:
+page_id -> route -> label -> role access -> module
+Never let the model invent arbitrary routes.
+
+9. STATIC KNOWLEDGE VS DYNAMIC APPLICATION CONTEXT
+Static RAG knowledge:
+- Modules
+- Pages
+- Actions
+- Workflows
+- Permissions/rules definitions
+- Errors
+- FAQs
+- Terminology
+- Navigation mappings
+
+Dynamic runtime context must come from the application/backend:
+- Authenticated user identity
+- Current role(s)
+- Effective permissions
+- Current page/module
+- Organization context where applicable
+- Current record/request/status
+- Relevant live application data when explicitly implemented
+Do not store mutable user-specific values such as current leave balance in static RAG documents.
+
+10. RAG REQUIREMENTS
+Implement retrieval augmented generation:
+- Embed/index OneHR knowledge.
+- Retrieve the most relevant knowledge for each user query.
+- Apply metadata filters for role/audience/permissions/module/page where appropriate.
+- Preserve source metadata so responses can be traced internally.
+- Support semantic retrieval using synonyms/informal language.
+- Retrieve multiple relevant chunks when a question spans action + workflow + permissions.
+- Avoid oversized documents; use focused chunks/documents.
+- Keep the knowledge base independent of the chosen LLM.
+- Re-index when knowledge changes.
+- Make embedding provider configurable.
+
+11. LLM REQUIREMENTS
+The first implementation may use Mistral AI as the LLM.
+The architecture must NOT hard-wire the entire application to Mistral.
+
+Create an LLM provider abstraction/adapter so another provider can be substituted later.
+
+The LLM should receive:
+- User question
+- Conversation context
+- Relevant RAG context
+- Authenticated role/permission context
+- Current-page context
+- Relevant approved runtime application data, if available
+
+The LLM must not be treated as the source of truth for OneHR-specific behavior.
+
+12. STRUCTURED RESPONSE CONTRACT
+The backend must return a OneHR-owned response schema, not provider-specific output.
+
+Suggested response shape:
+{
+  "type": "HOW_TO | EXPLANATION | NAVIGATION | TROUBLESHOOTING | PERMISSION | UNKNOWN",
+  "answer": "...",
+  "steps": ["..."],
+  "navigation": {
+    "pageId": "..."
+  },
+  "related": [],
+  "confidence": "HIGH | MEDIUM | LOW"
+}
+
+Use a schema validated by the backend.
+Only emit navigation when pageId is a known, authorized page.
+The frontend should resolve pageId to an actual route using the application's navigation/page registry.
+
+13. SECURITY REQUIREMENTS
+- Keep AI API keys and provider credentials only on the backend.
+- Chat endpoint must require existing JWT authentication.
+- Do not trust client-supplied role/permissions.
+- Enforce permissions in backend/application logic.
+- Do not expose hidden/unpublished help content through retrieval.
+- Filter knowledge according to the authenticated user's authorized audience/role.
+- Do not allow the LLM to directly execute arbitrary database operations.
+- Do not allow arbitrary URL generation.
+- Future action execution must use explicit backend tools with permission checks and user confirmation.
+
+14. FRONTEND REQUIREMENTS
+Add a polished floating OneHR Assistant accessible from the existing authenticated Shell.
+
+The assistant UI should:
+- Work on desktop and mobile.
+- Preserve the current application's visual language and responsiveness.
+- Open/close without breaking existing navigation.
+- Show user and assistant messages clearly.
+- Show loading and error states.
+- Prefer streaming output when practical.
+- Render numbered steps naturally.
+- Render a clear "Open [Page]" navigation action when available.
+- Handle unknown/unsupported requests gracefully.
+- Support conversation history for the active session.
+- Provide restart/clear conversation functionality.
+- Provide thumbs-up/thumbs-down feedback per assistant response.
+- Be accessible via keyboard and screen readers.
+
+Do not replace the existing global search. The assistant is a separate capability.
+
+15. BACKEND API
+Implement a dedicated authenticated assistant API, for example:
+POST /api/ai-assistant/chat
+Optional supporting endpoints may include:
+- GET/POST conversation history
+- POST feedback
+- GET knowledge/indexing health for admin/internal use
+
+The exact endpoint naming may be adjusted to fit existing conventions, but keep the feature isolated in a dedicated assistant package/module.
+
+16. CONVERSATION CONTEXT
+Maintain short-term conversational context using a conversation ID.
+Support follow-ups such as:
+User: "How do I apply leave?"
+Assistant: instructions
+User: "What happens after that?"
+Assistant: understands the leave workflow context.
+
+Do not require permanent memory for initial implementation.
+
+17. KNOWLEDGE MANAGEMENT / INGESTION
+Provide a repeatable process to:
+- Define/edit structured knowledge
+- Validate schema
+- Chunk knowledge appropriately
+- Generate embeddings
+- Upsert/delete vector records
+- Re-index changed content
+- Track knowledge version/source
+- Avoid indexing drafts/unpublished content
+Where possible, connect this process to existing Help & Guidance publish/approval lifecycle.
+
+18. KNOWLEDGE VERSIONING
+Each indexed knowledge unit should carry:
+- knowledge_id
+- type
+- module
+- page_id/action_id/workflow_id where relevant
+- version
+- status
+- audience/role metadata
+- updated_at
+- source/reference
+
+Published revisions must supersede prior indexed versions correctly.
+Old drafts must not be retrieved for end users.
+
+19. FAILURE / "I DON'T KNOW" BEHAVIOR
+If retrieval does not yield sufficiently relevant authorized knowledge:
+- Do not guess.
+- Return a controlled UNKNOWN response.
+- Explain that the assistant could not find enough OneHR information.
+- Suggest using the existing Help & Guidance/support path where appropriate.
+
+Do not silently answer from general world knowledge.
+
+20. OBSERVABILITY & FEEDBACK
+Record enough server-side metadata to debug retrieval quality:
+- request/conversation ID
+- user role/audience
+- query
+- retrieved knowledge IDs
+- response type
+- model/provider
+- latency
+- success/error
+- feedback
+Do not log secrets or unnecessary sensitive data.
+
+21. TESTING REQUIREMENTS
+Create tests for:
+- Authentication/authorization
+- Role filtering
+- Audience filtering
+- Navigation safety
+- Knowledge retrieval
+- Unknown/low-confidence behavior
+- Structured response validation
+- Conversation follow-ups
+- LLM provider adapter
+- RAG failure handling
+- Frontend rendering
+- Responsive/mobile UI
+- Existing regression-sensitive behavior
+
+Create a representative evaluation set covering at least:
+- How-to questions
+- Module explanations
+- Navigation
+- Permissions
+- Workflows
+- Troubleshooting
+- Synonyms/informal wording
+- Ambiguous questions
+- Unauthorized questions
+- Unknown questions
+
+22. NON-GOALS FOR THIS PHASE
+Do not:
+- Turn the assistant into a general knowledge chatbot.
+- Let the AI directly modify application data.
+- Replace existing Help & Guidance pages.
+- Replace the existing global search.
+- Rewrite existing auth/navigation architecture.
+- Add speculative autonomous agent behavior.
+- Introduce hidden background actions.
+- Expose arbitrary internal data to the LLM.
+
+23. ACCEPTANCE CRITERIA
+The feature is complete when:
+- Authenticated users can open the OneHR Assistant.
+- The assistant answers application-specific general questions from OneHR knowledge.
+- It gives accurate action-level step-by-step instructions.
+- It respects role/audience/permission boundaries.
+- It can identify and navigate to known pages safely.
+- It can explain workflows and known errors.
+- It handles follow-up questions within a conversation.
+- It does not answer unrelated general questions.
+- It does not hallucinate when knowledge is unavailable.
+- The solution works with Mistral but keeps the LLM provider replaceable.
+- Existing OneHR functionality remains intact.
+- Tests cover the above behavior.

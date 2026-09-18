@@ -72,6 +72,10 @@ export interface AttendanceRecord {
   /** End of this row's logical WORKDAY — see {@link workdayStartAt} / ShiftDayPolicy#workdayEndAt.
    * Null for a legacy record. */
   workdayEndAt: string | null;
+  /** True when this employee has a still-active (PENDING_REVIEW) Attendance Penalty for this
+   * workDate — see AttendancePenaltyEvaluationService on the backend. Powers the Attendance Log's
+   * PENALIZED badge. */
+  penalized: boolean;
 }
 
 export interface Punch {
