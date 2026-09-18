@@ -124,6 +124,58 @@ public class ExpenseService {
                 .collect(Collectors.toList());
     }
 
+    // ── Receipt (secure, on-demand — reuses the existing receiptUrl storage) ──
+
+    /** Decoded receipt bytes ready to stream back, plus enough to set Content-Type/filename. */
+    public record ReceiptFile(byte[] data, String contentType, String fileName) {}
+
+    /**
+     * Authorization mirrors managerApprove/managerReject exactly (see requireCurrentManagerOf):
+     * the claim's own employee, their current manager, or HR_ADMIN/SUPER_ADMIN (blanket
+     * fallback authority, same convention as every other approval workflow in this app). This is
+     * enforced here — server-side, regardless of what the frontend shows or hides — not just by
+     * which pages happen to render a "View Receipt" button.
+     *
+     * <p>receiptUrl has always been stored as a base64 data: URI (see ExpenseClaim.receiptUrl's
+     * own Javadoc) — this decodes that existing storage into real bytes with a correct
+     * Content-Type, rather than introducing a second storage mechanism.
+     */
+    @Transactional(readOnly = true)
+    public ReceiptFile getReceipt(UUID claimId, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        ExpenseClaim claim = claimRepo.findById(claimId)
+                .orElseThrow(() -> new NoSuchElementException("Expense claim not found: " + claimId));
+        if (!claim.getEmployeeUserId().equals(actor.getId())) {
+            requireCurrentManagerOf(actor, claim.getEmployeeUserId());
+        }
+        if (claim.getReceiptUrl() == null || claim.getReceiptUrl().isBlank()) {
+            throw new NoSuchElementException("No receipt attached to this claim");
+        }
+        return decodeReceiptDataUri(claim.getReceiptUrl(), claimId);
+    }
+
+    private ReceiptFile decodeReceiptDataUri(String receiptUrl, UUID claimId) {
+        // Standard "data:<mediaType>;base64,<payload>" — exactly what FileReader.readAsDataURL
+        // produces on the frontend (AssetsExpensesPage's fileToBase64), and the only format this
+        // field has ever been written in.
+        int comma = receiptUrl.indexOf(',');
+        if (!receiptUrl.startsWith("data:") || comma < 0) {
+            throw new IllegalStateException("Receipt for claim " + claimId + " is not in the expected data-URI format");
+        }
+        String header = receiptUrl.substring(5, comma);
+        String mediaType = header.contains(";") ? header.substring(0, header.indexOf(';')) : header;
+        byte[] data = Base64.getDecoder().decode(receiptUrl.substring(comma + 1));
+        String ext = switch (mediaType) {
+            case "image/png" -> "png";
+            case "image/jpeg" -> "jpg";
+            case "image/gif" -> "gif";
+            case "application/pdf" -> "pdf";
+            default -> "bin";
+        };
+        String contentType = mediaType.isBlank() ? "application/octet-stream" : mediaType;
+        return new ReceiptFile(data, contentType, "receipt-" + claimId + "." + ext);
+    }
+
     // ── Employee tile summary ─────────────────────────────
 
     @Transactional(readOnly = true)
