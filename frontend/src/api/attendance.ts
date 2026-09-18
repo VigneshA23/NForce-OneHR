@@ -29,7 +29,10 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type AttendanceStatus = 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | 'MISSING_CHECKOUT';
+// ON_LEAVE is derived server-side for a roster row with no attendance record whose employee
+// has approved leave that day (see AttendanceService#joinRoster). It is never persisted on an
+// attendance row, so it only ever appears on the day/team/peers roster responses.
+export type AttendanceStatus = 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | 'MISSING_CHECKOUT' | 'ON_LEAVE';
 export type AttendanceSource = 'SYSTEM' | 'REGULARIZATION' | 'WEB_REMOTE';
 
 export interface AttendanceRecord {

@@ -1,0 +1,297 @@
+# OneHR page and navigation registry - the ONLY source of navigable assistant targets.
+#
+# Transcribed from frontend/src/lib/nav.config.ts. Every entry below must correspond to an item in
+# NAV[role] for each role listed on its variant, with the same label. PageRegistryParityTest and
+# the frontend pageTargets.test.ts both guard that correspondence, because a registry that drifts
+# from the real sidebar produces navigation actions the app cannot honour.
+#
+# Two rules that are easy to get wrong:
+#
+# 1. `roles` are SHELL roles (the four UI roles nav.config.ts is keyed by), not audience buckets.
+#    The sidebar renders NAV for exactly one role, so authorising by bucket would offer an HR Admin
+#    or Super Admin pages that are not in their nav. See ShellRole.
+#
+# 2. Several routes are role-polymorphic: the same path renders a different page, with a different
+#    label, depending on role (requests, documents, audit). Those get one variant per behaviour,
+#    not one shared entry.
+#
+# `placeholder: true` marks a roadmap item that renders the "Ships in Phase 2" placeholder rather
+# than a real page. These are described so the assistant can explain them, but NavigationValidator
+# refuses to emit them as targets. Note `reports` is a placeholder in the nav even though
+# ReportsController and ReportsService are fully implemented - that functionality is surfaced
+# inside My Team, not at a /reports page, so it is still not navigable.
+
+pages:
+
+  # ---------------------------------------------------------------- core, all roles
+
+  - pageId: dashboard
+    module: dashboard
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Home"
+        route: /dashboard
+        description: "The landing page after sign-in. Shows your attendance status, pending items, quick actions and announcements relevant to your role."
+
+  - pageId: attendance
+    module: attendance
+    variants:
+      - roles: [EMPLOYEE]
+        label: "My Attendance"
+        route: /attendance
+        description: "Your own attendance: clock in and out, view your punch history and daily status, and raise regularization, Work From Home, partial-day and overtime requests."
+      - roles: [MANAGER]
+        label: "Team Attendance"
+        route: /attendance
+        description: "Your own attendance plus your direct reports, including their punches, daily statuses and attendance exceptions."
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Attendance Administration"
+        route: /attendance
+        description: "Organisation-wide attendance administration, including attendance rules, shifts, penalisation policy and everyone's records."
+
+  - pageId: leave
+    module: leave
+    variants:
+      - roles: [EMPLOYEE, SUPER_ADMIN]
+        label: "Leave & Holidays"
+        route: /leave
+        description: "Apply for leave, see your leave balances and request history, and view the holiday calendar for your location."
+      - roles: [MANAGER]
+        label: "Team Leave & Holidays"
+        route: /leave
+        description: "Your own leave and balances, plus your direct reports' leave and the holiday calendar."
+      - roles: [HR_ADMIN]
+        label: "Leave Administration"
+        route: /leave
+        description: "Organisation-wide leave administration: leave types, balances, everyone's requests and the holiday calendar."
+
+  - pageId: requests
+    module: requests
+    variants:
+      # Genuinely different pages behind one path - see App.tsx RequestsRouter.
+      - roles: [EMPLOYEE, MANAGER]
+        label: "My Requests"
+        route: /requests
+        description: "A read-only tracker for the requests you have raised: Leave, Regularization, Work From Home, Partial Day and Overtime, with their current status."
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "HR Service Requests"
+        route: /requests
+        description: "The HR Help Desk ticket queue: every employee-raised support ticket, with status, assignment and replies."
+
+  - pageId: assets
+    module: assets
+    variants:
+      - roles: [EMPLOYEE, HR_ADMIN, SUPER_ADMIN]
+        label: "Assets & Expenses"
+        route: /assets
+        description: "Company assets assigned to you and expense claims you have submitted, plus raising new asset requests and expense claims."
+      - roles: [MANAGER]
+        label: "Team Assets & Expenses"
+        route: /assets
+        description: "Your own assets and expense claims, plus your direct reports' asset requests and expense claims awaiting your approval."
+
+  - pageId: my-documents
+    module: documents
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "My Documents & Policies"
+        route: /my-documents
+        description: "Your own uploaded documents and their verification status, plus company policies you need to read and acknowledge."
+
+  - pageId: help
+    module: help
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Help & Guidance"
+        route: /help
+        description: "Search published FAQs and guides, and raise a ticket with HR when you cannot find an answer. HR Admins and Super Admins also author and publish help content here."
+
+  - pageId: directory
+    module: people
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "People Directory"
+        route: /directory
+        description: "A searchable directory of everyone in the organisation, with contact details and reporting information."
+
+  - pageId: hierarchy
+    module: people
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Org Hierarchy"
+        route: /hierarchy
+        description: "The reporting structure as a navigable tree, showing who reports to whom."
+
+  # ---------------------------------------------------------------- role-restricted
+
+  - pageId: my-team
+    module: people
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN]
+        label: "My Team"
+        route: /my-team
+        description: "Your immediate working group: peers and reports, their attendance and leave at a glance, and kudos."
+
+  - pageId: approvals
+    module: approvals
+    variants:
+      - roles: [MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Approval Center"
+        route: /approvals
+        description: "One queue for everything awaiting your decision: Leave, Regularization, Expense, Asset Request, Work From Home, Partial Day, Overtime and Help Content approvals."
+
+  - pageId: exceptions
+    module: attendance
+    variants:
+      - roles: [MANAGER, HR_ADMIN]
+        label: "Exception Dashboard"
+        route: /exceptions
+        description: "Detected attendance exceptions such as late arrivals, missing punches and leave-attendance conflicts, with resolution actions."
+
+  - pageId: audit
+    module: audit
+    variants:
+      # Different pages behind one path - see App.tsx AuditRouter.
+      - roles: [MANAGER, HR_ADMIN]
+        label: "Audit History"
+        route: /audit
+        description: "A history of changes within the scope you are allowed to see, with who changed what and when."
+      - roles: [SUPER_ADMIN]
+        label: "Audit & Security"
+        route: /audit
+        description: "The full organisation-wide audit trail including access-control events, with before and after snapshots."
+
+  - pageId: employees
+    module: people
+    variants:
+      - roles: [HR_ADMIN]
+        label: "Employee Master"
+        route: /employees
+        description: "The authoritative employee record set: create and edit employees, their assignments, shifts, managers and employment details."
+
+  - pageId: onboarding
+    module: onboarding
+    variants:
+      - roles: [HR_ADMIN]
+        label: "Onboarding"
+        route: /onboarding
+        description: "Onboarding checklists for new joiners, tracking pre-boarding and setup items to completion."
+
+  - pageId: documents
+    module: documents
+    variants:
+      # Distinct from my-documents - see App.tsx DocumentsRouter.
+      - roles: [HR_ADMIN]
+        label: "Documents & Compliance"
+        route: /documents
+        description: "Organisation-wide document compliance: verify employee documents, track expiries and chase missing submissions."
+
+  - pageId: policies
+    module: policies
+    variants:
+      # Super Admin gained this item when dev merged in the policy-acknowledgement work.
+      # PageRegistryParityTest caught the drift the same day.
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Policies & Announcements"
+        route: /policies
+        description: "Publish company policies and announcements, and track who has acknowledged each policy."
+
+  - pageId: organization
+    module: organization
+    variants:
+      - roles: [HR_ADMIN]
+        label: "Organization Structure"
+        route: /organization
+        description: "Business units, departments, designations, locations, shifts and weekly-off policies."
+
+  - pageId: masters
+    module: organization
+    variants:
+      # Same component as organization (OrgSetupPage), reached under a different key and label.
+      - roles: [SUPER_ADMIN]
+        label: "Organization Masters"
+        route: /masters
+        description: "The organisation master data: business units, departments, designations, locations, shifts, weekly-off policies and attendance rules."
+
+  - pageId: access
+    module: access
+    variants:
+      - roles: [SUPER_ADMIN]
+        label: "User Management"
+        route: /access
+        description: "User accounts and role assignment: invite users, change roles, reset passwords, and deactivate or restore accounts."
+
+  - pageId: workflows
+    module: administration
+    variants:
+      - roles: [SUPER_ADMIN]
+        label: "Workflow Studio"
+        route: /workflows
+        description: "Visual approval-rule builder. Configure amount-threshold rules for Expense claims (e.g. \"over $500 requires a second approval from HR\"), preview how a rule routes a sample amount before saving, and activate/deactivate rules - the Approval Center then routes new Expense submissions accordingly. Currently Expense-only; Leave, Regularization and Asset rules are not yet supported."
+
+  # ---------------------------------------------------------------- reachable, but not nav items
+
+  - pageId: profile
+    module: profile
+    navItem: false
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "My Profile"
+        route: /profile
+        description: "Your own profile: personal details, contact information and profile photo. Reached from the avatar menu in the top bar, not the sidebar."
+
+  - pageId: notifications
+    module: notifications
+    navItem: false
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Notifications"
+        route: /notifications
+        description: "Your notification history. Reached from the bell icon in the top bar, not the sidebar."
+
+  # ---------------------------------------------------------------- Phase 2 placeholders
+
+  - pageId: performance
+    module: performance
+    placeholder: true
+    variants:
+      # Three different labels for the same placeholder - one per role, per nav.config.ts.
+      - roles: [EMPLOYEE]
+        label: "Performance & Growth"
+        route: /performance
+        description: "Planned for a future phase. Currently shows a roadmap placeholder, and no performance functionality exists yet."
+      - roles: [MANAGER]
+        label: "Team Performance"
+        route: /performance
+        description: "Planned for a future phase. Currently shows a roadmap placeholder, and no performance functionality exists yet."
+      - roles: [HR_ADMIN]
+        label: "Performance & Engagement"
+        route: /performance
+        description: "Planned for a future phase. Currently shows a roadmap placeholder, and no performance functionality exists yet."
+
+  - pageId: reports
+    module: reports
+    placeholder: true
+    variants:
+      - roles: [MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Reports & Analytics"
+        route: /reports
+        description: "Planned for a future phase and currently a roadmap placeholder. Some attendance-request reporting and Excel export does already exist, but it lives inside My Team rather than on a reports page."
+
+  - pageId: integrations
+    module: administration
+    placeholder: true
+    variants:
+      - roles: [SUPER_ADMIN]
+        label: "Integrations"
+        route: /integrations
+        description: "Planned for a future phase. Currently shows a roadmap placeholder."
+
+  - pageId: featurelab
+    module: administration
+    placeholder: true
+    variants:
+      - roles: [SUPER_ADMIN]
+        label: "Future Feature Lab"
+        route: /featurelab
+        description: "Planned for a future phase. Currently shows a roadmap placeholder."

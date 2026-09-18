@@ -19,6 +19,7 @@ import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.EmployeeShiftAssignment;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
@@ -28,6 +29,7 @@ import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
+import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.WebClockInRequestRepository;
@@ -80,9 +82,21 @@ public class AttendanceService {
     // correction.
     private static final String STATUS_MISSING_CHECKOUT = "MISSING_CHECKOUT";
 
+    // Approved leave covering the roster's day, for an employee with no attendance row. Distinct
+    // from ABSENT, which means unexplained: someone on approved leave is accounted for, and a
+    // roster that shows them the same as a no-show makes HR chase a person who did nothing wrong.
+    // Derived at read time from LeaveRequest rather than written onto Attendance - no attendance
+    // record exists for a leave day, and inventing one would put a synthetic row in front of every
+    // calculation that counts real attendance.
+    private static final String STATUS_ON_LEAVE = "ON_LEAVE";
+
+    /** LeaveRequest.status for leave that has actually been granted. */
+    private static final String LEAVE_STATUS_APPROVED = "APPROVED";
+
     private static final int DEFAULT_HISTORY_DAYS = 30;
 
     private final AttendanceRepository attendanceRepository;
+    private final LeaveRequestRepository leaveRequestRepository;
     private final AttendancePunchRepository attendancePunchRepository;
     private final WebClockInRequestRepository webClockInRequestRepository;
     private final AttendanceExceptionRepository attendanceExceptionRepository;
@@ -1532,6 +1546,7 @@ public class AttendanceService {
                                                 LocalDate day) {
         Map<UUID, List<Attendance>> byEmployee = records.stream()
                 .collect(Collectors.groupingBy(Attendance::getEmployeeUserId));
+        Set<UUID> onLeave = employeesOnApprovedLeave(employees, day);
 
         List<AttendanceResponse> rows = new ArrayList<>(employees.size());
         for (Employee employee : employees) {
@@ -1544,11 +1559,38 @@ public class AttendanceService {
                             .fullName(employee.getFullName())
                             .workDate(day)
                             .workMode(employee.getWorkMode())
+                            // Only ever fills a row that would otherwise be blank. An employee with
+                            // approved leave who nevertheless punched in has a real attendance
+                            // record, and that record is the truth about their day.
+                            .status(onLeave.contains(employee.getUserId()) ? STATUS_ON_LEAVE : null)
                             .build());
         }
         rows.sort(Comparator.comparing(AttendanceResponse::getFullName,
                 Comparator.nullsLast(String::compareToIgnoreCase)));
         return rows;
+    }
+
+    /**
+     * Which of these employees have approved leave covering {@code day}.
+     *
+     * <p>One query for the whole roster rather than one per employee - these views render every
+     * active employee in the organisation, so a per-row lookup would be an N+1 on the largest
+     * table this screen touches.
+     *
+     * <p>Scoped by the employee ids already in hand rather than the org-wide query, so the same
+     * code serves the org, team and peers rosters and can never return leave for somebody the
+     * caller was not entitled to see in the first place.
+     */
+    private Set<UUID> employeesOnApprovedLeave(List<Employee> employees, LocalDate day) {
+        if (employees.isEmpty()) return Set.of();
+
+        List<UUID> employeeIds = employees.stream().map(Employee::getUserId).toList();
+        return leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        employeeIds, LEAVE_STATUS_APPROVED, day, day)
+                .stream()
+                .map(LeaveRequest::getEmployeeUserId)
+                .collect(Collectors.toSet());
     }
 
     /**

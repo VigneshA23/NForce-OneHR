@@ -30,6 +30,7 @@ import AuditHistoryPage from './pages/AuditHistoryPage';
 import AuditSecurityPage from './pages/AuditSecurityPage';
 import HelpDeskPage from './pages/HelpDeskPage';
 import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
+import WorkflowStudioPage from './pages/WorkflowStudioPage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
@@ -144,6 +145,7 @@ export default function App() {
           <Route path="/my-documents"   element={<DocumentsPage />} />
           <Route path="/policies"       element={<PoliciesPage />} />
           <Route path="/onboarding"     element={<OnboardingPage />} />
+          <Route path="/workflows"      element={<WorkflowStudioPage />} />
           <Route path="/audit"          element={<AuditRouter />} />
           <Route path="/search"         element={<SearchResultsPage />} />
         </Route>
