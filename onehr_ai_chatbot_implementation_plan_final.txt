@@ -1,0 +1,420 @@
+ONEHR AI SUPPORT ASSISTANT — IMPLEMENTATION PLAN FOR CLAUDE
+
+Repository: VigneshA23/NForce-OneHR
+Target branch: dev
+
+IMPORTANT EXECUTION RULE
+- Inspect the current dev branch before making any changes.
+- Treat the repository as the source of truth for existing functionality, routes, APIs, security, database schema, UI conventions, and business logic.
+- Reuse existing authentication, authorization, navigation, Help & Guidance, API, service, validation, audit, and UI patterns wherever applicable.
+- Preserve all existing functionality.
+- Do not perform broad unrelated refactors.
+- Do not rename existing routes or public APIs unless absolutely required and explicitly justified.
+
+PHASE 1 — BASELINE AUDIT
+- Inspect the current backend and frontend architecture.
+- Inspect Spring Security/JWT authentication and authorization.
+- Inspect role resolution and permissions.
+- Inspect Flyway/database conventions.
+- Inspect existing REST controller/service/repository patterns.
+- Inspect frontend Shell, navigation, routing, Zustand state, API clients, responsive UI, and design system.
+- Inspect Help & Guidance end-to-end.
+- Identify existing page IDs/routes and role-specific navigation.
+- Produce an architecture/reuse/risk map before implementing.
+
+PHASE 2 — PROVIDER-NEUTRAL AI DOMAIN CONTRACTS
+Create provider-independent contracts for:
+- KnowledgeDocument
+- KnowledgeChunk
+- PageReference
+- ActionDefinition
+- WorkflowDefinition
+- AssistantRequestContext
+- AssistantResponse
+- NavigationAction
+- RetrievalResult
+- LLMProvider
+- EmbeddingProvider
+
+Keep provider-specific implementation details out of domain contracts.
+
+PHASE 3 — KNOWLEDGE MODEL
+- Design a structured, machine-readable, versionable knowledge model.
+- Reuse or complement Help & Guidance rather than duplicating it unnecessarily.
+- Support application foundations, roles/permissions, modules, pages, UI elements, actions, workflows, troubleshooting, FAQs/how-to, terminology/synonyms, and navigation.
+- Include source/version/status metadata.
+- Keep unpublished/archived information out of employee-facing retrieval as appropriate.
+
+PHASE 4 — AUTHORITATIVE PAGE AND NAVIGATION REGISTRY
+- Build an authoritative page registry mapping pageId -> route -> label -> module -> role access.
+- Respect role-dependent routes already present in OneHR.
+- Never allow the LLM to invent routes.
+- Never expose Phase 2/locked placeholders as executable navigation targets.
+- Validate every navigation target server-side.
+
+PHASE 5 — APPLICATION KNOWLEDGE
+Populate authoritative knowledge for the actual implemented Phase 1 application:
+- modules
+- pages
+- important UI actions
+- role differences
+- permissions
+- workflows
+- approval/rejection/cancellation paths
+- validations
+- common errors and resolutions
+- terminology and synonyms
+- navigation
+Prioritize actual implemented behavior over assumptions.
+
+PHASE 6 — RAG STORAGE
+- Prefer PostgreSQL + pgvector if compatible with the existing infrastructure and operational constraints.
+- Otherwise choose the smallest maintainable vector-store solution.
+- Abstract storage through KnowledgeIndexRepository.
+- Provide KnowledgeRetriever abstraction.
+- Support upsert/delete/re-index.
+- Store source IDs and metadata.
+- Support role/audience/module/page filtering.
+
+PHASE 7 — EMBEDDINGS
+- Add an EmbeddingProvider abstraction.
+- Use an appropriate initial embedding provider.
+- Keep embedding-provider details isolated.
+- Chunk knowledge around meaningful application concepts rather than arbitrary large text blocks.
+- Support re-indexing when knowledge changes.
+
+PHASE 8 — MISTRAL LLM ADAPTER
+- Implement the initial Mistral provider behind LLMProvider.
+- Keep API keys/backend credentials server-side only.
+- Put provider-specific SDK/API code behind the adapter.
+- Make provider configuration environment-driven.
+- Make another provider addable without rewriting assistant business logic.
+
+PHASE 9 — PROMPT AND RESPONSE POLICY
+The assistant must:
+- Answer OneHR questions only.
+- Use retrieved OneHR knowledge as its source of truth.
+- Respect the authenticated user's role and effective permissions.
+- Never invent functionality, routes, workflows, permissions, errors, or policies.
+- Ask for clarification when necessary and safe.
+- Return a controlled UNKNOWN response when reliable knowledge is unavailable.
+- Avoid presenting general external knowledge as OneHR behavior.
+
+Use a backend-owned structured response schema such as:
+{
+  "type": "HOW_TO | EXPLANATION | NAVIGATION | TROUBLESHOOTING | PERMISSION | UNKNOWN",
+  "answer": "...",
+  "steps": ["..."],
+  "navigation": {"pageId": "..."},
+  "related": [],
+  "confidence": "HIGH | MEDIUM | LOW"
+}
+
+Validate the response before returning it to the frontend.
+
+PHASE 10 — ASSISTANT BACKEND SERVICE
+Implement the service flow:
+JWT authentication
+-> resolve actual user
+-> resolve actual roles/permissions
+-> build runtime context
+-> retrieve authorized knowledge
+-> construct LLM context
+-> call LLM
+-> validate structured response
+-> validate navigation
+-> return response
+
+Do not trust client-supplied role, permissions, arbitrary route, raw SQL, or arbitrary backend operations.
+
+PHASE 11 — CHAT API
+Implement a backend endpoint such as:
+POST /api/ai-assistant/chat
+
+Request should support:
+- conversationId
+- message
+- currentPageId
+- currentModule
+- other safe runtime context as required
+
+Do not accept security-sensitive authority claims from the frontend.
+
+Optional supporting endpoints may include feedback and index health if justified.
+
+PHASE 12 — CONVERSATION CONTEXT
+- Support conversationId.
+- Store only the minimum required short-term context.
+- Support follow-up questions.
+- Prevent conversation history from overriding authorization or application truth.
+- Keep context bounded to avoid uncontrolled token growth.
+
+PHASE 13 — HELP & GUIDANCE INTEGRATION
+- Reuse published FAQ/Guide content as knowledge sources where appropriate.
+- Respect Help & Guidance lifecycle.
+- Published content should be retrievable only when published and audience-authorized.
+- Changes such as publish/unpublish/archive should update or invalidate indexing appropriately.
+- Preserve Help & Guidance as an independent existing feature.
+- Do not assume every Help & Guidance row contains enough action-level knowledge.
+- If attachments are ingested, parse them safely and preserve source attribution.
+
+PHASE 14 — FRONTEND API CLIENT
+- Add the assistant API client under the existing frontend API conventions.
+- Match current authentication/token handling and error handling.
+- Keep types aligned with the backend response contract.
+
+PHASE 15 — ASSISTANT UI
+Embed the assistant inside the existing Shell without replacing:
+- global search
+- sidebar/navigation
+- profile controls
+- notifications
+- theme controls
+- mobile navigation
+- existing responsive behavior
+
+Suggested component structure:
+frontend/src/components/ai-assistant/
+- AssistantButton
+- AssistantPanel
+- AssistantHeader
+- MessageList
+- MessageBubble
+- StepList
+- NavigationAction
+- FeedbackControls
+- EmptyState
+- LoadingState
+- ErrorState
+
+Requirements:
+- desktop and mobile support
+- accessible controls
+- loading/error states
+- clear/restart conversation
+- thumbs up/down feedback
+- step-by-step answers
+- safe Open Page navigation
+- visual consistency with OneHR
+- do not introduce a fixed-width mobile container that breaks full-screen behavior
+
+PHASE 16 — STREAMING
+- Streaming responses may be implemented if they fit cleanly into the existing architecture.
+- Reliability and error handling take priority over streaming complexity.
+- Do not make streaming a dependency for correctness.
+
+PHASE 17 — RUNTIME CONTEXT
+Build a safe runtime context containing, as appropriate:
+- authenticated user identity only when needed
+- actual roles
+- effective permissions
+- current pageId
+- current module
+- organization context if required and authorized
+- current record/status only when explicitly supported
+
+Do not expose unnecessary personal or sensitive data to the LLM.
+
+PHASE 18 — FUTURE TOOL/ACTION FRAMEWORK FOUNDATION
+- Design the future tool/action framework, but do not enable mutation actions in the initial release.
+- The initial chatbot remains strictly read-only.
+- Define provider-neutral interfaces for future actions.
+- Do not allow arbitrary backend calls, SQL, URLs, service invocation, or database access.
+- Future actions must be explicit, registered, permission-checked, and connected to existing OneHR business services.
+- No action should execute merely because the LLM produces an action-like response.
+
+PHASE 19 — RAG QUALITY CONTROLS
+Implement:
+- top-k retrieval
+- metadata filtering
+- relevance/score threshold
+- optional reranking
+- deduplication
+- source IDs
+- confidence handling
+- role/audience filtering
+- page/module filtering
+- retrieval failure handling
+
+PHASE 20 — DETERMINISTIC UNKNOWN/GUARDRAIL PATH
+If:
+- no relevant knowledge exists
+- relevance is below threshold
+- requested functionality is unauthorized
+- LLM output is malformed
+- provider fails
+- navigation is invalid
+- retrieval/indexing fails
+
+then return a controlled, safe response rather than hallucinating.
+
+PHASE 21 — OBSERVABILITY
+Log/measure safely:
+- request ID/conversation ID
+- user role/audience
+- query
+- retrieved knowledge IDs
+- response type
+- provider
+- latency
+- success/error
+- feedback
+
+Never log API keys, passwords, tokens, or unnecessary sensitive information.
+
+PHASE 22 — TESTING
+Backend tests:
+- authentication
+- authorization
+- role filtering
+- audience filtering
+- retrieval
+- unknown handling
+- response schema validation
+- navigation safety
+- follow-up context
+- provider adapter
+- RAG failure
+- disabled action framework
+- security boundary preventing arbitrary mutation
+
+Frontend tests:
+- assistant rendering
+- authenticated behavior
+- message flow
+- loading/error states
+- navigation
+- feedback
+- clear/restart
+- responsive/mobile behavior
+
+Create an evaluation fixture set covering real OneHR questions for:
+- Employee
+- Manager
+- HR Admin
+- Super Admin
+
+PHASE 23 — CONFIGURATION AND DEPLOYMENT
+- Store secrets in environment/configuration, never source code.
+- Document local/test/prod configuration.
+- Verify CORS/security behavior.
+- Ensure builds and tests remain stable.
+- Ensure AI dependencies do not break normal OneHR startup.
+
+PHASE 24 — DOCUMENTATION
+Document:
+- architecture
+- setup
+- environment variables
+- provider configuration
+- knowledge schema
+- indexing/re-indexing
+- Help & Guidance integration
+- adding a page/action/workflow to knowledge
+- provider replacement
+- troubleshooting
+- future action execution architecture
+
+PHASE 25 — REAL APPLICATION VALIDATION
+Validate the assistant against actual implemented functionality using all four primary roles:
+- Employee
+- Manager
+- HR Admin
+- Super Admin
+
+Test:
+- navigation
+- role differences
+- permissions
+- workflows
+- errors
+- Help & Guidance
+- follow-up questions
+- unsupported/general questions
+- mobile UI
+- security boundaries
+
+PHASE 26 — DEFINITION OF DONE
+The read-only release is complete only when:
+- authenticated users can use the assistant
+- answers are OneHR-specific
+- answers are grounded in authoritative knowledge
+- role/permission boundaries are respected
+- navigation targets are validated
+- workflows/errors can be explained accurately
+- follow-up questions work
+- unsupported questions receive controlled responses
+- hallucinated routes/actions are prevented
+- Mistral works through LLMProvider
+- RAG works through provider/storage abstractions
+- Help & Guidance is integrated appropriately
+- existing OneHR functionality remains intact
+- backend/frontend tests pass
+- the action-execution extension point exists but cannot mutate data
+
+PHASE 27 — CHANGE DISCIPLINE
+- Keep changes focused on the AI assistant.
+- Avoid broad unrelated refactoring.
+- Do not delete or replace Help & Guidance.
+- Do not rewrite authentication/session handling.
+- Do not rewrite the existing navigation system.
+- Do not rename routes/public APIs unnecessarily.
+- Reuse existing OneHR services and business rules.
+- Stop and resolve architectural conflicts rather than making assumptions.
+
+PHASE 28 — ACTION EXECUTION ARCHITECTURE: FUTURE EXTENSION POINT ONLY
+This phase is part of the initial architecture, but its functionality is intentionally disabled.
+
+- Build the structural foundation for future AI-driven OneHR actions while keeping the execution layer NON-FUNCTIONAL and operationally inert.
+- Do not enable any action that creates, updates, deletes, approves, rejects, submits, or otherwise mutates OneHR data in the initial chatbot release.
+- Introduce explicit, provider-neutral contracts such as:
+  - ActionDefinition
+  - ActionRequest
+  - ActionResult
+  - ActionRegistry
+  - ActionAuthorization
+  - ActionExecutor
+  - ActionConfirmation
+- Each ActionDefinition should be able to declare:
+  - unique action ID
+  - name/description
+  - supported roles/permissions
+  - required inputs
+  - validation rules
+  - preconditions
+  - confirmation requirement
+  - expected result
+  - related module/page/workflow
+  - enabled/disabled status
+- Keep the action registry explicit. Actions should be disabled or unregistered by default.
+- The LLM may identify an apparent user intent, but it must never directly execute an action.
+- Any future execution request must become a structured ActionRequest and pass through backend controls.
+- Backend authorization remains authoritative. Never trust role, permission, user ID, or other security-sensitive execution parameters supplied by the LLM or frontend.
+- Future actions must call existing OneHR domain services/APIs rather than duplicate business logic.
+- Do not create fake/stub mutation endpoints that appear functional.
+- Do not leave an accidental mutation path through generic service invocation, arbitrary HTTP requests, SQL, reflection, or dynamically constructed backend calls.
+- The initial release must have no executable chatbot mutation path.
+- If a user asks the read-only assistant to perform an action, return a controlled response explaining that action execution is not enabled yet, or explain the applicable existing workflow.
+- Design the framework so future implementation can progress through:
+  1. Read-only information retrieval
+  2. Action intent recognition
+  3. Draft/pre-filled actions without submission
+  4. Explicitly confirmed actions
+  5. More complex multi-step workflows
+- Intended future execution flow:
+  User request
+  -> intent detection
+  -> structured ActionRequest
+  -> backend authentication
+  -> backend authorization
+  -> business-rule validation
+  -> explicit confirmation where required
+  -> existing OneHR service/API
+  -> ActionResult
+  -> assistant response
+- Preserve existing OneHR authorization, validation, transaction, audit, and business-rule mechanisms.
+- Add tests now proving that the action framework remains disabled and that LLM output cannot trigger arbitrary mutation.
+- Document how future developers can enable individual actions safely without redesigning the chatbot core.
+
+FINAL IMPLEMENTATION PRINCIPLE
+Build the first release as a secure, accurate, read-only OneHR assistant, while deliberately creating the extension points needed for future action execution. The future action layer must be structurally present but operationally inert until individual actions are explicitly implemented, authorized, tested, and enabled.

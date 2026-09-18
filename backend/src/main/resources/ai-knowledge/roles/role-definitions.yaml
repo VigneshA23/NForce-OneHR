@@ -1,0 +1,87 @@
+# Roles and what each one can do.
+#
+# Authored from RoleUtils, SecurityConfig, the @PreAuthorize guards across the controllers, and
+# nav.config.ts. Note the gap between the seven role codes that exist in the database and the four
+# roles the interface is built around - it explains why some people see an Employee sidebar despite
+# holding a different role code.
+
+knowledge:
+
+  - knowledgeId: role.overview
+    type: ROLE
+    module: foundation
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: The roles in OneHR
+    synonyms:
+      - what roles are there
+      - what is my role
+      - role types
+      - who can do what
+      - permission levels
+    body: |
+      OneHR presents four roles, and the sidebar you see is decided by which one you hold:
+
+      Employee. Your own records: attendance, leave, documents, assets and expenses, and the
+      requests you raise. You can see the People Directory, the Org Hierarchy and My Team.
+
+      Manager. Everything an Employee has, plus your direct reports. You can see their attendance
+      and leave, approve what they submit through the Approval Center, and use the Exception
+      Dashboard and Audit History.
+
+      HR Admin. Organisation-wide HR administration: Employee Master, Onboarding, Documents and
+      Compliance, Policies and Announcements, Organization Structure, and organisation-wide
+      Attendance and Leave administration. HR Admins can approve most requests regardless of
+      reporting line, and they author and publish Help and Guidance content.
+
+      Super Admin. User Management (accounts and role assignment) and Organization Masters, plus
+      organisation-wide Attendance, Leave, Approvals, Assets and the full Audit and Security trail.
+
+      People can hold more than one role. Every Manager, HR Admin and Super Admin also holds the
+      base Employee role, which is why they still have their own attendance and leave.
+
+      A few additional role codes exist in the system - Leadership, Finance and Delivery - which
+      are recorded against the account but do not have a distinct interface of their own. Someone
+      holding one of these sees the Employee sidebar.
+
+  - knowledgeId: role.who-approves
+    type: ROLE
+    module: approvals
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Who approves what
+    synonyms:
+      - who approves my request
+      - who is my approver
+      - who can approve leave
+      - who signs off
+      - why cant I approve this
+      - approval permissions
+    body: |
+      Approvals depend on the request type and on your relationship to the person who raised it.
+
+      Leave. The employee's current reporting manager, or any HR Admin or Super Admin regardless of
+      reporting line. A Super Admin's own leave is the exception: it goes to a specific assigned
+      approver, and holding a senior role does not override that.
+
+      Regularization. A Manager can decide their own direct reports' requests, and that approval is
+      final. HR Admins and Super Admins can decide any request.
+
+      Work From Home, Partial Day and Overtime. A Manager decides for their own reports; HR Admins
+      and Super Admins can decide any.
+
+      Expense claims. Two stages. A Manager approves first, then it goes to a final approver for
+      payroll clearance. HR Admins and Super Admins see claims at either stage.
+
+      Asset requests. A Manager decides for their own reports; HR Admins and Super Admins see all
+      pending requests.
+
+      Help content. Approval goes to the author's own reporting manager, who is often an ordinary
+      Manager rather than HR. A Super Admin can decide any pending help content approval.
+
+      Two rules hold for every type:
+      - You can never approve or reject something you submitted yourself.
+      - A request that has already been decided cannot be decided again.
+
+      If you expected to be able to approve something and cannot, see "Why you might see Access
+      denied".

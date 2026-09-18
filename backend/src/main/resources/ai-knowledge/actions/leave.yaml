@@ -1,0 +1,189 @@
+# Leave and Holidays.
+#
+# Authored from LeaveService, LeaveController and migrations V19/V122/V140/V153. Two things here
+# contradict what anyone would reasonably assume about an HR system, and both are stated plainly
+# because a plausible wrong answer about someone's leave is worse than no answer:
+#   1. There is no cancel or withdraw path. LeaveService has no CANCELLED status and no edit flow.
+#   2. Annual, Sick and Casual share one consolidated balance (V122), so spending one reduces all.
+
+knowledge:
+
+  - knowledgeId: action.leave.apply
+    type: ACTION
+    module: leave
+    pageId: leave
+    actionId: leave.apply
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Applying for leave
+    synonyms:
+      - apply for leave
+      - request leave
+      - book time off
+      - take a holiday
+      - request vacation
+      - put in for leave
+      - apply leave
+      - I want a day off
+      - annual leave request
+      - sick leave
+    body: |
+      Open Leave and Holidays from the sidebar, then use Apply for Leave.
+
+      Steps:
+      1. Open Leave and Holidays.
+      2. Click Apply for Leave.
+      3. Choose the leave type. Your available balance for each type is shown.
+      4. Choose the duration: full day, half day, quarter day or hourly.
+      5. Pick the start and end dates. For a half day, start and end must be the same date.
+      6. Enter a reason.
+      7. Submit.
+
+      The request is created with status PENDING and goes to your approver. You can track it from
+      Requests, and you are notified when it is decided.
+
+      Rules that will stop a submission:
+      - The end date cannot be before the start date.
+      - A half-day request must use the same date for start and end.
+      - You cannot apply for a date in the past. Backdated leave is not accepted.
+      - You cannot have two overlapping requests. If you already have a pending or approved request
+        covering any of those dates, the new one is refused.
+      - The request cannot exceed your available balance for that leave type.
+
+      Once submitted you cannot change or cancel it yourself. See "Cancelling or changing a leave
+      request" for what to do instead.
+
+  - knowledgeId: action.leave.cancel
+    type: ACTION
+    module: leave
+    pageId: leave
+    actionId: leave.cancel
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Cancelling or changing a leave request
+    synonyms:
+      - cancel leave
+      - withdraw leave request
+      - delete my leave request
+      - undo leave
+      - change my leave dates
+      - edit leave request
+      - I applied by mistake
+      - revoke leave
+    body: |
+      OneHR has no cancel or withdraw action for leave. This is a genuine gap in the application,
+      not a permission you are missing: leave requests only ever have the statuses PENDING,
+      APPROVED and REJECTED, and there is no edit flow.
+
+      If the request is still PENDING, ask your approver to reject it. A rejected request releases
+      the balance it was holding, which is the practical equivalent of cancelling. Then submit a
+      fresh request with the right details.
+
+      If the request has already been APPROVED, you cannot undo it yourself and neither can your
+      manager through the normal flow. Raise a ticket with HR from Help and Guidance and explain
+      what needs correcting.
+
+      There is no way to edit a submitted request. Changing dates or leave type means having the
+      original rejected and submitting a new one.
+
+  - knowledgeId: action.leave.check-balance
+    type: ACTION
+    module: leave
+    pageId: leave
+    actionId: leave.balance
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Checking your leave balance
+    synonyms:
+      - how much leave do I have
+      - leave balance
+      - how many days left
+      - remaining leave
+      - my leave entitlement
+      - do I have leave left
+    body: |
+      Your balances are shown on Leave and Holidays, and again in the Apply for Leave form next to
+      each leave type.
+
+      How the available figure is worked out: available = total entitlement, minus days already
+      used on approved leave, minus days reserved by requests that are still pending.
+
+      Pending requests are deducted even though they have not been approved. This is deliberate: it
+      stops two pending requests between them exceeding your entitlement. If a pending request is
+      rejected, the days it was holding come back.
+
+      Annual, Sick and Casual leave draw on a single shared balance rather than three separate
+      ones. Taking annual leave therefore reduces what is available for sick and casual leave too.
+      This surprises people who expect separate pots.
+
+      The assistant cannot tell you your current balance. Balances are live data belonging to your
+      record; open Leave and Holidays to see the actual numbers.
+
+  - knowledgeId: action.leave.approve
+    type: ACTION
+    module: leave
+    pageId: approvals
+    actionId: leave.approve
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Approving or rejecting a leave request
+    synonyms:
+      - approve leave
+      - reject leave
+      - decline leave request
+      - decide leave
+      - action a leave request
+      - my team's leave requests
+    body: |
+      Leave requests waiting on you appear in the Approval Center, alongside every other kind of
+      request you can decide.
+
+      Steps:
+      1. Open Approval Center.
+      2. Find the leave request. The queue shows who raised it, the dates, the leave type and the
+         reason.
+      3. Choose Approve or Reject. Rejecting requires a reason, which the employee will see.
+
+      Who can decide a leave request:
+      - The employee's current reporting manager.
+      - Any HR Admin or Super Admin, regardless of reporting line.
+
+      One exception: a Super Admin's own leave is routed to a specific assigned approver, and
+      holding HR Admin or Super Admin does not grant the usual override for it. This stops an
+      unrelated administrator rubber-stamping a Super Admin's leave.
+
+      You can never decide your own submission, whatever role you hold.
+
+      The balance is re-checked at the moment you approve, not only when the employee applied. If
+      the employee no longer has enough balance the approval is refused, which can happen when
+      other requests were approved in between.
+
+      If two approvers act at the same moment, one gets a message saying the record was just
+      updated and to refresh. Reload and check the current status before deciding again.
+
+      A request that has already been decided cannot be decided again.
+
+  - knowledgeId: action.leave.holidays
+    type: ACTION
+    module: leave
+    pageId: leave
+    actionId: leave.holidays
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Viewing the holiday calendar
+    synonyms:
+      - public holidays
+      - holiday list
+      - when is the next holiday
+      - holiday calendar
+      - company holidays
+      - is monday a holiday
+    body: |
+      The holiday calendar is on Leave and Holidays, on its own tab beside your leave.
+
+      Holidays are specific to a location, so what you see is the list for the location on your
+      employee record rather than a single company-wide list. Colleagues in other locations may
+      have a different set.
+
+      HR Admins maintain the holiday list. If a holiday looks wrong or missing for your location,
+      raise it with HR from Help and Guidance.
