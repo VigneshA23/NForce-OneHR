@@ -2,8 +2,9 @@
 
 An authenticated, read-only support assistant built into OneHR. It answers questions about how
 OneHR works — features, actions, workflows, roles, errors — and can offer to take the user to a
-page they are allowed to open. It answers **only** from a curated knowledge base, scoped to what the
-signed-in user is allowed to see.
+page they are allowed to open. It answers from a curated knowledge base plus, where the question
+calls for it, the signed-in user's own live records — both scoped to what that user is allowed to
+see.
 
 ## What it deliberately is not
 
@@ -15,6 +16,18 @@ signed-in user is allowed to see.
   never called at all; the user gets a controlled decline pointing at Help & Guidance.
 - **It does not know your company's policy.** Leave entitlements, notice periods and the like are
   configured per organisation and are not in the knowledge base. It explains where to look.
+- **It reads only the asker's own records.** Live data comes from the same actor-scoped service
+  methods the pages use, so an Employee sees themselves and a Manager sees their reports — there is
+  no second authorisation path that could disagree with the first. See
+  [live-data.md](live-data.md).
+
+## What leaves your infrastructure
+
+Static OneHR documentation, and — on questions that call for it — the asker's own live figures:
+leave balances, expense claim statuses and amounts, attendance exceptions, pending approval counts.
+That is real employee data going to a third-party API, which is a deliberate decision rather than an
+accident of the design. [live-data.md](live-data.md) sets out exactly what can be sent, what cannot,
+and the three limits that bound it.
 
 ## Where things live
 
@@ -37,6 +50,7 @@ launcher as its last child, and `index.css` gains the mobile panel rules.
 | [configuration.md](configuration.md) | Environment variables, enabling it, swapping the provider |
 | [knowledge-authoring.md](knowledge-authoring.md) | Writing knowledge, the YAML schema, adding a page |
 | [operations.md](operations.md) | Re-indexing, health, the interaction log, retention, troubleshooting |
+| [live-data.md](live-data.md) | How the asker's own records reach an answer, and what bounds it |
 | [action-execution.md](action-execution.md) | Why actions cannot run, and how to enable one safely later |
 
 ## The 60-second version

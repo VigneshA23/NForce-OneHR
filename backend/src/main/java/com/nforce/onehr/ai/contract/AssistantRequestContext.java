@@ -22,6 +22,16 @@ public class AssistantRequestContext {
     private UUID userId;
 
     /**
+     * The authenticated principal's email.
+     *
+     * <p>Present so live-data providers can call the existing actor-scoped service methods, which
+     * all take an email and resolve the caller themselves. It always comes from the JWT via
+     * {@code principal.getName()} and never from a request body, so it cannot be used to read
+     * somebody else's records.
+     */
+    private String actorEmail;
+
+    /**
      * Highest-priority role code held, from {@code RoleUtils#primaryRoleCode} — one of the seven
      * real codes (SUPER_ADMIN, HR_ADMIN, MANAGER, LEADERSHIP, FINANCE, DELIVERY, EMPLOYEE). Used
      * to phrase answers ("as a Manager you can…").
