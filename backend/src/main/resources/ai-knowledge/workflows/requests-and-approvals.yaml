@@ -1,0 +1,156 @@
+# The Approval Center, the My Requests tracker, and the HR Help Desk.
+#
+# Authored from ApprovalCenterController, MyRequestsController, HelpdeskService and TicketStatus.
+# Note the asymmetry between the two queues: Asset and Expense appear in the Approval Center but
+# NOT in My Requests, which is a common source of "where did my request go".
+
+knowledge:
+
+  - knowledgeId: workflow.approval-center
+    type: WORKFLOW
+    module: approvals
+    pageId: approvals
+    workflowId: approvals.queue
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: The Approval Center
+    synonyms:
+      - approval center
+      - approvals page
+      - what needs my approval
+      - pending approvals
+      - my approval queue
+      - things waiting on me
+    body: |
+      The Approval Center is the single queue for everything awaiting your decision. Approval
+      decisions for every request type are made here; no other page issues them.
+
+      Eight kinds of request flow through it:
+      - Leave
+      - Regularization
+      - Expense claims
+      - Asset requests
+      - Work From Home
+      - Partial Day
+      - Overtime
+      - Help content awaiting publication approval
+
+      What you see depends on your role. A Manager sees items raised by their own direct reports.
+      An HR Admin or Super Admin sees them organisation-wide.
+
+      Expense claims are the one type with two stages. Managers see claims at the manager stage
+      only. HR Admins and Super Admins see both stages, and each item is tagged with which stage it
+      is at so the right decision is applied.
+
+      Help content approvals behave differently from the rest: a plain HR Admin sees only the
+      approvals actually assigned to them, while a Super Admin sees every pending one.
+
+      If you hold two roles, for example Manager and HR Admin, the queue removes duplicates so an
+      item appears once.
+
+  - knowledgeId: workflow.my-requests
+    type: WORKFLOW
+    module: requests
+    pageId: requests
+    workflowId: requests.tracker
+    version: 1
+    audience: [EMPLOYEE, MANAGER]
+    title: Tracking the requests you have raised
+    synonyms:
+      - my requests
+      - where is my request
+      - status of my request
+      - did my request get approved
+      - track my request
+      - pending requests
+      - what did I submit
+    body: |
+      Requests, in the sidebar, is a read-only tracker for what you have raised. It shows the type,
+      the dates, the current status and when it was last updated, newest first.
+
+      It covers Leave, Regularization, Work From Home, Partial Day and Overtime.
+
+      Two things deliberately do not appear here:
+      - Web clock-ins, because they no longer need approval and so have nothing to track.
+      - Asset requests and expense claims, which are tracked on the Assets and Expenses page
+        instead. They still go through the Approval Center for the approver, which is why an
+        approver can see them but you cannot find them in Requests.
+
+      You cannot act on a request from this page. It is a tracker, not a queue: to change a pending
+      request you generally have to ask the approver to reject it and submit a new one.
+
+      For HR Admins and Super Admins this same sidebar entry opens the HR Help Desk ticket queue
+      instead, under the name HR Service Requests.
+
+  - knowledgeId: workflow.helpdesk-ticket
+    type: WORKFLOW
+    module: help
+    pageId: help
+    workflowId: helpdesk.ticket
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Raising a ticket with HR
+    synonyms:
+      - contact hr
+      - raise a ticket
+      - hr support
+      - ask hr
+      - help desk
+      - report a problem
+      - I need help from HR
+      - open a support ticket
+    body: |
+      When you cannot find an answer yourself, raise a ticket with HR from Help and Guidance.
+
+      Steps:
+      1. Open Help and Guidance.
+      2. Click Contact HR Support.
+      3. Choose the topic that fits, for example Attendance, Leave, Payroll, Benefits, Employee
+         Documents, Policies, Profile or Training.
+      4. Describe the problem. You can attach a file.
+      5. Submit. The ticket gets a reference number in the form HR-YYYY-NNNNNN.
+
+      Your tickets are listed on the same page, with their status, and you can open one to read
+      HR's replies and reply yourself.
+
+      Tickets move in one direction only: OPEN, then IN_PROGRESS, then RESOLVED, then CLOSED. A
+      ticket cannot go backwards and cannot be reopened once closed. A closed ticket also stops
+      accepting replies, so if a problem comes back after closure you raise a new ticket rather
+      than reviving the old one.
+
+  - knowledgeId: workflow.help-guidance
+    type: WORKFLOW
+    module: help
+    pageId: help
+    workflowId: help.content
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Help and Guidance content
+    synonyms:
+      - help and guidance
+      - faqs
+      - guides
+      - where is the documentation
+      - how do I find help
+      - self service help
+    body: |
+      Help and Guidance holds published FAQs and guides written by HR, with a search box across
+      them, and it is also where you raise a ticket with HR.
+
+      What you can see is filtered by audience. An article can be published to any combination of
+      Employee, Manager, HR and Admin, and you only see the ones that include you. An article
+      published with no audience chosen is visible to everyone.
+
+      For HR Admins and Super Admins the same page is also the authoring surface, with Add FAQ and
+      Add Guide, and per-article controls for the publication lifecycle.
+
+      An article moves through DRAFT, then PENDING_APPROVAL, then APPROVED, then PUBLISHED. It can
+      later be UNPUBLISHED (hidden but re-publishable without a fresh approval) or ARCHIVED.
+      Restoring an archived article always returns it to DRAFT and requires a fresh approval.
+
+      Editing a published article does not change what employees are reading: it creates a separate
+      draft revision, and the published version stays live until the new one is approved and
+      published in its place.
+
+      Only FAQs and Guides can be created. Two older types, Quick Help and Document, were retired
+      and their content removed.

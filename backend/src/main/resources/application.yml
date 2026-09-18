@@ -98,6 +98,36 @@ app:
       # (counts every submission regardless of eventual status). Super Admin is exempt. Same
       # future-Regularization-Policy note as employee-lookback-days above.
       monthly-limit: 3
+  ai:
+    # Off by default so OneHR starts normally in an environment with no Mistral credentials at all.
+    # A missing AI key must never stop the HR system booting.
+    enabled: ${AI_ASSISTANT_ENABLED:false}
+    provider: ${AI_PROVIDER:mistral}
+    mistral:
+      # No default, matching JWT_SECRET/RESEND_API_KEY: an unset key fails loudly rather than
+      # silently calling an unauthenticated API. Local dev supplies it via application-local.yml.
+      api-key: ${MISTRAL_API_KEY:}
+      # Defaults to ministral-8b because that is what the current subscription can actually
+      # serve: mistral-large-latest returns 403 tier_not_allowed, and small/medium return a
+      # persistent 429. Verified against the live API. It handles the grounded question-answering
+      # this assistant does perfectly well. Raise to mistral-small/medium/large via this env var
+      # once the subscription allows - no code change needed.
+      chat-model: ${MISTRAL_CHAT_MODEL:ministral-8b-latest}
+      # 1024 dimensions - must match the vector(1024) column in V185. Changing this model means
+      # changing that column width and fully re-indexing.
+      embed-model: ${MISTRAL_EMBED_MODEL:mistral-embed}
+      timeout-seconds: 30
+    retrieval:
+      top-k: 8
+      # 0.60, not 0.35. Calibrated against real mistral-embed output: unrelated text still scores
+      # about 0.59 against this knowledge base, so a lower floor filters nothing. See AiProperties.
+      min-score: 0.60
+      max-context-chars: 12000
+    limits:
+      max-message-chars: 1000
+      max-requests-per-user-per-hour: 60
+      max-history-turns: 6
+
 resend:
   api-key: ${RESEND_API_KEY}
   from: OneHR <onehr@nforceone.com>

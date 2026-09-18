@@ -17,6 +17,7 @@ import { profileApi } from '../api/profile';
 import { StatusBadge, inactiveDimStyle } from './EmployeeStatus';
 import { SidebarNetworkDecor } from './decor/SidebarNetworkDecor';
 import { EmployeeAvatar } from './EmployeeAvatar';
+import { AssistantLauncher } from './aiAssistant/AssistantLauncher';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -661,6 +662,12 @@ export function Shell() {
           {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
         </main>
       </div>
+
+      {/* Outside <main> so the panel is not inside its 26px padding or the sticky header's
+          stacking context, and last in the tree so it layers without changing anything above it.
+          currentPageId reuses `current.key`, already computed for the sidebar - the assistant
+          never derives the page itself, and the server re-validates whatever arrives. */}
+      <AssistantLauncher currentPageId={current.key} />
     </div>
   );
 }

@@ -32,6 +32,7 @@ class PenaltyEvaluationSchedulerTest {
         scheduler.run();
 
         verify(exceptionService, times(1)).runScheduledPenaltyEvaluation(60);
+        verify(exceptionService, times(1)).notifyUnnotifiedExceptions();
         verifyNoMoreInteractions(exceptionService);
     }
 
