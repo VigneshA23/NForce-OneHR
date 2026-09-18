@@ -39,6 +39,9 @@ export interface ExpenseClaimResponse {
   finalRejectionReason: string | null;
   paidAt: string | null;
   createdAt: string;
+  // Workflow Studio: false means Manager approval alone cleared this claim straight to
+  // CLEARED_FOR_PAYROLL — there was never an HR/final stage to display for it.
+  requiresSecondApproval: boolean;
 }
 
 export interface ExpenseTileEmployee {

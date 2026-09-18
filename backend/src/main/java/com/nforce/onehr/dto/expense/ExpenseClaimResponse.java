@@ -28,4 +28,8 @@ public class ExpenseClaimResponse {
     private String finalRejectionReason;
     private Instant paidAt;
     private Instant createdAt;
+    // Workflow Studio: whether this claim needs the HR/final stage at all, decided once at
+    // submission time (see ExpenseClaim.requiresSecondApproval). false means Manager approval
+    // alone clears it straight to CLEARED_FOR_PAYROLL.
+    private boolean requiresSecondApproval;
 }
