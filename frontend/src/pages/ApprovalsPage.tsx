@@ -5,14 +5,15 @@ import { useAuthStore } from '../store/authStore';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
+import { ReceiptViewerModal } from '../components/expenses/ReceiptViewerModal';
 import { leaveApi } from '../api/leave';
 import { regularizationApi } from '../api/attendance';
-import { webClockInApi } from '../api/webClockIn';
 import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
 import { attendanceRequestApi } from '../api/attendanceRequests';
 import { overtimeRequestApi } from '../api/overtimeRequests';
 import { useToast } from '../context/ToastContext';
+import { formatDurationMinutes } from '../context/TimeFormatContext';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
@@ -24,7 +25,6 @@ const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
-  WEB_CLOCK_IN: 'Web Clock-In',
   EXPENSE: 'Expense',
   ASSET_REQUEST: 'Asset Request',
   WFH: 'Work From Home',
@@ -44,7 +44,6 @@ const EMPTY_STATE_TYPE_LABELS: Record<RequestType, string> = {
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
-  WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
   EXPENSE: 'rgba(16,185,129,.18)',
   ASSET_REQUEST: 'rgba(139,92,246,.18)',
   WFH: 'rgba(76,141,214,.18)',
@@ -56,7 +55,6 @@ const TYPE_COLORS: Record<RequestType, string> = {
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
-  WEB_CLOCK_IN: '#4C8DD6',
   EXPENSE: '#10B981',
   ASSET_REQUEST: '#8B5CF6',
   WFH: '#4C8DD6',
@@ -82,7 +80,6 @@ function rowKey(item: Pick<ApprovalItem, 'id' | 'requestType'>): string {
 function approveItem(item: ApprovalItem, token: string) {
   if (item.requestType === 'LEAVE') return leaveApi.approve(item.id, token);
   if (item.requestType === 'REGULARIZATION') return regularizationApi.approve(item.id, token);
-  if (item.requestType === 'WEB_CLOCK_IN') return webClockInApi.approve(item.id, token);
   if (item.requestType === 'EXPENSE') {
     return item.approvalStage === 'MANAGER'
       ? expensesApi.managerApprove(item.id, token)
@@ -98,7 +95,6 @@ function approveItem(item: ApprovalItem, token: string) {
 function rejectItem(item: ApprovalItem, reason: string, token: string) {
   if (item.requestType === 'LEAVE') return leaveApi.reject(item.id, reason, token);
   if (item.requestType === 'REGULARIZATION') return regularizationApi.reject(item.id, reason, token);
-  if (item.requestType === 'WEB_CLOCK_IN') return webClockInApi.reject(item.id, reason, token);
   if (item.requestType === 'EXPENSE') {
     return item.approvalStage === 'MANAGER'
       ? expensesApi.managerReject(item.id, reason, token)
@@ -148,11 +144,19 @@ function getRequestedDates(item: ApprovalItem) {
     if (!item.leaveStartDate) return EMPTY_VALUE;
     return `${item.leaveStartDate}${item.leaveEndDate && item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
   }
-  if (item.requestType === 'REGULARIZATION' || item.requestType === 'WEB_CLOCK_IN' || item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY' || item.requestType === 'OVERTIME') {
+  if (item.requestType === 'REGULARIZATION' || item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY' || item.requestType === 'OVERTIME') {
     return item.attendanceDate ?? EMPTY_VALUE;
   }
   if (item.requestType === 'EXPENSE') {
     return item.expenseDate ?? EMPTY_VALUE;
+  }
+  // Asset requests only ever collect Category + Reason (see RequestAssetModal) — there's no
+  // separate "requested date" field to show. Rather than leave the column looking blank/broken,
+  // fall back to the submission date, which is a real, already-captured date for every request
+  // (item.createdAt is always populated). Sliced to a plain date to match the un-formatted
+  // ISO date strings the other branches above show in this same column.
+  if (item.requestType === 'ASSET_REQUEST') {
+    return item.createdAt.slice(0, 10);
   }
   return EMPTY_VALUE;
 }
@@ -163,7 +167,6 @@ function getReason(item: ApprovalItem) {
   if (item.requestType === 'ASSET_REQUEST') return item.assetRequestReason ?? EMPTY_VALUE;
   if (
     item.requestType === 'REGULARIZATION' ||
-    item.requestType === 'WEB_CLOCK_IN' ||
     item.requestType === 'WFH' ||
     item.requestType === 'PARTIAL_DAY' ||
     item.requestType === 'OVERTIME'
@@ -223,7 +226,7 @@ function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => vo
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 620, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Changes vs. previous submission</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Changes vs. previous submission</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
         </div>
         <div style={{ padding: 20 }}>
@@ -317,15 +320,6 @@ function HelpContentReviewSection({ item, token }: { item: ApprovalItem; token: 
   );
 }
 
-function ReceiptLightbox({ src, onClose }: { src: string; onClose: () => void }) {
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, cursor: 'zoom-out' }}>
-      <img src={src} alt="Receipt" onClick={e => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, boxShadow: '0 8px 48px rgba(0,0,0,.8)' }} />
-      <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,.1)', border: 'none', borderRadius: 6, padding: '6px 10px', color: '#fff', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>✕</button>
-    </div>
-  );
-}
-
 function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   item: ApprovalItem;
   mode: ReviewMode;
@@ -337,7 +331,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   const { showToast } = useToast();
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [viewingReceipt, setViewingReceipt] = useState(false);
 
   async function handleApprove() {
     setSubmitting(true);
@@ -372,7 +366,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TypeBadge type={item.requestType} />
-            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
               {item.employeeName}
             </span>
           </div>
@@ -398,36 +392,22 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
             </div>
           )}
 
-          {item.requestType === 'WEB_CLOCK_IN' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Work Date" value={item.attendanceDate} />
-              <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-              <Row label="Reason" value={item.regularizationReason} />
-            </div>
-          )}
-
           {item.requestType === 'EXPENSE' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Final clearance (HR/Admin)' : 'Manager approval'} />
+              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Pending Final Approval (HR/Admin)' : 'Pending Manager Review'} />
               <Row label="Category" value={item.expenseCategoryName} />
               <Row label="Amount" value={fmtCurrency(item.expenseAmount ?? 0)} />
               <Row label="Expense Date" value={fmtDate(item.expenseDate)} />
               <Row label="Business Purpose" value={item.businessPurpose} />
-              {item.receiptUrl && (
-                <div>
-                  <div style={labelStyle}>Receipt</div>
-                  {item.receiptUrl.startsWith('data:image') ? (
-                    <img
-                      src={item.receiptUrl}
-                      alt="Receipt"
-                      onClick={() => setLightboxSrc(item.receiptUrl!)}
-                      style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 6, border: '1px solid var(--line)', cursor: 'zoom-in', display: 'block' }}
-                    />
-                  ) : (
-                    <a href={item.receiptUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand)', fontSize: 13 }}>View receipt</a>
-                  )}
-                </div>
-              )}
+              <div>
+                <div style={labelStyle}>Receipt</div>
+                <button
+                  onClick={() => setViewingReceipt(true)}
+                  style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12.5, color: 'var(--brand)', cursor: 'pointer' }}
+                >
+                  View Receipt
+                </button>
+              </div>
             </div>
           )}
 
@@ -441,7 +421,10 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
           {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               <Row label="Date" value={item.attendanceDate} />
-              {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+              {/* partialDayHours is stored as a decimal (e.g. 3.33 for 3h 20m) — round-trip
+                  through minutes so the modal shows a precise "3h 20m" instead of that raw
+                  fraction, matching the duration format used everywhere else in the app. */}
+              {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
               <Row label="Reason" value={item.regularizationReason} />
             </div>
           )}
@@ -481,7 +464,9 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
           )}
         </div>
       </div>
-      {lightboxSrc && <ReceiptLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {viewingReceipt && item.requestType === 'EXPENSE' && (
+        <ReceiptViewerModal claimId={item.id} token={token} onClose={() => setViewingReceipt(false)} />
+      )}
     </div>
   );
 }
@@ -534,7 +519,7 @@ function BulkActionModal({ items, mode, onClose, onDone, token }: {
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: 440 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             {mode === 'approve' ? 'Approve Selected Requests' : 'Reject Selected Requests'}
           </span>
           <button onClick={onClose} disabled={submitting} style={{ background: 'none', border: 'none', cursor: submitting ? 'not-allowed' : 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
@@ -599,7 +584,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
 
 export default function ApprovalsPage() {
   const token = useAuthStore(s => s.token)!;
@@ -615,6 +600,17 @@ export default function ApprovalsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<ReviewMode | null>(null);
 
+  // Background refresh of the pending queue — used after an approve/reject action to correct
+  // `items` (and therefore the badge counts and visible list) against the true server state.
+  // Deliberately silent: no loading spinner and no toast on failure, since this runs after the
+  // optimistic local removal already gave the user feedback and a transient refetch failure
+  // shouldn't interrupt them — the queue simply stays as optimistically updated until the next
+  // successful reload (matches AssetsExpensesPage's reload()/PoliciesPage's
+  // refreshPendingAckTotal() pattern of a silent best-effort refetch).
+  function reloadQueue() {
+    approvalCenterApi.listPending(token).then(setItems).catch(() => {});
+  }
+
   useEffect(() => {
     approvalCenterApi.listPending(token)
       .then(setItems)
@@ -628,8 +624,11 @@ export default function ApprovalsPage() {
   const searched = searchTerm ? items.filter(i => i.employeeName.toLowerCase().includes(searchTerm)) : items;
   const filtered = typeFilter === 'ALL' ? searched : searched.filter(i => i.requestType === typeFilter);
 
-  const counts: Record<string, number> = { ALL: searched.length };
-  ALL_TYPES.forEach(t => { counts[t] = searched.filter(i => i.requestType === t).length; });
+  // Badge counts are totals over the full pending queue (`items`), not the search-narrowed
+  // `searched`/`filtered` subsets — typing in the employee search box should narrow the visible
+  // list below without making the "ALL"/per-type badge numbers shift.
+  const counts: Record<string, number> = { ALL: items.length };
+  ALL_TYPES.forEach(t => { counts[t] = items.filter(i => i.requestType === t).length; });
 
   // "Select all" only ever governs the currently-filtered/searched rows, not the whole queue —
   // selecting under one category filter and switching to another leaves that selection intact
@@ -639,10 +638,15 @@ export default function ApprovalsPage() {
   const someVisibleSelected = visibleKeys.some(k => selected.has(k));
   const selectedItems = items.filter(i => selected.has(rowKey(i)));
 
+  // Removes the acted-on item immediately for a snappy UI, then kicks off a silent background
+  // refetch of the full queue (reloadQueue) so `items` — and therefore the badge counts and
+  // visible list — self-corrects if this optimistic removal turns out to be incomplete, or if
+  // another approver acted on the same queue concurrently in a different session.
   function removeFromQueue(id: string, type: RequestType) {
     const key = `${type}:${id}`;
     setItems(prev => prev.filter(i => !(i.id === id && i.requestType === type)));
     setSelected(prev => { if (!prev.has(key)) return prev; const next = new Set(prev); next.delete(key); return next; });
+    reloadQueue();
   }
 
   function toggleSelected(key: string) {
@@ -670,12 +674,13 @@ export default function ApprovalsPage() {
       succeededKeys.forEach(k => next.delete(k));
       return next;
     });
+    reloadQueue();
   }
 
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Approval Center</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Approval Center</h1>
         {/* Subheading stays left, search pushed to the far right of the same row via
            space-between — search wraps below the subheading onto its own full-width line on
            narrow/mobile viewports instead of being squeezed into the corner. */}
@@ -804,7 +809,19 @@ export default function ApprovalsPage() {
                           style={{ cursor: 'pointer', accentColor: 'var(--brand)' }}
                         />
                       </td>
-                      <td style={tdStyle}><TypeBadge type={item.requestType} /></td>
+                      <td style={tdStyle}>
+                        <TypeBadge type={item.requestType} />
+                        {/* Expense claims now surface to HR/SA before Manager approval too (see
+                            ApprovalCenterController's expense branch) — this makes that stage
+                            visible at a glance in the queue itself, not just inside the detail
+                            modal's "Stage" row, so admins can tell a not-yet-manager-approved
+                            claim apart from one that's actually ready for their own final call. */}
+                        {item.requestType === 'EXPENSE' && item.approvalStage === 'MANAGER' && (
+                          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--txt-dim)', marginTop: 4, whiteSpace: 'nowrap' }}>
+                            Pending Manager Review
+                          </div>
+                        )}
+                      </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{item.employeeName}</td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{requestedDates}</td>
                       <td style={tdStyle}>

@@ -129,11 +129,11 @@ function WebClockInRow({ webToday, onSubmitted }: {
   const [showModal, setShowModal] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  // Web Clock Out / Resubmit / Web Clock In are mutually exclusive (see the three branches
-  // below) — never more than one of these text-links is mounted at once — so one shared hover
-  // flag is enough. Base color is high-contrast white (matches HeroCard's other high-emphasis
-  // text, e.g. the headline) since the previous var(--brand) red-on-near-black had poor
-  // contrast here (WCAG-failing); red is kept only as the hover accent, not the resting state.
+  // Web Clock Out / Web Clock In are mutually exclusive (see the two branches below) — never
+  // more than one of these text-links is mounted at once — so one shared hover flag is enough.
+  // Base color is high-contrast white (matches HeroCard's other high-emphasis text, e.g. the
+  // headline) since the previous var(--brand) red-on-near-black had poor contrast here
+  // (WCAG-failing); red is kept only as the hover accent, not the resting state.
   const [linkHovered, setLinkHovered] = useState(false);
   const actionLinkStyle: React.CSSProperties = {
     fontSize: 12, fontWeight: 600, color: linkHovered ? 'var(--brand)' : '#E8EAED',
@@ -141,21 +141,15 @@ function WebClockInRow({ webToday, onSubmitted }: {
     transition: 'color 120ms ease',
   };
 
-  // PENDING counts as "currently open" alongside APPROVED — the attendance effect is immediate
-  // regardless of HR review status (see WebClockInService.submit's doc comment).
+  // No approval/review status at all anymore (see WebClockInService's own class Javadoc) — the
+  // only thing that matters is whether the most recent cycle today is still open.
   const openWeb = useMemo(
-    () => webToday.find(r => (r.status === 'APPROVED' || r.status === 'PENDING') && !r.checkedOutAt) ?? null,
+    () => webToday.find(r => !r.checkedOutAt) ?? null,
     [webToday]);
-  const legacy = useMemo(
-    () => webToday.find(r => r.status === 'REJECTED' && !r.checkedOutAt) ?? null,
-    [webToday]);
-  // Most recent Web Clock-In of the day, regardless of status/checked-out — its reason is reused
-  // for every later cycle the same day/shift so the employee is only asked once (per requirement:
-  // "If Web Clock-In is performed again during the same day/shift, do not ask for the reason
-  // again"). `webToday` is already newest-first (see webClockInApi.mine), so [0] is the most
-  // recent cycle's reason. Null once a NEW calendar/shift day starts, since the parent's workDate
-  // filter no longer matches any of today's records.
-  const reusableReason = webToday[0]?.reason ?? null;
+  // Whether this employee has ANY Web Clock-In cycle on file today — the note is mandatory only
+  // for the very first cycle of the resolved work day (enforced server-side); every later cycle
+  // needs no note at all, so this click can skip the modal entirely and clock in immediately.
+  const isFirstCycleToday = webToday.length === 0;
 
   // Synchronous re-entrancy guards, checked/set BEFORE any state update — the `disabled`
   // attribute alone only blocks a real click once React has committed it, which isn't
@@ -188,14 +182,14 @@ function WebClockInRow({ webToday, onSubmitted }: {
     }
   }
 
-  // Reason already on file for today (a prior cycle this same day/shift) — skip the modal
-  // entirely and resubmit straight away, reusing it.
-  async function handleQuickWebClockIn(reason: string) {
+  // Not the first cycle of the day — no note required at all, so skip the modal entirely and
+  // clock in immediately.
+  async function handleQuickWebClockIn() {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      const resp = await webClockInApi.submit(reason, token);
+      const resp = await webClockInApi.submit(undefined, token);
       const at = formatClockTime(resp.requestedCheckIn);
       // Same ordering as handleCheckOut above — await the refetch before the finally block
       // re-enables the button, so it never shows the pre-submit label/state while clickable.
@@ -215,7 +209,6 @@ function WebClockInRow({ webToday, onSubmitted }: {
         <>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
             Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '—'}
-            {openWeb.status === 'PENDING' ? ' (awaiting HR approval)' : ''}
           </span>
           <button
             onClick={handleCheckOut}
@@ -228,22 +221,9 @@ function WebClockInRow({ webToday, onSubmitted }: {
           </button>
         </>
       )}
-      {!openWeb && legacy && (
-        <>
-          <span style={{ fontSize: 12, color: 'var(--risk)' }}>Web clock-in rejected{legacy.reviewComment ? `: ${legacy.reviewComment}` : '.'}</span>
-          <button
-            onClick={() => setShowModal(true)}
-            onMouseEnter={() => setLinkHovered(true)}
-            onMouseLeave={() => setLinkHovered(false)}
-            style={actionLinkStyle}
-          >
-            Resubmit →
-          </button>
-        </>
-      )}
-      {!openWeb && !legacy && (
+      {!openWeb && (
         <button
-          onClick={() => (reusableReason ? handleQuickWebClockIn(reusableReason) : setShowModal(true))}
+          onClick={() => (isFirstCycleToday ? setShowModal(true) : handleQuickWebClockIn())}
           disabled={submitting}
           onMouseEnter={() => setLinkHovered(true)}
           onMouseLeave={() => setLinkHovered(false)}
@@ -321,7 +301,10 @@ export function AttendanceHeroBanner() {
       const record = kind === 'in' ? await attendanceApi.checkIn(token) : await attendanceApi.checkOut(token);
       const refreshed = await attendanceApi.today(token);
       setToday(refreshed);
-      const at = formatClockTime(kind === 'in' ? refreshed.serverNow : record.checkOutAt);
+      // Use the check-in/check-out record's own timestamp, not `refreshed.serverNow` — that comes
+      // from a second, later `/today` call and picks up whatever latency that round trip has,
+      // making the toast read later than the moment the employee actually punched in.
+      const at = formatClockTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
@@ -332,7 +315,11 @@ export function AttendanceHeroBanner() {
   }
 
   const record     = today?.record ?? null;
-  const checkInAt  = record?.checkInAt  ?? null;
+  // checkInAt (not sessionStartedAt) — the day's original check-in, deliberately frozen across
+  // every resume regardless of source (see AttendanceService.checkIn's own doc comment), is
+  // exactly what "locked for the entire resolved work day" requires: Check In must always show
+  // the day's FIRST presence and must never be replaced by a later Check-In/Web Clock-In cycle.
+  const checkInAt  = record?.checkInAt ?? null;
   const checkOutAt = record?.checkOutAt ?? null;
 
   // The later of the normal Check-Out and the most recent closed Web Clock-Out today, whichever
@@ -346,7 +333,11 @@ export function AttendanceHeroBanner() {
   }, [checkOutAt, webToday]);
 
   const shiftInfo = useMemo(() => {
-    if (!config || !serverNowBase) return null;
+    // config.shiftStart is null for an employee with no effective Shift assignment (ONEHR-355:
+    // a valid, permanent state — a brand-new employee, or one whose first assignment isn't
+    // effective yet) — there is no shift timing to show, so this must degrade to null rather
+    // than crash trying to parse it.
+    if (!config?.shiftStart || !serverNowBase) return null;
     const currentMs = serverNowBase.ms + (now.getTime() - serverNowBase.fetchedAtMs);
     const diffMin = shiftStartMinutes(config.shiftStart) - minutesOfDay(currentMs);
     const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -366,8 +357,8 @@ export function AttendanceHeroBanner() {
   if (loading) {
     return (
       <HeroCard>
-        <div style={{ height: 28, width: 240, background: 'rgba(255,255,255,0.08)', borderRadius: 6, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
-        <div style={{ height: 14, width: 360, background: 'rgba(255,255,255,0.05)', borderRadius: 4, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ height: 28, width: '100%', maxWidth: 240, background: 'rgba(255,255,255,0.08)', borderRadius: 6, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ height: 14, width: '100%', maxWidth: 360, background: 'rgba(255,255,255,0.05)', borderRadius: 4, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
         <div style={{ display: 'flex', gap: 7 }}>
           <div style={{ height: 26, width: 90, background: 'rgba(255,255,255,0.06)', borderRadius: 20, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
           <div style={{ height: 26, width: 70, background: 'rgba(255,255,255,0.06)', borderRadius: 20, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
@@ -406,7 +397,7 @@ export function AttendanceHeroBanner() {
 
     return (
       <HeroCard>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
           {headline}
         </div>
         {subtitle && <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{subtitle}</p>}
@@ -520,7 +511,7 @@ export function AttendanceHeroBanner() {
 
   return (
     <HeroCard>
-      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
         Not checked in yet.
       </div>
       <p style={{ margin: 0, fontSize: 13, color: 'rgba(229,231,235,0.58)', lineHeight: 1.4 }}>{subtitle}</p>

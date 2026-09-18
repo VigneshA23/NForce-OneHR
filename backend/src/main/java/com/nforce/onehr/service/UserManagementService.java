@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
@@ -14,7 +15,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -29,6 +32,7 @@ public class UserManagementService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
@@ -41,10 +45,21 @@ public class UserManagementService {
     private final LeaveService leaveService;
     private final ForceLogoutBroadcaster forceLogoutBroadcaster;
     private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for createUser's initial EmployeeShiftAssignment (effective the admin's own chosen
+    // Effective From date, when a Shift is explicitly chosen at creation) — see
+    // EmployeeShiftAssignment's own Javadoc.
+    private final EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
+    // Resolves the CURRENTLY-effective assignment for the user list / Edit User response — never
+    // Employee.shift (a best-effort display cache that assignShift/bulk-assign/CSV import do not
+    // keep in sync — see that field's own Javadoc).
+    private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
     // Only for the package-private findCurrentManagersBulk bulk manager lookup used by
     // listUsers() below — reuses EmployeeService's existing bulk implementation instead of a
     // second copy of the same N+1-prone-if-done-per-row logic.
     private final EmployeeService employeeService;
+    // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
+    // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
+    private final AttendanceProperties attendanceProperties;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -81,17 +96,77 @@ public class UserManagementService {
                 .createdBy(actor.getId())
                 .build();
 
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
-        if (req.getShiftId() != null)
-            emp.setShift(shiftRepository.findById(req.getShiftId()).orElse(null));
+        if (req.getBusinessUnitId() != null)
+            emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
+        if (req.getDepartmentId() != null) {
+            Department dept = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            // A brand-new employee can never have a legitimate pre-existing assignment to
+            // preserve, so this is unconditional — same reasoning as the Shift check below.
+            if (dept != null && !dept.isActive())
+                throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
+            emp.setDepartment(dept);
+        }
+        if (req.getDesignationId() != null) {
+            Designation desig = designationRepository.findById(req.getDesignationId()).orElse(null);
+            if (desig != null && !desig.isActive())
+                throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
+            emp.setDesignation(desig);
+        }
+        if (req.getLocationId() != null) {
+            Location loc = locationRepository.findById(req.getLocationId())
+                    .orElseThrow(() -> new IllegalArgumentException("Selected location was not found."));
+            validateAssignableLocation(loc);
+            emp.setLocation(loc);
+        }
+        // No shift explicitly chosen is now a valid, permanent state — a brand-new employee with
+        // no Shift is never defaulted onto the organization's Default Shift just to satisfy a
+        // schema invariant that no longer exists (employees.shift_id is nullable — see V178).
+        // Shift-dependent interpretation (lateness, scheduled hours) is simply skipped for them
+        // until someone explicitly assigns a Shift — see AttendanceInterpretationService's
+        // NO_SHIFT_ASSIGNED handling.
+        Shift selectedShift = null;
+        if (req.getShiftId() != null) {
+            // A bogus/stale shift id must never silently leave the employee on an unintended
+            // Shift.
+            Shift shift = shiftRepository.findById(req.getShiftId())
+                    .orElseThrow(() -> new IllegalArgumentException("Shift not found"));
+            // A brand-new employee can never have a legitimate pre-existing assignment to
+            // preserve, so this is unconditional (unlike updateUser's version below, which only
+            // rejects an actual change to a currently-inactive shift).
+            if (!shift.isActive())
+                throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+            // The admin's own explicit Effective From choice is the ONLY source of this date — see
+            // EmployeeShiftAssignment.effectiveFrom's own Javadoc. Required whenever a Shift is
+            // picked (never silently defaulted to an "immediately active" assignment the business
+            // rule requires an explicit date for); today and any future date are valid, a past date
+            // is rejected — mirrors EmployeeAssignmentService#bulkUpdateShift's identical rule.
+            // Deliberately NOT derived from joiningDate or "next working day" (the previous,
+            // incorrect rule this replaces) — a weekly-off/holiday selected date is honored exactly
+            // as chosen; applicable-day/weekly-off rules decide attendance applicability
+            // independently, never the effective date itself. Validated before any mutation below.
+            if (req.getEffectiveFrom() == null
+                    || req.getEffectiveFrom().isBefore(LocalDate.now(ZoneId.of(attendanceProperties.getZone())))) {
+                throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+            }
+            // Employee.shift is only a display/roster cache (see its own Javadoc) — set here for
+            // that purpose only; it is never what makes this Shift effective for attendance. The
+            // EmployeeShiftAssignment row below is the sole authoritative source
+            // EmployeeShiftAssignmentResolver reads.
+            emp.setShift(shift);
+            selectedShift = shift;
+        }
 
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
+
+        if (selectedShift != null) {
+            employeeShiftAssignmentRepository.save(EmployeeShiftAssignment.builder()
+                    .employeeUserId(newUser.getId())
+                    .shift(selectedShift)
+                    .effectiveFrom(req.getEffectiveFrom())
+                    .createdBy(actor.getId())
+                    .build());
+        }
 
         if (req.getManagerId() != null) {
             validateNoCycle(newUser.getId(), req.getManagerId());
@@ -139,8 +214,17 @@ public class UserManagementService {
         List<Employee> emps = employeeRepository.findAllWithDetails();
         Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
                 employeeService.findCurrentManagersBulk(emps.stream().map(Employee::getUserId).toList());
+        // Batch-resolved ONCE for the whole list — the CURRENTLY-effective assignment per employee,
+        // via the same authoritative source (never Employee.shift) and the same batch query
+        // EmployeeAssignmentService#listTeamAssignments uses, rather than one resolver call per row.
+        List<UUID> employeeIds = emps.stream().map(Employee::getUserId).toList();
+        Map<UUID, Shift> effectiveShiftByEmployee = new HashMap<>();
+        for (EmployeeShiftAssignment a : employeeShiftAssignmentRepository
+                .findByEmployeeUserIdInAndEffectiveFromLessThanEqualOrderByEmployeeUserIdAscEffectiveFromDesc(employeeIds, currentBusinessDate())) {
+            effectiveShiftByEmployee.putIfAbsent(a.getEmployeeUserId(), a.getShift()); // first seen per employee = latest effectiveFrom
+        }
         return emps.stream()
-                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
+                .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null, effectiveShiftByEmployee.get(e.getUserId())))
                 .collect(Collectors.toList());
     }
 
@@ -162,6 +246,8 @@ public class UserManagementService {
         boolean forceLogoutRequired = false;
         boolean roleChanged = false;
         boolean managerChanged = false;
+        boolean emailChanged = false;
+        String oldEmail = null;
 
         // Role/manager/department/designation/employment type imply active employment — for a
         // deactivated user these are blocked behind an explicit confirmation (name, location,
@@ -180,6 +266,20 @@ public class UserManagementService {
                 forceLogoutRequired = true;
             }
         }
+        // Email — same uniqueness rule as createUser (excluding this user's own current row,
+        // since re-saving the same value the employee already has must never trip "already
+        // exists"). Normalized to lowercase+trim before storing/comparing, matching createUser.
+        if (req.getEmail() != null && !req.getEmail().isBlank()) {
+            String newEmail = req.getEmail().toLowerCase().trim();
+            if (!Objects.equals(target.getEmail(), newEmail)) {
+                if (userRepository.existsByEmailAndDeletedAtIsNull(newEmail))
+                    throw new IllegalArgumentException("A user with this email already exists");
+                oldEmail = target.getEmail();
+                target.setEmail(newEmail);
+                forceLogoutRequired = true;
+                emailChanged = true;
+            }
+        }
         if (req.getEmploymentType() != null && !req.getEmploymentType().isBlank()
                 && !Objects.equals(emp.getEmploymentType(), req.getEmploymentType())) {
             emp.setEmploymentType(req.getEmploymentType());
@@ -190,11 +290,25 @@ public class UserManagementService {
             emp.setWorkMode(req.getWorkMode());
             forceLogoutRequired = true;
         }
+        if (req.getBusinessUnitId() != null) {
+            BusinessUnit newBusinessUnit = businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null);
+            UUID currentBusinessUnitId = emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId() : null;
+            UUID newBusinessUnitId = newBusinessUnit != null ? newBusinessUnit.getId() : null;
+            if (!Objects.equals(currentBusinessUnitId, newBusinessUnitId)) {
+                emp.setBusinessUnit(newBusinessUnit);
+                forceLogoutRequired = true;
+            }
+        }
         if (req.getDepartmentId() != null) {
             Department newDepartment = departmentRepository.findById(req.getDepartmentId()).orElse(null);
             UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
             UUID newDepartmentId = newDepartment != null ? newDepartment.getId() : null;
             if (!Objects.equals(currentDepartmentId, newDepartmentId)) {
+                // Only guarded on an actual change — re-saving an employee whose existing
+                // assignment already points at a since-deactivated department (departmentId
+                // unchanged) must keep working untouched, not get blocked by this check.
+                if (newDepartment != null && !newDepartment.isActive())
+                    throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
                 emp.setDepartment(newDepartment);
                 forceLogoutRequired = true;
             }
@@ -204,26 +318,35 @@ public class UserManagementService {
             UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
             UUID newDesignationId = newDesignation != null ? newDesignation.getId() : null;
             if (!Objects.equals(currentDesignationId, newDesignationId)) {
+                if (newDesignation != null && !newDesignation.isActive())
+                    throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
                 emp.setDesignation(newDesignation);
                 forceLogoutRequired = true;
             }
         }
         if (req.getLocationId() != null) {
-            Location newLocation = locationRepository.findById(req.getLocationId()).orElse(null);
+            // TEMPORARY (ONEHR-336 follow-up): Location reassignment via Employee update is
+            // disabled for now — pending a proper reassignment flow that correctly effective-dates
+            // attendance-relevant history (see ShiftVersion's own versioning design, which Location
+            // has no equivalent of yet) instead of silently changing an employee's current
+            // config out from under in-flight/historical Attendance. Only a genuine CHANGE is
+            // rejected — resubmitting the SAME location already on the employee (e.g. an edit form
+            // that always sends the current value) is unaffected, exactly like the change-detection
+            // every other field here uses. Employee CREATION (createUser above) is unaffected.
             UUID currentLocationId = emp.getLocation() != null ? emp.getLocation().getId() : null;
-            UUID newLocationId = newLocation != null ? newLocation.getId() : null;
-            if (!Objects.equals(currentLocationId, newLocationId)) {
-                emp.setLocation(newLocation);
-                forceLogoutRequired = true;
+            if (!Objects.equals(currentLocationId, req.getLocationId())) {
+                throw new IllegalArgumentException(
+                        "Location changes are currently unavailable when updating an employee. Contact an administrator.");
             }
         }
         if (req.getShiftId() != null) {
-            Shift newShift = shiftRepository.findById(req.getShiftId()).orElse(null);
+            // TEMPORARY (ONEHR-336 follow-up): see the identical Location guard above — same
+            // reasoning, applied to Shift reassignment. Employee CREATION (createUser above) is
+            // unaffected.
             UUID currentShiftId = emp.getShift() != null ? emp.getShift().getId() : null;
-            UUID newShiftId = newShift != null ? newShift.getId() : null;
-            if (!Objects.equals(currentShiftId, newShiftId)) {
-                emp.setShift(newShift);
-                forceLogoutRequired = true;
+            if (!Objects.equals(currentShiftId, req.getShiftId())) {
+                throw new IllegalArgumentException(
+                        "Shift changes are currently unavailable when updating an employee. Contact an administrator.");
             }
         }
 
@@ -262,6 +385,7 @@ public class UserManagementService {
             // their very next API call fails auth under the old token even if their open tab
             // misses the SSE push.
             target.setTokenVersion(target.getTokenVersion() + 1);
+            target.setTokenVersionReason("PROFILE_UPDATED");
             userRepository.save(target);
         }
 
@@ -277,6 +401,18 @@ public class UserManagementService {
             notificationService.send(target.getId(), "ACCOUNT",
                     "Manager Updated",
                     "Your manager has been updated.",
+                    "/profile");
+        }
+        if (emailChanged) {
+            // Sent to the NEW address — the whole point is confirming the user can actually
+            // receive mail there and giving them the correct address to sign in with next time.
+            // In-app notification is a soft-effort companion, not the primary channel: the token
+            // bump above (forceLogoutRequired) already ends their session, so they won't see it
+            // until they sign back in with the new email anyway.
+            emailService.sendEmailUpdatedEmail(target.getEmail(), emp.getFullName(), oldEmail);
+            notificationService.send(target.getId(), "ACCOUNT",
+                    "Email Updated",
+                    "Your account email has been updated to " + target.getEmail() + ".",
                     "/profile");
         }
 
@@ -340,8 +476,10 @@ public class UserManagementService {
     private Map<String, Object> userSnapshot(Employee emp, User user) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("fullName", emp.getFullName());
+        snapshot.put("email", user.getEmail());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
+        snapshot.put("businessUnit", emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null);
         snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
         snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
         snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
@@ -351,6 +489,29 @@ public class UserManagementService {
                 .map(EmployeeManagerHistory::getManagerUserId).orElse(null);
         snapshot.put("manager", resolveEmployeeName(managerId));
         return snapshot;
+    }
+
+    /**
+     * Rejects an inactive Location, or one with no valid IANA timezone, before it's assigned.
+     * Mirrors EmployeeService's identical helper — see its own Javadoc for the full rationale.
+     */
+    private void validateAssignableLocation(Location location) {
+        if (!location.isActive()) {
+            throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");
+        }
+        String timezone = location.getTimezone();
+        boolean validTimezone = timezone != null && !timezone.isBlank();
+        if (validTimezone) {
+            try {
+                java.time.ZoneId.of(timezone);
+            } catch (java.time.DateTimeException e) {
+                validTimezone = false;
+            }
+        }
+        if (!validTimezone) {
+            throw new IllegalArgumentException(
+                    "This location has no valid timezone configured and cannot be assigned. Contact an administrator.");
+        }
     }
 
     /** Best-effort display name for a user id — employee's full name, falling back to email, null if no id. */
@@ -376,14 +537,17 @@ public class UserManagementService {
         target.setMustChangePassword(true);
         // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
         target.setTokenVersion(target.getTokenVersion() + 1);
+        target.setTokenVersionReason("PASSWORD_CHANGED");
         userRepository.save(target);
         String after = auditSnapshot.toJson(Map.of("mustChangePassword", true));
 
         auditService.log(actor.getId(), "PASSWORD_RESET", userId, before, after);
+        // No linkPath: the Password Reset notification intentionally has no "Open related
+        // page" action in the Notifications tab (ONEHR-351) — email delivery is unaffected.
         notificationService.send(target.getId(), "SECURITY",
                 "Password Reset by Administrator",
                 "An administrator has reset your password. Please log in with your temporary password and change it immediately.",
-                "/change-password");
+                null);
         return ResetPasswordResponse.builder()
                 .tempPassword(tempPassword)
                 .message("Password reset. User must change password on next login.")
@@ -436,6 +600,11 @@ public class UserManagementService {
         target.setDeletedAt(Instant.now());
         target.setActive(false);
         userRepository.save(target);
+        // Close out the employee's open manager-history row so they immediately stop being
+        // anyone's "current" direct report/peer — without this, every screen that resolves a
+        // manager's team via findCurrentDirectReportIds/findCurrentPeerIds keeps surfacing the
+        // deleted user forever, since a soft delete otherwise never touches this table.
+        historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
         String after = auditSnapshot.toJson(Map.of("deletedAt", target.getDeletedAt().toString(), "active", false));
         auditService.log(actor.getId(), "USER_SOFT_DELETED", userId, before, after);
     }
@@ -463,18 +632,17 @@ public class UserManagementService {
      * Rejects any manager assignment that would create a circular reporting chain.
      * Walks the proposed manager's ancestor chain; if it reaches employeeId at any point
      * the assignment would form a cycle and is rejected with a clear error.
+     *
+     * Walks one link at a time via findByEmployeeUserIdAndEffectiveToIsNull instead of loading
+     * every currently-open manager-history row org-wide into memory (the previous approach) —
+     * this call runs synchronously inside createUser/updateUser whenever a manager is assigned,
+     * so its cost used to scale with total headcount on every single hire. It now scales with
+     * the reporting chain's depth instead, which is what actually bounds a real org hierarchy.
      */
     private void validateNoCycle(UUID employeeId, UUID proposedManagerId) {
         if (proposedManagerId == null) return;
         if (proposedManagerId.equals(employeeId))
             throw new IllegalArgumentException("Cannot assign a user as their own manager.");
-
-        Map<UUID, UUID> empToMgr = historyRepository.findByEffectiveToIsNull()
-                .stream()
-                .collect(Collectors.toMap(
-                        h -> h.getEmployeeUserId(),
-                        h -> h.getManagerUserId(),
-                        (a, b) -> a));
 
         UUID cur = proposedManagerId;
         Set<UUID> visited = new HashSet<>();
@@ -484,7 +652,9 @@ public class UserManagementService {
                 throw new IllegalArgumentException(
                         "Cannot assign this manager: it would create a circular reporting chain. " +
                         "The proposed manager is already a direct or indirect report of this user.");
-            cur = empToMgr.get(cur);
+            cur = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(cur)
+                    .map(EmployeeManagerHistory::getManagerUserId)
+                    .orElse(null);
         }
     }
 
@@ -504,6 +674,16 @@ public class UserManagementService {
     }
 
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword) {
+        return toResponse(emp, manager, user, tempPassword, effectiveShiftOf(emp.getUserId(), currentBusinessDate()));
+    }
+
+    /**
+     * @param effectiveShift the employee's CURRENTLY-effective Shift (see {@link #effectiveShiftOf})
+     *                       — never {@code emp.getShift()}, a best-effort display cache only (see
+     *                       that field's own Javadoc). Null for NO_SHIFT_ASSIGNED or an assignment
+     *                       that hasn't taken effect yet, exactly as it should read to an admin.
+     */
+    private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword, Shift effectiveShift) {
         String role = RoleUtils.primaryRoleCode(user.getRoles(), "");
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
@@ -511,14 +691,16 @@ public class UserManagementService {
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
+                .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
+                .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationId(emp.getDesignation() != null ? emp.getDesignation().getId().toString() : null)
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                 .locationId(emp.getLocation() != null ? emp.getLocation().getId().toString() : null)
                 .locationName(emp.getLocation() != null ? emp.getLocation().getName() : null)
-                .shiftId(emp.getShift() != null ? emp.getShift().getId().toString() : null)
-                .shiftName(emp.getShift() != null ? emp.getShift().getName() : null)
+                .shiftId(effectiveShift != null ? effectiveShift.getId().toString() : null)
+                .shiftName(effectiveShift != null ? effectiveShift.getName() : null)
                 .employmentType(emp.getEmploymentType())
                 .workMode(emp.getWorkMode())
                 .joiningDate(emp.getJoiningDate())
@@ -526,6 +708,24 @@ public class UserManagementService {
                 .currentManager(manager)
                 .tempPassword(tempPassword)
                 .build();
+    }
+
+    /** The org-wide business "today" (see {@code AttendanceProperties.zone}'s own Javadoc), never the JVM default. */
+    private LocalDate currentBusinessDate() {
+        return LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+    }
+
+    /**
+     * The employee's CURRENTLY-effective Shift, resolved the same authoritative way the attendance
+     * engine and My Team (EmployeeAssignmentService#listTeamAssignments) do — never
+     * {@code Employee.shift}, a best-effort display cache that assignShift (Bulk-Edit Team
+     * Assignment/CSV import) does not keep in sync. Null for a no-shift employee or one whose
+     * assignment isn't effective yet.
+     */
+    private Shift effectiveShiftOf(UUID employeeUserId, LocalDate asOf) {
+        return employeeShiftAssignmentResolver.resolveIfPresent(employeeUserId, asOf)
+                .map(EmployeeShiftAssignment::getShift)
+                .orElse(null);
     }
 
     private User requireActor(String email) {

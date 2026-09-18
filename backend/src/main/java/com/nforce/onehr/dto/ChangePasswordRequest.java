@@ -9,7 +9,9 @@ import lombok.Data;
 @Data
 public class ChangePasswordRequest {
 
-    @NotBlank(message = "Current password is required")
+    // Not @NotBlank: omitted by the frontend for the forced (temp-password) flow, where the
+    // user already proved they know it by using it to log in — see AuthService#changePassword,
+    // which requires it explicitly only for the voluntary (already-authenticated) flow.
     private String currentPassword;
 
     @NotBlank(message = "New password is required")

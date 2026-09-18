@@ -58,6 +58,13 @@ public class User {
     @Builder.Default
     private int tokenVersion = 0;
 
+    // Why the tokenVersion above was last bumped — "PASSWORD_CHANGED" or "PROFILE_UPDATED" (see
+    // AuthService#changePassword/forgotPassword, UserManagementService#resetPassword/updateUser).
+    // Read by JwtAuthenticationFilter to tell the frontend which forced-logout message to show;
+    // null for rows bumped before this field existed or by any path that doesn't set it.
+    @Column(name = "token_version_reason", length = 32)
+    private String tokenVersionReason;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

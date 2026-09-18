@@ -70,7 +70,7 @@ function BrandingBlock({ size, compact = false, stacked = false }: { size: 'sm' 
     <div className="nf-branding-block" style={{ position: 'relative', display: 'flex', flexDirection: stacked ? 'column' : 'row', alignItems: 'center', gap: compact ? 10 : 14 }}>
       <BrandMark size={size} />
       <div style={{ textAlign: stacked ? 'center' : 'left' }}>
-        <div className="nf-brand-title" style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: compact ? 15 : 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
+        <div className="nf-brand-title" style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: compact ? 15 : 18, letterSpacing: '0.04em', color: 'var(--txt)' }}>
           NForce OneHR
         </div>
         <div className="nf-brand-subtitle" style={{ fontSize: compact ? 9 : 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginTop: compact ? 2 : 3 }}>
@@ -83,14 +83,14 @@ function BrandingBlock({ size, compact = false, stacked = false }: { size: 'sm' 
 
 export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, children }: AuthLayoutProps) {
   return (
-    <div data-theme="dark" className="nf-auth-shell" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: '100dvh' }}>
+    <div data-theme="dark" className="nf-auth-shell" style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', minHeight: 'var(--app-height, 100dvh)' }}>
       <div className="nf-auth-left-panel" style={{ position: 'relative', overflow: 'hidden', background: panelGradient, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 48px' }}>
         <SpeedStreaks />
         <BrandingBlock size="lg" />
 
         {leftHeadline && (
           <div style={{ position: 'relative', maxWidth: 420 }}>
-            <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 36, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', color: 'var(--txt)', marginBottom: 16 }}>
+            <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 36, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', color: 'var(--txt)', marginBottom: 16 }}>
               {leftHeadline}
             </h2>
             {leftSubtext && (
@@ -117,7 +117,7 @@ export function AuthLayout({ leftHeadline, leftSubtext, showStats = false, child
         ) : <div />}
       </div>
 
-      <div className="nf-auth-right-panel max-[900px]:flex-col" style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: '100dvh' }}>
+      <div className="nf-auth-right-panel max-[900px]:flex-col" style={{ background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', minHeight: 'var(--app-height, 100dvh)' }}>
         <div className="hidden max-[900px]:flex nf-auth-mobile-brand" style={{ width: '100%', maxWidth: 440, marginBottom: 24, justifyContent: 'center' }}>
           <BrandingBlock size="lg" stacked />
         </div>

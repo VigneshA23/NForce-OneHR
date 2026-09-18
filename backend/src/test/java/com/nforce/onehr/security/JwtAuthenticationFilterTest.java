@@ -52,7 +52,7 @@ class JwtAuthenticationFilterTest {
     }
 
     private AppUserPrincipal principalWithVersion(int tokenVersion) {
-        return new AppUserPrincipal(UUID.randomUUID(), EMAIL, "hash", tokenVersion, false,
+        return new AppUserPrincipal(UUID.randomUUID(), EMAIL, "hash", tokenVersion, "PROFILE_UPDATED", false,
                 Collections.emptyList());
     }
 

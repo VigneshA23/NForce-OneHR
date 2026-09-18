@@ -2,6 +2,9 @@ package com.nforce.onehr.repository;
 
 import com.nforce.onehr.entity.Holiday;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -24,4 +27,12 @@ public interface HolidayRepository extends JpaRepository<Holiday, UUID> {
 
     boolean existsByHolidayNameAndHolidayDateAndLocation_IdAndActiveTrueAndIdNot(
             String holidayName, LocalDate holidayDate, UUID locationId, UUID excludeId);
+
+    // Backs OrgService.deleteLocation — holidays.location_id is NOT NULL, so unlike the
+    // Employee/Asset FKs it can't just be nulled out; these rows are location-owned calendar
+    // config (not employee attendance/audit history), so deleting them alongside their location
+    // is the schema-compatible way to permanently remove a location with 0 current employees.
+    @Modifying
+    @Query("DELETE FROM Holiday h WHERE h.location.id = :locationId")
+    void deleteByLocationId(@Param("locationId") UUID locationId);
 }

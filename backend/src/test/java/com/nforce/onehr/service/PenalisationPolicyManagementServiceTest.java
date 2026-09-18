@@ -8,8 +8,9 @@ import com.nforce.onehr.dto.penalization.RenamePenalisationPolicyRequest;
 import com.nforce.onehr.entity.PenalisationPolicy;
 import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.entity.User;
-import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.PenalisationPolicyRepository;
+import com.nforce.onehr.repository.PenalizationPolicyAllocationRepository;
 import com.nforce.onehr.repository.PenalizationPolicyLateHoursTierRepository;
 import com.nforce.onehr.repository.PenalizationPolicyVersionRepository;
 import com.nforce.onehr.repository.PenalizationPolicyWorkHoursTierRepository;
@@ -17,6 +18,7 @@ import com.nforce.onehr.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -27,6 +29,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -40,10 +44,13 @@ class PenalisationPolicyManagementServiceTest {
     @Mock private PenalizationPolicyVersionRepository versionRepository;
     @Mock private PenalizationPolicyWorkHoursTierRepository tierRepository;
     @Mock private PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
-    @Mock private EmployeeRepository employeeRepository;
+    @Mock private PenalizationPolicyAllocationRepository allocationRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
+    @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties attendanceProperties;
+    @Mock private PenalizationPolicyResolutionService resolutionService;
+    @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
 
     private PenalisationPolicyManagementService service;
     private final UUID actorId = UUID.randomUUID();
@@ -52,7 +59,13 @@ class PenalisationPolicyManagementServiceTest {
     @BeforeEach
     void setUp() {
         service = new PenalisationPolicyManagementService(penalisationPolicyRepository, versionRepository,
-                tierRepository, lateHoursTierRepository, employeeRepository, userRepository, auditService, attendanceProperties);
+                tierRepository, lateHoursTierRepository, allocationRepository, userRepository,
+                auditService, auditSnapshot, attendanceProperties, resolutionService, attendancePenaltyRepository);
+        lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
+        lenient().when(allocationRepository.countByPenalisationPolicyId(any())).thenReturn(0L);
+        lenient().when(attendancePenaltyRepository.existsByPolicyId(any())).thenReturn(false);
+        lenient().when(resolutionService.resolveCurrentEmployeeCount(any(), any())).thenReturn(0L);
+        lenient().when(resolutionService.resolveCurrentEmployeeCountsByPolicy(any())).thenReturn(java.util.Map.of());
         lenient().when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(User.builder().id(actorId).email(hrEmail).build()));
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(penalisationPolicyRepository.save(any())).thenAnswer(inv -> {
@@ -100,7 +113,88 @@ class PenalisationPolicyManagementServiceTest {
         PenalisationPolicySummaryDto result = service.rename(id, req, hrEmail);
 
         assertEquals("New Name", result.getName());
-        verify(auditService).log(actorId, "PENALISATION_POLICY_RENAMED", id, "Old Name", "New Name");
+        verify(auditService).log(actorId, "PENALISATION_POLICY_RENAMED", id, "{}", "{}");
+    }
+
+    @Test
+    void toggleActive_deactivatesAnActivePolicy_butLeavesItsCountAlone() {
+        UUID id = UUID.randomUUID();
+        PenalisationPolicy policy = PenalisationPolicy.builder().id(id).name("Seasonal Policy").status("ACTIVE").build();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(policy));
+        when(resolutionService.resolveCurrentEmployeeCount(eq(id), any())).thenReturn(4L);
+
+        PenalisationPolicySummaryDto result = service.toggleActive(id, hrEmail);
+
+        assertEquals("INACTIVE", result.getStatus());
+        assertEquals(4, result.getEmployeeCount(), "deactivating must not touch who currently resolves to this policy");
+        verify(auditService).log(actorId, "PENALISATION_POLICY_STATUS_CHANGED", id, "{}", "{}");
+    }
+
+    @Test
+    void toggleActive_reactivatesAnInactivePolicy() {
+        UUID id = UUID.randomUUID();
+        PenalisationPolicy policy = PenalisationPolicy.builder().id(id).name("Retired Policy").status("INACTIVE").build();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(policy));
+
+        PenalisationPolicySummaryDto result = service.toggleActive(id, hrEmail);
+
+        assertEquals("ACTIVE", result.getStatus());
+        verify(auditService).log(actorId, "PENALISATION_POLICY_STATUS_CHANGED", id, "{}", "{}");
+    }
+
+    // ── Section 7: org-default flag ──────────────────────────────────────────────────────────
+
+    @Test
+    void setOrgDefault_activePolicy_becomesDefault_previousDefaultClearedViaImmediateBulkUpdate() {
+        UUID newDefaultId = UUID.randomUUID();
+        PenalisationPolicy newDefault = PenalisationPolicy.builder()
+                .id(newDefaultId).name("New Default").status("ACTIVE").orgDefault(false).build();
+        when(penalisationPolicyRepository.findById(newDefaultId)).thenReturn(Optional.of(newDefault));
+
+        PenalisationPolicySummaryDto result = service.setOrgDefault(newDefaultId, hrEmail);
+
+        assertTrue(result.isOrgDefault());
+        assertTrue(newDefault.isOrgDefault());
+        // The bulk clear must run BEFORE the new default is saved — an immediate UPDATE, not a
+        // loaded-entity save deferred to flush time, so the two writes can never race (see the
+        // service's own javadoc for why entity-load-order previously made this possible).
+        InOrder order = inOrder(penalisationPolicyRepository);
+        order.verify(penalisationPolicyRepository).clearOrgDefault();
+        order.verify(penalisationPolicyRepository).save(newDefault);
+        verify(auditService).log(actorId, "PENALISATION_POLICY_SET_AS_DEFAULT", newDefaultId);
+    }
+
+    @Test
+    void setOrgDefault_inactivePolicy_rejected() {
+        UUID id = UUID.randomUUID();
+        PenalisationPolicy policy = PenalisationPolicy.builder().id(id).name("Retired").status("INACTIVE").build();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(policy));
+
+        assertThrows(IllegalStateException.class, () -> service.setOrgDefault(id, hrEmail));
+        verify(penalisationPolicyRepository, never()).save(any());
+    }
+
+    @Test
+    void setOrgDefault_alreadyTheDefault_isANoOp() {
+        UUID id = UUID.randomUUID();
+        PenalisationPolicy policy = PenalisationPolicy.builder().id(id).name("Current Default").status("ACTIVE").orgDefault(true).build();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(policy));
+
+        service.setOrgDefault(id, hrEmail);
+
+        verify(penalisationPolicyRepository, never()).save(any());
+        verify(penalisationPolicyRepository, never()).clearOrgDefault();
+        verify(auditService, never()).log(any(), any(), any());
+    }
+
+    @Test
+    void toggleActive_blockedWhenDeactivatingTheOrgDefault() {
+        UUID id = UUID.randomUUID();
+        PenalisationPolicy policy = PenalisationPolicy.builder().id(id).name("Org Default").status("ACTIVE").orgDefault(true).build();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(policy));
+
+        assertThrows(IllegalStateException.class, () -> service.toggleActive(id, hrEmail));
+        verify(penalisationPolicyRepository, never()).save(any());
     }
 
     @Test
@@ -130,7 +224,41 @@ class PenalisationPolicyManagementServiceTest {
 
         assertEquals("Clone of Source", result.getName());
         assertNotEquals(sourceId, result.getId(), "clone is an independent policy, not a version of the source");
-        verify(auditService).log(actorId, "PENALISATION_POLICY_CLONED", result.getId(), sourceId.toString(), null);
+        verify(auditService).log(actorId, "PENALISATION_POLICY_CLONED", result.getId(), "{}", null);
+    }
+
+    @Test
+    void clone_copiesPhase3WorkHoursShortageSettings_gross_frequency_excludeOutsideShift_missingLogLinkage() {
+        UUID sourceId = UUID.randomUUID();
+        PenalisationPolicy source = PenalisationPolicy.builder().id(sourceId).name("Source").status("ACTIVE").build();
+        when(penalisationPolicyRepository.findById(sourceId)).thenReturn(Optional.of(source));
+        when(penalisationPolicyRepository.findByName("Clone of Source")).thenReturn(Optional.empty());
+        PenalizationPolicyVersion sourceVersion = PenalizationPolicyVersion.builder()
+                .id(UUID.randomUUID()).policyId(sourceId).version(1)
+                .effectiveFrom(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .workHoursShortageEnabled(true).whsDeductionBasis("GROSS_HOURS").whsDeductionPeriod("MONTH")
+                .whsExcludeHoursOutsideShiftEnabled(true).whsPenalizeShortageCausedByMissingLogsEnabled(true)
+                .build();
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(sourceId)).thenReturn(Optional.of(sourceVersion));
+        org.mockito.ArgumentCaptor<PenalizationPolicyVersion> savedCaptor = org.mockito.ArgumentCaptor.forClass(PenalizationPolicyVersion.class);
+        when(versionRepository.save(savedCaptor.capture())).thenAnswer(inv -> {
+            PenalizationPolicyVersion v = inv.getArgument(0);
+            if (v.getId() == null) v.setId(UUID.randomUUID());
+            return v;
+        });
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(sourceVersion.getId())).thenReturn(List.of());
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(sourceVersion.getId())).thenReturn(List.of());
+
+        ClonePenalisationPolicyRequest req = new ClonePenalisationPolicyRequest();
+        req.setName("Clone of Source");
+
+        service.clone(sourceId, req, hrEmail);
+
+        PenalizationPolicyVersion cloned = savedCaptor.getValue();
+        assertEquals("GROSS_HOURS", cloned.getWhsDeductionBasis());
+        assertEquals("MONTH", cloned.getWhsDeductionPeriod());
+        assertEquals(true, cloned.isWhsExcludeHoursOutsideShiftEnabled());
+        assertEquals(true, cloned.isWhsPenalizeShortageCausedByMissingLogsEnabled());
     }
 
     @Test
@@ -177,14 +305,52 @@ class PenalisationPolicyManagementServiceTest {
     }
 
     @Test
+    void delete_blockedWhenPolicyIsOrgDefault_evenWithZeroResolvedEmployees() {
+        UUID id = UUID.randomUUID();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(
+                PenalisationPolicy.builder().id(id).name("Org Default").orgDefault(true).build()));
+        // The isOrgDefault guard fires before employeeCount is even checked — this blocks even
+        // the narrow edge case where every employee happens to have an explicit allocation/legacy
+        // FK, so employeeCount alone would otherwise read 0 (see the guard's own javadoc).
+
+        assertThrows(IllegalStateException.class, () -> service.delete(id, hrEmail));
+        verify(penalisationPolicyRepository, never()).delete(any());
+    }
+
+    @Test
     void delete_blockedWhenEmployeesAssigned() {
         UUID id = UUID.randomUUID();
         when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(
                 PenalisationPolicy.builder().id(id).name("In Use").build()));
-        when(employeeRepository.countByPenalisationPolicy_Id(id)).thenReturn(3L);
+        when(resolutionService.resolveCurrentEmployeeCount(eq(id), any())).thenReturn(3L);
 
         assertThrows(IllegalStateException.class, () -> service.delete(id, hrEmail));
         verify(penalisationPolicyRepository, never()).delete(any());
+    }
+
+    @Test
+    void delete_blockedWhenAllocationRecordsReferenceIt() {
+        UUID id = UUID.randomUUID();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(
+                PenalisationPolicy.builder().id(id).name("Allocated Elsewhere").build()));
+        when(allocationRepository.countByPenalisationPolicyId(id)).thenReturn(2L);
+
+        assertThrows(IllegalStateException.class, () -> service.delete(id, hrEmail));
+        verify(penalisationPolicyRepository, never()).delete(any());
+    }
+
+    @Test
+    void delete_blockedWhenHistoricalPenaltiesReferenceIt() {
+        UUID id = UUID.randomUUID();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(
+                PenalisationPolicy.builder().id(id).name("Produced Penalties").build()));
+        when(attendancePenaltyRepository.existsByPolicyId(id)).thenReturn(true);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> service.delete(id, hrEmail));
+
+        assertTrue(ex.getMessage().contains("attendance penalty"));
+        verify(penalisationPolicyRepository, never()).delete(any());
+        verify(versionRepository, never()).delete(any());
     }
 
     @Test
@@ -192,7 +358,6 @@ class PenalisationPolicyManagementServiceTest {
         UUID id = UUID.randomUUID();
         when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(
                 PenalisationPolicy.builder().id(id).name("Only One").build()));
-        when(employeeRepository.countByPenalisationPolicy_Id(id)).thenReturn(0L);
         when(penalisationPolicyRepository.count()).thenReturn(1L);
 
         assertThrows(IllegalStateException.class, () -> service.delete(id, hrEmail));
@@ -200,13 +365,13 @@ class PenalisationPolicyManagementServiceTest {
     }
 
     @Test
-    void delete_removesPolicyAndItsVersions_whenUnassigned() {
+    void delete_removesPolicyAndItsVersion_whenBrandNewAndNeverYetEffective() {
         UUID id = UUID.randomUUID();
         PenalisationPolicy policy = PenalisationPolicy.builder().id(id).name("Unused").build();
         when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(policy));
-        when(employeeRepository.countByPenalisationPolicy_Id(id)).thenReturn(0L);
         when(penalisationPolicyRepository.count()).thenReturn(2L);
-        PenalizationPolicyVersion v1 = PenalizationPolicyVersion.builder().id(UUID.randomUUID()).policyId(id).version(1).build();
+        PenalizationPolicyVersion v1 = PenalizationPolicyVersion.builder().id(UUID.randomUUID()).policyId(id).version(1)
+                .effectiveFrom(java.time.LocalDateTime.now().plusDays(30)).build();
         when(versionRepository.findByPolicyIdOrderByVersionDesc(id)).thenReturn(List.of(v1));
         when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(v1.getId())).thenReturn(List.of());
         when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(v1.getId())).thenReturn(List.of());
@@ -215,6 +380,83 @@ class PenalisationPolicyManagementServiceTest {
 
         verify(versionRepository).delete(v1);
         verify(penalisationPolicyRepository).delete(policy);
-        verify(auditService).log(actorId, "PENALISATION_POLICY_DELETED", id, "Unused", null);
+        verify(auditService).log(actorId, "PENALISATION_POLICY_DELETED", id, "{}", null);
+    }
+
+    // ── Gap-036: a policy that was ever genuinely live must never be hard-deleted, even when the
+    // other three reference-based guards all pass (e.g. it only ever governed via org-default
+    // fallback, so it was never explicitly allocated and never happened to produce a penalty). ──
+
+    @Test
+    void delete_blockedWhenSingleVersionAlreadyEffective_evenWithNoOtherReferences() {
+        UUID id = UUID.randomUUID();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(
+                PenalisationPolicy.builder().id(id).name("Default-Fallback-Only Policy").build()));
+        PenalizationPolicyVersion v1 = PenalizationPolicyVersion.builder().id(UUID.randomUUID()).policyId(id).version(1)
+                .effectiveFrom(java.time.LocalDateTime.now().minusMonths(6)).build();
+        when(versionRepository.findByPolicyIdOrderByVersionDesc(id)).thenReturn(List.of(v1));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> service.delete(id, hrEmail));
+
+        assertTrue(ex.getMessage().contains("version history"));
+        verify(penalisationPolicyRepository, never()).delete(any());
+        verify(versionRepository, never()).delete(any());
+    }
+
+    @Test
+    void delete_blockedWhenMultipleVersions_evenIfNoneAreEffectiveYet() {
+        UUID id = UUID.randomUUID();
+        when(penalisationPolicyRepository.findById(id)).thenReturn(Optional.of(
+                PenalisationPolicy.builder().id(id).name("Edited Before Going Live").build()));
+        PenalizationPolicyVersion v1 = PenalizationPolicyVersion.builder().id(UUID.randomUUID()).policyId(id).version(1)
+                .effectiveFrom(java.time.LocalDateTime.now().plusDays(10)).build();
+        PenalizationPolicyVersion v2 = PenalizationPolicyVersion.builder().id(UUID.randomUUID()).policyId(id).version(2)
+                .effectiveFrom(java.time.LocalDateTime.now().plusDays(40)).build();
+        when(versionRepository.findByPolicyIdOrderByVersionDesc(id)).thenReturn(List.of(v2, v1));
+
+        assertThrows(IllegalStateException.class, () -> service.delete(id, hrEmail));
+        verify(penalisationPolicyRepository, never()).delete(any());
+        verify(versionRepository, never()).delete(any());
+    }
+
+    // Regression test for the "policy cannot be deleted/deactivated" bug: the audit_log table's
+    // before_state/after_state columns are JSONB (see V1__create_users_and_roles.sql). Passing a
+    // raw, unencoded string (a plain policy name, "ACTIVE"/"INACTIVE", or a bare UUID) as those
+    // arguments makes Postgres reject the INSERT with "invalid input syntax for type json" — and
+    // because that happens inside AuditService's own REQUIRES_NEW transaction, the failure marks
+    // that transaction rollback-only even though AuditService catches the exception, so the outer
+    // @Transactional delete()/toggleActive() call also gets rolled back with an
+    // UnexpectedRollbackException — the policy status/deletion silently never took effect. Unlike
+    // the mock-based tests above (which stub AuditSnapshotSerializer and can't detect this class of
+    // bug), this test wires in the REAL serializer and asserts the captured before/after strings
+    // are actually valid, parseable JSON — exactly what a JSONB column requires.
+    @Test
+    void toggleActiveAndDelete_auditSnapshots_areValidJson() throws Exception {
+        AuditSnapshotSerializer realSerializer = new AuditSnapshotSerializer(new com.fasterxml.jackson.databind.ObjectMapper());
+        PenalisationPolicyManagementService realService = new PenalisationPolicyManagementService(
+                penalisationPolicyRepository, versionRepository, tierRepository, lateHoursTierRepository,
+                allocationRepository, userRepository, auditService, realSerializer, attendanceProperties, resolutionService,
+                attendancePenaltyRepository);
+        com.fasterxml.jackson.databind.ObjectMapper reader = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        UUID toggleId = UUID.randomUUID();
+        PenalisationPolicy toToggle = PenalisationPolicy.builder().id(toggleId).name("Field Policy").status("ACTIVE").build();
+        when(penalisationPolicyRepository.findById(toggleId)).thenReturn(Optional.of(toToggle));
+        realService.toggleActive(toggleId, hrEmail);
+        org.mockito.ArgumentCaptor<String> toggleBefore = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<String> toggleAfter = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(auditService).log(eq(actorId), eq("PENALISATION_POLICY_STATUS_CHANGED"), eq(toggleId), toggleBefore.capture(), toggleAfter.capture());
+        assertDoesNotThrow(() -> reader.readTree(toggleBefore.getValue()), "before_state must be valid JSON for the JSONB column");
+        assertDoesNotThrow(() -> reader.readTree(toggleAfter.getValue()), "after_state must be valid JSON for the JSONB column");
+
+        UUID deleteId = UUID.randomUUID();
+        PenalisationPolicy toDelete = PenalisationPolicy.builder().id(deleteId).name("Unused Policy").build();
+        when(penalisationPolicyRepository.findById(deleteId)).thenReturn(Optional.of(toDelete));
+        when(penalisationPolicyRepository.count()).thenReturn(2L);
+        when(versionRepository.findByPolicyIdOrderByVersionDesc(deleteId)).thenReturn(List.of());
+        realService.delete(deleteId, hrEmail);
+        org.mockito.ArgumentCaptor<String> deleteBefore = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(auditService).log(eq(actorId), eq("PENALISATION_POLICY_DELETED"), eq(deleteId), deleteBefore.capture(), eq(null));
+        assertDoesNotThrow(() -> reader.readTree(deleteBefore.getValue()), "before_state must be valid JSON for the JSONB column");
     }
 }

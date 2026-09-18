@@ -57,8 +57,10 @@ export const authApi = {
       body: JSON.stringify({ email, password }),
     }).then(handle<LoginResponse>),
 
+  // currentPassword is undefined for the forced (temp-password) flow, where the frontend
+  // omits it entirely — see ChangePasswordPage and AuthService#changePassword (backend).
   changePassword: (
-    currentPassword: string,
+    currentPassword: string | undefined,
     newPassword: string,
     confirmPassword: string,
     token: string,

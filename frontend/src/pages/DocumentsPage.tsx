@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, Upload, XCircle, AlertTriangle, Eye, Search } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -47,10 +48,15 @@ function UploadModal({
   const [expiryDate, setExpiryDate] = useState(existing?.expiryDate?.split('T')[0] ?? '');
   const [loading, setLoading] = useState(false);
 
+  const dateError = issueDate && expiryDate && expiryDate < issueDate
+    ? 'Expiry date cannot be earlier than issue date'
+    : null;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const file = fileRef.current?.files?.[0];
     if (!file) return showToast('error', 'Please select a file');
+    if (dateError) return showToast('error', dateError);
     setLoading(true);
     try {
       const doc = await uploadDocument(token, {
@@ -91,16 +97,20 @@ function UploadModal({
             <div>
               <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Expiry Date {requiresExpiry ? '*' : ''}</label>
               <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} required={requiresExpiry}
-                style={{ width: '100%', padding: '8px 10px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', fontSize: 13 }} />
+                min={issueDate || undefined}
+                style={{ width: '100%', padding: '8px 10px', background: 'var(--shell)', border: `1px solid ${dateError ? '#ef4444' : 'var(--line)'}`, borderRadius: 6, color: 'var(--txt)', fontSize: 13 }} />
             </div>
           </div>
+          {dateError && (
+            <p style={{ margin: '-10px 0 14px', fontSize: 12, color: '#ef4444' }}>{dateError}</p>
+          )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} disabled={loading}
               style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
               Cancel
             </button>
-            <button type="submit" disabled={loading}
-              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            <button type="submit" disabled={loading || !!dateError}
+              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: loading || dateError ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: loading || dateError ? .7 : 1 }}>
               {loading ? 'Uploading…' : 'Upload'}
             </button>
           </div>
@@ -187,9 +197,13 @@ function ViewButton({ docId }: { docId: string }) {
 export default function DocumentsPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
-  const [tab, setTab] = useState<'docs' | 'policies' | 'announcements'>('docs');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<'docs' | 'policies' | 'announcements'>(() => {
+    const t = searchParams.get('tab');
+    return t === 'policies' || t === 'announcements' ? t : 'docs';
+  });
   const [section, setSection] = useState<'verified' | 'pending' | 'missing'>('pending');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
   const [required, setRequired] = useState<RequiredDocument[]>([]);
   const [myDocs, setMyDocs] = useState<EmployeeDocument[]>([]);
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
@@ -250,12 +264,15 @@ export default function DocumentsPage() {
   const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : missing;
   const q = search.trim().toLowerCase();
   const filteredDocs = q ? sectionDocs.filter(r => r.documentTypeName.toLowerCase().includes(q)) : sectionDocs;
+  const filteredAnnouncements = q
+    ? announcements.filter(a => a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
+    : announcements;
 
   if (loading) return <p style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</p>;
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>My Documents & Policies</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Documents & Policies</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
 
       {/* KPI tiles */}
@@ -267,7 +284,7 @@ export default function DocumentsPage() {
           { label: 'Not Submitted', value: missing.length, color: '#ef4444' },
         ].map(k => (
           <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: '"Space Grotesk", sans-serif' }}>{k.value}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
             <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
           </div>
         ))}
@@ -372,7 +389,7 @@ export default function DocumentsPage() {
 
           {/* Upload from docTypes for any not in required list */}
           {docTypes.length > required.length && (
-            <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Upload additional document:</span>
               <select onChange={e => {
                 const dt = docTypes.find(d => d.id === Number(e.target.value));
@@ -410,15 +427,20 @@ export default function DocumentsPage() {
                   </div>
                 </div>
                 <div style={{ flexShrink: 0 }}>
-                  {p.acknowledged === false ? (
-                    <button onClick={() => setAckTarget(p)}
-                      style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                      Review & Acknowledge
-                    </button>
-                  ) : (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#22c55e', fontSize: 13, fontWeight: 600 }}>
-                      <CheckCircle size={14} /> Acknowledged
-                    </span>
+                  {/* Acknowledgment wasn't enabled when this policy was published — it's viewable
+                      only, so no action is shown and it never counts as pending (see p.required
+                      gating on pendingPolicies above and the backend's countPendingRequired* queries). */}
+                  {p.required && (
+                    p.acknowledged === false ? (
+                      <button onClick={() => setAckTarget(p)}
+                        style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                        Review & Acknowledge
+                      </button>
+                    ) : (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#22c55e', fontSize: 13, fontWeight: 600 }}>
+                        <CheckCircle size={14} /> Acknowledged
+                      </span>
+                    )
                   )}
                 </div>
               </div>
@@ -430,8 +452,16 @@ export default function DocumentsPage() {
       {/* ── Announcements Tab ── */}
       {tab === 'announcements' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {announcements.length === 0 && <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No announcements yet.</p>}
-          {announcements.map(a => (
+          <div className="nf-search-full-mobile" style={{ position: 'relative', marginBottom: 2 }}>
+            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search announcements…"
+              className="nf-search-full-mobile-input"
+              style={{ paddingLeft: 28, padding: '6px 10px 6px 28px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 12, width: 200, outline: 'none' }} />
+          </div>
+          {filteredAnnouncements.length === 0 && (
+            <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>{q ? 'No announcements match your search.' : 'No announcements yet.'}</p>
+          )}
+          {filteredAnnouncements.map(a => (
             <div key={a.id} style={{ ...card, padding: 20 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
               <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6 }}>{a.body}</p>

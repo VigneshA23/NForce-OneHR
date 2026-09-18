@@ -1,18 +1,19 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.dto.attendance.PolicyDecisionType;
 import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
 import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.dto.exceptions.ExceptionResponse;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.WorkHoursCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -32,13 +33,27 @@ public class ExceptionService {
 
     private static final Set<String> HR_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final Set<String> PENDING_REGULARIZATION_STATUSES = Set.of("PENDING", "PARTIALLY_APPROVED");
+    // The one allowed-late privilege: ShiftVersion.lateGraceMinutes, already folded into this by
+    // AttendanceInterpretationService/AttendanceService/RegularizationService when they compute
+    // Attendance.status. Never re-derive "genuinely late" from the raw, no-forgiveness
+    // lateByMinutes figure here — see detectExceptions' own comment on why.
+    private static final String STATUS_LATE = "LATE";
 
     // Still detected and evaluated against the Penalization Policy exactly as before (see
-    // detectExceptions/runScheduledPenaltyEvaluation) — these three just no longer surface as
+    // detectExceptions/runScheduledPenaltyEvaluation) — these just no longer surface as
     // rows on the Exception Dashboard itself, per explicit request. Removing an entry here only
     // changes what getExceptionsForCaller returns, never what gets detected or penalized.
     private static final Set<String> HIDDEN_FROM_EXCEPTION_DASHBOARD = Set.of(
-            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
+            ExceptionType.NO_ATTENDANCE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
+
+    // The four penalizable discrepancy types — see notifyUnnotifiedExceptions' own javadoc for why
+    // these, and only these, are emailed exclusively by the scheduled job rather than immediately
+    // on detection. LEAVE_ATTENDANCE_CONFLICT is deliberately excluded: it's never a penalty
+    // candidate (ConfiguredAttendancePolicyEngine has no case for it), so it keeps its original
+    // immediate-on-detection email instead.
+    private static final Set<String> SCHEDULED_EMAIL_TYPES = Set.of(
+            ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH,
+            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE);
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -51,9 +66,39 @@ public class ExceptionService {
     private final EmailService emailService;
     private final AttendancePenaltyEvaluationService attendancePenaltyEvaluationService;
     private final WorkingDayService workingDayService;
-    private final PenalizationPolicyVersionRepository penalizationPolicyVersionRepository;
     private final HolidayRepository holidayRepository;
-    private final PenalizationPolicyService penalizationPolicyService;
+    private final PenalizationPolicyResolutionService penalizationPolicyResolutionService;
+    private final ExpectedWorkHoursService expectedWorkHoursService;
+    private final WorkHoursShortageCalculationService workHoursShortageCalculationService;
+    private final AttendancePolicyEngine attendancePolicyEngine;
+    private final AttendancePenaltyRepository attendancePenaltyRepository;
+    private final AttendancePenaltyService attendancePenaltyService;
+    // Resolves a Shift's timing for a SPECIFIC date (Shift Versioning) — see its own Javadoc.
+    private final ShiftVersionResolver shiftVersionResolver;
+    // Only for resolveSnapshotShift's historical Attendance.shiftId lookup below — never for
+    // resolving an employee's current/live Shift.
+    private final ShiftRepository shiftRepository;
+
+    /**
+     * Gap-033/034: every discrepancy type a corrected Attendance record could invalidate — a
+     * regularization approval rewrites checkInAt/checkOutAt/lateByMinutes/workedMinutes/status for
+     * the whole day, so any of these four could no longer hold. Deliberately excludes
+     * LEAVE_ATTENDANCE_CONFLICT (a punch *during* approved leave is a fact regularization can never
+     * retract — see detectExceptions' own javadoc on why that type is never gated the same way as
+     * the other four).
+     */
+    static final Set<String> REGULARIZATION_REEVALUATION_TYPES = Set.of(
+            ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH,
+            ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.NO_ATTENDANCE);
+
+    /**
+     * Gap-034: leave approval only ever changes what an employee was *expected* to work (via
+     * {@link ExpectedWorkHoursService#adjustedExpectedMinutes}) or whether the day counts as a
+     * working day at all — it never touches what was actually punched, so LATE_ARRIVAL/MISSING_PUNCH
+     * are deliberately excluded here even though they're in {@link #REGULARIZATION_REEVALUATION_TYPES}.
+     */
+    static final Set<String> LEAVE_REEVALUATION_TYPES = Set.of(
+            ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.NO_ATTENDANCE);
 
     /**
      * HR Admin + Super Admin see company-wide exceptions; Manager sees only current
@@ -96,39 +141,10 @@ public class ExceptionService {
                 .filter(e -> !HIDDEN_FROM_EXCEPTION_DASHBOARD.contains(e.getExceptionType()))
                 .map(this::toResponse)
                 .collect(Collectors.toCollection(java.util.ArrayList::new));
-        responses.addAll(pendingLeaveApprovals(scopeIds, from, to));
         responses.sort(Comparator.comparing(ExceptionResponse::getExceptionDate)
                 .thenComparing(ExceptionResponse::getDetectedAt)
                 .reversed());
         return responses;
-    }
-
-    /**
-     * A leave request still awaiting approval, surfaced as a dashboard row alongside real
-     * attendance exceptions — see ExceptionType.PENDING_LEAVE_APPROVAL's javadoc. Dated by when
-     * it was requested (createdAt), not its leave start date, so the dashboard's From/To filter
-     * means the same thing here as it does for every other row: "when did this need attention."
-     */
-    private List<ExceptionResponse> pendingLeaveApprovals(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
-        return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(scopeIds, "PENDING").stream()
-                .filter(r -> {
-                    LocalDate requestedOn = r.getCreatedAt().toLocalDate();
-                    return !requestedOn.isBefore(from) && !requestedOn.isAfter(to);
-                })
-                .map(r -> {
-                    Optional<Employee> employee = employeeRepository.findById(r.getEmployeeUserId());
-                    return ExceptionResponse.builder()
-                            .id(r.getId())
-                            .employeeUserId(r.getEmployeeUserId())
-                            .employeeCode(employee.map(Employee::getEmployeeCode).orElse(null))
-                            .employeeFullName(employee.map(Employee::getFullName).orElse(null))
-                            .exceptionDate(r.getCreatedAt().toLocalDate())
-                            .exceptionType(ExceptionType.PENDING_LEAVE_APPROVAL)
-                            .status("OPEN")
-                            .detectedAt(r.getCreatedAt())
-                            .build();
-                })
-                .collect(Collectors.toList());
     }
 
     /**
@@ -139,6 +155,15 @@ public class ExceptionService {
      * back {@code lookbackDays} calendar days from yesterday (never "today", an in-progress day),
      * which must comfortably cover the longest configured buffer period + exemption cycle for any
      * policy still evaluating pending occurrences.
+     *
+     * <p>Section 8: scope is the same {@link UserRepository#findEmployeeRoleUserIds()} population
+     * {@link #getExceptionsForCaller} uses — deliberately NOT narrowed to {@code User.active},
+     * which cannot reliably distinguish a genuine termination from any other reason an admin might
+     * deactivate someone (see {@link #isPastEmploymentTermination}'s javadoc). "No new penalty
+     * after a genuine termination" is enforced precisely, per-date, at {@link #evaluatePolicy}
+     * instead — the correct place, since it's the one signal (Employee#lastWorkingDay) actually
+     * meant to record employment end, and it applies uniformly to this scheduled path and the
+     * dashboard-triggered one.
      */
     @Transactional
     public void runScheduledPenaltyEvaluation(int lookbackDays) {
@@ -169,6 +194,16 @@ public class ExceptionService {
      * against the configured Penalization Policy (see {@link #evaluatePolicy}) — this dashboard
      * load (HR/Super Admin viewing company-wide exceptions, or a Manager viewing their team's) is
      * the existing, already-invoked production trigger; no scheduler is introduced.
+     *
+     * <p>LATE_ARRIVAL and MISSING_PUNCH are both gated against {@link WorkingDayService}'s
+     * "was this employee actually expected to work this date" set — the same non-working-day
+     * exclusion (holiday, weekly off, approved full-day leave) {@link #detectNoAttendanceAndShortage}
+     * already applies for its own two exception types. Without it, a punch on an optional/overtime
+     * work day that happens to read as "late" against normal shift-start, or a forgotten checkout
+     * on a day nobody was expected to work, would incorrectly become a penalty candidate — nothing
+     * upstream in {@code AttendanceService}'s {@code lateByMinutes}/{@code isMissingCheckOut}
+     * computation is itself aware of holidays/week-offs. LEAVE_ATTENDANCE_CONFLICT is a different
+     * concern (a punch *during* approved leave) and is deliberately not gated the same way.
      */
     private void detectExceptions(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
         List<UUID> scopeIdList = new java.util.ArrayList<>(scopeIds);
@@ -185,24 +220,40 @@ public class ExceptionService {
                         .map(date -> leave.getEmployeeUserId() + "|" + date))
                 .collect(Collectors.toSet());
 
-        // Was attendanceProperties.getShiftStart() (the org-wide fallback) for every employee
-        // regardless of their own assigned Shift — the LATE_ARRIVAL decision/count themselves
-        // were unaffected (reused correctly from record.getLateByMinutes() below), but the
-        // "expected" time shown/emailed for this exception was wrong for anyone not on the
-        // default shift. Mirrors AttendanceService.resolveShiftStart's own fallback rule.
-        Map<UUID, Employee> employeesById = employeeRepository.findAllByIdWithScheduleDetails(scopeIdList).stream()
-                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+        List<Employee> employees = employeeRepository.findAllByIdWithScheduleDetails(scopeIdList);
+
+        // Unclamped [from, to] — deliberately not reusing detectNoAttendanceAndShortage's own
+        // yesterday-clamped range below, since a late arrival can legitimately be for *today*.
+        Map<UUID, WorkingDaySchedule> workingDaySchedules = workingDayService.computeExpectedWorkingDaysBulk(employees, from, to);
 
         for (Attendance record : records) {
-            if (record.getLateByMinutes() != null && record.getLateByMinutes() > 0) {
-                Employee employee = employeesById.get(record.getEmployeeUserId());
-                LocalTime expectedShiftStart = employee != null && employee.getShift() != null
-                        ? employee.getShift().getStartTime() : attendanceProperties.getShiftStart();
+            WorkingDaySchedule schedule = workingDaySchedules.get(record.getEmployeeUserId());
+            boolean isWorkingDay = schedule != null && schedule.getWorkingDates().contains(record.getWorkDate());
+
+            // Gated on Attendance.status == LATE, NOT `lateByMinutes > 0`. There is exactly one
+            // allowed-late privilege — ShiftVersion.lateGraceMinutes — and it is already folded
+            // into `status` by AttendanceInterpretationService's isLate formula (shiftStart +
+            // grace). `lateByMinutes` is deliberately left as the raw, no-forgiveness minutes
+            // (an employee-facing display/audit figure only — see its own Javadoc); gating on it
+            // directly would create a LATE_ARRIVAL incident, and count it toward the "every 3rd
+            // late arrival" threshold, for an arrival still within the employee's allowed-late
+            // privilege, contradicting that privilege's whole purpose.
+            if (isWorkingDay && STATUS_LATE.equals(record.getStatus())) {
+                // Resolved from THIS record's own snapshotted shiftId (never the employee's
+                // current/live Shift) — an employee reassigned since this historical date must
+                // never change what "expected start" this already-decided LATE_ARRIVAL displays.
+                // Null (legacy row, no snapshot) means "cannot be evaluated" — the exception is
+                // still raised (the LATE decision itself is independent and already final), just
+                // without a resolvable expected-start figure, same as MISSING_PUNCH/
+                // LEAVE_ATTENDANCE_CONFLICT below already pass null for fields they can't supply.
+                LocalTime expectedShiftStart = resolveSnapshotShift(record)
+                        .map(shift -> shiftVersionResolver.resolve(shift, record.getWorkDate()).getStartTime())
+                        .orElse(null);
                 upsertException(record, ExceptionType.LATE_ARRIVAL,
                         expectedShiftStart, record.getCheckInAt().toLocalTime(),
                         record.getLateByMinutes());
             }
-            if (record.getCheckInAt() != null && record.getCheckOutAt() == null && record.getWorkDate().isBefore(today)) {
+            if (isWorkingDay && record.isMissingCheckOut() && record.getWorkDate().isBefore(today)) {
                 upsertException(record, ExceptionType.MISSING_PUNCH,
                         null, record.getCheckInAt().toLocalTime(), null);
             }
@@ -234,6 +285,8 @@ public class ExceptionService {
         }
         List<Employee> employees = employeeRepository.findAllByIdWithScheduleDetails(scopeIdList);
         Map<UUID, WorkingDaySchedule> schedules = workingDayService.computeExpectedWorkingDaysBulk(employees, from, rangeEnd);
+        Map<String, LeaveRequest> partialHourLeaveByEmployeeDate =
+                expectedWorkHoursService.loadPartialHourLeaveByEmployeeDate(scopeIdList, from, rangeEnd);
 
         Map<String, Attendance> byEmployeeDate = records.stream()
                 .collect(Collectors.toMap(r -> r.getEmployeeUserId() + "|" + r.getWorkDate(), r -> r, (a, b) -> a));
@@ -243,6 +296,14 @@ public class ExceptionService {
             if (schedule == null) {
                 continue;
             }
+            // Resolved once per employee (matching detectAdjoiningPenalties' own convention) —
+            // decides which detection MODE runs for this whole pass; evaluatePolicy still resolves
+            // the precise per-date version for the actual penalty math regardless.
+            PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, rangeEnd);
+            boolean cyclicFrequency = version != null
+                    && ("WEEK".equals(version.getWhsDeductionPeriod()) || "MONTH".equals(version.getWhsDeductionPeriod()));
+            boolean missingLogShortageEnabled = version != null && version.isWhsPenalizeShortageCausedByMissingLogsEnabled();
+
             for (LocalDate date : schedule.getWorkingDates()) {
                 Attendance existing = byEmployeeDate.get(employee.getUserId() + "|" + date);
                 if (existing == null) {
@@ -252,19 +313,78 @@ public class ExceptionService {
                     Attendance noAttendance = Attendance.builder()
                             .employeeUserId(employee.getUserId()).workDate(date).workedMinutes(0).build();
                     upsertException(noAttendance, ExceptionType.NO_ATTENDANCE, null, null, null);
-                } else if (existing.getCheckOutAt() != null && existing.getWorkedMinutes() != null
-                        && employee.getShift() != null) {
-                    long shiftMinutes = Duration.between(
-                            employee.getShift().getStartTime(), employee.getShift().getEndTime()).toMinutes();
-                    if (shiftMinutes > 0 && existing.getWorkedMinutes() < shiftMinutes) {
+                } else if (cyclicFrequency) {
+                    // WEEK/MONTH frequency is evaluated once per cycle, not per day — see
+                    // detectCyclicWorkHoursShortage below.
+                } else if (existing.getCheckOutAt() != null && existing.getWorkedMinutes() != null) {
+                    // Expected minutes are reduced (not removed — see WorkingDayService) by any
+                    // approved hourly/quarter-day leave on this date, so a shortage is only flagged
+                    // against what the employee was actually still expected to work.
+                    Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(
+                            employee, date, partialHourLeaveByEmployeeDate.get(employee.getUserId() + "|" + date));
+                    if (expectedMinutes != null && existing.getWorkedMinutes() < expectedMinutes) {
+                        // Resolved from THIS record's own snapshotted shiftId (never the
+                        // employee's current/live Shift) — an employee reassigned since this
+                        // historical date must never change what "expected end" an
+                        // already-decided shortage displays. Null (legacy row) means "cannot be
+                        // evaluated" for display only; the shortage itself was already decided
+                        // above from expectedMinutes, which is independently date-correct (see
+                        // ExpectedWorkHoursService#shiftMinutes).
+                        LocalTime expectedShiftEnd = resolveSnapshotShift(existing)
+                                .map(shift -> shiftVersionResolver.resolve(shift, date).getEndTime())
+                                .orElse(null);
                         upsertException(existing, ExceptionType.WORK_HOURS_SHORTAGE,
-                                employee.getShift().getEndTime(), existing.getCheckOutAt().toLocalTime(), null);
+                                expectedShiftEnd, existing.getCheckOutAt().toLocalTime(), null);
+                    }
+                } else if (missingLogShortageEnabled && existing.isMissingCheckOut()) {
+                    // Section 10 (Phase 3): a missing check-out is a candidate shortage day only
+                    // when explicitly opted in — evaluatePolicy treats it as 0 worked minutes.
+                    Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(
+                            employee, date, partialHourLeaveByEmployeeDate.get(employee.getUserId() + "|" + date));
+                    if (expectedMinutes != null && expectedMinutes > 0) {
+                        upsertException(existing, ExceptionType.WORK_HOURS_SHORTAGE, null, null, null);
                     }
                 }
             }
         }
 
+        detectCyclicWorkHoursShortage(employees, from, rangeEnd);
         detectAdjoiningPenalties(employees, schedules, byEmployeeDate, from, rangeEnd);
+    }
+
+    /**
+     * Section 5 (Phase 3): WEEK/MONTH Work Hours Shortage frequency — evaluated once on the
+     * cycle's own last calendar day (not necessarily a working day itself; the aggregate inside
+     * {@link WorkHoursShortageCalculationService} only counts the cycle's actual working days),
+     * so exactly one {@code AttendanceException} row (and one penalty evaluation) results per
+     * cycle rather than one per day.
+     */
+    private void detectCyclicWorkHoursShortage(List<Employee> employees, LocalDate from, LocalDate to) {
+        for (Employee employee : employees) {
+            PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, to);
+            if (version == null || !version.isWorkHoursShortageEnabled()) {
+                continue;
+            }
+            String period = version.getWhsDeductionPeriod();
+            if (!"WEEK".equals(period) && !"MONTH".equals(period)) {
+                continue;
+            }
+            for (LocalDate date : from.datesUntil(to.plusDays(1)).toList()) {
+                LocalDate[] cycle = cyclePeriod(date, period);
+                if (!date.equals(cycle[1])) {
+                    continue; // only the cycle's last calendar day triggers evaluation
+                }
+                Double percent = workHoursShortageCalculationService.computeShortagePercent(employee, date, version);
+                // Cheap pre-filter mirroring the DAY-mode gate ("worked < expected") — avoids an
+                // exception row (and a full policy evaluation) for a cycle with no shortfall at all.
+                if (percent == null || percent >= 100.0) {
+                    continue;
+                }
+                Attendance synthetic = Attendance.builder()
+                        .employeeUserId(employee.getUserId()).workDate(date).build();
+                upsertException(synthetic, ExceptionType.WORK_HOURS_SHORTAGE, null, null, null);
+            }
+        }
     }
 
     /**
@@ -295,7 +415,7 @@ public class ExceptionService {
             if (schedule == null) {
                 continue;
             }
-            PenalizationPolicyVersion version = resolveEffectiveVersion(resolveAssignedOrDefaultPolicyId(employee), to);
+            PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, to);
             if (version == null || (!version.isNaAdjoiningHolidayEnabled() && !version.isNaAdjoiningWeekoffEnabled())) {
                 continue;
             }
@@ -423,6 +543,27 @@ public class ExceptionService {
                 .collect(Collectors.toSet());
     }
 
+    /**
+     * Resolves the Shift referenced by {@code record}'s own snapshotted {@code shiftId} — never
+     * the employee's current/live assignment — for a historical display or calculation tied to
+     * this specific record. Empty for a legacy row with no snapshot (see {@code Attendance
+     * .shiftId}'s own Javadoc); callers must treat that as "cannot be evaluated," never fall back
+     * to the employee's current Shift. Mirrors {@code AttendanceInterpretationService
+     * .resolveShiftContextOrNull}'s identical reasoning/error message for the same class of
+     * "references a shift that no longer exists" data-corruption signal.
+     */
+    private Optional<Shift> resolveSnapshotShift(Attendance record) {
+        if (record.getShiftId() == null) {
+            return Optional.empty();
+        }
+        return Optional.of(shiftRepository.findById(record.getShiftId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Attendance " + record.getId() + " references shift " + record.getShiftId()
+                                + " which no longer exists — Shift deletion should be blocked once any "
+                                + "Attendance references it (see OrgService#deleteShift); this indicates "
+                                + "data corruption, not a case to fall back from.")));
+    }
+
     private void upsertException(Attendance record, String exceptionType,
                                   LocalTime expectedTime, LocalTime actualTime, Integer minutesLate) {
         UUID employeeUserId = record.getEmployeeUserId();
@@ -441,13 +582,24 @@ public class ExceptionService {
         exception.setMinutesLate(minutesLate);
         attendanceExceptionRepository.save(exception);
 
-        // Email once, and evaluate the configured Penalization Policy once, the moment an
-        // exception is first detected — never on later re-detection of the same row (every
-        // dashboard load re-runs detectExceptions). AttendancePenaltyEvaluationService has its
-        // own defensive duplicate guard regardless (see its class javadoc).
+        // Evaluate the configured Penalization Policy once, the moment an exception is first
+        // detected — never on later re-detection of the same row (every dashboard load re-runs
+        // detectExceptions). AttendancePenaltyEvaluationService has its own defensive duplicate
+        // guard regardless (see its class javadoc).
+        //
+        // Email is handled separately: LEAVE_ATTENDANCE_CONFLICT is not a penalizable discrepancy
+        // (see ConfiguredAttendancePolicyEngine's switch — it always falls to NO_MATCH for this
+        // type), so it's still emailed immediately here, same as before. The four penalizable
+        // types (LATE_ARRIVAL/MISSING_PUNCH/NO_ATTENDANCE/WORK_HOURS_SHORTAGE) are deliberately
+        // NOT emailed here — detection (this method, reachable from the dashboard-load path) and
+        // notification are independent by design; see notifyUnnotifiedExceptions, the scheduled
+        // job's own step, which is the only path that ever emails the employee about one of these
+        // four, so the email time is never influenced by whether/when anyone opened the dashboard.
         if (isNew) {
             evaluatePolicy(record, exceptionType);
-            notifyEmployee(employeeUserId, exceptionType, exceptionDate, expectedTime, actualTime, minutesLate);
+            if (ExceptionType.LEAVE_ATTENDANCE_CONFLICT.equals(exceptionType)) {
+                notifyEmployee(employeeUserId, exceptionType, exceptionDate, expectedTime, actualTime, minutesLate);
+            }
         }
     }
 
@@ -463,8 +615,35 @@ public class ExceptionService {
                 emailService.sendMissingPunchEmail(email, managerEmail, name, exceptionDate, actualTime);
             } else if (ExceptionType.LEAVE_ATTENDANCE_CONFLICT.equals(exceptionType)) {
                 emailService.sendLeaveAttendanceConflictEmail(email, managerEmail, name, exceptionDate, actualTime);
+            } else if (ExceptionType.NO_ATTENDANCE.equals(exceptionType)) {
+                emailService.sendNoAttendanceEmail(email, managerEmail, name, exceptionDate);
+            } else if (ExceptionType.WORK_HOURS_SHORTAGE.equals(exceptionType)) {
+                emailService.sendWorkHoursShortageEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime);
             }
         });
+    }
+
+    /**
+     * The one production entry point for emailing an employee about a LATE_ARRIVAL, MISSING_PUNCH,
+     * NO_ATTENDANCE, or WORK_HOURS_SHORTAGE occurrence — called exclusively by
+     * {@code PenaltyEvaluationScheduler}'s nightly run, never by the dashboard-load path (see
+     * {@link #upsertException}). This is what guarantees these four emails go out on a fixed daily
+     * schedule with zero manual intervention: whether an occurrence's {@code AttendanceException}
+     * row was created just now by this same scheduled run, or hours/days earlier by an HR Admin or
+     * Manager opening the Exceptions dashboard, it sits with {@code notifiedAt == null} until this
+     * method runs and emails it — detection and notification are intentionally decoupled.
+     */
+    @Transactional
+    public void notifyUnnotifiedExceptions() {
+        List<AttendanceException> pending = attendanceExceptionRepository
+                .findByExceptionTypeInAndNotifiedAtIsNull(new java.util.ArrayList<>(SCHEDULED_EMAIL_TYPES));
+        LocalDateTime now = LocalDateTime.now();
+        for (AttendanceException exception : pending) {
+            notifyEmployee(exception.getEmployeeUserId(), exception.getExceptionType(), exception.getExceptionDate(),
+                    exception.getExpectedTime(), exception.getActualTime(), exception.getMinutesLate());
+            exception.setNotifiedAt(now);
+            attendanceExceptionRepository.save(exception);
+        }
     }
 
     /**
@@ -477,13 +656,51 @@ public class ExceptionService {
      * not this method, decides which (if any) configured section applies.
      */
     private void evaluatePolicy(Attendance record, String exceptionType) {
+        if (isPastEmploymentTermination(record.getEmployeeUserId(), record.getWorkDate())) {
+            return;
+        }
+        attendancePenaltyEvaluationService.evaluate(buildContext(record, exceptionType));
+    }
+
+    /**
+     * Section 8: {@link Employee#getLastWorkingDay()} — already the domain's one existing,
+     * HR-authored "employment ended on X" fact (previously consumed only by
+     * {@link #isUnderNoticePeriod} for notice-period exemption) — also means no NEW penalty
+     * should ever be evaluated for a date after it. Deliberately NOT based on {@code User.active}:
+     * that boolean is shared with unrelated deactivation reasons (see
+     * {@code UserManagementService#assertNotSelfOrLastActiveSuperAdmin}'s shared guard for both
+     * {@code setActiveStatus(false)} and {@code softDeleteUser}) and cannot reliably distinguish
+     * "this person left the company" from "temporarily disabled for another reason" — unlike
+     * {@code lastWorkingDay}, which nothing in this codebase sets except a deliberate HR action.
+     *
+     * <p>Only gates NEW penalty creation ({@link #evaluatePolicy}) — never
+     * {@link #reevaluateAndReverseIfInvalid}'s reversal path, which must still be able to reverse
+     * an already-applied penalty regardless of the employee's current employment status, and never
+     * historical rows, allocations, or the exception/notification recording above this call, none
+     * of which this method touches.
+     */
+    private boolean isPastEmploymentTermination(UUID employeeUserId, LocalDate date) {
+        return employeeRepository.findById(employeeUserId)
+                .map(Employee::getLastWorkingDay)
+                .filter(date::isAfter)
+                .isPresent();
+    }
+
+    /**
+     * Extracted from {@link #evaluatePolicy} so {@link #reevaluateAndReverseIfInvalid} (Gap-033/034)
+     * can build the exact same {@link PolicyEvaluationContext} against corrected attendance/leave
+     * data and hand it straight to {@link AttendancePolicyEngine#evaluate} for a read-only decision
+     * check, without persisting a new penalty the way {@link AttendancePenaltyEvaluationService}
+     * would.
+     */
+    private PolicyEvaluationContext buildContext(Attendance record, String exceptionType) {
         UUID employeeUserId = record.getEmployeeUserId();
         LocalDate exceptionDate = record.getWorkDate();
         LocalDate today = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
 
         Employee employee = employeeRepository.findById(employeeUserId).orElse(null);
-        UUID assignedPolicyId = resolveAssignedOrDefaultPolicyId(employee);
-        PenalizationPolicyVersion version = resolveEffectiveVersion(assignedPolicyId, exceptionDate);
+        UUID assignedPolicyId = penalizationPolicyResolutionService.resolveAssignedOrDefaultPolicyId(employee, exceptionDate);
+        PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersion(assignedPolicyId, exceptionDate);
 
         List<RegularizationRequest> regularizations = regularizationRequestRepository
                 .findByEmployeeUserIdInAndAttendanceDateBetween(List.of(employeeUserId), exceptionDate, exceptionDate);
@@ -495,8 +712,18 @@ public class ExceptionService {
         // for a cycle change (the window is derived from exceptionDate itself, not "now").
         LocalDate[] laPeriod = cyclePeriod(exceptionDate, version != null ? version.getLaExemptPeriod() : null);
         LocalDate[] mlPeriod = cyclePeriod(exceptionDate, version != null ? version.getMlExemptPeriod() : null);
-        int lateArrivalCount = (int) attendanceExceptionRepository.countByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
-                employeeUserId, ExceptionType.LATE_ARRIVAL, laPeriod[0], laPeriod[1]);
+        // Counted straight off Attendance.status == LATE (live), NOT off the AttendanceException
+        // snapshot rows upsertException wrote — the same query LatePenaltyService has always used
+        // for its own "every 3rd late this month" count (see AttendanceRepository's Javadoc on
+        // this method). AttendanceException rows are an append-only, never-deleted detection
+        // audit trail (see upsertException) — counting them directly would keep a date counted
+        // forever even after a regularization corrects that day's Attendance back to PRESENT.
+        // Attendance.status, by contrast, IS corrected in place by RegularizationService.approve
+        // (see its own applyInterpretation), so counting it here means a regularized late arrival
+        // stops contributing to this and every later occurrence's threshold automatically, with
+        // no second, independently-maintained "is this incident still valid" flag to keep in sync.
+        int lateArrivalCount = (int) attendanceRepository.countByEmployeeUserIdAndWorkDateBetweenAndStatus(
+                employeeUserId, laPeriod[0], laPeriod[1], STATUS_LATE);
         int missingLogCount = (int) attendanceExceptionRepository.countByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
                 employeeUserId, ExceptionType.MISSING_PUNCH, mlPeriod[0], mlPeriod[1]);
 
@@ -514,6 +741,13 @@ public class ExceptionService {
                 .existsByEmployeeUserIdAndExceptionDateAndExceptionType(
                         employeeUserId, exceptionDate.minusDays(1), ExceptionType.MISSING_PUNCH);
 
+        // NOT unified with the NUMBER_OF_INCIDENTS basis above: the "Total Late Hours in Shift"
+        // basis (Section 25/29/31) is a distinct, separately-configured Penalization Policy mode —
+        // an org running THIS basis instead is choosing to measure cumulative lateness minutes
+        // against its own configured allowed-hours/tiers, not "every Nth incident" at all, so
+        // laGracePeriodMinutes here is this mode's own threshold input, not a second copy of the
+        // shift's allowed-late privilege. Left unchanged by this fix (which targets the
+        // NUMBER_OF_INCIDENTS basis exercised by every acceptance scenario in this change).
         Integer lateMinutesTotalInPeriod = null;
         if (version != null && "TOTAL_HOURS".equals(version.getLaBasis())) {
             int grace = version.getLaGracePeriodMinutes() != null ? version.getLaGracePeriodMinutes() : 0;
@@ -525,7 +759,7 @@ public class ExceptionService {
                     .sum();
         }
 
-        PolicyEvaluationContext context = PolicyEvaluationContext.builder()
+        return PolicyEvaluationContext.builder()
                 .employeeUserId(employeeUserId)
                 .attendanceDate(exceptionDate)
                 .discrepancyType(exceptionType)
@@ -536,7 +770,9 @@ public class ExceptionService {
                 .hasApprovedRegularization(hasApproved)
                 .lateMinutes(record.getLateByMinutes())
                 .workedMinutes(record.getWorkedMinutes())
-                .effectiveHoursPercent(computeEffectiveHoursPercent(record))
+                .effectiveHoursPercent(computeEffectiveHoursPercent(record, employee))
+                .workHoursShortagePercent(employee != null
+                        ? workHoursShortageCalculationService.computeShortagePercent(employee, exceptionDate, version) : null)
                 .lateArrivalCountInPeriod(lateArrivalCount)
                 .missingLogCountInPeriod(missingLogCount)
                 .lateArrivalAlsoOccurredSameDay(lateArrivalSameDay)
@@ -544,44 +780,111 @@ public class ExceptionService {
                 .lateArrivalCausedByMissingLog(lateArrivalCausedByMissingLog)
                 .lateMinutesTotalInPeriod(lateMinutesTotalInPeriod)
                 .build();
-
-        attendancePenaltyEvaluationService.evaluate(context);
     }
 
     /**
-     * The employee's own assigned policy, or — if unset (e.g. a newly-created employee nobody has
-     * assigned one to yet via Employee Assignments) — the org's original default policy, resolved
-     * the exact same way {@link PenalizationPolicyService#resolveDefaultPolicyId()} does. Without
-     * this fallback, an unassigned employee would fall through to
-     * {@link PenalizationPolicyVersionRepository#findVersionsEffectiveAt} — an *unscoped* query
-     * across every policy's version chain — which stopped being a safe "the one policy" lookup
-     * the moment Policy List (Section 5) made multiple named policies possible: "ORDER BY version
-     * DESC" with no policy filter can return an arbitrary policy's version, not the org's default.
-     * Returns {@code null} only in the fully-degenerate case where no {@code PenalisationPolicy}
-     * row exists at all (shouldn't happen given the V95 seed).
+     * Gap-033/034: the shared re-evaluation engine both regularization approval and leave approval
+     * call once they've changed the facts an existing penalty was based on — {@code
+     * RegularizationService#approve} after correcting the day's Attendance record, {@code
+     * LeaveService#approve} after approving leave that changes what a day's expected work hours
+     * are. Re-derives, for each still-active penalty of a CANDIDATE discrepancy type on this
+     * employee/date, whether that discrepancy still holds against CURRENT data — reusing the exact
+     * same working-day gate {@link #detectExceptions} applies, the same per-type detection
+     * predicate {@link #detectNoAttendanceAndShortage} uses, and the same {@link AttendancePolicyEngine}
+     * decision {@link #evaluatePolicy} uses — and reverses only the ones that no longer do. A
+     * penalty whose type isn't in {@code candidateDiscrepancyTypes}, or that's already
+     * CANCELLED/REVERSED, is left untouched. Never creates a new penalty and never mutates
+     * {@code Attendance}/{@code AttendanceException} rows — this is read-then-reverse only.
      */
-    private UUID resolveAssignedOrDefaultPolicyId(Employee employee) {
-        if (employee != null && employee.getPenalisationPolicy() != null) {
-            return employee.getPenalisationPolicy().getId();
+    @Transactional
+    public void reevaluateAndReverseIfInvalid(UUID employeeUserId, LocalDate date, Set<String> candidateDiscrepancyTypes,
+                                               UUID actorId, String reason, String auditAction) {
+        List<AttendancePenalty> candidates = attendancePenaltyRepository
+                .findByEmployeeUserIdAndIncidentDate(employeeUserId, date).stream()
+                .filter(p -> candidateDiscrepancyTypes.contains(p.getDiscrepancyType()))
+                .toList();
+        if (candidates.isEmpty()) {
+            return;
         }
-        try {
-            return penalizationPolicyService.resolveDefaultPolicyId();
-        } catch (IllegalStateException e) {
-            // No PenalisationPolicy row exists at all (shouldn't happen given the V95 seed) — no
-            // default to fall back to; the caller's null-handling (noMatch) takes over from here.
-            return null;
+        Employee employee = employeeRepository.findById(employeeUserId).orElse(null);
+        if (employee == null) {
+            return;
+        }
+        LocalDate today = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
+        WorkingDaySchedule schedule = workingDayService.computeExpectedWorkingDays(employee, date, date);
+        boolean isWorkingDay = schedule != null && schedule.getWorkingDates().contains(date);
+        Attendance record = attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeUserId, date).orElse(null);
+        PenalizationPolicyVersion version = penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, date);
+
+        for (AttendancePenalty penalty : candidates) {
+            boolean stillValid = isWorkingDay
+                    && isDiscrepancyStillActive(penalty.getDiscrepancyType(), employee, date, record, version, today);
+            if (!stillValid) {
+                attendancePenaltyService.reverseIfActive(penalty.getId(), actorId, reason, auditAction);
+            }
         }
     }
 
-    private PenalizationPolicyVersion resolveEffectiveVersion(UUID assignedPolicyId, LocalDate date) {
-        List<PenalizationPolicyVersion> candidates = assignedPolicyId != null
-                ? penalizationPolicyVersionRepository.findVersionsEffectiveAtForPolicy(assignedPolicyId, date.atStartOfDay())
-                : penalizationPolicyVersionRepository.findVersionsEffectiveAt(date.atStartOfDay());
-        return candidates.stream().findFirst().orElse(null);
+    /**
+     * Mirrors the exact upstream gate each discrepancy type already has to pass before it can even
+     * reach {@link AttendancePolicyEngine#evaluate} in {@link #detectExceptions}/
+     * {@link #detectNoAttendanceAndShortage} — a discrepancy whose own fact no longer holds is
+     * immediately invalid without needing an engine call; one whose fact still holds still needs
+     * the engine's own gate/tier decision (Scenario A: a regularization that only fixes lateness
+     * must not silently invalidate a still-legitimate shortage penalty by fact-check alone).
+     */
+    private boolean isDiscrepancyStillActive(String discrepancyType, Employee employee, LocalDate date,
+                                              Attendance record, PenalizationPolicyVersion version, LocalDate today) {
+        return switch (discrepancyType) {
+            // Same STATUS_LATE gate detectExceptions itself uses, not a bare lateByMinutes check —
+            // a regularization that corrects this record's status away from LATE (see
+            // RegularizationService#applyInterpretation) must make this discrepancy inactive here
+            // too, for exactly the same reason it must never have been counted in the first place.
+            case ExceptionType.LATE_ARRIVAL -> record != null && STATUS_LATE.equals(record.getStatus())
+                    && engineStillAppliesPenalty(discrepancyType, record);
+            case ExceptionType.MISSING_PUNCH -> record != null && record.isMissingCheckOut() && date.isBefore(today)
+                    && engineStillAppliesPenalty(discrepancyType, record);
+            case ExceptionType.NO_ATTENDANCE -> record == null
+                    && engineStillAppliesPenalty(discrepancyType, syntheticNoAttendanceRecord(employee, date));
+            case ExceptionType.WORK_HOURS_SHORTAGE -> stillHasShortageFact(employee, date, record, version)
+                    && engineStillAppliesPenalty(discrepancyType,
+                            record != null ? record : syntheticNoAttendanceRecord(employee, date));
+            default -> true; // unknown/unhandled type — never touch what this method doesn't understand
+        };
     }
 
-    /** Monday-Sunday for {@code WEEK} (Section 34); calendar month for {@code MONTH} or unset. */
-    private LocalDate[] cyclePeriod(LocalDate date, String periodUnit) {
+    /** Same predicate {@link #detectNoAttendanceAndShortage}'s DAY-mode branch uses, minus the cyclic-frequency case. */
+    private boolean stillHasShortageFact(Employee employee, LocalDate date, Attendance record, PenalizationPolicyVersion version) {
+        if (record != null && record.getCheckOutAt() != null && record.getWorkedMinutes() != null) {
+            Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(employee, date);
+            return expectedMinutes != null && record.getWorkedMinutes() < expectedMinutes;
+        }
+        boolean missingLogShortageEnabled = version != null && version.isWhsPenalizeShortageCausedByMissingLogsEnabled();
+        if (record != null && missingLogShortageEnabled && record.isMissingCheckOut()) {
+            Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(employee, date);
+            return expectedMinutes != null && expectedMinutes > 0;
+        }
+        return false;
+    }
+
+    /** Same transient-record pattern {@link #detectNoAttendanceAndShortage} builds for a day with no punch at all. */
+    private Attendance syntheticNoAttendanceRecord(Employee employee, LocalDate date) {
+        return Attendance.builder().employeeUserId(employee.getUserId()).workDate(date).workedMinutes(0).build();
+    }
+
+    /** Read-only: builds the same context {@link #evaluatePolicy} would, but only asks the engine — never persists. */
+    private boolean engineStillAppliesPenalty(String discrepancyType, Attendance record) {
+        PolicyEvaluationContext context = buildContext(record, discrepancyType);
+        return attendancePolicyEngine.evaluate(context).getType() == PolicyDecisionType.APPLY_PENALTY;
+    }
+
+    /**
+     * Monday-Sunday for {@code WEEK} (Section 34); calendar month for {@code MONTH} or unset. The
+     * one definition of "the policy's cycle boundaries" — also reused by
+     * {@link WorkHoursShortageCalculationService} for weekly/monthly Work Hours Shortage
+     * aggregation, so a "week"/"month" never means something subtly different there.
+     */
+    static LocalDate[] cyclePeriod(LocalDate date, String periodUnit) {
         if ("WEEK".equals(periodUnit)) {
             LocalDate start = date.minusDays(date.getDayOfWeek().getValue() - 1L);
             return new LocalDate[]{start, start.plusDays(6)};
@@ -597,20 +900,18 @@ public class ExceptionService {
         return employee.getNoticePeriodStartDate() == null || !date.isBefore(employee.getNoticePeriodStartDate());
     }
 
-    /** {@code workedMinutes} as a percentage of the employee's assigned shift duration — null (not 0%) when either fact is unavailable, so the engine can tell "no data" apart from "worked nothing". */
-    private Double computeEffectiveHoursPercent(Attendance record) {
-        if (record.getWorkedMinutes() == null) {
+    /**
+     * {@code workedMinutes} as a percentage of the employee's expected minutes for that date —
+     * the assigned shift duration, reduced by any approved hourly/quarter-day leave on that date
+     * (see ExpectedWorkHoursService) — null (not 0%) when a required fact is unavailable, so the
+     * engine can tell "no data" apart from "worked nothing".
+     */
+    private Double computeEffectiveHoursPercent(Attendance record, Employee employee) {
+        if (record.getWorkedMinutes() == null || employee == null) {
             return null;
         }
-        Employee employee = employeeRepository.findById(record.getEmployeeUserId()).orElse(null);
-        if (employee == null || employee.getShift() == null) {
-            return null;
-        }
-        long shiftMinutes = Duration.between(employee.getShift().getStartTime(), employee.getShift().getEndTime()).toMinutes();
-        if (shiftMinutes <= 0) {
-            return null;
-        }
-        return record.getWorkedMinutes() * 100.0 / shiftMinutes;
+        Long expectedMinutes = expectedWorkHoursService.adjustedExpectedMinutes(employee, record.getWorkDate());
+        return WorkHoursCalculator.minutesToPercent(record.getWorkedMinutes(), expectedMinutes);
     }
 
     /** Null if the employee has no current manager on file — the email is simply sent without a cc. */

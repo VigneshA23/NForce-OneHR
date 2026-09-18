@@ -17,12 +17,14 @@ function formatClockTime(iso: string | null): string | null {
 
 /**
  * Web Clock-In Request (Keka reference): a comment explaining the remote check-in, Cancel and
- * Confirm. The attendance effect is immediate — worked time starts counting the moment this is
- * confirmed — but the request itself starts PENDING and is routed to HR/the employee's manager
- * for a real approve/reject decision, see WebClockInService.submit. Shared by DashboardPage and
- * AttendancePage's own Web Check-In action.
+ * Confirm. No approval needed at all — the attendance effect is immediate, worked time starts
+ * counting the moment this is confirmed, and the employee's Reporting Manager just gets an
+ * informational notification (see WebClockInService.submit). This modal is only ever shown for
+ * the FIRST Web Clock-In of the employee's resolved work day, where a note/reason is mandatory —
+ * every later cycle the same day skips this modal entirely (see the caller). Shared by
+ * DashboardPage and AttendancePage's own Web Check-In action.
  */
-export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void }) {
+export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void | Promise<void> }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
   const [reason, setReason] = useState('');
@@ -47,7 +49,11 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
       const created = await webClockInApi.submit(trimmed, token);
       const at = formatClockTime(created.requestedCheckIn);
       showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
-      onSubmitted(created);
+      // Awaited before closing — onSubmitted (see AttendanceHeroBanner's WebClockInRow) re-fetches
+      // webToday, which is what flips canCheckIn/canCheckOut. Closing the modal first used to let
+      // the parent render one frame with the pre-refresh state still showing (e.g. the Confirm
+      // button briefly reappearing before the fresh "checked in" state lands).
+      await onSubmitted(created);
       onClose();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to submit check-in');
@@ -59,7 +65,7 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
           Web Clock-In Request
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>

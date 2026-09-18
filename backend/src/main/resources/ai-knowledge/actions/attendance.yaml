@@ -1,0 +1,230 @@
+# Attendance, regularization, Work From Home, partial day and overtime.
+#
+# Authored from AttendanceService, RegularizationService, AttendanceRequestService,
+# WebClockInService and migrations V17/V44/V45/V47/V51/V52/V53/V174/V179.
+#
+# Two behaviours here have changed from what older documentation describes, and both are stated as
+# they now are:
+#   1. A Manager's regularization approval is FINAL. The two-stage hand-off to HR is gone, and
+#      PARTIALLY_APPROVED survives only for rows that reached it before that change.
+#   2. Web clock-in no longer needs approval at all (V174).
+
+knowledge:
+
+  - knowledgeId: action.attendance.clock-in-out
+    type: ACTION
+    module: attendance
+    pageId: attendance
+    actionId: attendance.punch
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Clocking in and out
+    synonyms:
+      - clock in
+      - clock out
+      - punch in
+      - punch out
+      - check in
+      - check out
+      - mark attendance
+      - start my day
+      - log my hours
+    body: |
+      Open My Attendance from the sidebar. The panel at the top shows your current state and the
+      button to change it: Check In when you are not clocked in, Check Out when you are.
+
+      You can clock in and out more than once in a day. Each pair is recorded as a separate punch,
+      and your total worked hours for the day are the sum of them, so stepping out and back in is
+      handled normally.
+
+      Clocking in from the browser does not need anyone's approval. It used to require one, and
+      that requirement was removed, so web clock-ins no longer appear in your Requests list and
+      there is nothing to chase.
+
+      Your day is interpreted against the shift assigned to you, which decides the expected start
+      time and how much lateness is tolerated before the day is marked LATE. Grace is configured
+      per shift, not globally, so colleagues on different shifts can have different allowances.
+
+      Daily statuses you may see: PRESENT, LATE, HALF_DAY, MISSING_CHECKOUT, and NO_SHIFT_ASSIGNED.
+      NO_SHIFT_ASSIGNED means no shift is effective for you on that date; it is a valid state for a
+      new joiner and is not an error you can fix yourself.
+
+      If you forgot to clock in or out, the fix is a regularization request rather than editing the
+      record, which you cannot do.
+
+  - knowledgeId: action.attendance.regularize
+    type: ACTION
+    module: attendance
+    pageId: attendance
+    actionId: attendance.regularize
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Regularizing attendance (fixing a missed or wrong punch)
+    synonyms:
+      - regularize attendance
+      - regularise attendance
+      - fix my attendance
+      - correct attendance
+      - missing punch
+      - I forgot to clock in
+      - I forgot to punch out
+      - wrong check in time
+      - attendance correction
+      - amend my attendance
+      - missed punch correction
+    body: |
+      Regularization is how a day with a missing or wrong punch gets corrected. You cannot edit an
+      attendance record directly; you request the correction and an approver applies it.
+
+      Steps:
+      1. Open My Attendance.
+      2. Find the date that is wrong and choose Regularize for it.
+      3. Enter the corrected check-in time, the corrected check-out time, or both.
+      4. Give a reason explaining what happened.
+      5. Choose the approver from the eligible list.
+      6. Submit.
+
+      Rules that will stop a submission:
+      - The date cannot be in the future.
+      - You must provide at least one of a corrected check-in or check-out time.
+      - A corrected time cannot be later than the current time.
+      - Check-out must be after check-in.
+      - You cannot raise a second request for a date that already has one pending or approved.
+      - The person you select must be an eligible approver.
+
+      There are two limits on how much you can regularize, and both apply to everyone except Super
+      Admins, who are exempt from both:
+      - A lookback window of seven days, counting today. Older dates cannot be regularized.
+      - A maximum of three regularization requests per calendar month, counted on submission
+        regardless of whether they were later approved or rejected.
+
+      Your remaining allowance for the month is shown on the regularization screen.
+
+      While a request is still pending you can edit it. Once it is decided you cannot.
+
+      When it is approved, the attendance record for that date is actually rewritten with the
+      corrected times and the day is re-interpreted against the shift that was effective on that
+      date, not your current shift. If a penalty had been applied for that day and the correction
+      means it no longer holds, the penalty is reversed automatically.
+
+  - knowledgeId: action.attendance.regularize-approve
+    type: ACTION
+    module: attendance
+    pageId: approvals
+    actionId: attendance.regularize.approve
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Approving a regularization request
+    synonyms:
+      - approve regularization
+      - reject regularization
+      - approve attendance correction
+      - regularization approvals
+    body: |
+      Regularization requests waiting on you appear in the Approval Center.
+
+      Who can decide, and what their decision does:
+      - A Manager can decide requests raised by their own direct reports, and their approval is
+        FINAL. It moves the request straight to APPROVED. There is no second sign-off.
+      - An HR Admin or Super Admin can decide any request, and does not need to be the assigned
+        approver or the employee's manager.
+
+      There is a PARTIALLY_APPROVED status, but no new request can reach it. It exists only for
+      rows created before manager approval became final, and only an HR Admin or Super Admin can
+      finalise one of those.
+
+      Approving rewrites the attendance record for that date and may reverse a penalty. It is a
+      real change to the employee's attendance history, not just a status flag.
+
+      Managers can also act on several at once using bulk approve or bulk reject.
+
+      Super Admins have an additional organisation-wide view of every regularization request.
+
+      If two approvers act simultaneously, one is told the record was just updated and to refresh.
+
+  - knowledgeId: action.attendance.wfh
+    type: ACTION
+    module: attendance
+    pageId: attendance
+    actionId: attendance.wfh
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Requesting Work From Home or a partial day
+    synonyms:
+      - work from home
+      - wfh request
+      - remote work
+      - work remotely
+      - partial day
+      - come in late
+      - leave early
+      - step out during the day
+      - half day at home
+    body: |
+      Work From Home and Partial Day are requested from My Attendance. Both go to your approver and
+      appear in your Requests list.
+
+      Work From Home covers a whole day or half a day: full day, first half or second half.
+
+      Partial Day covers part of a normal in-office day, in one of three modes: arriving late,
+      taking time off in the middle of the day, or leaving early.
+
+      Rules that will stop a submission:
+      - Work From Home needs a minimum notice period before the date. The required number of days
+        is configured by your organisation, and the message tells you what it is.
+      - You cannot raise a second Work From Home request for a date that already has one.
+      - A partial day needs a mode, and the hours must be greater than zero.
+      - You can nominate someone to notify, and they must be a valid employee.
+
+      Only pending requests can be reviewed. Once decided they are final.
+
+  - knowledgeId: action.attendance.overtime
+    type: ACTION
+    module: attendance
+    pageId: attendance
+    actionId: attendance.overtime
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Raising an overtime request
+    synonyms:
+      - overtime
+      - extra hours
+      - claim overtime
+      - worked late
+      - ot request
+    body: |
+      Overtime is requested from My Attendance and follows the same pattern as the other attendance
+      requests: it is created as PENDING, goes to your approver, and ends as APPROVED or REJECTED.
+
+      It appears in your Requests list while it waits, and in your approver's Approval Center.
+
+  - knowledgeId: action.attendance.exceptions
+    type: ACTION
+    module: attendance
+    pageId: exceptions
+    actionId: attendance.exceptions
+    version: 1
+    audience: [MANAGER, HR]
+    title: The Exception Dashboard
+    synonyms:
+      - attendance exceptions
+      - exception dashboard
+      - attendance problems
+      - who was late
+      - missing punches report
+    body: |
+      The Exception Dashboard lists attendance problems detected across the people you are
+      responsible for, so they can be chased or resolved.
+
+      The exception types OneHR actually detects are:
+      - Late arrival, when someone clocked in after their shift start plus its grace period.
+      - Missing punch, when a day has a check-in without a check-out or the reverse.
+      - Leave and attendance conflict, when attendance is recorded on a day covered by approved
+        leave.
+      - Pending leave approval, which is worked out when the dashboard is loaded rather than stored.
+
+      Three further types exist in the data model but are never generated: no attendance recorded,
+      work hours shortage, and early departure. They are reserved for future use, so an empty
+      result for one of those means the detection does not exist, not that there is nothing to find.
+
+      Managers see their own direct reports. HR Admins see the organisation.

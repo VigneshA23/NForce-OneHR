@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Work From Home / Partial Day: a forward-looking self-declaration of work mode for a given
@@ -116,6 +117,20 @@ public class AttendanceRequestService {
             }
         }
         if (TYPE_PARTIAL_DAY.equals(type)) {
+            // Same date + same mode + same duration = the same slot. A PENDING or APPROVED
+            // request already occupies it; a REJECTED one doesn't — the employee is free to
+            // resubmit for that exact slot once it's been turned down.
+            boolean slotOccupied = requestRepository
+                    .findByEmployeeUserIdAndRequestTypeAndRequestDate(actor.getId(), TYPE_PARTIAL_DAY, req.getRequestDate())
+                    .stream()
+                    .anyMatch(r -> !STATUS_REJECTED.equals(r.getStatus())
+                            && partialDayMode.equals(r.getPartialDayMode())
+                            && partialDayHours.compareTo(r.getPartialDayHours()) == 0);
+            if (slotOccupied) {
+                throw new IllegalArgumentException(
+                        "You already have a pending or approved Partial Day request for this date, mode, and duration.");
+            }
+
             BigDecimal usedThisMonth = partialDayHoursUsedInMonth(actor.getId(), req.getRequestDate());
             if (usedThisMonth.add(partialDayHours).compareTo(PARTIAL_DAY_MONTHLY_LIMIT_HOURS) > 0) {
                 // "You have used your 120 minutes" only holds when the allowance is actually
@@ -292,8 +307,7 @@ public class AttendanceRequestService {
     @Transactional(readOnly = true)
     public List<AttendanceRequestResponse> listMine(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId())
-                .stream().map(this::toResponse).toList();
+        return toResponseList(requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()));
     }
 
     /** Manager sees only requests assigned to them; HR/Super Admin see all pending requests. */
@@ -303,12 +317,11 @@ public class AttendanceRequestService {
         List<AttendanceRequest> pending = requestRepository.findByStatus(STATUS_PENDING);
 
         if (hasOverrideRole(actor)) {
-            return pending.stream().map(this::toResponse).toList();
+            return toResponseList(pending);
         }
-        return pending.stream()
+        return toResponseList(pending.stream()
                 .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
-                .map(this::toResponse)
-                .toList();
+                .toList());
     }
 
     @Transactional
@@ -414,40 +427,68 @@ public class AttendanceRequestService {
     }
 
     private AttendanceRequestResponse toResponse(AttendanceRequest req) {
-        Employee employee = employeeRepository.findById(req.getEmployeeUserId()).orElse(null);
-        String employeeName = employee != null ? employee.getFullName() : "Unknown";
-        String departmentName = employee != null && employee.getDepartment() != null
-                ? employee.getDepartment().getName() : null;
-        String employeeEmail = userRepository.findById(req.getEmployeeUserId())
-                .map(User::getEmail).orElse("");
-        String reviewerName = req.getReviewedBy() == null ? null
-                : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
-        String assignedApproverName = req.getAssignedApproverId() == null ? null
-                : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
-        String notifyUserName = req.getNotifyUserId() == null ? null
-                : employeeRepository.findById(req.getNotifyUserId()).map(Employee::getFullName).orElse(null);
+        return toResponseList(List.of(req)).get(0);
+    }
 
-        return AttendanceRequestResponse.builder()
-                .id(req.getId())
-                .employeeUserId(req.getEmployeeUserId())
-                .employeeName(employeeName)
-                .employeeEmail(employeeEmail)
-                .departmentName(departmentName)
-                .requestType(req.getRequestType())
-                .requestDate(req.getRequestDate())
-                .partialDayHours(req.getPartialDayHours())
-                .partialDayMode(req.getPartialDayMode())
-                .wfhDayFraction(req.getWfhDayFraction())
-                .reason(req.getReason())
-                .status(req.getStatus())
-                .assignedApproverId(req.getAssignedApproverId())
-                .assignedApproverName(assignedApproverName)
-                .notifyUserId(req.getNotifyUserId())
-                .notifyUserName(notifyUserName)
-                .reviewedByName(reviewerName)
-                .reviewedAt(req.getReviewedAt())
-                .reviewComment(req.getReviewComment())
-                .createdAt(req.getCreatedAt())
-                .build();
+    /**
+     * Batched equivalent of the old per-row toResponse: collects every distinct user id referenced
+     * anywhere in the list (employee, reviewer, assigned approver, notify user) up front, then
+     * resolves names/department/email in a handful of bulk queries instead of ~5 findById calls
+     * per row. Output fields/values are unchanged.
+     */
+    private List<AttendanceRequestResponse> toResponseList(List<AttendanceRequest> requests) {
+        if (requests.isEmpty()) return List.of();
+
+        Set<UUID> employeeIds = new LinkedHashSet<>();
+        Set<UUID> nameIds = new LinkedHashSet<>();
+        for (AttendanceRequest r : requests) {
+            employeeIds.add(r.getEmployeeUserId());
+            nameIds.add(r.getEmployeeUserId());
+            if (r.getReviewedBy() != null) nameIds.add(r.getReviewedBy());
+            if (r.getAssignedApproverId() != null) nameIds.add(r.getAssignedApproverId());
+            if (r.getNotifyUserId() != null) nameIds.add(r.getNotifyUserId());
+        }
+
+        Map<UUID, String> nameById = employeeRepository.findNamesByUserIds(nameIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        Map<UUID, Employee> employeeById = employeeRepository.findAllByIdWithDepartment(employeeIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+        Map<UUID, String> emailById = userRepository.findAllById(employeeIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getEmail));
+
+        return requests.stream().map(req -> {
+            String employeeName = nameById.getOrDefault(req.getEmployeeUserId(), "Unknown");
+            Employee employee = employeeById.get(req.getEmployeeUserId());
+            String departmentName = employee != null && employee.getDepartment() != null
+                    ? employee.getDepartment().getName() : null;
+            String employeeEmail = emailById.getOrDefault(req.getEmployeeUserId(), "");
+            String reviewerName = req.getReviewedBy() == null ? null : nameById.get(req.getReviewedBy());
+            String assignedApproverName = req.getAssignedApproverId() == null ? null
+                    : nameById.get(req.getAssignedApproverId());
+            String notifyUserName = req.getNotifyUserId() == null ? null : nameById.get(req.getNotifyUserId());
+
+            return AttendanceRequestResponse.builder()
+                    .id(req.getId())
+                    .employeeUserId(req.getEmployeeUserId())
+                    .employeeName(employeeName)
+                    .employeeEmail(employeeEmail)
+                    .departmentName(departmentName)
+                    .requestType(req.getRequestType())
+                    .requestDate(req.getRequestDate())
+                    .partialDayHours(req.getPartialDayHours())
+                    .partialDayMode(req.getPartialDayMode())
+                    .wfhDayFraction(req.getWfhDayFraction())
+                    .reason(req.getReason())
+                    .status(req.getStatus())
+                    .assignedApproverId(req.getAssignedApproverId())
+                    .assignedApproverName(assignedApproverName)
+                    .notifyUserId(req.getNotifyUserId())
+                    .notifyUserName(notifyUserName)
+                    .reviewedByName(reviewerName)
+                    .reviewedAt(req.getReviewedAt())
+                    .reviewComment(req.getReviewComment())
+                    .createdAt(req.getCreatedAt())
+                    .build();
+        }).toList();
     }
 }

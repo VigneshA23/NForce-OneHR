@@ -23,6 +23,11 @@ public class PolicyService {
     private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final Set<String> ALL_ROLE_CODES = Set.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
 
+    // Policy notification "Open Related Page" destination — every recipient, regardless of
+    // role, lands on their own self-scoped My Documents & Policies → Policies tab, never the
+    // HR/admin policy-management page.
+    private static final String POLICIES_TAB_LINK = "/my-documents?tab=policies";
+
     private final PolicyRepository policyRepo;
     private final PolicyAcknowledgmentRepository ackRepo;
     private final UserRepository userRepo;
@@ -117,7 +122,7 @@ public class PolicyService {
             notificationService.send(emp.getUserId(), "POLICY_PUBLISHED",
                     "New Policy: " + p.getTitle(),
                     "Please review and acknowledge version " + p.getVersion() + ".",
-                    "/policies");
+                    POLICIES_TAB_LINK);
         }
 
         return PolicyResponse.from(p);
@@ -214,7 +219,7 @@ public class PolicyService {
         notificationService.send(employeeUserId, "POLICY_REMINDER",
                 "Policy Reminder: " + p.getTitle(),
                 "Please review and acknowledge version " + p.getVersion() + " of this policy.",
-                "/policies");
+                POLICIES_TAB_LINK);
     }
 
     // ── Helpers ──

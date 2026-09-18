@@ -1,8 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myRequestsApi, type MyRequestItem, type RequestType } from '../api/myRequests';
+import { formatDurationMinutes } from '../context/TimeFormatContext';
+import { subscribeToNewNotifications } from '../lib/notificationEvents';
+
+// Every notification type the backend emits for a decision on one of this page's request types
+// (see NotificationService) — mirrors the LEAVE_APPROVED/LEAVE_REJECTED pattern LeavePage already
+// uses to react to the app-wide notification poll (Shell's bell) instead of running its own
+// separate polling loop. WFH/PARTIAL_DAY are both decided through AttendanceRequestService, which
+// emits ATTENDANCE_REQUEST_APPROVED/REJECTED for either.
+const REQUEST_DECISION_NOTIFICATION_TYPES = new Set([
+  'LEAVE_APPROVED', 'LEAVE_REJECTED',
+  'REGULARIZATION_APPROVED', 'REGULARIZATION_PARTIALLY_APPROVED', 'REGULARIZATION_REJECTED',
+  'ATTENDANCE_REQUEST_APPROVED', 'ATTENDANCE_REQUEST_REJECTED',
+  'OVERTIME_APPROVED', 'OVERTIME_REJECTED',
+]);
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
@@ -13,7 +27,6 @@ const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
-  WEB_CLOCK_IN: 'Web Clock-In',
   WFH: 'Work From Home',
   PARTIAL_DAY: 'Partial Day',
   OVERTIME: 'Overtime',
@@ -22,7 +35,6 @@ const TYPE_LABELS: Record<RequestType, string> = {
 const TYPE_COLORS: Record<RequestType, string> = {
   LEAVE: 'rgba(99,102,241,.18)',
   REGULARIZATION: 'rgba(245,158,11,.18)',
-  WEB_CLOCK_IN: 'rgba(76,141,214,.18)',
   WFH: 'rgba(76,141,214,.18)',
   PARTIAL_DAY: 'rgba(224,169,59,.18)',
   OVERTIME: 'rgba(236,72,153,.18)',
@@ -31,7 +43,6 @@ const TYPE_COLORS: Record<RequestType, string> = {
 const TYPE_TEXT: Record<RequestType, string> = {
   LEAVE: '#818CF8',
   REGULARIZATION: '#F59E0B',
-  WEB_CLOCK_IN: '#4C8DD6',
   WFH: '#4C8DD6',
   PARTIAL_DAY: '#E0A93B',
   OVERTIME: '#EC4899',
@@ -102,18 +113,10 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       </div>
     );
   }
-  if (item.requestType === 'WEB_CLOCK_IN') {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate} · In {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'}
-        {item.status === 'APPROVED' && (item.requestedCheckOut ? ` · Out ${fmtTime(item.requestedCheckOut)}` : ' · still clocked in')}
-      </div>
-    );
-  }
   if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
     return (
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${item.partialDayHours}h` : ''}
+        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${formatDurationMinutes(Math.round(item.partialDayHours * 60))}` : ''}
       </div>
     );
   }
@@ -145,7 +148,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TypeBadge type={item.requestType} />
-            <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
               Request Details
             </span>
           </div>
@@ -172,21 +175,10 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               </>
             )}
 
-            {item.requestType === 'WEB_CLOCK_IN' && (
-              <>
-                <Row label="Work Date" value={item.attendanceDate} />
-                <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-                {item.status === 'APPROVED' && (
-                  <Row label="Checked Out" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not yet — still clocked in'} />
-                )}
-                <Row label="Reason" value={item.regularizationReason} />
-              </>
-            )}
-
             {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
               <>
                 <Row label="Date" value={item.attendanceDate} />
-                {item.requestType === 'PARTIAL_DAY' && <Row label="Hours" value={item.partialDayHours != null ? String(item.partialDayHours) : undefined} />}
+                {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
                 <Row label="Reason" value={item.regularizationReason} />
               </>
             )}
@@ -218,7 +210,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
 
 // ── Main page ─────────────────────────────────────────────
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WEB_CLOCK_IN', 'WFH', 'PARTIAL_DAY', 'OVERTIME'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WFH', 'PARTIAL_DAY', 'OVERTIME'];
 
 export default function MyRequestsPage() {
   const token = useAuthStore(s => s.token)!;
@@ -237,6 +229,40 @@ export default function MyRequestsPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  // Re-fetch without disturbing `loading` (no full-page skeleton flash on a background refresh) —
+  // same pattern as LeavePage's refreshLeaveData. Overlap-safe: a refresh that arrives while one
+  // is already in flight is coalesced into a single trailing re-run rather than firing a second
+  // concurrent request.
+  const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
+  const refreshItems = useCallback(async () => {
+    if (refreshInFlightRef.current) { refreshQueuedRef.current = true; return; }
+    refreshInFlightRef.current = true;
+    try {
+      setItems(await myRequestsApi.list(token));
+    } finally {
+      refreshInFlightRef.current = false;
+      if (refreshQueuedRef.current) {
+        refreshQueuedRef.current = false;
+        refreshItems();
+      }
+    }
+  }, [token]);
+
+  // React to this employee's own request decisions as the app-wide notification poll (Shell)
+  // detects them, so the table/badges here don't stay stale for the rest of the session when a
+  // manager acts on a request while this page remains open. Notifications for other employees
+  // never reach this listener — the backend's /api/notifications endpoints are scoped to the
+  // authenticated caller — and unrelated notification types (expense/asset/help-content/...) are
+  // filtered out and never trigger a refresh. Unsubscribes on unmount.
+  useEffect(() => {
+    return subscribeToNewNotifications(items => {
+      if (items.some(n => REQUEST_DECISION_NOTIFICATION_TYPES.has(n.type))) {
+        refreshItems();
+      }
+    });
+  }, [refreshItems]);
+
   const filtered = typeFilter === 'ALL' ? items : items.filter(i => i.requestType === typeFilter);
 
   const counts: Record<string, number> = { ALL: items.length };
@@ -245,7 +271,7 @@ export default function MyRequestsPage() {
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All your submitted leave and attendance requests in one place.</p>
       </div>
 

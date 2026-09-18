@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveType;
+import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
@@ -17,11 +18,17 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Every 3rd late arrival in a calendar month costs half a day, deducted from Casual Leave.
- * Shared by every check-in entry point (AttendanceService.checkIn and WebClockInService's
- * self-service remote check-in) so the penalty applies identically no matter how the employee
- * checked in — this used to live only inside AttendanceService, which meant a Web Check-in never
- * triggered it.
+ * Legacy fallback: every 3rd late arrival in a calendar month costs half a day, deducted from
+ * Casual Leave. Shared by every check-in entry point (AttendanceService.checkIn and
+ * WebClockInService's self-service remote check-in) so the penalty applies identically no matter
+ * how the employee checked in — this used to live only inside AttendanceService, which meant a
+ * Web Check-in never triggered it.
+ *
+ * <p>Skipped entirely once the employee has an applicable configured Penalization Policy with its
+ * Late Arrival section enabled for the work date — that engine (see
+ * {@link ConfiguredAttendancePolicyEngine}) is authoritative once assigned, and running both would
+ * double-penalize the same late arrival. This method is the only backward-compatible path left for
+ * an employee with no such policy (or one whose Late Arrival section is disabled).
  */
 @Service
 @RequiredArgsConstructor
@@ -39,6 +46,7 @@ public class LatePenaltyService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
+    private final PenalizationPolicyResolutionService penalizationPolicyResolutionService;
 
     /**
      * Only call for a genuine new late arrival — never for a lunch-break/session resume, since
@@ -48,6 +56,12 @@ public class LatePenaltyService {
      */
     @Transactional
     public void applyIfDue(Employee employee, LocalDate workDate) {
+        PenalizationPolicyVersion effectiveConfiguredPolicy =
+                penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, workDate);
+        if (effectiveConfiguredPolicy != null && effectiveConfiguredPolicy.isLateArrivalEnabled()) {
+            return; // the configured Penalization Policy already covers late arrival for this employee/date
+        }
+
         LocalDate monthStart = workDate.withDayOfMonth(1);
         LocalDate monthEnd = workDate.withDayOfMonth(workDate.lengthOfMonth());
         long lateCountThisMonth = attendanceRepository.countByEmployeeUserIdAndWorkDateBetweenAndStatus(

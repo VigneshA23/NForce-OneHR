@@ -28,6 +28,10 @@ public class Employee {
     private String fullName;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "business_unit_id")
+    private BusinessUnit businessUnit;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "department_id")
     private Department department;
 
@@ -41,6 +45,18 @@ public class Employee {
 
     // Shift/weekly-off/penalisation assignments (ONEHR-108) — separate from workMode above,
     // which is a self-service ONSITE/REMOTE/HYBRID profile attribute, not a policy assignment.
+    //
+    // NULLABLE (V160's NOT NULL was reverted by V178 — ONEHR-355 follow-up): a brand-new employee
+    // with no Shift explicitly chosen is a valid, permanent state, not a defect to paper over with
+    // a fabricated Default Shift — see EmployeeService#createEmployee/UserManagementService
+    // #createUser. This field is ALSO only ever a best-effort display/roster cache, never the
+    // authoritative source for which Shift governs a given date, whether null or set —
+    // {@link EmployeeShiftAssignment} (resolved via {@link
+    // com.nforce.onehr.service.EmployeeShiftAssignmentResolver}, keyed by the specific date in
+    // question) is that source. Shift-dependent attendance interpretation (lateness, scheduled
+    // hours) is skipped entirely, never guessed, when no assignment is effective for the date in
+    // question — see {@link com.nforce.onehr.service.AttendanceInterpretationService}'s
+    // NO_SHIFT_ASSIGNED handling.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "shift_id")
     private Shift shift;
@@ -95,6 +111,16 @@ public class Employee {
 
     @Column(name = "emergency_contact_phone", length = 30)
     private String emergencyContactPhone;
+
+    // Deliberately NO timezone field. The finalized Location/Timezone model (see V169's migration
+    // comment) makes Location the single, non-bypassable source of an employee's effective
+    // attendance timezone — Employee → Location → Location.timezone — so there is no per-employee
+    // override to keep in sync with it. (A prior Admin-settable Employee.timezone override
+    // existed briefly — see V166/V169 — but was never actually used in production: every
+    // employee row had it null, so removing it changed no employee's resolved timezone.) See
+    // AttendanceRulesService#resolveEmployeeZoneId for the resolution chain, and
+    // Attendance.timezone for why changing an employee's Location only ever affects FUTURE
+    // attendance, never reinterpreting an already-snapshotted historical record.
 
     @Column(name = "profile_photo", columnDefinition = "BYTEA")
     private byte[] profilePhoto;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, XCircle, Eye, Search, Users } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
@@ -137,7 +138,7 @@ function DetailModal({
         {/* Actions — only for pending docs */}
         {doc.status === 'PENDING_VERIFICATION' && (
           mode === 'view' ? (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button onClick={onClose} disabled={acting}
                 style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
                 Close
@@ -253,8 +254,9 @@ function MissingTab({ missing, searchEmpty }: { missing: MissingDocument[]; sear
 export default function DocumentsCompliancePage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
+  const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<'pending' | 'verified' | 'missing'>('pending');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
   const [kpis, setKpis] = useState<DocumentAdminKpi | null>(null);
   const [pending, setPending] = useState<EmployeeDocument[]>([]);
   const [verified, setVerified] = useState<EmployeeDocument[]>([]);
@@ -283,9 +285,9 @@ export default function DocumentsCompliancePage() {
       const updated = await verifyDocument(token, doc.id, 'VERIFY');
       setPending(p => p.filter(d => d.id !== doc.id));
       setVerified(v => [updated, ...v]);
-      setKpis(k => k ? { ...k, pendingVerification: Math.max(0, k.pendingVerification - 1), totalDocuments: k.totalDocuments } : k);
       setDetailDoc(null);
       showToast('success', 'Document verified');
+      getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Verify failed');
     }
@@ -295,9 +297,9 @@ export default function DocumentsCompliancePage() {
     try {
       await verifyDocument(token, doc.id, 'REJECT', reason);
       setPending(p => p.filter(d => d.id !== doc.id));
-      setKpis(k => k ? { ...k, pendingVerification: Math.max(0, k.pendingVerification - 1) } : k);
       setDetailDoc(null);
       showToast('success', 'Document rejected');
+      getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
     }
@@ -338,20 +340,20 @@ export default function DocumentsCompliancePage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>Documents & Compliance</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Verify employee documents and track compliance.</p>
 
       {/* KPI row */}
       {kpis && (
         <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
           {[
-            { label: 'Pending Verification', value: kpis.pendingVerification, color: '#eab308' },
+            { label: 'Pending Verification', value: pending.length, color: '#eab308' },
             { label: 'Employees Pending', value: kpis.employeesWithPending, color: '#f97316' },
             { label: 'Expiring in 30 Days', value: kpis.expiringWithin30Days, color: '#ef4444' },
             { label: 'Total Documents', value: kpis.totalDocuments, color: '#22c55e' },
           ].map(k => (
             <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: '"Space Grotesk", sans-serif' }}>{k.value}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
               <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
             </div>
           ))}
@@ -415,7 +417,7 @@ export default function DocumentsCompliancePage() {
                 ) : filteredPending.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
                     <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
                     <td style={tdS}>
@@ -427,8 +429,7 @@ export default function DocumentsCompliancePage() {
                     <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
-                        { label: 'Review & Verify', onClick: () => setDetailDoc(d) },
-                        { label: 'Review & Reject', onClick: () => setDetailDoc(d), danger: true },
+                        { label: 'Review', onClick: () => setDetailDoc(d) },
                       ]} />
                     </td>
                   </tr>
@@ -462,7 +463,7 @@ export default function DocumentsCompliancePage() {
                 ) : filteredVerified.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
                     <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
                     <td style={tdS}>

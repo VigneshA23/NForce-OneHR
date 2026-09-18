@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { buildRoleNav, findActiveAncestors, type ResolvedNavNode, type ResolvedNavGroup, type Role } from '../lib/nav.config';
+import { buildRoleNav, findActiveAncestors, isNavItemDisabled, navItemDisplayPhase, type ResolvedNavNode, type ResolvedNavGroup, type Role } from '../lib/nav.config';
 
 interface SidebarNavProps {
   role: Role;
@@ -50,7 +50,7 @@ export function SidebarNav({ role, currentKey, onNavigate }: SidebarNavProps) {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 0' }}>
       {tree.map((node) => (
         <NavRow
           key={node.type === 'item' ? node.item.key : node.key}
@@ -87,7 +87,7 @@ function NavRow(props: NavRowProps) {
 function NavLeaf({ node, depth, currentKey, onLeafClick }: NavRowProps & { node: Extract<ResolvedNavNode, { type: 'item' }> }) {
   const indent = depth * 12;
   const isActive = node.item.key === currentKey;
-  const isPlaceholder = node.item.phase > 1;
+  const isPlaceholder = isNavItemDisabled(node.item);
   const Icon = node.item.icon;
   return (
     <Link
@@ -109,8 +109,8 @@ function NavLeaf({ node, depth, currentKey, onLeafClick }: NavRowProps & { node:
       <Icon size={15} aria-hidden="true" />
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.item.label}</span>
       {isPlaceholder && (
-        <span title={`Ships in Phase ${node.item.phase}`} style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#6B7280', background: '#20242C', padding: '2px 5px', borderRadius: 4 }}>
-          P{node.item.phase}
+        <span title={`Ships in Phase ${navItemDisplayPhase(node.item)}`} style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#6B7280', background: '#20242C', padding: '2px 5px', borderRadius: 4 }}>
+          P{navItemDisplayPhase(node.item)}
         </span>
       )}
     </Link>

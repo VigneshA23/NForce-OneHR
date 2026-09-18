@@ -27,6 +27,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +47,7 @@ class AttendanceServiceTeamStatsTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private AttendanceProperties props;
     @Mock private WorkingDayService workingDayService;
+    @Mock private ExpectedWorkHoursService expectedWorkHoursService;
 
     @InjectMocks private AttendanceService attendanceService;
 
@@ -78,6 +80,15 @@ class AttendanceServiceTeamStatsTest {
         lenient().when(workingDayService.computeExpectedWorkingDaysBulk(any(), any(), any())).thenReturn(Map.of(
                 emp1Id, WorkingDaySchedule.builder().employeeUserId(emp1Id).workingDates(Set.of(day1, day2)).build(),
                 emp2Id, WorkingDaySchedule.builder().employeeUserId(emp2Id).workingDates(Set.of(day1, day2)).build()));
+        // expectedHoursFor resolves per WORKING DATE now (code-review corrective pass, finding 3
+        // — no more coarse employee.getShift()==null gate), so it calls
+        // expectedWorkHoursService.adjustedExpectedMinutes for EVERY employee/date, always. This
+        // default — "no effective assignment for anyone, on any date" — mirrors the real
+        // ExpectedWorkHoursService's own actual null return for that case (never Mockito's
+        // default-answer 0L, which would otherwise silently defeat expectedHoursFor's
+        // `minutes != null ? ... : FALLBACK` check); individual tests override it per employee/
+        // date to simulate a real, resolvable assignment.
+        lenient().when(expectedWorkHoursService.adjustedExpectedMinutes(any(), any(), any())).thenReturn(null);
     }
 
     private Attendance record(UUID id, UUID employeeId, LocalDate date, int workedMinutes, String status) {
@@ -132,6 +143,67 @@ class AttendanceServiceTeamStatsTest {
         TeamEffortEntry emp2Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp2Id)).findFirst().orElseThrow();
         assertEquals(8.0, emp1Entry.getExpectedHours(), 0.01); // 1 working day * 8h — same schedule Punctuality would use
         assertEquals(16.0, emp2Entry.getExpectedHours(), 0.01); // 2 working days * 8h
+    }
+
+    @Test
+    void getTeamEffort_expectedHours_usesRealAssignedShift_whenEmployeeHasOne_insteadOfFlatConstant() {
+        com.nforce.onehr.entity.Shift nineHourShift = com.nforce.onehr.entity.Shift.builder().id(UUID.randomUUID()).name("Regular").build();
+        Employee emp1WithShift = Employee.builder().userId(emp1Id).fullName("Employee One").employeeCode("NF-1").shift(nineHourShift).build();
+        when(employeeRepository.findAllByIdWithScheduleDetails(List.of(emp1Id, emp2Id))).thenReturn(List.of(emp1WithShift, emp2));
+        when(workingDayService.computeExpectedWorkingDaysBulk(any(), any(), any())).thenReturn(Map.of(
+                emp1Id, WorkingDaySchedule.builder().employeeUserId(emp1Id).workingDates(Set.of(day1, day2)).build(),
+                emp2Id, WorkingDaySchedule.builder().employeeUserId(emp2Id).workingDates(Set.of(day1, day2)).build()));
+        when(expectedWorkHoursService.adjustedExpectedMinutes(eq(emp1WithShift), any(), any())).thenReturn(540L);
+        List<Attendance> records = List.of(
+                record(UUID.randomUUID(), emp1Id, day1, 480, "PRESENT"),
+                record(UUID.randomUUID(), emp2Id, day1, 480, "PRESENT"));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(emp1Id, emp2Id), day1, day2))
+                .thenReturn(records);
+
+        List<TeamEffortEntry> result = attendanceService.getTeamEffort(managerEmail, day1, day2);
+
+        TeamEffortEntry emp1Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp1Id)).findFirst().orElseThrow();
+        TeamEffortEntry emp2Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp2Id)).findFirst().orElseThrow();
+        // 2 working days * 9h shift = 18h — NOT the flat 2*8=16h a hardcoded constant would give.
+        assertEquals(18.0, emp1Entry.getExpectedHours(), 0.01);
+        // emp2 still has no shift on file -> falls back to the flat 8h/day estimate.
+        assertEquals(16.0, emp2Entry.getExpectedHours(), 0.01);
+    }
+
+    /**
+     * Code-review corrective pass, finding 3: Employee.shift is only a best-effort display/roster
+     * cache — populated immediately at creation (see UserManagementService#createUser) even though
+     * the real EmployeeShiftAssignment isn't effective until the employee's next working day.
+     * expectedHoursFor must fall back to the flat 8h/day estimate PER WORKING DATE (from
+     * ExpectedWorkHoursService returning null for that specific date), never gate on the coarse
+     * whole-employee employee.getShift()==null check this used to make — which would have silently
+     * reported 0h (not 8h) for day1 here, since emp1.getShift() is non-null.
+     */
+    @Test
+    void getTeamEffort_expectedHours_fallsBackPerDate_whenShiftDisplayCacheIsSetButAssignmentNotYetEffective() {
+        com.nforce.onehr.entity.Shift shift = com.nforce.onehr.entity.Shift.builder().id(UUID.randomUUID()).name("Regular").build();
+        Employee emp1WithPendingShift = Employee.builder().userId(emp1Id).fullName("Employee One").employeeCode("NF-1").shift(shift).build();
+        when(employeeRepository.findAllByIdWithScheduleDetails(List.of(emp1Id, emp2Id))).thenReturn(List.of(emp1WithPendingShift, emp2));
+        when(workingDayService.computeExpectedWorkingDaysBulk(any(), any(), any())).thenReturn(Map.of(
+                emp1Id, WorkingDaySchedule.builder().employeeUserId(emp1Id).workingDates(Set.of(day1, day2)).build(),
+                emp2Id, WorkingDaySchedule.builder().employeeUserId(emp2Id).workingDates(Set.of(day1, day2)).build()));
+        // day1: assignment not yet effective (no effective EmployeeShiftAssignment for that date,
+        // even though Employee.shift is already populated) -> null. day2: now effective -> 540min/9h.
+        when(expectedWorkHoursService.adjustedExpectedMinutes(eq(emp1WithPendingShift), eq(day1), any())).thenReturn(null);
+        when(expectedWorkHoursService.adjustedExpectedMinutes(eq(emp1WithPendingShift), eq(day2), any())).thenReturn(540L);
+        List<Attendance> records = List.of(
+                record(UUID.randomUUID(), emp1Id, day2, 480, "PRESENT"),
+                record(UUID.randomUUID(), emp2Id, day1, 480, "PRESENT"));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(emp1Id, emp2Id), day1, day2))
+                .thenReturn(records);
+
+        List<TeamEffortEntry> result = attendanceService.getTeamEffort(managerEmail, day1, day2);
+
+        TeamEffortEntry emp1Entry = result.stream().filter(e -> e.getEmployeeUserId().equals(emp1Id)).findFirst().orElseThrow();
+        // day1 falls back to 8h (no effective assignment yet, despite Employee.shift being set) +
+        // day2's real 9h assignment = 17h. Before the fix this would have been 0h + 9h = 9h, since
+        // employee.getShift()!=null skipped the fallback branch entirely and null silently meant 0.
+        assertEquals(17.0, emp1Entry.getExpectedHours(), 0.01);
     }
 
     @Test

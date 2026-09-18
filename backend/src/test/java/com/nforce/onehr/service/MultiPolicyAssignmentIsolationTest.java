@@ -50,13 +50,25 @@ class MultiPolicyAssignmentIsolationTest {
     @Mock private LeaveTypeRepository leaveTypeRepository;
     @Mock private LeaveBalanceRepository leaveBalanceRepository;
     @Mock private PenalizationPolicyVersionRepository versionRepository;
+    @Mock private PenalizationPolicyAllocationRepository allocationRepository;
     @Mock private PenalizationPolicyWorkHoursTierRepository tierRepository;
     @Mock private PenalizationPolicyLateHoursTierRepository lateHoursTierRepository;
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
     @Mock private PenalisationPolicyRepository penalisationPolicyRepository;
     @Mock private AuditService auditService;
+    @Mock private NotificationService notificationService;
+    @Mock private EmployeeService employeeService;
+    @Mock private AttendancePenaltyService attendancePenaltyService;
+    @Mock private ShiftRepository shiftRepository;
+    @Mock private ShiftVersionResolver shiftVersionResolver;
+    @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
 
     private ExceptionService exceptionService;
+    // Tracks whatever Shift employee() most recently built for a given id, so
+    // employeeShiftAssignmentResolver's stub (below) always resolves the SAME shift the test's
+    // own Employee fixture carries, without needing a real assignment-history fake (this file
+    // doesn't exercise assignment history itself).
+    private final java.util.Map<UUID, Shift> currentShiftByEmployee = new java.util.HashMap<>();
 
     private final UUID employeeAId = UUID.randomUUID();
     private final UUID employeeBId = UUID.randomUUID();
@@ -71,17 +83,26 @@ class MultiPolicyAssignmentIsolationTest {
         AuditSnapshotSerializer snapshotSerializer = new AuditSnapshotSerializer(new ObjectMapper());
         PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, snapshotSerializer);
         AttendancePenaltyEvaluationService penaltyEvaluationService =
-                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService);
+                new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
+                        notificationService, employeeService, employeeRepository, emailService, auditService, snapshotSerializer);
         WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
-                lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer, attendanceProperties);
+                lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
+                attendanceProperties, employeeRepository, notificationService);
+        lenient().when(allocationRepository.findEffectiveAt(any(), any())).thenReturn(List.of());
+        PenalizationPolicyResolutionService policyResolutionService =
+                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
+        ExpectedWorkHoursService expectedWorkHoursService = new ExpectedWorkHoursService(leaveRequestRepository, shiftVersionResolver, employeeShiftAssignmentResolver);
+        WorkHoursShortageCalculationService workHoursShortageCalculationService =
+                new WorkHoursShortageCalculationService(attendanceRepository, expectedWorkHoursService, workingDayService, shiftVersionResolver, shiftRepository);
         exceptionService = new ExceptionService(userRepository, employeeRepository, historyRepository,
                 attendanceExceptionRepository, attendanceRepository, leaveRequestRepository,
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
-                workingDayService, versionRepository, holidayRepository, penalizationPolicyService);
+                workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
+                workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService,
+                shiftVersionResolver, shiftRepository);
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
-        lenient().when(attendanceProperties.getShiftStart()).thenReturn(LocalTime.of(9, 30));
         lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeAId, employeeBId));
         lenient().when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser()));
         lenient().when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
@@ -96,8 +117,28 @@ class MultiPolicyAssignmentIsolationTest {
                 .thenReturn(false);
         lenient().when(attendanceExceptionRepository.countByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(any(), any(), any(), any()))
                 .thenReturn(0L);
-        lenient().when(attendancePenaltyRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(attendancePenaltyRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of());
+        // Every employee() built below carries this same Shift, so the LATE_ARRIVAL path's
+        // shiftDayPolicy.resolveShiftStart(...) call never hits the no-shift invariant guard —
+        // the exact start/end values don't matter here, only that resolution doesn't throw.
+        lenient().when(shiftVersionResolver.resolve(any(), any()))
+                .thenReturn(ShiftVersion.builder().startTime(LocalTime.of(9, 0)).endTime(LocalTime.of(18, 0)).build());
+        // ONEHR-336 follow-up: ShiftDayPolicy's own Rule 2 pre-check now calls resolveIfPresent
+        // (not resolve) directly — an unstubbed @Mock answers Optional.empty() regardless of the
+        // resolve() stub above, silently breaking any overnight-rollover check. Delegates to
+        // whatever resolve() is stubbed to return instead of duplicating it.
+        lenient().when(shiftVersionResolver.resolveIfPresent(any(), any())).thenAnswer(inv -> {
+            try {
+                return Optional.of(shiftVersionResolver.resolve(inv.getArgument(0), inv.getArgument(1)));
+            } catch (IllegalStateException e) {
+                return Optional.empty();
+            }
+        });
+        lenient().when(employeeShiftAssignmentResolver.resolve(any(), any())).thenAnswer(inv -> {
+            UUID id = inv.getArgument(0);
+            return EmployeeShiftAssignment.builder().employeeUserId(id).shift(currentShiftByEmployee.get(id)).effectiveFrom(LocalDate.MIN).build();
+        });
     }
 
     private User hrUser() {
@@ -107,14 +148,20 @@ class MultiPolicyAssignmentIsolationTest {
 
     private Employee employee(UUID id, PenalisationPolicy policy) {
         User user = User.builder().id(id).email(id + "@test.com").build();
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(true).build();
+        currentShiftByEmployee.put(id, shift);
         return Employee.builder().userId(id).user(user).employeeCode("NF-" + id).fullName("Employee " + id)
-                .joiningDate(date.minusYears(1)).penalisationPolicy(policy).build();
+                .joiningDate(date.minusYears(1)).penalisationPolicy(policy).shift(shift).build();
     }
 
+    // Unified-grace model: Attendance.status is the sole "genuinely late" signal ExceptionService's
+    // detectExceptions gates on (see its own comment) — lateByMinutes alone no longer creates a
+    // LATE_ARRIVAL exception, so every fixture representing a genuine late arrival must also carry
+    // status LATE, exactly as AttendanceInterpretationService/AttendanceService would have set it.
     private Attendance lateAttendance(UUID employeeId, int lateByMinutes) {
         return Attendance.builder().employeeUserId(employeeId).workDate(date)
                 .checkInAt(date.atTime(9, 30).plusMinutes(lateByMinutes)).checkOutAt(date.atTime(18, 0))
-                .lateByMinutes(lateByMinutes).build();
+                .status("LATE").lateByMinutes(lateByMinutes).build();
     }
 
     @Test
@@ -123,30 +170,42 @@ class MultiPolicyAssignmentIsolationTest {
         PenalisationPolicy policyB = PenalisationPolicy.builder().id(policyBId).name("Policy B").build();
         when(employeeRepository.findById(employeeAId)).thenReturn(Optional.of(employee(employeeAId, policyA)));
         when(employeeRepository.findById(employeeBId)).thenReturn(Optional.of(employee(employeeBId, policyB)));
+        // Gap-001: the legacy-FK tier now gates through findActivePolicyIds() — both policies here
+        // are ACTIVE (the entity's default status).
+        when(penalisationPolicyRepository.findByStatus("ACTIVE")).thenReturn(List.of(policyA, policyB));
+        // GAP-007's working-day gate (and detectNoAttendanceAndShortage's own resolution) need
+        // this schedule lookup to return the SAME per-employee policy assignment `findById` does —
+        // otherwise it would fall through to the unscoped lookup this test forbids below.
+        when(employeeRepository.findAllByIdWithScheduleDetails(any()))
+                .thenReturn(List.of(employee(employeeAId, policyA), employee(employeeBId, policyB)));
 
         // Both employees are 20 minutes late on the same day. The scope list's order isn't
         // guaranteed (it's built from a Set), so match on any list rather than a fixed order.
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(anyList(), eq(date), eq(date)))
                 .thenReturn(List.of(lateAttendance(employeeAId, 20), lateAttendance(employeeBId, 20)));
 
-        // Policy A: strict — 5 min grace, 1 day deduction. Policy B: lenient — 60 min grace.
+        // Policy A: Late Arrival enabled, 1 day deduction. Policy B: Late Arrival section disabled
+        // outright — both employees are equally, genuinely late (status LATE against their shared
+        // shift grace; there is no separate policy-level grace left to differ by), so this
+        // deliberately isolates the assertion to "each employee's OWN assigned policy governs" —
+        // never grace arithmetic, which the unified-grace model no longer lets a policy override.
         PenalizationPolicyVersion versionA = PenalizationPolicyVersion.builder()
                 .id(UUID.randomUUID()).policyId(policyAId).version(1)
                 .effectiveFrom(date.minusMonths(1).atStartOfDay())
-                .lateArrivalEnabled(true).laGracePeriodMinutes(5).laDeductionDays(BigDecimal.ONE).build();
+                .lateArrivalEnabled(true).laDeductionDays(BigDecimal.ONE).build();
         PenalizationPolicyVersion versionB = PenalizationPolicyVersion.builder()
                 .id(UUID.randomUUID()).policyId(policyBId).version(1)
                 .effectiveFrom(date.minusMonths(1).atStartOfDay())
-                .lateArrivalEnabled(true).laGracePeriodMinutes(60).laDeductionDays(new BigDecimal("2")).build();
+                .lateArrivalEnabled(false).build();
         when(versionRepository.findVersionsEffectiveAtForPolicy(policyAId, date.atStartOfDay())).thenReturn(List.of(versionA));
         when(versionRepository.findVersionsEffectiveAtForPolicy(policyBId, date.atStartOfDay())).thenReturn(List.of(versionB));
 
         exceptionService.getExceptionsForCaller(hrEmail, date, date);
 
-        // Only Employee A's lateness (20 > 5 min grace) breaches their own policy; Employee B's
-        // identical lateness is within THEIR policy's more lenient 60-minute grace.
+        // Only Employee A's policy has Late Arrival enabled; Employee B's identical lateness is
+        // evaluated against THEIR OWN policy, which has the section disabled.
         ArgumentCaptor<AttendancePenalty> captor = ArgumentCaptor.forClass(AttendancePenalty.class);
-        verify(attendancePenaltyRepository, times(1)).save(captor.capture());
+        verify(attendancePenaltyRepository, times(1)).saveAndFlush(captor.capture());
         AttendancePenalty penalty = captor.getValue();
         assertEquals(employeeAId, penalty.getEmployeeUserId());
         assertEquals(policyAId, penalty.getPolicyId());
@@ -164,10 +223,14 @@ class MultiPolicyAssignmentIsolationTest {
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeAId), date, date))
                 .thenReturn(List.of(lateAttendance(employeeAId, 20)));
         lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeAId));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any()))
+                .thenReturn(List.of(employee(employeeAId, null)));
 
         PenalisationPolicy defaultPolicy = PenalisationPolicy.builder().id(policyAId).name("Default Tracking Policy")
-                .createdAt(java.time.LocalDateTime.of(2020, 1, 1, 0, 0)).build();
-        when(penalisationPolicyRepository.findAll()).thenReturn(List.of(defaultPolicy));
+                .createdAt(java.time.LocalDateTime.of(2020, 1, 1, 0, 0)).orgDefault(true).build();
+        // Section 7: the org-default fallback now resolves through resolveActiveDefaultPolicyId(),
+        // which reads the admin-chosen isOrgDefault flag directly, not "oldest ACTIVE by createdAt".
+        when(penalisationPolicyRepository.findByOrgDefaultTrue()).thenReturn(Optional.of(defaultPolicy));
         PenalizationPolicyVersion defaultVersion = PenalizationPolicyVersion.builder()
                 .id(UUID.randomUUID()).policyId(policyAId).version(1)
                 .effectiveFrom(date.minusMonths(1).atStartOfDay())
@@ -177,7 +240,7 @@ class MultiPolicyAssignmentIsolationTest {
         exceptionService.getExceptionsForCaller(hrEmail, date, date);
 
         ArgumentCaptor<AttendancePenalty> captor = ArgumentCaptor.forClass(AttendancePenalty.class);
-        verify(attendancePenaltyRepository, times(1)).save(captor.capture());
+        verify(attendancePenaltyRepository, times(1)).saveAndFlush(captor.capture());
         assertEquals(policyAId, captor.getValue().getPolicyId(), "unassigned employee resolves to the deterministic org default, not an arbitrary policy");
         // Still never falls through to the ambiguous unscoped lookup.
         verify(versionRepository, never()).findVersionsEffectiveAt(any());

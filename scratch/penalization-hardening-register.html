@@ -1,0 +1,366 @@
+<title>Penalization Hardening Register</title>
+<style>
+:root{
+  --paper:#F3F2EE; --paper-raised:#FAFAF7; --ink:#1D2127; --ink-mut:#4A505C; --ink-dim:#767C87;
+  --line:#DCD9D0; --line-soft:#E8E6DF;
+  --accent:#2E4A6B; --accent-soft:#E4EAF0; --accent-line:#B9C7D6;
+  --p0:#A6342E; --p0-soft:#F5E4E2; --p1:#B5651D; --p1-soft:#F5E9DA; --p2:#93741B; --p2-soft:#F3EDD8;
+  --p3:#2F6E7D; --p3-soft:#DEEBEC; --p4:#726F64; --p4-soft:#EAE8E0;
+  --pass:#3F7D4E; --pass-soft:#E1EEE2; --fail:#A6342E; --fail-soft:#F5E4E2;
+  --stop:#8A2E2E; --stop-soft:#F7E6E4;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+:root:not([data-theme="light"]){
+  @media (prefers-color-scheme: dark){
+    --paper:#181A1E; --paper-raised:#1F2227; --ink:#EBEAE6; --ink-mut:#B7BAC2; --ink-dim:#82868F;
+    --line:#33363D; --line-soft:#282B31;
+    --accent:#8FB0D6; --accent-soft:#22303F; --accent-line:#3C5670;
+    --p0:#E08A83; --p0-soft:#3A2422; --p1:#E0A468; --p1-soft:#3A2E1B; --p2:#D3B85B; --p2-soft:#39321A;
+    --p3:#7FC2D1; --p3-soft:#1D3438; --p4:#B0AEA3; --p4-soft:#2D2C27;
+    --pass:#8FCB9C; --pass-soft:#1E2E22; --fail:#E08A83; --fail-soft:#3A2422;
+    --stop:#E08A83; --stop-soft:#3A2422;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#181A1E; --paper-raised:#1F2227; --ink:#EBEAE6; --ink-mut:#B7BAC2; --ink-dim:#82868F;
+  --line:#33363D; --line-soft:#282B31;
+  --accent:#8FB0D6; --accent-soft:#22303F; --accent-line:#3C5670;
+  --p0:#E08A83; --p0-soft:#3A2422; --p1:#E0A468; --p1-soft:#3A2E1B; --p2:#D3B85B; --p2-soft:#39321A;
+  --p3:#7FC2D1; --p3-soft:#1D3438; --p4:#B0AEA3; --p4-soft:#2D2C27;
+  --pass:#8FCB9C; --pass-soft:#1E2E22; --fail:#E08A83; --fail-soft:#3A2422;
+  --stop:#E08A83; --stop-soft:#3A2422;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Inter",system-ui,-apple-system,sans-serif;line-height:1.6}
+::selection{background:var(--accent-soft)}
+
+.wrap{max-width:920px;margin:0 auto;padding:48px 24px 120px}
+
+h1,h2,h3{font-family:"Space Grotesk","Inter",sans-serif;font-weight:700;text-wrap:balance;color:var(--ink)}
+h1{font-size:28px;margin:0 0 6px}
+h2{font-size:19px;margin:48px 0 14px;padding-bottom:10px;border-bottom:2px solid var(--line);display:flex;align-items:center;gap:10px}
+h3{font-size:14.5px;margin:26px 0 10px;color:var(--accent)}
+p{margin:0 0 12px;color:var(--ink-mut);max-width:72ch}
+code,.mono{font-family:var(--mono);font-size:.92em}
+a{color:var(--accent)}
+
+.masthead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:8px;flex-wrap:wrap}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+.meta{font-size:12px;color:var(--ink-dim);text-align:right}
+
+.lede{font-size:14.5px;color:var(--ink-mut);border-left:3px solid var(--accent-line);padding-left:16px;margin:20px 0 8px;max-width:none}
+
+.toc{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;background:var(--paper-raised);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin:22px 0;font-size:13px}
+.toc a{color:var(--ink-mut);text-decoration:none}
+.toc a:hover{color:var(--accent)}
+@media (max-width:640px){.toc{grid-template-columns:1fr}}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;letter-spacing:.03em;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.p0{background:var(--p0-soft);color:var(--p0)} .p1{background:var(--p1-soft);color:var(--p1)}
+.p2{background:var(--p2-soft);color:var(--p2)} .p3{background:var(--p3-soft);color:var(--p3)}
+.p4{background:var(--p4-soft);color:var(--p4)}
+.pass{background:var(--pass-soft);color:var(--pass)} .fail{background:var(--fail-soft);color:var(--fail)}
+.new{background:var(--accent-soft);color:var(--accent)}
+
+.card{background:var(--paper-raised);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+.card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.card-head .id{font-family:var(--mono);font-weight:700;font-size:13px}
+.card-grid{display:grid;grid-template-columns:110px 1fr;gap:6px 14px;font-size:13px}
+.card-grid dt{color:var(--ink-dim);font-weight:600}
+.card-grid dd{margin:0;color:var(--ink)}
+.card-grid .files{font-family:var(--mono);font-size:11.5px;color:var(--ink-mut)}
+
+.stop{border:1.5px solid var(--stop);background:var(--stop-soft);border-radius:12px;padding:20px 22px;margin:16px 0}
+.stop h3{color:var(--stop);margin-top:0;font-size:15px;display:flex;align-items:center;gap:8px}
+.stop dl{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;font-size:13px;margin-top:10px}
+.stop dt{color:var(--ink-dim);font-weight:600}
+.stop dd{margin:0}
+
+table{width:100%;border-collapse:collapse;font-size:12.8px}
+.twrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin:14px 0}
+th{background:var(--paper-raised);text-align:left;padding:9px 12px;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-dim);border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--ink-mut)}
+tr:last-child td{border-bottom:none}
+td.strong{color:var(--ink);font-weight:600}
+
+.status-row{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+.status-row:last-child{border-bottom:none}
+.status-row .n{flex:0 0 22px;color:var(--ink-dim);font-family:var(--mono);font-size:11.5px;padding-top:1px}
+.status-row .t{flex:1}
+.status-row .v{flex:0 0 auto}
+
+blockquote{border-left:3px solid var(--line);margin:10px 0;padding:2px 0 2px 14px;color:var(--ink-dim);font-size:12.8px;font-family:var(--mono)}
+
+.foot{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-dim)}
+</style>
+
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <div class="eyebrow">NForce · OneHR · Penalization Policy &amp; Allocation</div>
+      <h1>Hardening Register — Round 2</h1>
+    </div>
+    <div class="meta">Branch <code>feature/penalization-policy</code><br>2026‑09‑02 · supersedes findings, not disposition, of the 2026‑09‑01 register</div>
+  </div>
+  <p class="lede">This is a re-audit against current source, requested after the P0/P1 tier (GAP‑007/009/010/011/014) and five P2–P4 items (GAP‑013/015/016/017/025) were already closed this session. Six areas were re-verified line-by-line against the live codebase rather than assumed from the prior register. <strong>Two of those areas surfaced genuine, unaddressed correctness gaps</strong> — including one that reopens GAP‑009 in a narrower but real form. No code has been changed in this pass. Six items below need your decision before any of them can be implemented.</p>
+
+  <div class="toc">
+    <a href="#summary">Executive summary</a>
+    <a href="#decisions">⚠ Decisions needed (read first)</a>
+    <a href="#architecture">A · Architecture map</a>
+    <a href="#gaps-new">B · New / reopened gaps</a>
+    <a href="#gaps-carried">B · Carried-over open gaps</a>
+    <a href="#rules">C · Business rule register</a>
+    <a href="#integrity">D · Data-integrity register</a>
+    <a href="#extensibility">E · Extensibility assessment</a>
+    <a href="#acceptance">Acceptance criteria checklist</a>
+  </div>
+
+  <h2 id="summary">Executive summary</h2>
+  <p>Six read-only research passes re-verified: regularization/leave reversal completeness, penalty lifecycle &amp; payroll-seam readiness, employee lifecycle &amp; allocation-gap fallback, policy deactivation &amp; historical-deletion safety, rule precedence &amp; holiday consistency, and audit-trail completeness across 15 mutation types.</p>
+  <div class="twrap"><table>
+    <tr><th>Area</th><th>Result</th></tr>
+    <tr><td class="strong">Regularization reversal scope</td><td><span class="pill fail">Gap confirmed</span> reverses every active penalty for employee+date, not just the discrepancy type the regularization actually fixed — GAP‑033</td></tr>
+    <tr><td class="strong">Leave approval → penalty re-evaluation</td><td><span class="pill fail">Gap confirmed</span> no code path exists at all — GAP‑034</td></tr>
+    <tr><td class="strong">Penalty lifecycle states</td><td><span class="pill fail">Gap confirmed</span> <code>APPLIED</code> is dead; every penalty sits in <code>PENDING_REVIEW</code> until cancelled/reversed — GAP‑035</td></tr>
+    <tr><td class="strong">Payroll-seam readiness</td><td><span class="pill p2">As expected</span> zero payroll fields/events exist yet — correctly out of scope for this pass, noted for Phase 3</td></tr>
+    <tr><td class="strong">Employee lifecycle → allocation</td><td><span class="pill fail">Gap confirmed</span> termination/rehire/transfer never touch allocations (matches original GAP‑002/003/004/005, now evidenced)</td></tr>
+    <tr><td class="strong">Allocation-gap fallback</td><td><span class="pill fail">Gap confirmed</span> hardcoded to always-default, no <code>REQUIRE_ALLOCATION</code> mode exists (matches original GAP‑006, now evidenced)</td></tr>
+    <tr><td class="strong">Policy deactivation</td><td><span class="pill fail">Gap confirmed</span> inactive policy fully governs, by the toggle's own javadoc admission (matches original GAP‑001, now evidenced)</td></tr>
+    <tr><td class="strong">Policy hard-delete safety</td><td><span class="pill fail"><strong>GAP‑009 reopens</strong></span> a policy that governed only via default-fallback, with real version history, can still be hard-deleted — GAP‑036</td></tr>
+    <tr><td class="strong">Rule precedence</td><td><span class="pill p3">Documentation gap</span> order is internally consistent but exists nowhere as a single authoritative description — GAP‑037</td></tr>
+    <tr><td class="strong">Audit-trail completeness</td><td><span class="pill fail">Gap confirmed</span> penalty <em>creation</em> and leave-restoration <em>detail</em> have zero audit coverage — GAP‑038; plus one likely copy-paste bug in bulk-remove's audit target — GAP‑039</td></tr>
+  </table></div>
+
+  <div class="stop" id="decisions">
+    <h3>⚠ Six decisions needed before any of this is implemented</h3>
+    <p style="color:var(--ink);max-width:none">Per your instruction: for ambiguous cases I'm presenting current/recommended/alternative/risk and waiting, rather than guessing at business rules or reintroducing behavior you've told me not to reintroduce (e.g. date-matching between Policy Version and Allocation, which none of this touches).</p>
+
+    <h3 style="margin-top:22px">1 · GAP‑036 — Policy hard-delete still has a real hole</h3>
+    <dl>
+      <dt>Current</dt><dd>Four guards (current employee count, allocation count, penalty existence, "not the last policy") all pass for a policy that was the org's real governing policy for months <em>purely via default-fallback</em> — no explicit allocation was ever created, and no discrepancy during that window happened to reach <code>APPLY_PENALTY</code>. Its real, multi-version rule history is then permanently destroyed.</dd>
+      <dt>Recommended</dt><dd>Add a fifth guard: block hard-delete whenever the policy has more than one <code>PenalizationPolicyVersion</code>, or any version whose <code>effectiveFrom</code> is in the past — i.e. "this policy was ever actually live" — forcing deactivate-instead-of-delete for anything with real history. A brand-new, never-activated policy (one version, never past its effective date) stays deletable.</dd>
+      <dt>Alternative</dt><dd>Convert <code>delete()</code> into "deactivate if it has history, hard-delete only if it doesn't" — removing the separate toggle/delete UI distinction for used policies entirely.</dd>
+      <dt>Risk</dt><dd>The recommended option is the smaller behavior change (delete gets stricter, nothing gets easier), but it does mean an admin who wants to clean up a genuinely-dead old policy will be forced to leave it around inactive instead. The alternative removes an explicit user choice.</dd>
+      <dt>Needs your call</dt><dd>Which guard shape, and whether "any past-dated version" or "more than one version" is the right trigger.</dd>
+    </dl>
+
+    <h3 style="margin-top:22px">2 · GAP‑033 — Regularization reversal is scoped too broadly</h3>
+    <dl>
+      <dt>Current</dt><dd><code>reverseForApprovedRegularization</code> reverses <em>every</em> still-active penalty for that employee+date, regardless of discrepancy type. A regularization that only corrects a late check-in will also reverse an unrelated, still-legitimate <code>WORK_HOURS_SHORTAGE</code> penalty from the same day.</dd>
+      <dt>Recommended</dt><dd>Scope reversal to only the discrepancy type(s) the regularization's corrected time window would actually change — which requires knowing, at approval time, which exception type(s) the correction addresses (full-day vs. check-in-only vs. check-out-only), and ideally re-deriving whether that discrepancy would still fire against the corrected attendance record before reversing it.</dd>
+      <dt>Alternative</dt><dd>Keep "reverse everything for the date" as the rule, but make it an explicit, documented business decision ("a regularization corrects the whole day's record, full stop") rather than an accidental byproduct of a date-only query — the code comment already asserts this is intentional, so this may be accepted behavior, not a bug.</dd>
+      <dt>Risk</dt><dd>The recommended fix requires building real re-evaluation logic (this doubles as the fix for GAP‑034/GAP‑035 below) — a materially larger change than anything else in this pass. The alternative leaves a scenario where an employee could have a legitimate shortage penalty erased as a side effect of an unrelated correction.</dd>
+      <dt>Needs your call</dt><dd>Is "reverse the whole day" actually the intended HRMS rule (in which case this is a documentation fix, not a code fix), or should reversal be scoped per discrepancy type (a real re-evaluation feature)?</dd>
+    </dl>
+
+    <h3 style="margin-top:22px">3 · GAP‑034 — Leave approval never re-evaluates penalties</h3>
+    <dl>
+      <dt>Current</dt><dd>Only regularization approval triggers penalty reversal. An approved half-day leave that retroactively lowers a day's expected work minutes below what the employee actually worked never touches an already-applied <code>WORK_HOURS_SHORTAGE</code> penalty for that date.</dd>
+      <dt>Recommended</dt><dd>Section 10's own example is the target behavior: leave approval should trigger the same kind of re-evaluation regularization approval does, scoped to <code>WORK_HOURS_SHORTAGE</code>/<code>NO_ATTENDANCE</code> (the two types whose "expected" side leave approval can change).</dd>
+      <dt>Alternative</dt><dd>Leave this out of scope for this pass and document it as a known limitation — HR can still manually cancel a stale penalty today via the existing cancel endpoint.</dd>
+      <dt>Risk</dt><dd>Recommended option touches <code>LeaveService.approve()</code>, a high-traffic, already-complex path, and needs the same re-evaluation machinery as GAP‑033. Manual cancellation as a stopgap is real today but relies on HR noticing.</dd>
+      <dt>Needs your call</dt><dd>In scope for this pass, or deferred as a documented limitation pending a shared re-evaluation engine?</dd>
+    </dl>
+
+    <h3 style="margin-top:22px">4 · GAP‑001 — Inactive policy still fully governs</h3>
+    <dl>
+      <dt>Current</dt><dd>Confirmed by the code's own javadoc: deactivating a policy only removes it from dropdowns; every resolution path (allocation, legacy FK, default) ignores <code>status</code> entirely.</dd>
+      <dt>Recommended</dt><dd>Your Section 5 model: historical resolution is untouched; a NEW evaluation for TODAY-or-later should not select an inactive policy unless explicitly allowed. Concretely: <code>resolveAssignedOrDefaultPolicyId</code>/<code>resolveEffectiveVersion</code> skip inactive policies when resolving for future/current dates, but historical `AttendancePenalty` rows already reference a specific `policyId`/`policyVersion` snapshot and are unaffected either way.</dd>
+      <dt>Alternative</dt><dd>Only block an INACTIVE policy from being the <em>default</em> fallback (oldest-created), but still honor it if an employee has an explicit allocation or legacy FK pointing at it — treating "inactive" as "retired from being anyone's fallback" rather than "can't govern anyone."</dd>
+      <dt>Risk</dt><dd>The recommended option changes behavior for any org that has an INACTIVE policy still explicitly allocated to real employees today — those employees would suddenly need a new policy resolved for them (falling through to legacy/default), which may or may not be desired. The alternative is safer but weaker.</dd>
+      <dt>Needs your call</dt><dd>Should INACTIVE block ALL forward resolution (allocation + legacy + default), or only block it from being selected as the org DEFAULT?</dd>
+    </dl>
+
+    <h3 style="margin-top:22px">5 · GAP‑006 — Allocation-gap fallback strategy</h3>
+    <dl>
+      <dt>Current</dt><dd>Hardcoded: any employee with no allocation and no legacy FK always resolves to the org's oldest-created policy, with zero way to configure otherwise, and zero dedicated report of "who's on the gap/default path."</dd>
+      <dt>Recommended</dt><dd>Your Section 4 naming: introduce an explicit, configurable <code>DEFAULT_POLICY</code> vs <code>REQUIRE_ALLOCATION</code> strategy (org-level setting). Keep <code>DEFAULT_POLICY</code> as the actual default so no existing org's behavior changes unless they opt in.</dd>
+      <dt>Alternative</dt><dd>Don't add a strategy toggle yet — just make the existing per-row <code>resolvedPolicySource</code> ("ALLOCATION"/"LEGACY"/"DEFAULT") filterable/reportable on the Allocation screen, so gaps are visible without changing resolution behavior at all.</dd>
+      <dt>Risk</dt><dd>A real <code>REQUIRE_ALLOCATION</code> mode means some employees would resolve to <em>no policy at all</em> — every attendance evaluation for them becomes a no-op until someone allocates them. That's a meaningful behavior cliff if an org flips the setting without allocating everyone first.</dd>
+      <dt>Needs your call</dt><dd>Build the configurable strategy now (bigger, but matches your ask directly), or ship only the visibility/reporting half this pass and defer the strategy toggle?</dd>
+    </dl>
+
+    <h3 style="margin-top:22px">6 · GAP‑002/003/004/005 — Employee lifecycle vs. allocation</h3>
+    <dl>
+      <dt>Current</dt><dd>There is no dedicated "terminate" action — only <code>setActiveStatus(active=false)</code> and <code>softDeleteUser</code>, both of which are also usable for reasons other than termination (the codebase doesn't distinguish "terminated" from "temporarily deactivated"). Neither touches allocations. Reactivation silently resumes any old open allocation.</dd>
+      <dt>Recommended</dt><dd>Your Section 6 model (close allocation on termination, explicit re-allocation on rehire) is right <em>if</em> deactivation always means termination in this HRMS. That needs verifying against how HR actually uses the deactivate/reactivate toggle today — closing a real employee's allocation because they were deactivated for an unrelated reason (e.g. a data-entry freeze, an investigation) would be a real regression.</dd>
+      <dt>Alternative</dt><dd>Do nothing to the deactivate/reactivate path itself; instead, surface "this reactivated employee has a pre-existing allocation from before deactivation" as a flagged item for HR to confirm/re-decide, rather than silently closing or silently resuming it.</dd>
+      <dt>Risk</dt><dd>Hooking allocation-closure into the generic deactivate toggle is the highest-blast-radius change in this whole list if deactivation is used more broadly than "termination" today.</dd>
+      <dt>Needs your call</dt><dd>Confirm whether <code>setActiveStatus(false)</code>/<code>softDeleteUser</code> are ONLY ever used for termination in this HRMS (I can verify frontend call sites if you want that checked before deciding), and whether you want auto-close-on-deactivate or a flagged-for-HR-review approach instead.</dd>
+    </dl>
+  </div>
+
+  <h2 id="architecture">A · Architecture map</h2>
+  <p>Unchanged from the prior register and confirmed still accurate — restated here because two of this round's findings (GAP‑033/GAP‑034) live exactly at the "Regularization/Leave → re-evaluate → Penalty" arrow, which turns out to be far weaker than the rest of the chain.</p>
+  <pre class="mermaid">
+graph TD
+    EMP[Employee] -->|effective-dated| ALLOC[PenalizationPolicyAllocation]
+    EMP -.->|legacy FK, frozen since V95| POL0[PenalisationPolicy]
+    ALLOC --> RES[PenalizationPolicyResolutionService]
+    POL0 -.-> RES
+    RES -->|org default, status-blind| POL[PenalisationPolicy]
+    POL --> VER[PenalizationPolicyVersion]
+    ATT[Attendance] --> EXC[ExceptionService]
+    EXC --> ENG[ConfiguredAttendancePolicyEngine]
+    VER --> ENG
+    ENG --> PEN[AttendancePenalty]
+    PEN --> LOP[Leave / LOP deduction]
+    REG[RegularizationService.approve] -->|date-scoped, not type-scoped| REV[reverseForApprovedRegularization]
+    REV -.->|"⚠ blind status flip, no re-eval"| PEN
+    LEAVE[LeaveService.approve] -.->|"⚠ no call exists"| REV
+    PEN -.->|no payroll fields yet| PAYROLL[Payroll — not built]
+  </pre>
+
+  <h2 id="gaps-new">B · New / reopened gaps this round</h2>
+
+  <div class="card">
+    <div class="card-head"><span class="id">GAP‑036</span><span class="pill p0">P0</span><span class="pill new">reopens GAP‑009</span></div>
+    <dl class="card-grid">
+      <dt>Current</dt><dd>All four of this session's delete guards (current-employee-count, allocation-count, penalty-existence, not-last-policy) can simultaneously pass for a policy that genuinely governed employees for months via default-fallback only, permanently destroying real multi-version rule history.</dd>
+      <dt>Expected</dt><dd>A policy that was ever actually live (has version history predating today) cannot be hard-deleted, regardless of whether it happened to be reached via allocation, legacy FK, or default.</dd>
+      <dt>Impact</dt><dd>Audit/compliance risk — a real historical rule configuration disappears with no recovery path beyond the generic "policy X was deleted" audit line.</dd>
+      <dt>Files</dt><dd class="files">service/PenalisationPolicyManagementService.java (delete)</dd>
+      <dt>Migration</dt><dd>No</dd><dt>Test</dt><dd>Yes — the exact "governed via default only, zero allocations/penalties" scenario</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="id">GAP‑033</span><span class="pill p1">P1</span></div>
+    <dl class="card-grid">
+      <dt>Current</dt><dd><code>reverseForApprovedRegularization</code> reverses every <code>PENDING_REVIEW</code>/<code>APPLIED</code> penalty for employee+date with no discrepancy-type filter.</dd>
+      <dt>Expected</dt><dd>Reversal scoped to the discrepancy type(s) the regularization's correction actually addresses (pending your decision above on whether "whole day" is in fact intended).</dd>
+      <dt>Impact</dt><dd>A still-legitimate penalty of a different type can be silently erased, incorrectly restoring leave balance the employee wasn't owed back.</dd>
+      <dt>Files</dt><dd class="files">service/AttendancePenaltyService.java, RegularizationService.java, repository/AttendancePenaltyRepository.java</dd>
+      <dt>Migration</dt><dd>Possibly (if scoping needs a new repository query)</dd><dt>Test</dt><dd>Yes — two different discrepancy types same date, one regularization</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="id">GAP‑034</span><span class="pill p1">P1</span></div>
+    <dl class="card-grid">
+      <dt>Current</dt><dd><code>LeaveService.approve()</code> has zero reference to <code>AttendancePenaltyService</code>/re-evaluation of any kind.</dd>
+      <dt>Expected</dt><dd>Per your Section 10 example: approved partial-day leave that lowers expected work minutes below actual-worked should reverse a now-invalid <code>WORK_HOURS_SHORTAGE</code> penalty.</dd>
+      <dt>Impact</dt><dd>Stale penalties survive leave approval indefinitely unless HR manually notices and cancels.</dd>
+      <dt>Files</dt><dd class="files">service/LeaveService.java, AttendancePenaltyService.java</dd>
+      <dt>Migration</dt><dd>No</dd><dt>Test</dt><dd>Yes — half-day leave approved after a shortage penalty already applied</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="id">GAP‑035</span><span class="pill p3">P3</span></div>
+    <dl class="card-grid">
+      <dt>Current</dt><dd><code>AttendancePenaltyStatus.APPLIED</code> is defined and referenced in a membership check, but no code path ever sets it — every penalty is created <code>PENDING_REVIEW</code> and stays there until cancelled/reversed.</dd>
+      <dt>Expected</dt><dd>Either the lifecycle genuinely has a PENDING_REVIEW→APPLIED transition somewhere (e.g. after a review step), or the state should be removed/renamed to match what actually happens, before a payroll seam is built on top of a lifecycle that doesn't match reality.</dd>
+      <dt>Impact</dt><dd>Low today (dead code), but Section 8/17's payroll-lifecycle work would inherit this confusion if not cleaned up first.</dd>
+      <dt>Files</dt><dd class="files">entity/AttendancePenaltyStatus.java, AttendancePenaltyEvaluationService.java</dd>
+      <dt>Migration</dt><dd>No</dd><dt>Test</dt><dd>N/A until resolved</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="id">GAP‑038</span><span class="pill p2">P2</span></div>
+    <dl class="card-grid">
+      <dt>Current</dt><dd>Penalty creation (the single most financially consequential mutation in the subsystem) has zero audit-log entry. Leave-balance restoration on reversal logs only the penalty's before/after <em>status strings</em>, not which leave types/amounts were credited back.</dd>
+      <dt>Expected</dt><dd>Per your Section 19: every important mutation reconstructable, including what changed.</dd>
+      <dt>Impact</dt><dd>"Why was employee X penalized on date Y" (Section 22's headline requirement) is answerable from the penalty row itself today, but not from the audit log — the two data sources disagree on completeness.</dd>
+      <dt>Files</dt><dd class="files">AttendancePenaltyEvaluationService.java, AttendancePenaltyService.java</dd>
+      <dt>Migration</dt><dd>No</dd><dt>Test</dt><dd>Yes</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="id">GAP‑039</span><span class="pill p4">P4</span><span class="pill new">likely bug</span></div>
+    <dl class="card-grid">
+      <dt>Current</dt><dd><code>bulkRemove</code>'s audit call passes <code>actor.getId()</code> as the <code>targetId</code> — the actor auditing themselves, not the policy or employees affected. <code>bulkAllocate</code>'s equivalent call correctly uses the policy id.</dd>
+      <dt>Expected</dt><dd>Consistent with bulk-allocate's own pattern.</dd>
+      <dt>Impact</dt><dd>Minor — the per-employee detail is still in the JSON payload, but the indexed target reference is wrong, making this row hard to find via a target-scoped audit query.</dd>
+      <dt>Files</dt><dd class="files">service/PenalizationPolicyAllocationService.java (bulkRemove)</dd>
+      <dt>Migration</dt><dd>No</dd><dt>Test</dt><dd>Yes — one-line assertion fix</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="id">GAP‑037</span><span class="pill p3">P3</span><span class="pill new">documentation</span></div>
+    <dl class="card-grid">
+      <dt>Current</dt><dd>The actual precedence order (working-day gate → detection order → engine gate order → same-day suppression → buffer/notice-period override) is internally <em>consistent</em> — nothing contradictory was found — but exists nowhere as a single description; it's reconstructable only by reading three classes together.</dd>
+      <dt>Expected</dt><dd>Per Section 12: adding a future rule shouldn't require guessing where its <code>if</code> belongs.</dd>
+      <dt>Impact</dt><dd>Onboarding/maintenance risk, not a correctness bug today.</dd>
+      <dt>Files</dt><dd class="files">A new javadoc/doc artifact cross-referencing ExceptionService, ConfiguredAttendancePolicyEngine, WorkHoursShortageCalculationService — no logic change</dd>
+      <dt>Migration</dt><dd>No</dd><dt>Test</dt><dd>No (docs only)</dd>
+    </dl>
+  </div>
+
+  <h2 id="gaps-carried">B · Carried-over open gaps (re-verified, unchanged disposition)</h2>
+  <p>These matched the 2026‑09‑01 register exactly; this round added direct code evidence (quoted in the six decision points above where a decision is needed) rather than new severity or scope changes.</p>
+  <div class="twrap"><table>
+    <tr><th>ID</th><th>Severity</th><th>Area</th><th>One-line status</th></tr>
+    <tr><td class="mono strong">GAP‑001</td><td><span class="pill p1">P1</span></td><td>Policy lifecycle</td><td>Confirmed via decision #4 above — needs your call on scope of the fix</td></tr>
+    <tr><td class="mono strong">GAP‑002/003/004/005</td><td><span class="pill p2">P2</span></td><td>Employee lifecycle</td><td>Confirmed via decision #6 above — needs verification of deactivate-vs-terminate semantics first</td></tr>
+    <tr><td class="mono strong">GAP‑006</td><td><span class="pill p2">P2</span></td><td>Allocation rules</td><td>Confirmed via decision #5 above — needs your call on strategy vs. visibility-only</td></tr>
+    <tr><td class="mono strong">GAP‑008</td><td><span class="pill p2">P2</span></td><td>Exemptions</td><td>Unchanged — still a "design and scope" effort, deliberately out of this pass per your Section 32 sizing</td></tr>
+    <tr><td class="mono strong">GAP‑012</td><td><span class="pill p2">P2</span></td><td>Concurrency</td><td>Unchanged — broader optimistic-locking sweep beyond GAP‑011/013's targeted fixes; not re-verified this round</td></tr>
+    <tr><td class="mono strong">GAP‑018/019</td><td><span class="pill p2">P2</span></td><td>Reporting</td><td>Unchanged — new screens/queries, Phase 5 per your own sequencing</td></tr>
+    <tr><td class="mono strong">GAP‑020/021/022</td><td><span class="pill p2">/p3</span></td><td>Escalation, caps, proration</td><td>Unchanged — Phase 4, needs the exemption/rule-model decision first</td></tr>
+    <tr><td class="mono strong">GAP‑023</td><td><span class="pill p1">P1</span></td><td>Payroll</td><td>Unchanged — Phase 3 seam only, not the integration itself; readiness re-assessed in Section E below</td></tr>
+    <tr><td class="mono strong">GAP‑024</td><td><span class="pill p3">P3</span></td><td>Authorization</td><td>Unchanged — role-scope product decision, not re-verified this round</td></tr>
+  </table></div>
+
+  <h2 id="rules">C · Business-rule register (this round's additions)</h2>
+  <div class="status-row"><div class="n">01</div><div class="t"><strong>Reversal scope is per-date, not per-type.</strong> <code>findByEmployeeUserIdAndIncidentDate</code> + <code>reverseForApprovedRegularization</code>'s loop reverse every still-active penalty for an employee+date regardless of <code>discrepancyType</code>, by explicit design comment — currently stated as intentional, flagged above as decision #2.</div></div>
+  <div class="status-row"><div class="n">02</div><div class="t"><strong>Leave approval never invalidates a penalty.</strong> The only automatic reversal trigger anywhere in the codebase is <code>RegularizationService.approve()</code>'s final-stage branch.</div></div>
+  <div class="status-row"><div class="n">03</div><div class="t"><strong>No penalty is ever recomputed against corrected data.</strong> Every reversal is a blind status flip; <code>WorkHoursShortageCalculationService</code> is never re-invoked after the fact to check whether a shortage genuinely still exists.</div></div>
+  <div class="status-row"><div class="n">04</div><div class="t"><strong>LEAVE_ATTENDANCE_CONFLICT is correctly, deliberately never gated by working-day status</strong> — verified unchanged from this session's earlier GAP‑007 work; a punch during approved leave is flagged even on a holiday/weekly-off.</div></div>
+  <div class="status-row"><div class="n">05</div><div class="t"><strong>Allocation-gap fallback always resolves to the org's oldest-created policy</strong> whenever at least one <code>PenalisationPolicy</code> row exists anywhere — there is no code path that leaves an employee with "no policy, no evaluation" today.</div></div>
+  <div class="status-row"><div class="n">06</div><div class="t"><strong>Policy <code>status</code> is read in exactly two places</strong> (the toggle itself, and the summary DTO) — no resolution or evaluation code checks it anywhere.</div></div>
+  <div class="status-row"><div class="n">07</div><div class="t"><strong>A penalty is only ever persisted on an <code>APPLY_PENALTY</code> engine decision</strong> — <code>NO_MATCH</code>/<code>EXEMPT</code>/<code>CONFIGURATION_REQUIRED</code>/<code>BUFFER_PENDING</code> all persist nothing, which is exactly why a policy can genuinely govern for months and still show zero <code>AttendancePenalty</code> references (the root cause of GAP‑036).</div></div>
+
+  <h2 id="integrity">D · Data-integrity register (concrete scenarios found)</h2>
+  <div class="twrap"><table>
+    <tr><th>Scenario</th><th>Mechanism</th><th>Produces</th></tr>
+    <tr><td class="strong">Orphaned rule history</td><td>GAP‑036 — default-fallback-only policy, zero allocations/penalties</td><td>Untraceable historical deductions after a future hard-delete of a since-superseded default policy</td></tr>
+    <tr><td class="strong">Over-reversal</td><td>GAP‑033 — date-scoped, not type-scoped reversal</td><td>Incorrect leave-balance restoration for a still-legitimate penalty of a different discrepancy type</td></tr>
+    <tr><td class="strong">Stale/incorrect record</td><td>GAP‑034 — leave approval never re-evaluates</td><td>A <code>WORK_HOURS_SHORTAGE</code> penalty stands indefinitely after the fact that caused it is no longer true</td></tr>
+    <tr><td class="strong">Untraceable mutation</td><td>GAP‑038 — no audit row for penalty creation or restoration detail</td><td>The audit log alone cannot answer "why was X penalized" or "exactly what leave was restored" — only the live row can, and only until it's ever touched again</td></tr>
+    <tr><td class="strong">Misattributed audit target</td><td>GAP‑039 — bulk-remove's <code>targetId</code> bug</td><td>A target-scoped audit query for "everything that happened to policy P" silently misses its own bulk-removal events</td></tr>
+  </table></div>
+
+  <h2 id="extensibility">E · Extensibility assessment</h2>
+  <div class="twrap"><table>
+    <tr><th>Future feature</th><th>Ready without redesign?</th><th>Why</th></tr>
+    <tr><td class="strong">Payroll</td><td><span class="pill fail">No</span></td><td>Zero payroll fields, zero event/outbox mechanism exist. Adding new <em>columns</em> is cheap (no FK on <code>AttendancePenalty</code> by design), but the only existing concurrency guard (<code>transitionStatus</code>'s conditional UPDATE) is scoped to the single <code>status</code> column and assumes it's the sole lifecycle indicator — a payroll-sync process would need its own idempotency mechanism built from scratch. GAP‑035's dead <code>APPLIED</code> state should be resolved first so the payroll lifecycle isn't layered on a confused penalty lifecycle.</td></tr>
+    <tr><td class="strong">Exemption framework</td><td><span class="pill p2">Partially</span></td><td>No nullable-boolean sprawl exists yet on <code>PenalizationPolicyVersion</code> (good) — but there's also no exemption dimension at all beyond section-level enable flags and regularization-exemption checks scattered inside <code>ConfiguredAttendancePolicyEngine</code>. A normalized exemption model is a genuine new subsystem, not an extension of an existing one.</td></tr>
+    <tr><td class="strong">Progressive escalation</td><td><span class="pill p2">Partially</span></td><td><code>laDeductionPerShifts</code>/<code>mlDeductionPerShifts</code> already prove occurrence-count-based behavior is a solved pattern in this codebase — a real escalation ladder (severity by occurrence number, not just a batching modulo) would extend that pattern, not fight it.</td></tr>
+    <tr><td class="strong">Deduction caps</td><td><span class="pill p2">Partially</span></td><td>No cap concept exists anywhere yet, but deduction amounts are already resolved through one central point (<code>decideApplyPenalty</code>) — a cap is a single additional clamp at that point, not a cross-cutting change.</td></tr>
+    <tr><td class="strong">Employee lifecycle coupling</td><td><span class="pill fail">No</span></td><td>Confirmed this round: zero interaction exists today between termination/rehire/transfer and allocation. This is greenfield, not an extension.</td></tr>
+    <tr><td class="strong">Reporting</td><td><span class="pill p2">Partially</span></td><td>The raw data needed for most of Section 22's reports already exists and is queryable (<code>resolvedPolicySource</code> per employee, full allocation/version history) — no new tables needed, but no dedicated read endpoints/aggregation exist yet either.</td></tr>
+  </table></div>
+
+  <h2 id="acceptance">Acceptance-criteria checklist (your Section 31, re-scored against this round's evidence)</h2>
+  <div class="status-row"><div class="n">1</div><div class="t">Policy vs. Allocation effective dates remain independent</div><div class="v"><span class="pill pass">True</span></div></div>
+  <div class="status-row"><div class="n">2</div><div class="t">Policy resolution is centralized</div><div class="v"><span class="pill pass">True</span></div></div>
+  <div class="status-row"><div class="n">3</div><div class="t">Allocation overlap is DB-protected</div><div class="v"><span class="pill pass">True — V141</span></div></div>
+  <div class="status-row"><div class="n">4</div><div class="t">Policy version open-state is DB-protected</div><div class="v"><span class="pill pass">True — V142</span></div></div>
+  <div class="status-row"><div class="n">5</div><div class="t">Historical policy/version info can't be casually destroyed</div><div class="v"><span class="pill fail">False — GAP‑036</span></div></div>
+  <div class="status-row"><div class="n">6</div><div class="t">Penalty uniqueness reflects the real business event</div><div class="v"><span class="pill pass">True — V143</span></div></div>
+  <div class="status-row"><div class="n">7</div><div class="t">Regularization can reverse all affected active penalties</div><div class="v"><span class="pill fail">Partially — over-reverses; GAP‑033</span></div></div>
+  <div class="status-row"><div class="n">8</div><div class="t">Partial-day correction doesn't leave stale penalties</div><div class="v"><span class="pill fail">False — GAP‑034</span></div></div>
+  <div class="status-row"><div class="n">9</div><div class="t">Cancel/reverse can't double-restore leave under concurrency</div><div class="v"><span class="pill pass">True — atomic transitionStatus</span></div></div>
+  <div class="status-row"><div class="n">10</div><div class="t">Historical deductions restored from recorded facts, not current config</div><div class="v"><span class="pill pass">True — leaveBreakdown JSON snapshot</span></div></div>
+  <div class="status-row"><div class="n">11</div><div class="t">Holiday/week-off rules are consistent</div><div class="v"><span class="pill pass">True — LEAVE_ATTENDANCE_CONFLICT correctly excluded</span></div></div>
+  <div class="status-row"><div class="n">12</div><div class="t">Policy-inactive behavior is explicit</div><div class="v"><span class="pill fail">False — GAP‑001</span></div></div>
+  <div class="status-row"><div class="n">13</div><div class="t">Allocation gaps have explicit semantics</div><div class="v"><span class="pill fail">False — GAP‑006</span></div></div>
+  <div class="status-row"><div class="n">14</div><div class="t">Termination/rehire behavior is deterministic</div><div class="v"><span class="pill fail">False — GAP‑002/003/004/005</span></div></div>
+  <div class="status-row"><div class="n">15</div><div class="t">Audit trail can explain why a penalty happened</div><div class="v"><span class="pill fail">Partially — GAP‑038</span></div></div>
+  <div class="status-row"><div class="n">16</div><div class="t">Future payroll can distinguish penalty vs. payroll lifecycle</div><div class="v"><span class="pill p2">Not yet built — see Section E</span></div></div>
+  <div class="status-row"><div class="n">17</div><div class="t">Exemption/escalation/caps addable without redesigning Policy vs. Allocation</div><div class="v"><span class="pill pass">True — the Policy/Allocation split itself is sound</span></div></div>
+  <div class="status-row"><div class="n">18</div><div class="t">Existing policies keep backward-compatible behavior</div><div class="v"><span class="pill pass">True — verified via full suite each pass this session</span></div></div>
+  <div class="status-row"><div class="n">19</div><div class="t">Existing tests stable except intentionally-changed ones</div><div class="v"><span class="pill pass">True — 748 tests, only pre-existing baseline failures</span></div></div>
+  <div class="status-row"><div class="n">20</div><div class="t">No undocumented rule depends solely on if-statement order</div><div class="v"><span class="pill fail">Partially — GAP‑037, documentation only</span></div></div>
+
+  <p style="margin-top:28px"><strong>Net: 12 of 20 true, 7 false/partial, 1 not-yet-applicable.</strong> Per your own instruction not to implement blindly, no code changes have been made in this pass — the six items above need your decision first. Everything else in the original register (GAP‑008/012/018‑024) remains correctly deferred as multi-week, product-decision-dependent work per your own Section 29 phasing.</p>
+
+  <div class="foot">Penalization Hardening Register · Round 2 · read-only audit, zero files changed this pass</div>
+</div>

@@ -2,17 +2,26 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.HierarchyNodeDto;
 import com.nforce.onehr.dto.org.*;
+import com.nforce.onehr.entity.BusinessUnit;
 import com.nforce.onehr.entity.Department;
 import com.nforce.onehr.entity.Designation;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.entity.ShiftVersion;
+import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.repository.AssetRepository;
+import com.nforce.onehr.repository.AttendanceRepository;
+import com.nforce.onehr.repository.BusinessUnitRepository;
 import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LocationRepository;
 import com.nforce.onehr.repository.ShiftRepository;
+import com.nforce.onehr.repository.ShiftVersionRepository;
+import com.nforce.onehr.repository.WeeklyOffPolicyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,6 +29,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -30,12 +42,91 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrgService {
 
+    // Matches the pre-migration global app.attendance.late-grace-minutes default (V168) — an
+    // admin who doesn't set an explicit grace when creating/editing a Shift gets identical
+    // behavior to before Shift-level grace existed.
+    private static final int DEFAULT_LATE_GRACE_MINUTES = 10;
+
+    private final BusinessUnitRepository businessUnitRepo;
     private final DepartmentRepository departmentRepo;
     private final DesignationRepository designationRepo;
     private final LocationRepository locationRepo;
     private final ShiftRepository shiftRepo;
+    private final ShiftVersionRepository shiftVersionRepository;
+    private final ShiftVersionResolver shiftVersionResolver;
+    // The one existing source of truth for "how long can a Shift be" — see validateShiftDuration's
+    // own Javadoc for why this is reused rather than a second, hardcoded 18h limit.
+    private final ShiftWeeklyOffRulesService shiftWeeklyOffRulesService;
+    private final WeeklyOffPolicyRepository weeklyOffPolicyRepo;
     private final EmployeeRepository employeeRepo;
     private final EmployeeManagerHistoryRepository historyRepo;
+    private final HolidayRepository holidayRepo;
+    private final AssetRepository assetRepo;
+    // Read-only — used exclusively by deleteShift's historical-usage guard below, to block
+    // deleting a Shift any Attendance (including historical, already-closed records) still
+    // references via its snapshotted shiftId (see V163's migration). Never written to by this
+    // class — Shift Version create/update/delete never touches Attendance in any way (see
+    // orgService_hasNoAttendanceRepositoryDependencyAtAll's own test, updated alongside this).
+    private final AttendanceRepository attendanceRepo;
+
+    // ── Business Units ───────────────────────────────────────────────────────
+
+    /** Same batched-count fix as listDepartments — see that method's own comment. */
+    @Transactional(readOnly = true)
+    public List<BusinessUnitResponse> listBusinessUnits() {
+        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByBusinessUnitId());
+        return businessUnitRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
+                .map(b -> BusinessUnitResponse.from(b, counts.getOrDefault(b.getId(), 0L)))
+                .toList();
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public BusinessUnitResponse createBusinessUnit(CreateBusinessUnitRequest req) {
+        if (businessUnitRepo.existsByNameIgnoreCase(req.getName().trim())) {
+            throw new IllegalArgumentException("A business unit named '" + req.getName().trim() + "' already exists");
+        }
+        BusinessUnit saved = businessUnitRepo.save(
+                BusinessUnit.builder().name(req.getName().trim()).build());
+        return BusinessUnitResponse.from(saved, 0L);
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public BusinessUnitResponse updateBusinessUnit(UUID id, UpdateBusinessUnitRequest req) {
+        BusinessUnit unit = businessUnitRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Business unit not found"));
+        String trimmed = req.getName().trim();
+        if (!unit.getName().equalsIgnoreCase(trimmed) && businessUnitRepo.existsByNameIgnoreCase(trimmed)) {
+            throw new IllegalArgumentException("A business unit named '" + trimmed + "' already exists");
+        }
+        unit.setName(trimmed);
+        long count = employeeRepo.countByBusinessUnitId(id);
+        return BusinessUnitResponse.from(businessUnitRepo.save(unit), count);
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public BusinessUnitResponse toggleBusinessUnitActive(UUID id) {
+        BusinessUnit unit = businessUnitRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Business unit not found"));
+        unit.setActive(!unit.isActive());
+        long count = employeeRepo.countByBusinessUnitId(id);
+        return BusinessUnitResponse.from(businessUnitRepo.save(unit), count);
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @Transactional
+    public void deleteBusinessUnit(UUID id) {
+        BusinessUnit unit = businessUnitRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Business unit not found"));
+        long count = employeeRepo.countByBusinessUnitId(id);
+        if (count > 0) {
+            throw new IllegalStateException(
+                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this business unit. Deactivate instead.");
+        }
+        businessUnitRepo.delete(unit);
+    }
 
     // ── Departments ──────────────────────────────────────────────────────────
 
@@ -87,6 +178,9 @@ public class OrgService {
         return DepartmentResponse.from(departmentRepo.save(dept), count);
     }
 
+    // Hard delete: permanently removes the row once no *current* (non-terminated) employee is
+    // assigned to it — any leftover employee FK at this point can only belong to an already
+    // soft-deleted employee (see clearDepartmentReferences's own comment below).
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
     @Transactional
     public void deleteDepartment(UUID id) {
@@ -95,8 +189,14 @@ public class OrgService {
         long count = employeeRepo.countByDepartmentId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this department. Deactivate instead.");
+                    "Cannot delete this department because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        // No active employee references it — any employees row still pointing at this id belongs
+        // to a soft-deleted (terminated) employee; clear that stale, already-nullable FK so the
+        // permanent delete below doesn't fail on it. Their own employee/attendance records are
+        // untouched.
+        employeeRepo.clearDepartmentReferences(id);
         departmentRepo.delete(dept);
     }
 
@@ -160,8 +260,10 @@ public class OrgService {
         long count = employeeRepo.countByDesignationId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this designation. Deactivate instead.");
+                    "Cannot delete this designation because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        employeeRepo.clearDesignationReferences(id);
         designationRepo.delete(desig);
     }
 
@@ -175,6 +277,16 @@ public class OrgService {
                 .map(l -> LocationResponse.from(l, counts.getOrDefault(l.getId(), 0L)))
                 .toList();
     }
+
+    // The fixed set of IANA zones a Location may be assigned — Name/City/State/Country stay
+    // freely editable (any number of locations can be created), but the one attendance-relevant
+    // value must always be one of these, never an arbitrary or malformed zone id. Mirrored on the
+    // frontend (OrgSetupPage.tsx's SUPPORTED_LOCATION_TIMEZONES) and DB-enforced independently by
+    // the CHECK constraint added in V169/V170 — the same small-fixed-enum convention already used
+    // for EMPLOYMENT_TYPES/WORK_MODES elsewhere in this codebase rather than a round-tripped API.
+    // Widening this list requires updating both here and that CHECK constraint (a new migration).
+    public static final List<String> SUPPORTED_TIMEZONES =
+            List.of("Asia/Kolkata", "America/New_York", "America/Chicago", "America/Los_Angeles");
 
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
     @Transactional
@@ -209,22 +321,46 @@ public class OrgService {
         loc.setState(req.getState() != null ? req.getState().trim() : null);
         loc.setCountry(req.getCountry() != null ? req.getCountry().trim() : null);
         loc.setHolidayRegion(req.getHolidayRegion() != null ? req.getHolidayRegion().trim() : null);
-        loc.setTimezone(validatedTimezone(req.getTimezone()));
+        // Future-effective timezone changes (ONEHR-336 follow-up): unchanged from the Location's
+        // current live value saves immediately, no date required — and clears any previously-
+        // queued pending change (resubmitting the current value is "cancel the pending change,"
+        // not "schedule a no-op"). An actual change requires a future effectiveFrom (today/past
+        // rejected) and is written ONLY to the pending pair — the live `timezone` column, and
+        // therefore every fresh AttendanceRulesService#resolveEmployeeZoneId resolution before
+        // that date, is completely untouched. Never reinterprets any Attendance row already
+        // snapshotted under the old zone either way — only a FUTURE, fresh resolution is ever
+        // affected (see that method's own Javadoc).
+        String newTimezone = validatedTimezone(req.getTimezone());
+        if (newTimezone.equals(loc.getTimezone())) {
+            loc.setPendingTimezone(null);
+            loc.setPendingTimezoneEffectiveFrom(null);
+        } else {
+            LocalDate today = LocalDate.now();
+            if (req.getEffectiveFrom() == null || !req.getEffectiveFrom().isAfter(today)) {
+                throw new IllegalArgumentException("Effective From is required and must be a future date (after today) when changing the timezone");
+            }
+            loc.setPendingTimezone(newTimezone);
+            loc.setPendingTimezoneEffectiveFrom(req.getEffectiveFrom());
+        }
         long count = employeeRepo.countByLocationId(id);
         return LocationResponse.from(locationRepo.save(loc), count);
     }
 
-    // Null/blank clears it (falls back to the global business zone at read time — see
-    // AttendanceService.zoneIdFor); any non-blank value must be a real IANA zone id, since a
-    // typo here would otherwise only surface later as a confusing ZoneId parse failure deep
-    // inside attendance calculations.
+    /**
+     * Every Location must have exactly one valid timezone, and it must be one of
+     * {@link #SUPPORTED_TIMEZONES} — not just any parseable IANA zone id — so a Location +
+     * Timezone combination that doesn't correspond to one of the business's actual supported
+     * zones (e.g. the pre-existing "Texas" → America/New_York data bug fixed in V169) is no
+     * longer representable. Rejects outright rather than falling back to the org-wide default —
+     * a typo/unsupported zone here should never surface later as a confusing mismatch deep inside
+     * attendance calculations.
+     */
     private String validatedTimezone(String timezone) {
-        if (timezone == null || timezone.isBlank()) return null;
-        String trimmed = timezone.trim();
-        try {
-            java.time.ZoneId.of(trimmed);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("'" + trimmed + "' is not a valid timezone (use an IANA zone id, e.g. Asia/Kolkata)");
+        String trimmed = timezone != null ? timezone.trim() : "";
+        if (!SUPPORTED_TIMEZONES.contains(trimmed)) {
+            throw new IllegalArgumentException(
+                    "'" + timezone + "' is not a supported timezone. Choose one of: "
+                            + String.join(", ", SUPPORTED_TIMEZONES));
         }
         return trimmed;
     }
@@ -247,8 +383,15 @@ public class OrgService {
         long count = employeeRepo.countByLocationId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this location. Deactivate instead.");
+                    "Cannot delete this location because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        employeeRepo.clearLocationReferences(id);
+        // holidays.location_id is NOT NULL (location-owned calendar config, not employee
+        // attendance/audit history) — delete rather than null. assets.location_id is nullable —
+        // detach instead, preserving the asset record itself.
+        holidayRepo.deleteByLocationId(id);
+        assetRepo.clearLocationReferences(id);
         locationRepo.delete(loc);
     }
 
@@ -284,9 +427,28 @@ public class OrgService {
     @Transactional(readOnly = true)
     public List<ShiftResponse> listShifts() {
         Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByShiftId());
+        LocalDate today = LocalDate.now();
         return shiftRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
-                .map(s -> ShiftResponse.from(s, counts.getOrDefault(s.getId(), 0L)))
+                .map(s -> ShiftResponse.from(s, shiftVersionResolver.resolveCurrent(s), pendingVersion(s.getId(), today),
+                        counts.getOrDefault(s.getId(), 0L)))
                 .toList();
+    }
+
+    /** The full timing history of a Shift, newest first — backs the Shifts tab's version drill-down. */
+    @Transactional(readOnly = true)
+    public List<ShiftVersionResponse> listShiftVersions(UUID shiftId) {
+        if (!shiftRepo.existsById(shiftId)) {
+            throw new NoSuchElementException("Shift not found");
+        }
+        return shiftVersionRepository.findByShiftIdOrderByEffectiveFromDesc(shiftId).stream()
+                .map(ShiftVersionResponse::from)
+                .toList();
+    }
+
+    /** The not-yet-effective version for this shift, if one is scheduled (at most one ever exists — see updateShift). */
+    private ShiftVersion pendingVersion(UUID shiftId, LocalDate today) {
+        return shiftVersionRepository.findFirstByShiftIdAndEffectiveFromGreaterThanOrderByEffectiveFromAsc(shiftId, today)
+                .orElse(null);
     }
 
     /** Turns a countGroupedBy*Id() Object[]{id, count} projection into a lookup map. */
@@ -326,17 +488,33 @@ public class OrgService {
         if (!req.getEndTime().equals(req.getStartTime()) && req.getBreakMinutes() != null && req.getBreakMinutes() < 0) {
             throw new IllegalArgumentException("Break duration cannot be negative");
         }
+        if (req.getLateGraceMinutes() != null && req.getLateGraceMinutes() < 0) {
+            throw new IllegalArgumentException("Grace period cannot be negative");
+        }
+        validateShiftDuration(req.getStartTime(), req.getEndTime());
+        // flexible is still not settable through this API (P2 — see CreateShiftRequest's own
+        // comment) — left at its entity default (false).
+        String workingDays = resolveApplicableDays(req.getWorkingDays());
         Shift saved = shiftRepo.save(Shift.builder()
                 .name(trimmedName)
                 .code(trimmedCode)
                 .description(blankToNull(req.getDescription()))
+                .workingDays(workingDays)
+                .build());
+        // A brand-new Shift has no employees assigned yet and no prior configuration to protect —
+        // its first version is effective immediately (today), unlike every subsequent change (see
+        // updateShift's own future-effective validation). Not a "day one" special case of the
+        // Effective From rule; there is simply nothing before it that a same-day version could
+        // ever conflict with.
+        ShiftVersion version = shiftVersionRepository.save(ShiftVersion.builder()
+                .shift(saved)
                 .startTime(req.getStartTime())
                 .endTime(req.getEndTime())
-                .flexible(req.isFlexible())
                 .breakMinutes(req.getBreakMinutes())
-                .workingDays(normalizeWorkingDays(req.getWorkingDays()))
+                .lateGraceMinutes(req.getLateGraceMinutes() != null ? req.getLateGraceMinutes() : DEFAULT_LATE_GRACE_MINUTES)
+                .effectiveFrom(LocalDate.now())
                 .build());
-        return ShiftResponse.from(saved, 0L);
+        return ShiftResponse.from(saved, version, null, 0L);
     }
 
     @PreAuthorize("hasRole('SUPER_ADMIN')")
@@ -347,6 +525,14 @@ public class OrgService {
         if (!shift.getName().equalsIgnoreCase(trimmedName) && shiftRepo.existsByNameIgnoreCase(trimmedName)) {
             throw new IllegalArgumentException("A shift named '" + trimmedName + "' already exists");
         }
+        // The organization's default shift is looked up by this exact, stable name
+        // (Shift.DEFAULT_SHIFT_NAME) wherever it's still referenced by name. Renaming it away
+        // would silently break that lookup while leaving the (now differently-named) row otherwise
+        // intact, so this is blocked outright rather than tolerated as an ordinary edit.
+        if (shift.getName().equals(Shift.DEFAULT_SHIFT_NAME) && !trimmedName.equals(Shift.DEFAULT_SHIFT_NAME)) {
+            throw new IllegalArgumentException(
+                    "'" + Shift.DEFAULT_SHIFT_NAME + "' is the organization's default shift and cannot be renamed.");
+        }
         String trimmedCode = normalizeCode(req.getCode());
         if (trimmedCode != null && !trimmedCode.equalsIgnoreCase(shift.getCode()) && shiftRepo.existsByCodeIgnoreCase(trimmedCode)) {
             throw new IllegalArgumentException("A shift with code '" + trimmedCode + "' already exists");
@@ -354,37 +540,131 @@ public class OrgService {
         if (req.getBreakMinutes() != null && req.getBreakMinutes() < 0) {
             throw new IllegalArgumentException("Break duration cannot be negative");
         }
+        if (req.getLateGraceMinutes() != null && req.getLateGraceMinutes() < 0) {
+            throw new IllegalArgumentException("Grace period cannot be negative");
+        }
+        validateShiftDuration(req.getStartTime(), req.getEndTime());
+        // A Shift change is always future-effective — the current configuration must remain in
+        // effect through today exactly as it already was; only a future date's Attendance may be
+        // governed by the new one. Today itself is deliberately rejected (not just past dates):
+        // "today" would be ambiguous for a session already open or already recorded today under
+        // the current version — see the Shift Versioning design discussion for why this codebase
+        // does not attempt same-day effective dates at all, unlike a raw timestamp scheme would
+        // have to. The UI defaults this field to tomorrow and never offers an earlier date, but
+        // this is enforced here regardless of what the client actually sends.
+        LocalDate today = LocalDate.now();
+        if (!req.getEffectiveFrom().isAfter(today)) {
+            throw new IllegalArgumentException("Effective From must be a future date (after today)");
+        }
+        // Validated (and applied) before any field is mutated below, so an invalid (explicitly
+        // empty) Applicable Days list rejects the whole update rather than partially applying it.
+        applyApplicableDaysUpdate(shift, req.getWorkingDays());
         shift.setName(trimmedName);
         shift.setCode(trimmedCode);
         shift.setDescription(blankToNull(req.getDescription()));
-        shift.setStartTime(req.getStartTime());
-        shift.setEndTime(req.getEndTime());
-        shift.setFlexible(req.isFlexible());
-        shift.setBreakMinutes(req.getBreakMinutes());
-        shift.setWorkingDays(normalizeWorkingDays(req.getWorkingDays()));
+        // flexible intentionally remains untouched here (not reset, not updated) — see
+        // createShift's own comment; this API doesn't accept it.
+        shiftRepo.save(shift);
+
+        // At most one pending (not-yet-effective) version per Shift — editing again before the
+        // previously-scheduled change takes effect REPLACES it (delete then insert) rather than
+        // stacking a second one, which would leave ambiguous admin intent about which change was
+        // actually meant to apply. This never touches any version whose effectiveFrom <= today —
+        // those remain exactly as they are, so no already-effective (let alone historical)
+        // Attendance/Exception/Penalty/regularization is ever affected by this call.
+        shiftVersionRepository.deleteByShiftIdAndEffectiveFromGreaterThan(id, today);
+        ShiftVersion pending = shiftVersionRepository.save(ShiftVersion.builder()
+                .shift(shift)
+                .startTime(req.getStartTime())
+                .endTime(req.getEndTime())
+                .breakMinutes(req.getBreakMinutes())
+                .lateGraceMinutes(req.getLateGraceMinutes() != null ? req.getLateGraceMinutes() : DEFAULT_LATE_GRACE_MINUTES)
+                .effectiveFrom(req.getEffectiveFrom())
+                .build());
+
         long count = employeeRepo.countByShiftId(id);
-        return ShiftResponse.from(shiftRepo.save(shift), count);
+        return ShiftResponse.from(shift, shiftVersionResolver.resolveCurrent(shift), pending, count);
     }
 
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     @Transactional
     public ShiftResponse toggleShiftActive(UUID id) {
         Shift shift = shiftRepo.findById(id).orElseThrow(() -> new NoSuchElementException("Shift not found"));
+        // The organization's default shift must always be available to newly-created employees —
+        // deactivating it (regardless of how many employees currently happen to be assigned to
+        // it) would silently leave every subsequent hire without one. Reactivating it is always
+        // fine and falls through to the toggle below unaffected.
+        if (shift.isActive() && shift.getName().equals(Shift.DEFAULT_SHIFT_NAME)) {
+            throw new IllegalArgumentException(
+                    "'" + Shift.DEFAULT_SHIFT_NAME + "' is the organization's default shift and cannot be deactivated.");
+        }
         shift.setActive(!shift.isActive());
         long count = employeeRepo.countByShiftId(id);
-        return ShiftResponse.from(shiftRepo.save(shift), count);
+        Shift saved = shiftRepo.save(shift);
+        return ShiftResponse.from(saved, shiftVersionResolver.resolveCurrent(saved), pendingVersion(id, LocalDate.now()), count);
     }
 
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     @Transactional
     public void deleteShift(UUID id) {
         Shift shift = shiftRepo.findById(id).orElseThrow(() -> new NoSuchElementException("Shift not found"));
+        // The organization must always have a default shift to assign new employees to — blocked
+        // regardless of employee count (unlike the ordinary guard below), since even a
+        // currently-unused default shift is still needed for every future hire.
+        if (shift.getName().equals(Shift.DEFAULT_SHIFT_NAME)) {
+            throw new IllegalArgumentException(
+                    "'" + Shift.DEFAULT_SHIFT_NAME + "' is the organization's default shift and cannot be deleted.");
+        }
         long count = employeeRepo.countByShiftId(id);
         if (count > 0) {
             throw new IllegalStateException(
-                    count + " employee" + (count == 1 ? " is" : "s are") + " assigned to this shift. Deactivate instead.");
+                    "Cannot delete this shift because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        // Independent of the current-assignment guard above: a Shift with zero employees
+        // currently assigned to it (everyone since reassigned away) can still be the historical
+        // context for real Attendance rows via their snapshotted shiftId (see V163's migration) —
+        // deleting it would silently erase that history, exactly the corruption the FK's own
+        // ON DELETE RESTRICT exists to prevent. Checked explicitly here (rather than only relying
+        // on the raw FK violation) for a clear, actionable message instead of an opaque
+        // constraint-violation error. Deactivation remains the supported way to retire a Shift
+        // that has real attendance history.
+        if (attendanceRepo.existsByShiftId(id)) {
+            throw new IllegalStateException(
+                    "Cannot delete this shift because attendance records reference it, including historical "
+                            + "ones. Deactivate it instead.");
+        }
+        employeeRepo.clearShiftReferences(id);
+        // Every ShiftVersion for this shift is removed via the FK's ON DELETE CASCADE (see the
+        // V159 migration) — no separate Java-side cleanup needed.
         shiftRepo.delete(shift);
+    }
+
+    /**
+     * A configured Shift's own span (start to end, overnight-aware) must never exceed the
+     * organization's Maximum Shift Day Duration — the same {@link ShiftWeeklyOffRules} value
+     * {@link ShiftDayPolicy} uses for the logical-workday-reset boundary, reused here rather than
+     * a second, independently-hardcoded 18h limit (the value happens to default to 18h, but this
+     * always reads whatever is actually configured). Exactly at the limit is valid; only strictly
+     * greater is rejected.
+     *
+     * <p>Deliberately a standalone check, not a refactor of {@link ShiftDayPolicy}'s own
+     * overnight-rollover arithmetic (or {@link ExpectedWorkHoursService#shiftMinutes}'s, which
+     * duplicates the same formula for a different purpose) — Shift configuration validation and
+     * attendance/logical-workday processing are two separate safeguards that happen to share a
+     * limit and a rollover rule, not one one shared code path; this method never touches either of
+     * those classes.
+     */
+    private void validateShiftDuration(LocalTime start, LocalTime end) {
+        long minutes = Duration.between(start, end).toMinutes();
+        if (!end.isAfter(start)) {
+            minutes += 24 * 60; // overnight — rolls into the next calendar day
+        }
+        double maxHours = shiftWeeklyOffRulesService.getMaximumShiftDayDurationHours();
+        if (minutes > Math.round(maxHours * 60)) {
+            throw new IllegalArgumentException(
+                    "Shift duration cannot exceed the organization's Maximum Shift Day Duration of " + maxHours + " hours");
+        }
     }
 
     private String normalizeCode(String code) {
@@ -395,15 +675,149 @@ public class OrgService {
         return (value == null || value.isBlank()) ? null : value.trim();
     }
 
-    private String normalizeWorkingDays(List<String> days) {
+    /**
+     * A brand-new Shift's Applicable Days (see Shift.workingDays's own Javadoc) — {@code null}/
+     * omitted defaults to {@link Shift#ALL_WORKING_DAYS} (the UI always sends an explicit list,
+     * all 7 selected by default; this default is only for a caller that omits the field entirely
+     * — there is no existing value to fall back to for a Shift that doesn't exist yet, unlike
+     * {@link #applyApplicableDaysUpdate}). Same empty-rejected/normalize-and-validate idiom as
+     * {@link #createWeeklyOffPolicy}/{@link #updateWeeklyOffPolicy} use for
+     * {@code WeeklyOffPolicy.offDays} below.
+     */
+    private String resolveApplicableDays(List<String> requestedDays) {
+        if (requestedDays == null) {
+            return Shift.ALL_WORKING_DAYS;
+        }
+        String workingDays = normalizeDayOfWeekList(requestedDays);
+        if (workingDays == null) {
+            throw new IllegalArgumentException("At least one applicable weekday is required");
+        }
+        return workingDays;
+    }
+
+    /**
+     * Applies an UpdateShiftRequest's Applicable Days to an existing Shift — {@code null}/omitted
+     * leaves the Shift's current value completely untouched (a caller unaware of this field, or
+     * an edit that simply isn't changing it, must never silently reset it back to
+     * {@link Shift#ALL_WORKING_DAYS}), unlike {@link #resolveApplicableDays}'s create-time
+     * default. Deliberately NOT versioned/effective-dated like startTime/endTime/breakMinutes/
+     * lateGraceMinutes above: workingDays is a plain Shift-row attribute never read by any
+     * attendance/workday calculation (see its own Javadoc), so there is no already-effective
+     * configuration for an immediate change to retroactively disturb — it takes effect
+     * immediately, exactly like name/code/description.
+     */
+    private void applyApplicableDaysUpdate(Shift shift, List<String> requestedDays) {
+        if (requestedDays == null) {
+            return;
+        }
+        String workingDays = normalizeDayOfWeekList(requestedDays);
+        if (workingDays == null) {
+            throw new IllegalArgumentException("At least one applicable weekday is required");
+        }
+        shift.setWorkingDays(workingDays);
+    }
+
+    /**
+     * Comma-separated java.time.DayOfWeek names, e.g. "SATURDAY,SUNDAY" — same convention
+     * WeeklyOffPolicy.offDays already uses. Null/empty in, null out — including a non-empty input
+     * that normalizes down to nothing (e.g. {@code [" "]}, a list of blank strings only): the
+     * empty-string result {@code Collectors.joining} would otherwise produce is deliberately
+     * folded into {@code null} too, so every caller's existing {@code == null} rejection already
+     * catches it, rather than silently persisting {@code ""} as a "valid" day list.
+     */
+    private String normalizeDayOfWeekList(List<String> days) {
         if (days == null || days.isEmpty()) return null;
-        return days.stream()
+        String joined = days.stream()
                 .map(String::trim)
                 .filter(d -> !d.isBlank())
                 .map(d -> DayOfWeek.valueOf(d.toUpperCase())) // throws IllegalArgumentException on an invalid day name
                 .map(Enum::name)
                 .distinct()
                 .collect(Collectors.joining(","));
+        return joined.isEmpty() ? null : joined;
+    }
+
+    /**
+     * Code-review corrective pass, finding 6: at least one working day must always exist for a
+     * WeeklyOffPolicy — enforced here (the only place a policy's offDays can ever be written) so
+     * a policy with all 7 days off, which would make {@code WorkingDayService#nextWorkingDay}'s
+     * search loop unable to ever terminate for any employee on it, can never be saved in the
+     * first place. {@code offDays} is already {@link #normalizeDayOfWeekList}'d (deduplicated), so
+     * a plain entry count is exact — no need to re-parse into {@link DayOfWeek} here.
+     */
+    private void assertNotAllSevenDaysOff(String offDays) {
+        if (offDays.split(",").length >= DayOfWeek.values().length) {
+            throw new IllegalArgumentException(
+                    "At least one working day is required — a Weekly Off Policy cannot mark every day of the week off");
+        }
+    }
+
+    // ── Weekly Off Policies ───────────────────────────────────────────────────
+    // WeeklyOffPolicy is the sole source of truth for weekly-off — see WorkingDayService/
+    // ExceptionService, which read Employee.weeklyOffPolicy.offDays exclusively. No active/
+    // inactive concept here (not requested for P1, and not shown in the product's own Weekly Off
+    // reference screens) — full-day-only, matching the offDays model already in place.
+
+    @Transactional(readOnly = true)
+    public List<WeeklyOffPolicyResponse> listWeeklyOffPolicies() {
+        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByWeeklyOffPolicyId());
+        return weeklyOffPolicyRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
+                .map(p -> WeeklyOffPolicyResponse.from(p, counts.getOrDefault(p.getId(), 0L)))
+                .toList();
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @Transactional
+    public WeeklyOffPolicyResponse createWeeklyOffPolicy(CreateWeeklyOffPolicyRequest req) {
+        String trimmedName = req.getName().trim();
+        if (weeklyOffPolicyRepo.existsByNameIgnoreCase(trimmedName)) {
+            throw new IllegalArgumentException("A weekly off policy named '" + trimmedName + "' already exists");
+        }
+        String offDays = normalizeDayOfWeekList(req.getOffDays());
+        if (offDays == null) {
+            throw new IllegalArgumentException("At least one off day is required");
+        }
+        assertNotAllSevenDaysOff(offDays);
+        WeeklyOffPolicy saved = weeklyOffPolicyRepo.save(WeeklyOffPolicy.builder()
+                .name(trimmedName)
+                .offDays(offDays)
+                .build());
+        return WeeklyOffPolicyResponse.from(saved, 0L);
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @Transactional
+    public WeeklyOffPolicyResponse updateWeeklyOffPolicy(UUID id, UpdateWeeklyOffPolicyRequest req) {
+        WeeklyOffPolicy policy = weeklyOffPolicyRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Weekly off policy not found"));
+        String trimmedName = req.getName().trim();
+        if (!policy.getName().equalsIgnoreCase(trimmedName) && weeklyOffPolicyRepo.existsByNameIgnoreCase(trimmedName)) {
+            throw new IllegalArgumentException("A weekly off policy named '" + trimmedName + "' already exists");
+        }
+        String offDays = normalizeDayOfWeekList(req.getOffDays());
+        if (offDays == null) {
+            throw new IllegalArgumentException("At least one off day is required");
+        }
+        assertNotAllSevenDaysOff(offDays);
+        policy.setName(trimmedName);
+        policy.setOffDays(offDays);
+        long count = employeeRepo.countByWeeklyOffPolicyId(id);
+        return WeeklyOffPolicyResponse.from(weeklyOffPolicyRepo.save(policy), count);
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @Transactional
+    public void deleteWeeklyOffPolicy(UUID id) {
+        WeeklyOffPolicy policy = weeklyOffPolicyRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Weekly off policy not found"));
+        long count = employeeRepo.countByWeeklyOffPolicyId(id);
+        if (count > 0) {
+            throw new IllegalStateException(
+                    "Cannot delete this weekly off policy because " + count + " current employee" + (count == 1 ? " is" : "s are")
+                            + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
+        }
+        employeeRepo.clearWeeklyOffPolicyReferences(id);
+        weeklyOffPolicyRepo.delete(policy);
     }
 
     // ── Org Hierarchy ─────────────────────────────────────────────────────────

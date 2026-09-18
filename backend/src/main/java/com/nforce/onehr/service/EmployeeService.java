@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
@@ -14,8 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -27,15 +30,25 @@ public class EmployeeService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
     private final LocationRepository locationRepository;
+    private final ShiftRepository shiftRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final EmailService emailService;
     private final LeaveService leaveService;
     private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for createEmployee's initial EmployeeShiftAssignment (effective the admin's own chosen
+    // Effective From date, when a Shift is explicitly chosen at creation) — mirrors
+    // UserManagementService#createUser's identical use. Added last so every existing
+    // explicit-constructor test only needs to append one argument.
+    private final EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
+    // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
+    // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
+    private final AttendanceProperties attendanceProperties;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -76,15 +89,74 @@ public class EmployeeService {
                 .createdBy(actor.getId())
                 .build();
 
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
-
+        if (req.getBusinessUnitId() != null)
+            emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
+        // A brand-new employee has no legitimate pre-existing assignment to preserve, so this is
+        // unconditional (unlike updateEmployee's version below, which only rejects an actual
+        // change to a currently-inactive record) — mirrors UserManagementService.createUser's
+        // identical Department/Designation/Location/Shift checks.
+        if (req.getDepartmentId() != null) {
+            Department dept = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            if (dept != null && !dept.isActive())
+                throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
+            emp.setDepartment(dept);
+        }
+        if (req.getDesignationId() != null) {
+            Designation desig = designationRepository.findById(req.getDesignationId()).orElse(null);
+            if (desig != null && !desig.isActive())
+                throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
+            emp.setDesignation(desig);
+        }
+        if (req.getLocationId() != null) {
+            Location loc = locationRepository.findById(req.getLocationId())
+                    .orElseThrow(() -> new IllegalArgumentException("Selected location was not found."));
+            validateAssignableLocation(loc);
+            emp.setLocation(loc);
+        }
+        // No shiftId in the request at all — same valid, permanent shift-less state
+        // UserManagementService#createUser leaves an employee in when its own shiftId is omitted:
+        // Shift-dependent interpretation (lateness, scheduled hours) is simply skipped until HR/a
+        // Manager assigns one via the Bulk-Edit Team Assignment flow (see
+        // EmployeeAssignmentService#bulkUpdateShift) — never fabricated onto the organization's
+        // Default Shift just to satisfy a schema invariant that no longer exists (employees.shift_id
+        // is nullable — see V178). Check-In/Check-Out still work and attendance is still recorded
+        // for a shift-less employee — see AttendanceInterpretationService's NO_SHIFT_ASSIGNED
+        // handling. A bogus/stale shift id must never silently leave the employee on an unintended
+        // Shift — mirrors UserManagementService#createUser's identical validation.
+        Shift selectedShift = null;
+        if (req.getShiftId() != null) {
+            Shift shift = shiftRepository.findById(req.getShiftId())
+                    .orElseThrow(() -> new IllegalArgumentException("Shift not found"));
+            if (!shift.isActive())
+                throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+            // The admin's own explicit Effective From choice is the ONLY source of this date —
+            // required whenever a Shift is picked, never silently defaulted to an "immediately
+            // active" assignment the business rule requires an explicit date for. Today and any
+            // future date are valid, a past date is rejected — mirrors
+            // UserManagementService#createUser/EmployeeAssignmentService#bulkUpdateShift's
+            // identical rule. Deliberately NOT derived from joiningDate or "next working day" (the
+            // previous, incorrect rule this replaces). Validated before any mutation below.
+            if (req.getEffectiveFrom() == null
+                    || req.getEffectiveFrom().isBefore(LocalDate.now(ZoneId.of(attendanceProperties.getZone())))) {
+                throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+            }
+            // Employee.shift is only a display/roster cache (see its own Javadoc) — set here for
+            // that purpose only; the EmployeeShiftAssignment row below is the sole authoritative
+            // source EmployeeShiftAssignmentResolver reads.
+            emp.setShift(shift);
+            selectedShift = shift;
+        }
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
+
+        if (selectedShift != null) {
+            employeeShiftAssignmentRepository.save(EmployeeShiftAssignment.builder()
+                    .employeeUserId(newUser.getId())
+                    .shift(selectedShift)
+                    .effectiveFrom(req.getEffectiveFrom())
+                    .createdBy(actor.getId())
+                    .build());
+        }
 
         if (req.getManagerId() != null) {
             EmployeeManagerHistory history = EmployeeManagerHistory.builder()
@@ -153,12 +225,50 @@ public class EmployeeService {
             emp.setEmploymentType(req.getEmploymentType());
         if (req.getWorkMode() != null && !req.getWorkMode().isBlank())
             emp.setWorkMode(req.getWorkMode());
-        if (req.getDepartmentId() != null)
-            emp.setDepartment(departmentRepository.findById(req.getDepartmentId()).orElse(null));
-        if (req.getDesignationId() != null)
-            emp.setDesignation(designationRepository.findById(req.getDesignationId()).orElse(null));
-        if (req.getLocationId() != null)
-            emp.setLocation(locationRepository.findById(req.getLocationId()).orElse(null));
+        if (req.getBusinessUnitId() != null)
+            emp.setBusinessUnit(businessUnitRepository.findById(req.getBusinessUnitId()).orElse(null));
+        // Only a genuine CHANGE of department/designation/location is checked against the
+        // active/inactive rule — an employee already sitting on a since-deactivated master row
+        // (active when originally assigned) must stay saveable for unrelated edits (name,
+        // employment type, a different field entirely) without being forced off it. Resubmitting
+        // the SAME id already on the employee is therefore never rejected, no matter its current
+        // active state; only a request that actually moves onto a *different* inactive record is
+        // — mirrors UserManagementService.updateUser's identical Department/Designation/Location/
+        // Shift checks.
+        if (req.getDepartmentId() != null) {
+            Department newDepartment = departmentRepository.findById(req.getDepartmentId()).orElse(null);
+            UUID currentDepartmentId = emp.getDepartment() != null ? emp.getDepartment().getId() : null;
+            UUID newDepartmentId = newDepartment != null ? newDepartment.getId() : null;
+            if (!Objects.equals(currentDepartmentId, newDepartmentId)) {
+                if (newDepartment != null && !newDepartment.isActive())
+                    throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
+                emp.setDepartment(newDepartment);
+            }
+        }
+        if (req.getDesignationId() != null) {
+            Designation newDesignation = designationRepository.findById(req.getDesignationId()).orElse(null);
+            UUID currentDesignationId = emp.getDesignation() != null ? emp.getDesignation().getId() : null;
+            UUID newDesignationId = newDesignation != null ? newDesignation.getId() : null;
+            if (!Objects.equals(currentDesignationId, newDesignationId)) {
+                if (newDesignation != null && !newDesignation.isActive())
+                    throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
+                emp.setDesignation(newDesignation);
+            }
+        }
+        if (req.getLocationId() != null) {
+            // TEMPORARY (ONEHR-336 follow-up): see UserManagementService#updateUser's identical
+            // guard — Location reassignment via Employee update is disabled for now, pending a
+            // proper reassignment flow that correctly effective-dates attendance-relevant history
+            // instead of silently changing an employee's current config out from under in-flight/
+            // historical Attendance. Only a genuine CHANGE is rejected — resubmitting the SAME
+            // location already on the employee is unaffected. Employee CREATION (createEmployee
+            // above) is unaffected.
+            UUID currentLocationId = emp.getLocation() != null ? emp.getLocation().getId() : null;
+            if (!Objects.equals(currentLocationId, req.getLocationId())) {
+                throw new IllegalArgumentException(
+                        "Location changes are currently unavailable when updating an employee. Contact an administrator.");
+            }
+        }
 
         emp = employeeRepository.save(emp);
         String after = auditSnapshot.toJson(employeeSnapshot(emp));
@@ -188,6 +298,7 @@ public class EmployeeService {
         snapshot.put("fullName", emp.getFullName());
         snapshot.put("employmentType", emp.getEmploymentType());
         snapshot.put("workMode", emp.getWorkMode());
+        snapshot.put("businessUnit", emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null);
         snapshot.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : null);
         snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
         snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
@@ -195,23 +306,69 @@ public class EmployeeService {
     }
 
     /**
+     * Rejects an inactive Location, or one with no valid IANA timezone, before it's assigned to
+     * an employee — Location is the ONLY source of an employee's effective attendance timezone
+     * (see Employee's own class Javadoc / AttendanceRulesService#resolveEmployeeZoneId), so a
+     * Location that can't resolve to a real zone must never be assignable in the first place.
+     * Should be unreachable for a location created through OrgService (its create/update always
+     * validates the timezone against a fixed supported set — see OrgService#SUPPORTED_TIMEZONES),
+     * but this is the hard backstop this feature explicitly requires.
+     */
+    private void validateAssignableLocation(Location location) {
+        if (!location.isActive()) {
+            throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");
+        }
+        String timezone = location.getTimezone();
+        boolean validTimezone = timezone != null && !timezone.isBlank();
+        if (validTimezone) {
+            try {
+                ZoneId.of(timezone);
+            } catch (DateTimeException e) {
+                validTimezone = false;
+            }
+        }
+        if (!validTimezone) {
+            throw new IllegalArgumentException(
+                    "This location has no valid timezone configured and cannot be assigned. Contact an administrator.");
+        }
+    }
+
+    /**
      * Returns users eligible to be assigned as managers (Manager, HR Admin, Super Admin roles).
      */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listPotentialManagers() {
+        // Deactivated (active=false, deletedAt still null — "deactivate, never delete" per
+        // User's own column comment) is deliberately NOT excluded here: an employee who already
+        // reports to a since-deactivated manager needs that manager to still appear (the frontend
+        // renders it disabled/non-selectable via the `active` flag on this response) so the
+        // existing assignment stays visible and explicable instead of silently vanishing from the
+        // list. Only a genuinely deleted user (deletedAt set — UserManagementService's delete path
+        // always sets both deletedAt and active=false together) is excluded outright, since that
+        // account no longer exists as a real reporting-line candidate at all.
         List<User> eligible = userRepository.findAllWithRoles().stream()
-                .filter(u -> u.isActive() && u.getRoles().stream()
+                .filter(u -> u.getDeletedAt() == null && u.getRoles().stream()
                         .anyMatch(r -> Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN").contains(r.getCode())))
                 .toList();
         if (eligible.isEmpty()) {
             return List.of();
         }
-        // One batch lookup for full names instead of an employeeRepository.findById per user —
-        // same fallback-to-email behavior as before for a User with no Employee row.
+        // One batch lookup for full names instead of an employeeRepository.findById per user.
         Set<UUID> ids = eligible.stream().map(User::getId).collect(Collectors.toSet());
         Map<UUID, String> namesByUserId = employeeRepository.findNamesByUserIds(ids).stream()
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        // ONEHR bug report: a User row with an eligible role and no Employee row (e.g. a signup
+        // that never completed onboarding, or a manually-created auth-only test account) used to
+        // fall back to showing up here under its raw email — appearing as a selectable Reporting
+        // Manager even though it doesn't exist anywhere else in the app (not in
+        // UserManagementService.listUsers, which is driven by employeeRepository.findAllWithDetails,
+        // not the users table — so these accounts were literally invisible everywhere except this
+        // one dropdown, with no way to find or deactivate them through normal UI). A user with no
+        // real Employee profile isn't a legitimate reporting-line candidate, so exclude anyone not
+        // present in namesByUserId (i.e. without an actual Employee row) instead of falling back to
+        // their email.
         return eligible.stream()
+                .filter(u -> namesByUserId.containsKey(u.getId()))
                 .map(u -> EmployeeResponse.builder()
                         .userId(u.getId())
                         .email(u.getEmail())
@@ -259,40 +416,60 @@ public class EmployeeService {
         User manager = userRepository.findByEmail(managerEmail)
                 .orElseThrow(() -> new IllegalStateException("User not found"));
 
-        List<ManagerDashboardDto.DirectReport> reports = historyRepository
-                .findByManagerUserIdAndEffectiveToIsNull(manager.getId())
-                .stream()
-                .flatMap(rel -> employeeRepository.findById(rel.getEmployeeUserId())
-                        .map(emp -> ManagerDashboardDto.DirectReport.builder()
-                                .userId(emp.getUserId().toString())
-                                .employeeCode(emp.getEmployeeCode())
-                                .fullName(emp.getFullName())
-                                .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
-                                .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
-                                .active(emp.getUser().isActive())
-                                .build())
-                        .stream())
-                .collect(Collectors.toList());
+        List<EmployeeManagerHistory> directReportRels = historyRepository
+                .findByManagerUserIdAndEffectiveToIsNull(manager.getId());
 
         // Trailing 12 calendar months (including the current one), matching the dashboard
         // chart's own bucketing window. Every history row in that window counts as its own
         // join event, even if that employee has since been reassigned away from this manager —
         // "who joined the team when" should survive a later reassignment/removal.
         LocalDateTime since = LocalDate.now().withDayOfMonth(1).minusMonths(11).atStartOfDay();
-        List<ManagerDashboardDto.TeamJoiner> teamJoiners = historyRepository
-                .findByManagerUserIdAndEffectiveFromGreaterThanEqual(manager.getId(), since)
+        List<EmployeeManagerHistory> teamJoinerRels = historyRepository
+                .findByManagerUserIdAndEffectiveFromGreaterThanEqual(manager.getId(), since);
+
+        // Both lists' employees are fetched once, in a single batch query (with their user/
+        // designation/department associations already joined), instead of one findById
+        // (plus per-association lazy loads) per row across the two loops below.
+        Set<UUID> employeeIds = new LinkedHashSet<>();
+        directReportRels.forEach(rel -> employeeIds.add(rel.getEmployeeUserId()));
+        teamJoinerRels.forEach(rel -> employeeIds.add(rel.getEmployeeUserId()));
+        Map<UUID, Employee> employeesById = employeeRepository
+                .findAllByIdWithUserDetails(employeeIds)
                 .stream()
-                .flatMap(rel -> employeeRepository.findById(rel.getEmployeeUserId())
-                        .map(emp -> ManagerDashboardDto.TeamJoiner.builder()
-                                .userId(emp.getUserId().toString())
-                                .employeeCode(emp.getEmployeeCode())
-                                .fullName(emp.getFullName())
-                                .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
-                                .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
-                                .active(emp.getUser().isActive())
-                                .joinedTeamOn(rel.getEffectiveFrom().toLocalDate().toString())
-                                .build())
-                        .stream())
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+
+        List<ManagerDashboardDto.DirectReport> reports = directReportRels
+                .stream()
+                .map(rel -> employeesById.get(rel.getEmployeeUserId()))
+                .filter(Objects::nonNull)
+                .map(emp -> ManagerDashboardDto.DirectReport.builder()
+                        .userId(emp.getUserId().toString())
+                        .employeeCode(emp.getEmployeeCode())
+                        .fullName(emp.getFullName())
+                        .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                        .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                        .active(emp.getUser().isActive())
+                        .build())
+                .collect(Collectors.toList());
+
+        List<ManagerDashboardDto.TeamJoiner> teamJoiners = teamJoinerRels
+                .stream()
+                .map(rel -> {
+                    Employee emp = employeesById.get(rel.getEmployeeUserId());
+                    if (emp == null) {
+                        return null;
+                    }
+                    return ManagerDashboardDto.TeamJoiner.builder()
+                            .userId(emp.getUserId().toString())
+                            .employeeCode(emp.getEmployeeCode())
+                            .fullName(emp.getFullName())
+                            .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
+                            .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
+                            .active(emp.getUser().isActive())
+                            .joinedTeamOn(rel.getEffectiveFrom().toLocalDate().toString())
+                            .build();
+                })
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         return ManagerDashboardDto.builder()
@@ -434,34 +611,30 @@ public class EmployeeService {
 
     /**
      * Batch equivalent of {@link #findCurrentManager} for whole-org listings (listDirectory,
-     * listEmployees, and {@link UserManagementService#listUsers} — package-private specifically
-     * so that class can reuse this instead of keeping a second copy of the same lookup) — those
-     * used to call findCurrentManager once per employee, each doing 3 separate round trips
-     * (history lookup, manager User lookup, manager Employee lookup). For ~90 employees that's
-     * ~270 sequential queries against a remote DB, easily a minute or more. This does the same
-     * lookup in exactly 3 queries total regardless of employee count.
+     * listEmployees, {@link UserManagementService#listUsers}, and the Penalization Policy
+     * Allocation table — package-private specifically so those callers reuse this instead of
+     * keeping a second copy of the same lookup) — calling findCurrentManager once per employee
+     * used to mean 3 separate round trips each (history lookup, manager User lookup, manager
+     * Employee lookup); for ~90 employees that's ~270 sequential queries against a remote DB,
+     * easily a minute or more. This does the same lookup in exactly ONE query, regardless of
+     * employee count, via {@link EmployeeManagerHistoryRepository#findCurrentManagerInfoByEmployeeIds}.
      */
     Map<UUID, EmployeeResponse.ManagerRef> findCurrentManagersBulk(Collection<UUID> employeeIds) {
-        Map<UUID, UUID> managerIdByEmployeeId = historyRepository.findByEffectiveToIsNull().stream()
-                .filter(h -> employeeIds.contains(h.getEmployeeUserId()))
-                .collect(Collectors.toMap(EmployeeManagerHistory::getEmployeeUserId, EmployeeManagerHistory::getManagerUserId));
-
-        Set<UUID> managerIds = new HashSet<>(managerIdByEmployeeId.values());
-        Map<UUID, User> managerUsersById = userRepository.findAllById(managerIds).stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
-        Map<UUID, String> managerNamesById = employeeRepository.findAllById(managerIds).stream()
-                .collect(Collectors.toMap(Employee::getUserId, Employee::getFullName));
-
+        if (employeeIds.isEmpty()) {
+            return Map.of();
+        }
         Map<UUID, EmployeeResponse.ManagerRef> result = new HashMap<>();
-        managerIdByEmployeeId.forEach((employeeId, managerId) -> {
-            User mgr = managerUsersById.get(managerId);
-            if (mgr == null) return;
+        for (Object[] row : historyRepository.findCurrentManagerInfoByEmployeeIds(employeeIds)) {
+            UUID employeeId = (UUID) row[0];
+            UUID managerId = (UUID) row[1];
+            String managerEmail = (String) row[2];
+            String managerFullName = (String) row[3];
             result.put(employeeId, EmployeeResponse.ManagerRef.builder()
-                    .userId(mgr.getId().toString())
-                    .fullName(managerNamesById.getOrDefault(managerId, mgr.getEmail()))
-                    .email(mgr.getEmail())
+                    .userId(managerId.toString())
+                    .fullName(managerFullName != null ? managerFullName : managerEmail)
+                    .email(managerEmail)
                     .build());
-        });
+        }
         return result;
     }
 
@@ -473,6 +646,8 @@ public class EmployeeService {
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
+                .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
+                .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationId(emp.getDesignation() != null ? emp.getDesignation().getId().toString() : null)

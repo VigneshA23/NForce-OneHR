@@ -4,6 +4,7 @@ import LandingPage from './pages/LandingPage';
 import RoleGuidePage from './pages/RoleGuidePage';
 import Login from './pages/auth/Login';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
+import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import AttendancePage from './pages/AttendancePage';
@@ -16,7 +17,7 @@ import ProfilePage from './pages/ProfilePage';
 import NotificationsPage from './pages/NotificationsPage';
 import DirectoryPage from './pages/DirectoryPage';
 import HierarchyPage from './pages/HierarchyPage';
-import LeavePage from './pages/LeavePage';
+import LeaveHolidaysPage from './pages/LeaveHolidaysPage';
 import MyTeamPage from './pages/MyTeamPage';
 import ApprovalsPage from './pages/ApprovalsPage';
 import MyRequestsPage from './pages/MyRequestsPage';
@@ -29,6 +30,8 @@ import AuditHistoryPage from './pages/AuditHistoryPage';
 import AuditSecurityPage from './pages/AuditSecurityPage';
 import HelpDeskPage from './pages/HelpDeskPage';
 import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
+import WorkflowStudioPage from './pages/WorkflowStudioPage';
+import SearchResultsPage from './pages/SearchResultsPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -93,6 +96,7 @@ export default function App() {
         <Route path="/role-guide/:role" element={<RoleGuidePage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* Auth required, password-change gate */}
         <Route
@@ -116,7 +120,7 @@ export default function App() {
           <Route path="/dashboard"    element={<DashboardPage />} />
           <Route path="/attendance"   element={<AttendancePage />} />
           <Route path="/attendance/regularization/all" element={<SuperAdminRegularizationPage />} />
-          <Route path="/leave"        element={<LeavePage />} />
+          <Route path="/leave"        element={<LeaveHolidaysPage />} />
           <Route path="/my-team"      element={<MyTeamPage />} />
           <Route path="/help"         element={<HelpDeskPage />} />
           <Route path="/approvals"    element={<ApprovalsPage />} />
@@ -134,9 +138,16 @@ export default function App() {
           <Route path="/directory"      element={<DirectoryPage />} />
           <Route path="/hierarchy"      element={<HierarchyPage />} />
           <Route path="/documents"      element={<DocumentsRouter />} />
+          {/* HR Admin/Super Admin's own "My Documents & Policies" (see nav.config.ts) — distinct
+              from /documents, which is their Documents & Compliance admin view. DocumentsPage is
+              self-scoped (fetches only the caller's own documents/policies), so it's safe to reuse
+              verbatim for these roles too. */}
+          <Route path="/my-documents"   element={<DocumentsPage />} />
           <Route path="/policies"       element={<PoliciesPage />} />
           <Route path="/onboarding"     element={<OnboardingPage />} />
+          <Route path="/workflows"      element={<WorkflowStudioPage />} />
           <Route path="/audit"          element={<AuditRouter />} />
+          <Route path="/search"         element={<SearchResultsPage />} />
         </Route>
 
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />

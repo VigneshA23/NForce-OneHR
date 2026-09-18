@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Clock, Inbox, Paperclip, Send, UserCog } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -40,7 +41,7 @@ function Kpi({ icon, label, value, danger }: { icon: React.ReactNode; label: str
         <span style={{ color: 'var(--brand)' }}>{icon}</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: danger && value > 0 ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger && value > 0 ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
     </div>
   );
 }
@@ -169,8 +170,8 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>Raised by {ticket.employeeName}</div>
           </div>
           <StatusBadge status={ticket.status} />
@@ -221,7 +222,7 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
           onChange={e => setMessage(e.target.value)}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
               <Paperclip size={13} />
               {attachment ? attachment.name : 'Attach a file'}
@@ -314,8 +315,8 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
           </div>
           <StatusBadge status={ticket.status} />
         </div>
@@ -406,6 +407,7 @@ export default function HelpDeskAdminPage() {
   const [agents, setAgents] = useState<AssignableAgent[]>([]);
   const [tickets, setTickets] = useState<TicketSummary[]>([]);
   const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [assigneeFilter, setAssigneeFilter] = useState('');
@@ -413,6 +415,18 @@ export default function HelpDeskAdminPage() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+
+  // Deep-link support: the header/global search's Helpdesk results link here as
+  // /requests?ticketId=<id> (opens the read-only preview, same as clicking a row) or
+  // /requests?search=<term> — read once on mount, same as DirectoryPage's ?userId= convention.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const ticketId = searchParams.get('ticketId');
+    if (ticketId) setPreviewId(ticketId);
+    const q = searchParams.get('search');
+    if (q) setSearch(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const activeFilter = QUEUE_FILTERS.find(f => f.key === statusFilter) ?? QUEUE_FILTERS[0];
 
@@ -423,9 +437,14 @@ export default function HelpDeskAdminPage() {
       assignedTo: assigneeFilter || undefined,
       search: search || undefined,
       page: p, size: 10,
-    }).then(res => { setTickets(res.content); setTotalPages(res.totalPages); setPage(res.number); })
+    }).then(res => { setTickets(res.content); setTotalPages(res.totalPages); setPage(res.number); setTotalElements(res.totalElements); })
       .finally(() => setLoading(false));
   }
+
+  // Cards above are always global totals across every ticket, regardless of these filters —
+  // that mismatch is expected, but only worth calling out once a search/assignee filter is
+  // actually narrowing the list below.
+  const hasActiveNarrowing = Boolean(search || assigneeFilter);
 
   function loadDashboard() {
     hrHelpdeskApi.dashboard(token).then(setDashboard);
@@ -440,7 +459,7 @@ export default function HelpDeskAdminPage() {
     return (
       <div>
         <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
         </div>
         <TicketDetailView ticketId={selectedId} token={token} agents={agents} onBack={() => { setSelectedId(null); refreshAll(); }} onChanged={refreshAll} />
       </div>
@@ -454,7 +473,7 @@ export default function HelpDeskAdminPage() {
     return (
       <div>
         <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
         </div>
         <TicketPreview
           ticketId={previewId}
@@ -471,17 +490,20 @@ export default function HelpDeskAdminPage() {
   return (
     <div>
       <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Help Desk tickets raised by employees across the organization.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 22 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 8 }}>
         <Kpi icon={<Inbox size={14} />} label="Active Queue" value={dashboard.openCount + dashboard.inProgressCount} danger />
         <Kpi icon={<Inbox size={14} />} label="Open" value={dashboard.openCount} />
         <Kpi icon={<Clock size={14} />} label="In Progress" value={dashboard.inProgressCount} />
         <Kpi icon={<CheckCircle2 size={14} />} label="Resolved" value={dashboard.resolvedCount} />
         <Kpi icon={<UserCog size={14} />} label="Closed" value={dashboard.closedCount} />
       </div>
+      <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '0 0 22px' }}>
+        Totals across all tickets — the search and assignee filters below narrow the list only.
+      </p>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
         <input
@@ -495,6 +517,11 @@ export default function HelpDeskAdminPage() {
           {agents.map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
         </select>
       </div>
+      {hasActiveNarrowing && (
+        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 12 }}>
+          Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter — the cards above still reflect all tickets.
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {QUEUE_FILTERS.map(f => (
@@ -526,7 +553,7 @@ export default function HelpDeskAdminPage() {
               <tbody>
                 {tickets.map(t => (
                   <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setPreviewId(t.id)}>
-                    <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
+                    <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
                     <td style={tdStyle}>{t.employeeName}</td>
                     <td style={tdStyle}>{t.categoryName}</td>
                     <td style={tdStyle}><StatusBadge status={t.status} /></td>

@@ -1,6 +1,8 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.EmployeeCreationLockProperties;
 import com.nforce.onehr.exception.EmployeeCodeConflictException;
+import com.nforce.onehr.exception.EmployeeCreationLockedException;
 import com.nforce.onehr.repository.EmployeeCodeSequenceRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,17 @@ import static org.mockito.Mockito.*;
  * sequence value on a blank/unedited submission — that behavior was removed because it
  * accepted a stale, already-claimed ID under the guise of "generating a new one.")
  *
+ * <p>Separately, every successful (non-conflicting) claim of a non-blank code keeps the sequence
+ * caught up: if the accepted code is shaped like {@code NF-YYYYNNNN} for the current year
+ * (whether it's the untouched suggestion or a hand-typed value that jumps ahead of it, e.g.
+ * {@code NF-20260025} to {@code NF-20260050}), {@code advanceAtLeastTo(...)} bumps the sequence
+ * up to at least that number so the next preview continues past it rather than re-suggesting
+ * something earlier. A fully custom code that doesn't match that shape at all — or matches it for
+ * some other year, e.g. a legacy/imported value like {@code NF-1789058833031} — just draws one
+ * sequence value via {@code nextValue()} instead — its result is discarded, purely to keep the
+ * counter (and thus {@code preview()}) moving forward by one per employee created, without
+ * letting an unrelated year's numbering poison the sequence.
+ *
  * <p>The real sequence is a Postgres feature (see V131) so EmployeeCodeSequenceRepository/
  * EmployeeRepository are mocked here to drive the generator's own logic in isolation — this
  * project has no Testcontainers/real-Postgres test infra set up yet, so the sequence's own
@@ -37,8 +50,12 @@ class EmployeeCodeGeneratorTest {
     @Mock private EmployeeCodeSequenceRepository sequenceRepository;
     @Mock private EmployeeRepository employeeRepository;
 
+    // Real (unmocked) POJO — plain default-false config value, not a collaborator to verify
+    // interactions on. Tests that care about the locked state set it explicitly.
+    private final EmployeeCreationLockProperties lockProperties = new EmployeeCreationLockProperties();
+
     private EmployeeCodeGenerator generator() {
-        return new EmployeeCodeGenerator(sequenceRepository, employeeRepository);
+        return new EmployeeCodeGenerator(sequenceRepository, employeeRepository, lockProperties);
     }
 
     private String currentYear() {
@@ -162,13 +179,29 @@ class EmployeeCodeGeneratorTest {
     // ─── claim(requestedCode) — the submitted ID is validated exactly, never substituted ───
 
     @Test
-    void claim_requestedCodeNotInUse_returnsItNormalized_withoutConsumingTheSequence() {
+    void claim_requestedCodeNotInUse_returnsItNormalized_andCatchesSequenceUpToIt() {
         String suggested = code(56);
         when(employeeRepository.existsByEmployeeCode(suggested)).thenReturn(false);
 
         String result = generator().claim(suggested);
 
         assertEquals(suggested, result);
+        verify(sequenceRepository, times(1)).advanceAtLeastTo(56L);
+        verify(sequenceRepository, never()).nextValue();
+    }
+
+    @Test
+    void claim_sequenceShapedCodeThatJumpsAheadOfTheCurrentBase_catchesSequenceUpToTheHigherNumber() {
+        // Last created employee was NF-20260025 (base sits at 26); the admin hand-types
+        // NF-20260050 instead of accepting the suggestion. The next preview must continue from
+        // NF-20260051, not silently fall back to re-offering NF-20260026.
+        String jumpedAhead = code(50);
+        when(employeeRepository.existsByEmployeeCode(jumpedAhead)).thenReturn(false);
+
+        String result = generator().claim(jumpedAhead);
+
+        assertEquals(jumpedAhead, result);
+        verify(sequenceRepository, times(1)).advanceAtLeastTo(50L);
         verify(sequenceRepository, never()).nextValue();
     }
 
@@ -183,13 +216,48 @@ class EmployeeCodeGeneratorTest {
     }
 
     @Test
-    void claim_manuallyEditedRequestedCode_acceptedWhenAvailable() {
-        // The admin replaced the suggested value entirely with their own choice.
+    void claim_manuallyEditedRequestedCode_acceptedWhenAvailable_ticksSequenceInsteadOfSyncing() {
+        // The admin replaced the suggested value entirely with a code that isn't NF-YYYYNNNN
+        // shaped, so there's no number to catch the sequence up to — it just ticks forward by
+        // one so the counter still reflects that an employee was actually created.
         String custom = "NF-CUSTOM-001";
         when(employeeRepository.existsByEmployeeCode(custom)).thenReturn(false);
 
         assertEquals(custom, generator().claim(custom));
-        verify(sequenceRepository, never()).nextValue();
+        verify(sequenceRepository, times(1)).nextValue();
+        verify(sequenceRepository, never()).advanceAtLeastTo(anyLong());
+    }
+
+    @Test
+    void claim_sequenceShapedCodeFromAnUnrelatedYear_treatedAsCustom_doesNotAdvanceSequence() {
+        // A legacy/imported value that merely looks like NF-YYYYNNNN but for some other year
+        // (e.g. a timestamp-like value such as NF-1789058833031) is not part of this year's
+        // numbering — treating it as sequence-shaped is exactly what let a value like this
+        // poison employee_code_seq up to ~58833031 in production. It must be treated as fully
+        // custom instead: ticks the counter by one, never calls advanceAtLeastTo.
+        String unrelatedYear = "NF-1789058833031";
+        when(employeeRepository.existsByEmployeeCode(unrelatedYear)).thenReturn(false);
+
+        String result = generator().claim(unrelatedYear);
+
+        assertEquals(unrelatedYear, result);
+        verify(sequenceRepository, times(1)).nextValue();
+        verify(sequenceRepository, never()).advanceAtLeastTo(anyLong());
+    }
+
+    @Test
+    void claim_sequenceShapedCodeFromPriorYear_treatedAsCustom_doesNotAdvanceSequence() {
+        // Subtler case than the timestamp-like example above: NF-<lastYear>NNNN is shaped
+        // identically to a real generated code, just for the wrong year. Must still be rejected
+        // as sequence-shaped — only the current year's numbering is meaningful to catch up to.
+        String priorYearCode = "NF-" + (Year.now().getValue() - 1) + "0099";
+        when(employeeRepository.existsByEmployeeCode(priorYearCode)).thenReturn(false);
+
+        String result = generator().claim(priorYearCode);
+
+        assertEquals(priorYearCode, result);
+        verify(sequenceRepository, times(1)).nextValue();
+        verify(sequenceRepository, never()).advanceAtLeastTo(anyLong());
     }
 
     @Test
@@ -204,6 +272,7 @@ class EmployeeCodeGeneratorTest {
 
         assertEquals(edited, ex.getRequestedCode());
         verify(sequenceRepository, never()).nextValue();
+        verify(sequenceRepository, never()).advanceAtLeastTo(anyLong());
     }
 
     @Test
@@ -217,6 +286,7 @@ class EmployeeCodeGeneratorTest {
         assertEquals(duplicate, ex.getRequestedCode());
         assertEquals("Employee ID is unavailable. Please go back and retry.", ex.getMessage());
         verify(sequenceRepository, never()).nextValue();
+        verify(sequenceRepository, never()).advanceAtLeastTo(anyLong());
     }
 
     // ─── The reported two-tab race: same previewed ID submitted by both, unedited ───
@@ -243,7 +313,56 @@ class EmployeeCodeGeneratorTest {
         assertEquals(previewedByBothTabs, tabBError.getRequestedCode());
         assertEquals("Employee ID is unavailable. Please go back and retry.", tabBError.getMessage());
 
-        // Neither call should have touched the sequence — a non-blank requestedCode never does.
+        // Tab A's success catches the sequence up past this ID once; Tab B's rejection must not
+        // touch the sequence at all.
+        verify(sequenceRepository, times(1)).advanceAtLeastTo(8L);
+        verify(sequenceRepository, never()).nextValue();
+    }
+
+    // ─── Temporary migration lock (app.employee-creation.locked) ──────────────────
+
+    @Test
+    void claim_lockEnabled_noRequestedCode_rejectsWithoutTouchingSequenceOrEmployeeRepository() {
+        lockProperties.setLocked(true);
+
+        assertThrows(EmployeeCreationLockedException.class, () -> generator().claim(null));
+
+        verifyNoInteractions(sequenceRepository, employeeRepository);
+    }
+
+    @Test
+    void claim_lockEnabled_requestedCodeSupplied_rejectsWithoutTouchingSequenceOrEmployeeRepository() {
+        lockProperties.setLocked(true);
+
+        assertThrows(EmployeeCreationLockedException.class, () -> generator().claim(code(56)));
+
+        // Even a submitted (previewed or hand-typed) code must not be checked for availability
+        // or used to catch up the sequence while locked — the lock is checked before anything else.
+        verifyNoInteractions(sequenceRepository, employeeRepository);
+    }
+
+    @Test
+    void claim_lockDisabled_behavesExactlyAsUnlocked() {
+        // Default state (EmployeeCreationLockProperties.locked = false) — existing behavior for
+        // both the auto-generated and the submitted-code paths is unaffected.
+        lockProperties.setLocked(false);
+        when(sequenceRepository.nextValue()).thenReturn(6L);
+
+        String result = generator().claim(null);
+
+        assertEquals(code(6), result);
+        verify(sequenceRepository, times(1)).nextValue();
+    }
+
+    @Test
+    void preview_unaffectedByLock_stillReadOnly() {
+        // The lock only guards claim() — preview() is read-only regardless of lock state and
+        // must keep working so the Add Employee/User form can still render (even though
+        // submitting it will be rejected).
+        lockProperties.setLocked(true);
+        when(sequenceRepository.peekNextValue()).thenReturn(56L);
+
+        assertEquals(code(56), generator().preview());
         verify(sequenceRepository, never()).nextValue();
     }
 }

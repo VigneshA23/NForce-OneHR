@@ -23,9 +23,14 @@ public class Attendance {
     @Column(name = "work_date", nullable = false)
     private LocalDate workDate;
 
+    // WallClockDateTimeConverter — see its own Javadoc: without it, this naive-wall-clock value
+    // (the employee's actual local check-in time, no zone attached) reads back corrupted by the
+    // reading JVM's own default timezone offset whenever that JVM's default isn't UTC.
+    @Convert(converter = WallClockDateTimeConverter.class)
     @Column(name = "check_in_at", nullable = false)
     private LocalDateTime checkInAt;
 
+    @Convert(converter = WallClockDateTimeConverter.class)
     @Column(name = "check_out_at")
     private LocalDateTime checkOutAt;
 
@@ -35,6 +40,7 @@ public class Attendance {
     // When the currently-open session began — only meaningful while checkOutAt is null.
     // Lets a later session in the same day (e.g. after a lunch break) compute its own
     // duration without disturbing checkInAt, which stays the day's first check-in.
+    @Convert(converter = WallClockDateTimeConverter.class)
     @Column(name = "session_started_at")
     private LocalDateTime sessionStartedAt;
 
@@ -52,19 +58,59 @@ public class Attendance {
     @Builder.Default
     private String source = "SYSTEM";
 
-    // IANA zone id (e.g. "Australia/Adelaide") the employee's browser/device reported at
-    // Check-In / Web Clock-In — locked in for the whole session so Check-Out, worked-minutes,
-    // and shift-day/grace-window math all stay internally consistent even if the browser's
-    // reported zone later changes (e.g. travel, DST). Null for records predating this column,
-    // or where the browser didn't supply one — see AttendanceService.resolveZone.
+    // IANA zone id (e.g. "Asia/Kolkata") resolved server-side at Check-In / Web Clock-In — via
+    // the employee's own Employee.timezone, then their Location.timezone, then the org-wide
+    // default (see AttendanceService.zoneIdFor's precedence chain) — locked in for the whole
+    // session so Check-Out, worked-minutes, and shift-day/grace-window math all stay internally
+    // consistent even if the employee's configured timezone later changes (e.g. a relocation).
+    // The browser's reported zone is NEVER the source of this value. Null for records predating
+    // this column.
     @Column(name = "timezone", length = 50)
     private String timezone;
 
+    // Raw UUID, not a @ManyToOne (same convention as employeeUserId above) — the Shift that was
+    // in effect when this row was FIRST created (normal Check-In, Web Clock-In, or a
+    // Regularization-created row), set once and never updated afterward. Null for two otherwise-
+    // indistinguishable reasons, disambiguated by noShiftAssigned below: a genuine legacy row
+    // predating this column entirely ("legacy" rows — see AttendanceInterpretationService's
+    // LEGACY_UNRESOLVED handling), or a valid, current NO_SHIFT_ASSIGNED row (the employee simply
+    // had no effective Shift when this row was created). Never silently backfilled from the
+    // employee's current Shift either way. This is what lets an already-open session or an
+    // already-created historical record keep its own original Shift context even after the
+    // employee is reassigned to a different Shift — see V163's migration comment and
+    // AttendanceInterpretationService.
+    @Column(name = "shift_id")
+    private UUID shiftId;
+
+    // The discriminator between this row's two otherwise-indistinguishable shiftId==null cases
+    // (see V179's migration comment): TRUE only when this row was first created via
+    // AttendanceInterpretationService's NO_SHIFT_ASSIGNED outcome (a valid, current, permanent
+    // no-Shift state — see that outcome's own Javadoc), FALSE for a genuine legacy row predating
+    // the shiftId column entirely (the pre-ONEHR-355 meaning of shiftId==null, preserved as this
+    // column's default for every row that exists already). Set once, at creation, alongside
+    // shiftId, and never updated afterward — same lifecycle as shiftId itself.
+    @Column(name = "no_shift_assigned", nullable = false)
+    private boolean noShiftAssigned;
+
+    // Deliberately NOT WallClockDateTimeConverter — these are plain JVM/DB bookkeeping instants
+    // (LocalDateTime.now(), no explicit business zone — see onCreate/onUpdate below), never
+    // exposed via any API response and never read by any lateness/business computation, unlike
+    // checkInAt/checkOutAt/sessionStartedAt's employee-facing wall-clock contract above.
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    // Concurrent Check-Out (or a concurrent Regularization approval, or the stale-session
+    // sweeper racing a live user action) can otherwise read-modify-write this same row with
+    // nothing coordinating between them — the loser's save() would silently overwrite the
+    // winner's checkOutAt/workedMinutes/status with stale values. @Version turns that into an
+    // ObjectOptimisticLockingFailureException (translated to a clean 409 by
+    // GlobalExceptionHandler) instead of a silently wrong attendance record. Mirrors
+    // LeaveBalance's identical fix (V153) for the same class of read-modify-write race.
+    @Version
+    private Long version;
 
     @PrePersist
     protected void onCreate() {
@@ -75,5 +121,15 @@ public class Attendance {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * The single "missing log" signal — a check-in was recorded but the day never got a matching
+     * check-out. Shared by MISSING_PUNCH detection, Work Hours Shortage's missing-log linkage, and
+     * Late Arrival's caused-by-missing-log check (see ExceptionService/WorkHoursShortageCalculationService)
+     * so "missing log" means exactly one thing everywhere it's used.
+     */
+    public boolean isMissingCheckOut() {
+        return checkInAt != null && checkOutAt == null;
     }
 }

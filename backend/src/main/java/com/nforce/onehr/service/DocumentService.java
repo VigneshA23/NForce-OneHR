@@ -84,6 +84,9 @@ public class DocumentService {
     @Transactional
     public EmployeeDocumentResponse uploadDocument(String actorEmail, Integer documentTypeId,
                                                    MultipartFile file, LocalDate issueDate, LocalDate expiryDate) throws IOException {
+        if (issueDate != null && expiryDate != null && expiryDate.isBefore(issueDate)) {
+            throw new IllegalArgumentException("Expiry date cannot be earlier than issue date");
+        }
         UUID actorId = requireUser(actorEmail).getId();
         DocumentType dt = docTypeRepo.findById(documentTypeId)
                 .orElseThrow(() -> new NoSuchElementException("Document type not found: " + documentTypeId));
@@ -137,7 +140,7 @@ public class DocumentService {
     public List<EmployeeDocumentResponse> listAll(String actorEmail) {
         requireAdminRole(actorEmail);
         Set<UUID> adminIds = userRepo.findAdminUserIds();
-        List<EmployeeDocument> docs = docRepo.findAll()
+        List<EmployeeDocument> docs = docRepo.findAllWithActiveEmployee()
                 .stream().filter(d -> !adminIds.contains(d.getEmployeeUserId())).collect(Collectors.toList());
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());

@@ -18,6 +18,9 @@ function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+export interface BusinessUnitRow {
+  id: string; name: string; active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
+}
 export interface DepartmentRow {
   id: string; name: string; active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
@@ -32,20 +35,82 @@ export interface LocationRow {
 }
 export interface ShiftRow {
   id: string; name: string; code: string | null; description: string | null;
-  startTime: string; endTime: string; flexible: boolean; breakMinutes: number | null;
-  workingDays: string[]; active: boolean; employeeCount: number; createdAt: string;
+  // The version currently in effect (as of today) — same shape this surface has always shown.
+  startTime: string; endTime: string; breakMinutes: number | null;
+  // Every Shift Version has its own grace period — no single global value applies anymore.
+  lateGraceMinutes: number | null;
+  // Set only when a future version is already scheduled (at most one at a time — editing again
+  // before it takes effect replaces it, never stacks a second one).
+  pendingEffectiveFrom: string | null;
+  pendingStartTime: string | null;
+  pendingEndTime: string | null;
+  pendingBreakMinutes: number | null;
+  pendingLateGraceMinutes: number | null;
+  active: boolean; employeeCount: number; createdAt: string;
+  // "Applicable Days" — java.time.DayOfWeek names, Monday-first. Always non-empty: a Shift
+  // created before this field existed reads as all 7 days (see ShiftResponse#from on the
+  // backend), same as a brand-new Shift's own default.
+  workingDays: string[];
 }
-export interface ShiftPayload {
+export interface CreateShiftPayload {
   name: string; code?: string; description?: string;
-  startTime: string; endTime: string; flexible: boolean;
-  breakMinutes?: number; workingDays?: string[];
+  startTime: string; endTime: string; breakMinutes?: number; lateGraceMinutes?: number;
+  // "Applicable Days" — optional, but if provided must be non-empty (the backend rejects an
+  // explicitly empty list). On create, omitting it defaults to all 7 days server-side. On update
+  // (UpdateShiftPayload inherits this field), omitting it leaves the Shift's current Applicable
+  // Days untouched — never silently reset to all 7. Unlike startTime/endTime/etc, an update to
+  // this field is NOT deferred to effectiveFrom: it takes effect immediately (see
+  // OrgService#updateShift's own comment) since it's never read by any attendance/workday
+  // calculation.
+  workingDays?: string[];
+}
+export interface UpdateShiftPayload extends CreateShiftPayload {
+  // Required, and must be strictly after today — the backend rejects today/past regardless of
+  // what's sent here. A brand-new Shift (createShift) has no such field: its first version is
+  // effective immediately, since nothing is assigned to it yet to protect.
+  effectiveFrom: string;
+}
+export interface ShiftVersionRow {
+  id: string; startTime: string; endTime: string; breakMinutes: number | null; lateGraceMinutes: number | null; effectiveFrom: string;
 }
 export interface ShiftEmployeeRow {
   userId: string; employeeCode: string; fullName: string; email: string; departmentName: string | null;
   active: boolean;
 }
+export interface WeeklyOffPolicyRow {
+  id: string; name: string; offDays: string[]; employeeCount: number; createdAt: string;
+}
+export interface WeeklyOffPolicyPayload {
+  name: string; offDays: string[];
+}
+export interface ShiftWeeklyOffRules {
+  id: string; maximumShiftDayDurationHours: number; updatedAt: string;
+}
+export interface AttendanceRules {
+  id: string; halfDayMaxHours: number; defaultTimezone: string; updatedAt: string;
+}
 
 export const orgApi = {
+  // Business Units
+  listBusinessUnits: (token: string) =>
+    fetch(`${BASE}/business-units`, { headers: authHeaders(token) }).then(r => handle<BusinessUnitRow[]>(r)),
+
+  createBusinessUnit: (token: string, name: string) =>
+    fetch(`${BASE}/business-units`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ name }) })
+      .then(r => handle<BusinessUnitRow>(r)),
+
+  updateBusinessUnit: (token: string, id: string, name: string) =>
+    fetch(`${BASE}/business-units/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ name }) })
+      .then(r => handle<BusinessUnitRow>(r)),
+
+  toggleBusinessUnitActive: (token: string, id: string) =>
+    fetch(`${BASE}/business-units/${id}/toggle-active`, { method: 'PATCH', headers: authHeaders(token) })
+      .then(r => handle<BusinessUnitRow>(r)),
+
+  deleteBusinessUnit: (token: string, id: string) =>
+    fetch(`${BASE}/business-units/${id}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handleEmpty(r)),
+
   // Departments
   listDepartments: (token: string) =>
     fetch(`${BASE}/departments`, { headers: authHeaders(token) }).then(r => handle<DepartmentRow[]>(r)),
@@ -92,11 +157,17 @@ export const orgApi = {
   listLocations: (token: string) =>
     fetch(`${BASE}/locations`, { headers: authHeaders(token) }).then(r => handle<LocationRow[]>(r)),
 
-  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone?: string }) =>
+  // The fixed set of IANA zones a Location's Timezone may be — City/State/Country stay freely
+  // editable, but the dropdown for this one field must only ever offer these (see OrgService
+  // .SUPPORTED_TIMEZONES on the backend, which independently enforces the same set).
+  listSupportedLocationTimezones: (token: string) =>
+    fetch(`${BASE}/locations/timezones`, { headers: authHeaders(token) }).then(r => handle<string[]>(r)),
+
+  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone: string }) =>
     fetch(`${BASE}/locations`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<LocationRow>(r)),
 
-  updateLocation: (token: string, id: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone?: string }) =>
+  updateLocation: (token: string, id: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone: string }) =>
     fetch(`${BASE}/locations/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<LocationRow>(r)),
 
@@ -116,11 +187,16 @@ export const orgApi = {
   listShiftEmployees: (token: string, shiftId: string) =>
     fetch(`${BASE}/shifts/${shiftId}/employees`, { headers: authHeaders(token) }).then(r => handle<ShiftEmployeeRow[]>(r)),
 
-  createShift: (token: string, payload: ShiftPayload) =>
+  listShiftVersions: (token: string, shiftId: string) =>
+    fetch(`${BASE}/shifts/${shiftId}/versions`, { headers: authHeaders(token) }).then(r => handle<ShiftVersionRow[]>(r)),
+
+  createShift: (token: string, payload: CreateShiftPayload) =>
     fetch(`${BASE}/shifts`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<ShiftRow>(r)),
 
-  updateShift: (token: string, id: string, payload: ShiftPayload) =>
+  // Editing a Shift never mutates its currently-effective timing — it schedules a new version,
+  // effective from payload.effectiveFrom (validated server-side to be strictly after today).
+  updateShift: (token: string, id: string, payload: UpdateShiftPayload) =>
     fetch(`${BASE}/shifts/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<ShiftRow>(r)),
 
@@ -131,4 +207,49 @@ export const orgApi = {
   deleteShift: (token: string, id: string) =>
     fetch(`${BASE}/shifts/${id}`, { method: 'DELETE', headers: authHeaders(token) })
       .then(r => handleEmpty(r)),
+
+  // Weekly Off Policies — WeeklyOffPolicy is the sole source of truth for weekly-off (Shift
+  // carries no working-days concept). Same Super-Admin-only create/edit/delete pattern as Shifts.
+  listWeeklyOffPolicies: (token: string) =>
+    fetch(`${BASE}/weekly-off-policies`, { headers: authHeaders(token) }).then(r => handle<WeeklyOffPolicyRow[]>(r)),
+
+  createWeeklyOffPolicy: (token: string, payload: WeeklyOffPolicyPayload) =>
+    fetch(`${BASE}/weekly-off-policies`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(r => handle<WeeklyOffPolicyRow>(r)),
+
+  updateWeeklyOffPolicy: (token: string, id: string, payload: WeeklyOffPolicyPayload) =>
+    fetch(`${BASE}/weekly-off-policies/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(r => handle<WeeklyOffPolicyRow>(r)),
+
+  deleteWeeklyOffPolicy: (token: string, id: string) =>
+    fetch(`${BASE}/weekly-off-policies/${id}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(r => handleEmpty(r)),
+
+  // Shifts & Weekly Off Rules — org-level singleton. P1 holds exactly one setting, Maximum Shift
+  // Day Duration (default 18h). Read is open; update is Super-Admin-only (enforced server-side).
+  getShiftWeeklyOffRules: (token: string) =>
+    fetch(`${BASE}/shift-weekly-off-rules`, { headers: authHeaders(token) }).then(r => handle<ShiftWeeklyOffRules>(r)),
+
+  updateShiftWeeklyOffRules: (token: string, maximumShiftDayDurationHours: number) =>
+    fetch(`${BASE}/shift-weekly-off-rules`, {
+      method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ maximumShiftDayDurationHours }),
+    }).then(r => handle<ShiftWeeklyOffRules>(r)),
+
+  // Attendance Rules — org-level singleton. Currently holds exactly one setting, Half Day Max
+  // Hours (the absolute-hours HALF_DAY classification threshold, default 3.5h). Read is open;
+  // update is Super-Admin-only (enforced server-side).
+  getAttendanceRules: (token: string) =>
+    fetch(`${BASE}/attendance-rules`, { headers: authHeaders(token) }).then(r => handle<AttendanceRules>(r)),
+
+  updateAttendanceRules: (token: string, halfDayMaxHours: number) =>
+    fetch(`${BASE}/attendance-rules`, {
+      method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ halfDayMaxHours }),
+    }).then(r => handle<AttendanceRules>(r)),
+
+  // Org-wide fallback timezone — consulted only when neither an employee's own timezone nor
+  // their Location's is set. Separate endpoint from the one above; update is Super-Admin-only.
+  updateDefaultTimezone: (token: string, defaultTimezone: string) =>
+    fetch(`${BASE}/attendance-rules/default-timezone`, {
+      method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ defaultTimezone }),
+    }).then(r => handle<AttendanceRules>(r)),
 };

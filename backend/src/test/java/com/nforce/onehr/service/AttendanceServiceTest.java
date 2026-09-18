@@ -1,13 +1,15 @@
 package com.nforce.onehr.service;
 
-import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.AttendancePunch;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.EmployeeShiftAssignment;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.entity.ShiftVersion;
+import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
@@ -38,10 +40,10 @@ import static org.mockito.Mockito.*;
 
 /**
  * Covers two related but distinct guards on a forgotten-open session:
- *  - Still within its own workday/grace window (shiftDayCutover): a late-arriving checkout is
- *    still accepted, but capped at the shift's own natural end — the "27h 8m" bug fix — never at
- *    the actual (possibly much later) click time.
- *  - Past its grace window entirely: no longer accepted or capped at all — flagged Missing
+ *  - Still within its own logical workday (per ShiftDayPolicy, shift-relative): a late-arriving
+ *    checkout is still accepted, but capped at the shift's own natural end — the "27h 8m" bug
+ *    fix — never at the actual (possibly much later) click time.
+ *  - Past its own logical workday entirely: no longer accepted or capped at all — flagged Missing
  *    Check-Out instead, with no fabricated checkOutAt or computed workedMinutes.
  */
 @ExtendWith(MockitoExtension.class)
@@ -57,23 +59,123 @@ class AttendanceServiceTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private LatePenaltyService latePenaltyService;
     @Mock private WorkingDayService workingDayService;
+    @Mock private ExpectedWorkHoursService expectedWorkHoursService;
+    @Mock private com.nforce.onehr.repository.ShiftWeeklyOffRulesRepository shiftWeeklyOffRulesRepository;
+    @Mock private com.nforce.onehr.repository.AttendanceRulesRepository attendanceRulesRepository;
+    @Mock private com.nforce.onehr.repository.ShiftRepository shiftRepository;
+    @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
 
     private AttendanceService service;
 
+    // The default employee's assigned Shift (set up in setUp()) — a field, not a setUp()-local,
+    // so individual @Test methods can reference its id for Attendance fixtures' .shiftId(...),
+    // exactly as AttendanceInterpretationService.interpretExistingSession now requires for any
+    // "existing record" test scenario (checkout, staleness, resume) to resolve as RESOLVED rather
+    // than LEGACY_UNRESOLVED.
+    private Shift defaultShift;
+
+    // Backs the fake EmployeeShiftAssignmentResolver below — the shared test employee's "as of
+    // right now" assignment for the day-aware interpretFreshAction/getConfig/historyFor call
+    // sites. A test that reassigns the employee to a different Shift for a FRESH check-in/out (no
+    // prior Attendance record) must update this alongside the Employee fixture's own .shift(...);
+    // a test resolving against an EXISTING record's own snapshotted shiftId never touches it.
+    private Shift currentEmployeeShift;
+    // The date currentEmployeeShift's assignment becomes effective — LocalDate.MIN by default (see
+    // setUp()), so every pre-existing test resolves it as already effective "as of right now."
+    // Overridden by the one test that specifically exercises a real assignment that simply hasn't
+    // taken effect YET (e.g. a Shift assigned at employee-creation time with an admin-chosen
+    // Effective From of tomorrow, never auto-derived) — see checkIn_shiftAssignedButNotYetEffective_...
+    private LocalDate currentEmployeeShiftEffectiveFrom;
+
     private final UUID employeeId = UUID.randomUUID();
     private final String employeeEmail = "employee@test.com";
+    // A minimal, real (not mocked) Shift Version resolver — a single-version-per-shift, in-memory
+    // "latest effectiveFrom <= day" lookup, exactly mirroring ShiftVersionRepository's own query
+    // semantics — see shift() below.
+    private final List<ShiftVersion> shiftVersions = new java.util.ArrayList<>();
+
+    /** Builds a Shift (with a real id) and registers a single version effective from the dawn of time — the common case for every test in this file, none of which exercise Shift Versioning itself (see ShiftDayPolicyTest/OrgServiceShiftVersionTest for that). */
+    private Shift shift(String name, LocalTime start, LocalTime end) {
+        return shift(name, start, end, DEFAULT_TEST_GRACE_MINUTES);
+    }
+
+    // Matches the pre-migration global app.attendance.late-grace-minutes default (10).
+    private static final int DEFAULT_TEST_GRACE_MINUTES = 10;
+
+    private Shift shift(String name, LocalTime start, LocalTime end, int graceMinutes) {
+        Shift s = Shift.builder().id(UUID.randomUUID()).name(name).build();
+        shiftVersions.add(ShiftVersion.builder().shift(s).startTime(start).endTime(end)
+                .lateGraceMinutes(graceMinutes).effectiveFrom(LocalDate.MIN).build());
+        return s;
+    }
 
     @BeforeEach
     void setUp() {
-        AttendanceProperties props = new AttendanceProperties();
+        lenient().when(shiftWeeklyOffRulesRepository.findBySingletonTrue()).thenReturn(Optional.of(
+                com.nforce.onehr.entity.ShiftWeeklyOffRules.builder()
+                        .maximumShiftDayDurationHours(java.math.BigDecimal.valueOf(18)).build()));
+        ShiftVersionResolver shiftVersionResolver = new ShiftVersionResolver(null) {
+            @Override
+            public Optional<ShiftVersion> resolveIfPresent(Shift s, LocalDate workDate) {
+                return shiftVersions.stream()
+                        .filter(v -> v.getShift().getId().equals(s.getId()))
+                        .filter(v -> !v.getEffectiveFrom().isAfter(workDate))
+                        .max(java.util.Comparator.comparing(ShiftVersion::getEffectiveFrom));
+            }
+            @Override
+            public ShiftVersion resolve(Shift s, LocalDate workDate) {
+                return resolveIfPresent(s, workDate)
+                        .orElseThrow(() -> new IllegalStateException("no version effective on or before " + workDate));
+            }
+        };
+        EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver = new EmployeeShiftAssignmentResolver(null) {
+            @Override
+            public Optional<EmployeeShiftAssignment> resolveIfPresent(UUID employeeUserId, LocalDate workDate) {
+                return currentEmployeeShift == null || workDate.isBefore(currentEmployeeShiftEffectiveFrom) ? Optional.empty()
+                        : Optional.of(EmployeeShiftAssignment.builder()
+                                .employeeUserId(employeeUserId).shift(currentEmployeeShift).effectiveFrom(currentEmployeeShiftEffectiveFrom).build());
+            }
+            @Override
+            public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
+                return resolveIfPresent(employeeUserId, workDate)
+                        .orElseThrow(() -> new NoShiftAssignmentException("no assignment effective on or before " + workDate));
+            }
+        };
+        ShiftDayPolicy shiftDayPolicy = new ShiftDayPolicy(new ShiftWeeklyOffRulesService(shiftWeeklyOffRulesRepository), shiftVersionResolver, employeeShiftAssignmentResolver);
+        // Matches app.attendance.half-day-max-hours' old YAML default (3.5) — see
+        // AttendanceRulesService's own Javadoc for why this moved off AttendanceProperties.
+        lenient().when(attendanceRulesRepository.findBySingletonTrue()).thenReturn(Optional.of(
+                com.nforce.onehr.entity.AttendanceRules.builder()
+                        .halfDayMaxHours(java.math.BigDecimal.valueOf(3.5)).defaultTimezone("Asia/Kolkata").build()));
+        AttendanceRulesService attendanceRulesService = new AttendanceRulesService(attendanceRulesRepository);
+        // Resolves any Shift created via this test file's own shift() helper below — so a fixture
+        // that sets Attendance.shiftId to one of those shifts' ids resolves correctly through
+        // AttendanceInterpretationService.interpretExistingSession, exactly like the real
+        // ShiftRepository would.
+        lenient().when(shiftRepository.findById(any())).thenAnswer(inv -> {
+            UUID id = inv.getArgument(0);
+            return shiftVersions.stream().map(ShiftVersion::getShift)
+                    .filter(s -> s.getId().equals(id)).findFirst();
+        });
+        AttendanceInterpretationService attendanceInterpretationService =
+                new AttendanceInterpretationService(shiftDayPolicy, shiftRepository, employeeShiftAssignmentResolver);
         service = new AttendanceService(attendanceRepository, attendancePunchRepository, webClockInRequestRepository,
                 attendanceExceptionRepository, employeeRepository, managerHistoryRepository,
-                auditService, auditSnapshot, props, latePenaltyService, workingDayService);
+                auditService, auditSnapshot, latePenaltyService, workingDayService, expectedWorkHoursService,
+                shiftDayPolicy, attendanceRulesService, attendanceInterpretationService, employeeShiftAssignmentResolver,
+                attendancePenaltyRepository);
 
-        Shift shift = Shift.builder().name("Regular").startTime(LocalTime.of(15, 30)).endTime(LocalTime.of(0, 30)).build();
-        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(shift).build();
+        defaultShift = shift("Regular", LocalTime.of(15, 30), LocalTime.of(0, 30));
+        currentEmployeeShift = defaultShift;
+        currentEmployeeShiftEffectiveFrom = LocalDate.MIN;
+        // Active, non-deleted User by default — every checkIn/checkOut test implicitly exercises
+        // assertEligibleToPunch's gate; tests that specifically want an inactive/deleted account
+        // override this with their own Employee/User fixture.
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(true).build()).build();
         lenient().when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
         lenient().when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(attendanceRepository.saveAndFlush(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(any()))
                 .thenReturn(Optional.empty());
         lenient().when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(any()))
@@ -96,6 +198,178 @@ class AttendanceServiceTest {
                 .build();
         lenient().when(attendancePunchRepository.findOpenByEmployeeUserId(employeeId)).thenReturn(List.of(openPunch));
         lenient().when(attendanceRepository.findById(record.getId())).thenReturn(Optional.of(record));
+        // A genuinely open normal punch — see flagMissingCheckoutIfStale's hasAnyOpenSession guard,
+        // which this record must satisfy to ever be eligible for staleness detection at all.
+        lenient().when(attendancePunchRepository.existsByAttendanceRecordIdAndCheckOutAtIsNull(record.getId()))
+                .thenReturn(true);
+    }
+
+    // ── Phase 0.2: active/deleted employee punch gate ────────────────────────
+
+    @Test
+    void checkIn_activeEmployee_isAllowed() {
+        assertDoesNotThrow(() -> service.checkIn(employeeEmail, null));
+    }
+
+    @Test
+    void checkIn_deactivatedEmployee_isRejected() {
+        Employee deactivated = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(false).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(deactivated));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.checkIn(employeeEmail, null));
+        assertTrue(ex.getMessage().toLowerCase().contains("inactive"));
+        verify(attendanceRepository, never()).save(any(Attendance.class));
+        verify(attendanceRepository, never()).saveAndFlush(any(Attendance.class));
+    }
+
+    @Test
+    void checkIn_deletedEmployee_isRejected() {
+        Employee deleted = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(true).deletedAt(java.time.Instant.now()).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(deleted));
+
+        assertThrows(IllegalArgumentException.class, () -> service.checkIn(employeeEmail, null));
+        verify(attendanceRepository, never()).save(any(Attendance.class));
+        verify(attendanceRepository, never()).saveAndFlush(any(Attendance.class));
+    }
+
+    @Test
+    void checkOut_deactivatedEmployee_isRejected() {
+        Employee deactivated = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(false).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(deactivated));
+
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
+        verify(attendancePunchRepository, never()).save(any(AttendancePunch.class));
+    }
+
+    @Test
+    void checkOut_deletedEmployee_isRejected() {
+        Employee deleted = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(true).deletedAt(java.time.Instant.now()).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(deleted));
+
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
+    }
+
+    // ── ONEHR-355 fix: no effective EmployeeShiftAssignment is a valid, permanent state ─────────
+    // A brand-new (or never-assigned) employee has no EmployeeShiftAssignment at all — resolved via
+    // the fake EmployeeShiftAssignmentResolver's currentEmployeeShift == null branch (see setUp()) —
+    // must still be able to Check-In/Check-Out/load Today, with attendance recorded as an ordinary
+    // PRESENT day and no Shift interpretation at all, never a thrown IllegalStateException (the
+    // exact ONEHR-355 reproduction).
+
+    private Employee noShiftEmployee() {
+        return Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(null).user(User.builder().id(employeeId).active(true).build()).build();
+    }
+
+    @Test
+    void checkIn_noShiftAssigned_recordsOrdinaryPresentAttendance_withNoShiftInterpretation() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+
+        assertDoesNotThrow(() -> service.checkIn(employeeEmail, null));
+
+        org.mockito.ArgumentCaptor<Attendance> captor = org.mockito.ArgumentCaptor.forClass(Attendance.class);
+        verify(attendanceRepository).saveAndFlush(captor.capture());
+        Attendance saved = captor.getValue();
+        assertEquals("PRESENT", saved.getStatus());
+        assertNull(saved.getShiftId());
+        assertEquals(0, saved.getLateByMinutes());
+        assertEquals(LocalDate.now(), saved.getWorkDate());
+        // Code-review corrective pass, finding 1: the discriminator that lets this row be
+        // resolved as a valid no-Shift state later (never a genuine legacy row) — see
+        // Attendance.noShiftAssigned's own Javadoc.
+        assertTrue(saved.isNoShiftAssigned());
+        verifyNoInteractions(latePenaltyService);
+    }
+
+    @Test
+    void getToday_noShiftAssigned_loadsWithoutThrowing_andOffersCheckIn() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any())).thenReturn(Optional.empty());
+
+        TodayAttendanceResponse response = assertDoesNotThrow(() -> service.getToday(employeeEmail, null));
+
+        assertTrue(response.isCanCheckIn());
+        assertFalse(response.isCanCheckOut());
+        assertNull(response.getRecord());
+    }
+
+    @Test
+    void checkOut_noShiftAssignedAttendance_succeeds_uncappedLikeALegacyRecord() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+        LocalDateTime checkInAt = LocalDateTime.of(LocalDate.now(), LocalTime.of(9, 0));
+        Attendance record = Attendance.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).workDate(checkInAt.toLocalDate())
+                .checkInAt(checkInAt).sessionStartedAt(checkInAt).status("PRESENT").lateByMinutes(0)
+                .shiftId(null).timezone("Asia/Kolkata").build();
+        stubOpenNormalSession(record);
+
+        assertDoesNotThrow(() -> service.checkOut(employeeEmail, null));
+
+        assertNotNull(record.getCheckOutAt());
+    }
+
+    /**
+     * Code-review corrective pass, finding 2: a valid, current no-Shift session left open past the
+     * calendar date it started on must still be caught by the EXISTING MISSING_CHECKOUT mechanism
+     * — never left open forever just because there's no Shift to compute an overnight boundary
+     * against. Reuses that same mechanism's own threshold/comparison unmodified (see
+     * AttendanceInterpretationService.interpretExistingSession's own comment): no new timeout, no
+     * fabricated Shift.
+     */
+    @Test
+    void checkOut_flagsMissingCheckout_forANoShiftSession_onceTheCalendarDateHasRolledOver() {
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(noShiftEmployee()));
+        LocalDate workDate = LocalDate.now().minusDays(2);
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(9, 0));
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).workDate(workDate)
+                .checkInAt(checkInAt).sessionStartedAt(checkInAt).status("PRESENT").lateByMinutes(0)
+                .shiftId(null).noShiftAssigned(true).timezone("Asia/Kolkata").build();
+        stubOpenNormalSession(open);
+
+        assertThrows(IllegalArgumentException.class, () -> service.checkOut(employeeEmail, null));
+
+        assertEquals("MISSING_CHECKOUT", open.getStatus());
+        assertNull(open.getCheckOutAt());
+        assertNull(open.getWorkedMinutes());
+    }
+
+    /**
+     * The literal ONEHR-355 reproduction: a Shift created today, and a brand-new employee created
+     * the SAME day and immediately assigned that Shift with an Effective From of tomorrow (the
+     * admin's own explicit choice — UserManagementService#createUser/EmployeeService#createEmployee
+     * never auto-derive this date; see their own Javadoc) — so a real, existing assignment simply
+     * hasn't taken effect yet. Today's Check-In must behave exactly like the fully-shiftless case
+     * above: an ordinary PRESENT day, no lateness, no shiftId — never a thrown IllegalStateException.
+     * Employee.shift is already set to the new Shift (a display-cache-only field — see its own
+     * Javadoc) at this point; that must not change the outcome here.
+     */
+    @Test
+    void checkIn_shiftAssignedButNotYetEffective_recordsOrdinaryPresentAttendance() {
+        currentEmployeeShiftEffectiveFrom = LocalDate.now().plusDays(1);
+
+        assertDoesNotThrow(() -> service.checkIn(employeeEmail, null));
+
+        org.mockito.ArgumentCaptor<Attendance> captor = org.mockito.ArgumentCaptor.forClass(Attendance.class);
+        verify(attendanceRepository).saveAndFlush(captor.capture());
+        Attendance saved = captor.getValue();
+        assertEquals("PRESENT", saved.getStatus());
+        assertNull(saved.getShiftId());
+        assertEquals(0, saved.getLateByMinutes());
+        assertEquals(LocalDate.now(), saved.getWorkDate());
+        // Code-review corrective pass, finding 1: the discriminator that lets this row be
+        // resolved as a valid no-Shift state later (never a genuine legacy row) — see
+        // Attendance.noShiftAssigned's own Javadoc.
+        assertTrue(saved.isNoShiftAssigned());
+        verifyNoInteractions(latePenaltyService);
     }
 
     @Test
@@ -116,6 +390,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(sessionStart)
                 .lateByMinutes(125)
                 .status("LATE")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(open);
 
@@ -126,23 +401,118 @@ class AttendanceServiceTest {
         assertNull(open.getWorkedMinutes());
     }
 
+    // ── Org-wide stale sweep (flagAllStaleOpenSessionsAsMissingCheckout) ─────
+    // Attendance.checkOutAt == null is NOT the same thing as "this day is still open" — a
+    // Web-Clock-In-only day has a permanently-null checkOutAt (WebClockInService.checkOut
+    // deliberately never writes it) even once fully, correctly completed. These tests lock in
+    // that the org-wide sweep — whose candidate query is exactly checkOutAt IS NULL — never
+    // mistakes an already-closed Web-only day for a forgotten normal checkout.
+
+    @Test
+    void sweep_neverFlagsAWebOnlyDay_thatWasAlreadyProperlyClosedViaWebClockOut() {
+        LocalDate workDate = currentShiftDay().minusDays(5);
+        Attendance webOnlyDay = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(15, 40)))
+                .checkOutAt(null) // Web Clock-Out never sets this — see WebClockInService.checkOut
+                .workedMinutes(480)
+                .status("PRESENT")
+                .shiftId(defaultShift.getId())
+                .source("WEB_REMOTE")
+                .build();
+        when(attendanceRepository.findByCheckOutAtIsNull()).thenReturn(List.of(webOnlyDay));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).shift(defaultShift)
+                        .user(User.builder().id(employeeId).active(true).build()).build()));
+        // No open normal punch...
+        when(attendancePunchRepository.existsByAttendanceRecordIdAndCheckOutAtIsNull(webOnlyDay.getId()))
+                .thenReturn(false);
+        // ...and the day's Web session is itself already checked out (not open).
+        when(webClockInRequestRepository.existsByEmployeeUserIdAndWorkDateAndCheckedOutAtIsNull(employeeId, workDate))
+                .thenReturn(false);
+
+        service.flagAllStaleOpenSessionsAsMissingCheckout();
+
+        assertEquals("PRESENT", webOnlyDay.getStatus(), "an already-completed Web-only day must never be flipped to MISSING_CHECKOUT");
+        verify(attendanceRepository, never()).saveAndFlush(any(Attendance.class));
+    }
+
+    @Test
+    void sweep_stillFlagsAGenuinelyOpenWebSession_thatWasNeverCheckedOut() {
+        LocalDate workDate = currentShiftDay().minusDays(5);
+        Attendance openWebDay = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(15, 40)))
+                .checkOutAt(null)
+                .status("PRESENT")
+                .shiftId(defaultShift.getId())
+                .source("WEB_REMOTE")
+                .build();
+        when(attendanceRepository.findByCheckOutAtIsNull()).thenReturn(List.of(openWebDay));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).shift(defaultShift)
+                        .user(User.builder().id(employeeId).active(true).build()).build()));
+        when(attendancePunchRepository.existsByAttendanceRecordIdAndCheckOutAtIsNull(openWebDay.getId()))
+                .thenReturn(false);
+        // The Web session itself is genuinely still open (never Web-Clocked-Out).
+        when(webClockInRequestRepository.existsByEmployeeUserIdAndWorkDateAndCheckedOutAtIsNull(employeeId, workDate))
+                .thenReturn(true);
+
+        service.flagAllStaleOpenSessionsAsMissingCheckout();
+
+        assertEquals("MISSING_CHECKOUT", openWebDay.getStatus(), "a genuinely forgotten Web Clock-Out must still be flagged stale");
+    }
+
+    @Test
+    void sweep_stillFlagsAGenuinelyOpenNormalSession_regressionCheck() {
+        LocalDate workDate = currentShiftDay().minusDays(5);
+        Attendance openNormalDay = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(15, 40)))
+                .checkOutAt(null)
+                .status("PRESENT")
+                .shiftId(defaultShift.getId())
+                .build();
+        when(attendanceRepository.findByCheckOutAtIsNull()).thenReturn(List.of(openNormalDay));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).shift(defaultShift)
+                        .user(User.builder().id(employeeId).active(true).build()).build()));
+        // A genuinely open normal punch under this exact record.
+        when(attendancePunchRepository.existsByAttendanceRecordIdAndCheckOutAtIsNull(openNormalDay.getId()))
+                .thenReturn(true);
+
+        service.flagAllStaleOpenSessionsAsMissingCheckout();
+
+        assertEquals("MISSING_CHECKOUT", openNormalDay.getStatus(), "a genuinely forgotten normal Check-Out must still be flagged stale");
+    }
+
     @Test
     void checkOut_recordsTheActualClickTime_butStillCapsWorkedMinutesAtShiftEnd_forALateClickWithinTheGraceWindow() {
-        // Only meaningful between the shift's natural end (12:30 AM) and the grace-window cutover
-        // (7:00 AM, see AttendanceProperties.shiftDayCutover) — the narrow real-time window where
-        // a late-but-still-correctable click's WORKED-MINUTES figure needs capping (so it doesn't
-        // inflate into something like "27h 8m"), without that cap ever touching the stored
-        // checkOutAt itself — the actual click time is always what gets recorded, everywhere
-        // (this was a real reported bug: checkout showing as exactly the shift's end time for
-        // every late-but-legitimate click). Outside this window the scenario doesn't apply, so
-        // the test is skipped rather than asserting something time-dependent as if it always
-        // holds — see checkOut_rejectsAndFlagsMissingCheckout_... and
-        // checkOut_usesActualClickTime_... for the two deterministic (always-applicable) cases on
-        // either side of this window.
+        // Only meaningful between the shift's natural end (12:30 AM) and 7:00 AM — the narrow
+        // real-time window where a late-but-still-correctable click's WORKED-MINUTES figure needs
+        // capping (so it doesn't inflate into something like "27h 8m"), without that cap ever
+        // touching the stored checkOutAt itself — the actual click time is always what gets
+        // recorded, everywhere (this was a real reported bug: checkout showing as exactly the
+        // shift's end time for every late-but-legitimate click). This window's upper bound (7 AM)
+        // is now purely a property of this test's own currentShiftDay() helper below (still
+        // deliberately pinned to the old fixed cutover, only to keep workDate self-consistent with
+        // beforeNow/shiftEnd here) — NOT a production concept anymore: the real logical-workday
+        // reset for this shift (15:30-00:30) is 09:30, strictly later, so whenever this test does
+        // run, checkOut() is guaranteed to still be well within its own logical workday. Outside
+        // this window the scenario doesn't apply, so the test is skipped rather than asserting
+        // something time-dependent as if it always holds — see
+        // checkOut_rejectsAndFlagsMissingCheckout_... and checkOut_usesActualClickTime_... for the
+        // two deterministic (always-applicable) cases on either side of this window.
         LocalDateTime beforeNow = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
         LocalDate workDate = currentShiftDay();
         LocalDateTime shiftEnd = LocalDateTime.of(workDate.plusDays(1), LocalTime.of(0, 30));
-        Assumptions.assumeTrue(beforeNow.isAfter(shiftEnd), "only applicable between shift end (12:30 AM) and grace cutover (7:00 AM)");
+        Assumptions.assumeTrue(beforeNow.isAfter(shiftEnd), "only applicable between shift end (12:30 AM) and 7:00 AM");
 
         LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(17, 35));
         LocalDateTime sessionStart = LocalDateTime.of(workDate, LocalTime.of(18, 0));
@@ -154,6 +524,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(sessionStart)
                 .lateByMinutes(125)
                 .status("LATE")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(open);
         // The SAME punch instance backs both lookups closeSession/recomputeCombinedWorkedMinutes
@@ -180,6 +551,60 @@ class AttendanceServiceTest {
         assertEquals(expectedMinutes, response.getWorkedMinutes());
     }
 
+    /**
+     * The unified-grace fix: closeSession's own "short day overrides LATE" status finalization
+     * used to recompute LATE/PRESENT from the raw `lateByMinutes > 0` figure, ignoring the shift's
+     * own allowed-late privilege entirely — silently flipping an already-correctly-graced PRESENT
+     * arrival to LATE the moment the shift naturally ended. Check-in at 09:05 against a 09:00
+     * shift with a 10-minute privilege is genuinely NOT late (lateByMinutes is still 5, the raw,
+     * no-forgiveness display figure) — a full day worked past the shift's own end must still
+     * finalize as PRESENT, not LATE.
+     */
+    @Test
+    void checkOut_atOrAfterShiftEnd_checkInWithinGrace_finalizesAsPresent_neverFlipsToLateFromRawLateByMinutes() {
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(18, 5).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift dayShift = shift("Day Shift", LocalTime.of(9, 0), LocalTime.of(18, 0)); // grace = DEFAULT_TEST_GRACE_MINUTES (10)
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(dayShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId()));
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(9, 5));
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(checkInAt)
+                .sessionStartedAt(checkInAt)
+                .lateByMinutes(5)
+                .status("PRESENT")
+                .shiftId(dayShift.getId())
+                .build();
+        stubOpenNormalSession(open);
+        AttendancePunch openPunch = AttendancePunch.builder()
+                .id(UUID.randomUUID())
+                .attendanceRecordId(open.getId())
+                .checkInAt(checkInAt)
+                .build();
+        lenient().when(attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(open.getId()))
+                .thenReturn(Optional.of(openPunch));
+        lenient().when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(open.getId()))
+                .thenReturn(List.of(openPunch));
+
+        AttendanceResponse response = service.checkOut(employeeEmail, null);
+
+        assertEquals("PRESENT", response.getStatus(),
+                "5 minutes late is within the shift's 10-minute allowed-late privilege — must stay "
+                        + "PRESENT even once the shift naturally ends, never flip to LATE from raw lateByMinutes");
+    }
+
     @Test
     void checkOut_usesActualClickTime_whenCheckoutHappensWithinTheSameShift() {
         LocalDate workDate = LocalDate.now(ZoneId.of("Asia/Kolkata"));
@@ -192,6 +617,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(checkInAt)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(open);
 
@@ -206,13 +632,114 @@ class AttendanceServiceTest {
         assertFalse(response.getCheckOutAt().isAfter(after));
     }
 
+    /**
+     * The core regression this whole Shift-snapshot design exists to fix: an employee checks in
+     * under Shift A (15:30-00:30, overnight), is REASSIGNED to a different Shift B (09:00-18:00,
+     * a same-day shift) while the session is still open, then checks out. The worked-minutes cap
+     * must still reflect Shift A's own end (00:30 the next day) — never Shift B's (18:00 the same
+     * day) — because the open record's {@code shiftId} was snapshotted at check-in time and is
+     * never re-resolved against the employee's now-current Shift.
+     */
+    @Test
+    void checkOut_afterReassignmentWhileSessionWasOpen_stillCapsWorkedMinutesAtTheOriginalShiftsEnd() {
+        // Deterministic offset so "now" (at actual checkout time) reads as exactly 2:00 AM local,
+        // regardless of when this test really runs — same technique as the overnight tests above.
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(2, 0).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId())).minusDays(1);
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(15, 30));
+        Attendance open = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(checkInAt)
+                .sessionStartedAt(checkInAt)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .shiftId(defaultShift.getId()) // snapshotted under Shift A (15:30-00:30) at check-in time
+                .build();
+        stubOpenNormalSession(open);
+
+        // Reassignment happens AFTER check-in, while the session is still open: the employee's
+        // CURRENT/live shift (and Location, carrying the deterministic offset — record has no
+        // stored timezone of its own, so resolveZone falls back to this) is now a same-day
+        // 09:00-18:00 shift — but must never be consulted for this already-open session's cutoff
+        // (see AttendanceInterpretationService.interpretExistingSession).
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift reassignedDayShift = shift("Day Shift (reassigned)", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        Employee reassignedEmployee = Employee.builder().userId(employeeId).employeeCode("E1")
+                .fullName("Test Employee").shift(reassignedDayShift).location(location)
+                .user(User.builder().id(employeeId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(reassignedEmployee));
+
+        // A single, still-open punch spanning past BOTH shifts' ends — "now" (2:00 AM the next
+        // day) is well past Shift A's own 00:30 end but also well past Shift B's 18:00 end (the
+        // previous day), so the two cutoffs produce clearly different capped totals (540 vs 150
+        // minutes) if the bug were present.
+        AttendancePunch openPunch = AttendancePunch.builder()
+                .id(UUID.randomUUID()).attendanceRecordId(open.getId()).checkInAt(checkInAt).build();
+        lenient().when(attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(open.getId()))
+                .thenReturn(Optional.of(openPunch));
+        lenient().when(attendancePunchRepository.findByAttendanceRecordIdOrderByCheckInAtAsc(open.getId()))
+                .thenReturn(List.of(openPunch));
+
+        AttendanceResponse response = service.checkOut(employeeEmail, null);
+
+        assertEquals(540, response.getWorkedMinutes(),
+                "must be capped at Shift A's own end (00:30 next day = 9h from 15:30), not Shift B's (18:00 same day = 2.5h)");
+    }
+
+    /**
+     * The mirror case: a FRESH check-in after reassignment correctly uses the NEW current Shift —
+     * there is no prior context for this date to preserve. Uses the same deterministic
+     * browser-offset-via-Location-timezone trick as the overnight-lateness test above so "now"
+     * reads as a fixed 9:20 AM local, regardless of when this test actually runs.
+     */
+    @Test
+    void checkIn_afterReassignment_usesTheNewCurrentShift_forAFreshDayWithNoPriorContext() {
+        java.time.LocalDateTime utcNow = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(9, 20).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        java.time.ZoneOffset offset = java.time.ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        // Reassigned FROM the default overnight shift (15:30-00:30, under which 9:20 AM would read
+        // as PRESENT/not-late) TO a day shift starting at 09:00 — 20 minutes past its start, past
+        // the 10-minute default grace, so LATE proves the NEW shift was actually consulted.
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift reassignedDayShift = shift("Day Shift (reassigned)", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        Employee reassignedEmployee = Employee.builder().userId(employeeId).employeeCode("E1")
+                .fullName("Test Employee").shift(reassignedDayShift).location(location)
+                .user(User.builder().id(employeeId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(reassignedEmployee));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
+        currentEmployeeShift = reassignedDayShift; // the fresh check-in must resolve via the NEW assignment
+
+        AttendanceResponse resp = service.checkIn(employeeEmail, null);
+
+        assertEquals("LATE", resp.getStatus(), "must be judged against the NEW shift's 9:00 start, not the old 15:30 one");
+        assertTrue(resp.getLateByMinutes() > 0 && resp.getLateByMinutes() < 30);
+    }
+
     // ---------------------------------------------------------------- missing check-out
 
     /**
-     * The shift-day (per AttendanceProperties.shiftDayCutover, default 7:00 AM) that "right now"
-     * belongs to — computed independently of the service so tests can construct a workDate that
-     * deterministically IS or ISN'T past its own grace window, regardless of what real wall-clock
-     * time the suite happens to run at.
+     * A test-local stand-in for "the shift-day 'right now' belongs to", computed independently of
+     * the service so tests can construct a workDate that deterministically IS or ISN'T past its
+     * own grace window, regardless of what real wall-clock time the suite happens to run at.
+     * Deliberately still pinned to a fixed 7:00 AM cutover — NOT a production concept anymore
+     * (see ShiftDayPolicy, which derives the real boundary from the employee's own shift, e.g.
+     * 09:30 for this file's default 15:30-00:30 employee) — purely so this helper stays a fixed,
+     * self-consistent reference point for the tests below. Every test using it only relies on the
+     * resulting workDate being unambiguously "N shift-days ago" or "still within a narrow window
+     * strictly before the real, shift-relative boundary", both of which hold regardless of this
+     * helper's exact cutover value.
      */
     private static LocalDate currentShiftDay() {
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
@@ -235,6 +762,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(checkInAt)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(stale);
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
@@ -257,7 +785,7 @@ class AttendanceServiceTest {
     @Test
     void getToday_leavesGenuineOvernightSessionOpen_whenStillWithinGraceWindow() {
         // Checked in during the current shift-day (however long ago that shift started) and
-        // hasn't yet crossed its own grace window (shiftDayCutover) — the legitimate
+        // hasn't yet crossed its own logical-workday reset (see ShiftDayPolicy) — the legitimate
         // midnight-crossing case, not a stale session, regardless of what time this test runs at.
         LocalDate workDate = currentShiftDay();
         LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(15, 40));
@@ -269,6 +797,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(checkInAt)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(open);
 
@@ -293,6 +822,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(staleCheckInAt)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(stale);
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(eq(employeeId), any()))
@@ -324,6 +854,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(staleCheckInAt)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(stale);
 
@@ -369,6 +900,210 @@ class AttendanceServiceTest {
         assertEquals("Asia/Kolkata", response.getTimezone());
     }
 
+    // ── Finalized Location/Timezone model: Location is the sole source ───────
+    // Employee carries no timezone field of its own (see Employee's class Javadoc) — its
+    // effective attendance zone is ALWAYS its Location's, with the org-wide default only for an
+    // employee who has no Location at all. See AttendanceRulesService#resolveEmployeeZoneId.
+
+    @Test
+    void checkIn_resolvesFromAssignedLocationTimezone() {
+        Location location = Location.builder().name("Office").timezone("America/New_York").build();
+        Employee employeeWithLocation = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).location(location)
+                .user(User.builder().id(employeeId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employeeWithLocation));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
+
+        AttendanceResponse response = service.checkIn(employeeEmail, null);
+
+        assertEquals("America/New_York", response.getTimezone());
+    }
+
+    @Test
+    void checkIn_noLocationAssigned_fallsBackToTheOrgWideDefault() {
+        // setUp()'s default employee has no Location at all.
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
+
+        AttendanceResponse response = service.checkIn(employeeEmail, null);
+
+        assertEquals("Asia/Kolkata", response.getTimezone(), "matches this test class's AttendanceRules.defaultTimezone fixture");
+    }
+
+    @Test
+    void checkIn_locationTimezoneChange_neverReinterpretsAnAlreadyClosedHistoricalRecord() {
+        // A prior, already-closed Attendance row keeps its own locked-in timezone regardless of
+        // any later change to the employee's Location (or its timezone) — see Attendance.timezone's
+        // own write-once semantics. This is a read-only display path (getToday's closed-record
+        // branch), not a recompute, so there is nothing here that COULD reinterpret it.
+        Attendance historical = Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .workDate(LocalDate.now()).checkInAt(LocalDateTime.now().minusHours(9))
+                .checkOutAt(LocalDateTime.now().minusHours(1)).timezone("America/New_York")
+                .status("PRESENT").shiftId(defaultShift.getId()).build();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.of(historical));
+
+        service.getToday(employeeEmail, null);
+
+        assertEquals("America/New_York", historical.getTimezone(), "a Location change must never rewrite an existing record's own locked-in zone");
+    }
+
+    // ── My Team "Not in yet today" roster: location must never affect the check-in verdict ──
+    // (defect/353-357). getDayForMyTeam/getDayForPeers query a widened +/-1 business-zone-day
+    // window and resolveRosterRecord picks the right row out of it — see that method's own
+    // Javadoc for why an exact-day-only match used to misclassify a genuinely checked-in
+    // employee as "not in yet" whenever their Location's timezone crossed midnight at a
+    // different moment than the org's business zone.
+
+    @Test
+    void getDayForMyTeam_employeeCheckedInSameBusinessDay_excludedFromNotInYet() {
+        Employee employeeNoLocation = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(true).build()).build();
+        UUID managerId = UUID.randomUUID();
+        String managerEmail = "manager@test.com";
+        Employee manager = Employee.builder().userId(managerId).employeeCode("M1").fullName("Manager")
+                .user(User.builder().id(managerId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(manager));
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(employeeNoLocation));
+
+        LocalDate day = LocalDate.of(2026, 1, 15);
+        Attendance checkedIn = Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .workDate(day).checkInAt(day.atTime(9, 0)).timezone("Asia/Kolkata").status("PRESENT")
+                .shiftId(defaultShift.getId()).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(
+                List.of(employeeId), day.minusDays(1), day.plusDays(1)))
+                .thenReturn(List.of(checkedIn));
+
+        List<AttendanceResponse> roster = service.getDayForMyTeam(managerEmail, day);
+
+        assertEquals(1, roster.size());
+        assertNotNull(roster.get(0).getCheckInAt());
+        assertEquals(day, roster.get(0).getWorkDate());
+    }
+
+    @Test
+    void getDayForMyTeam_employeeCheckedInAtDifferentLocationTimezone_stillExcludedFromNotInYet() {
+        // Reference zone (standing in for the business day the roster is queried for -- passed
+        // explicitly below, so the org-default-timezone stub from setUp() is never consulted)
+        // and this employee's Location zone are deliberately chosen 26 hours apart (more than a
+        // full day), so their calendar dates are guaranteed to differ right now no matter when
+        // this test runs -- no Assumptions.assumeTrue skip needed (see this file's shiftEnd test
+        // above for the alternative this sidesteps).
+        Location location = Location.builder().name("Baker Island Office").timezone("Etc/GMT+12").build();
+        Employee employeeWithLocation = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
+        UUID managerId = UUID.randomUUID();
+        String managerEmail = "manager@test.com";
+        Employee manager = Employee.builder().userId(managerId).employeeCode("M1").fullName("Manager")
+                .user(User.builder().id(managerId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(manager));
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(employeeWithLocation));
+
+        LocalDate businessDay = LocalDate.now(ZoneId.of("Pacific/Kiritimati"));
+        LocalDate employeeOwnDay = LocalDate.now(ZoneId.of("Etc/GMT+12"));
+        assertNotEquals(businessDay, employeeOwnDay, "test setup requires the two zones' calendar dates to actually differ");
+
+        Attendance checkedIn = Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .workDate(employeeOwnDay).checkInAt(LocalDateTime.now().minusHours(1))
+                .timezone("Etc/GMT+12").status("PRESENT").shiftId(defaultShift.getId()).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(
+                List.of(employeeId), businessDay.minusDays(1), businessDay.plusDays(1)))
+                .thenReturn(List.of(checkedIn));
+
+        List<AttendanceResponse> roster = service.getDayForMyTeam(managerEmail, businessDay);
+
+        assertEquals(1, roster.size());
+        assertNotNull(roster.get(0).getCheckInAt(),
+                "an employee who already checked in must never show as 'not in yet' just because their Location's timezone differs from the business zone");
+    }
+
+    @Test
+    void getDayForMyTeam_noAttendanceRecordInWindow_stillShowsNotInYet() {
+        Employee employeeNoRecord = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(true).build()).build();
+        UUID managerId = UUID.randomUUID();
+        String managerEmail = "manager@test.com";
+        Employee manager = Employee.builder().userId(managerId).employeeCode("M1").fullName("Manager")
+                .user(User.builder().id(managerId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(manager));
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(employeeNoRecord));
+
+        LocalDate day = LocalDate.of(2026, 1, 15);
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(
+                List.of(employeeId), day.minusDays(1), day.plusDays(1)))
+                .thenReturn(List.of());
+
+        List<AttendanceResponse> roster = service.getDayForMyTeam(managerEmail, day);
+
+        assertEquals(1, roster.size());
+        assertNull(roster.get(0).getCheckInAt());
+        assertEquals(day, roster.get(0).getWorkDate());
+    }
+
+    // ── Phase 0.4 / Phase 1: concurrency race -> clean application response ──
+
+    @Test
+    void checkIn_concurrentFreshCheckIn_databaseConstraintViolation_translatesToTheCleanDuplicateMessage() {
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
+        // Simulates the race: this call's own pre-check passed, but by the time it inserts, a
+        // concurrent request already committed the same (employee, workDate) row first.
+        when(attendanceRepository.saveAndFlush(any(Attendance.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.checkIn(employeeEmail, null));
+        assertEquals("You have already checked in today", ex.getMessage());
+    }
+
+    @Test
+    void checkIn_resumeBranch_concurrentDuplicateOpenPunch_translatesToTheCleanDuplicateMessage() {
+        // The resume (existing closed record) branch's own race: two concurrent resume-check-ins
+        // both pass the Java-level open-punch scan, then the DB-level partial unique index
+        // (idx_attendance_punches_one_open_per_record, V165) rejects the second insert.
+        Attendance existing = Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .workDate(LocalDate.now()).checkInAt(LocalDateTime.now().minusHours(2))
+                .checkOutAt(LocalDateTime.now().minusHours(1)).status("PRESENT").shiftId(defaultShift.getId()).build();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.of(existing));
+        when(attendancePunchRepository.saveAndFlush(any(AttendancePunch.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.checkIn(employeeEmail, null));
+        assertEquals("You have already checked in today", ex.getMessage());
+    }
+
+    @Test
+    void checkOut_concurrentCheckout_optimisticLockConflict_propagatesUncaught_forGlobalExceptionHandlerToTranslate() {
+        // @Version's failure mode (ObjectOptimisticLockingFailureException) is translated to a
+        // clean 409 by GlobalExceptionHandler, already-established for LeaveBalance (V153). This
+        // test proves AttendanceService itself doesn't swallow or mask that exception when the
+        // final save() inside closeSession conflicts — it must propagate uncaught, exactly like
+        // any other Spring Data repository call, for that global handler to catch.
+        // Deterministic offset so "now" reads as exactly 16:00 local (comfortably inside the
+        // default 15:30-00:30 shift, no staleness/boundary edge cases) regardless of when this
+        // test actually runs — same technique as the reassignment test above.
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(16, 0).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId()));
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(15, 35));
+        Employee employeeWithZone = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).location(Location.builder().name("Test Location").timezone(offset.getId()).build())
+                .user(User.builder().id(employeeId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employeeWithZone));
+        Attendance open = Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .workDate(workDate).checkInAt(checkInAt).sessionStartedAt(checkInAt)
+                .status("PRESENT").shiftId(defaultShift.getId()).build();
+        stubOpenNormalSession(open);
+        when(attendanceRepository.save(any(Attendance.class))).thenThrow(
+                new org.springframework.orm.ObjectOptimisticLockingFailureException(Attendance.class, open.getId().toString()));
+
+        assertThrows(org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+                () -> service.checkOut(employeeEmail, null));
+    }
+
     @Test
     void checkOut_usesTheSessionsLockedInZone_ignoringADifferentBrowserZoneAtCheckoutTime() {
         // Checked in from a UTC+10:30 browser (Lord Howe Island standard time) earlier today
@@ -384,6 +1119,7 @@ class AttendanceServiceTest {
                 .lateByMinutes(0)
                 .status("PRESENT")
                 .timezone("Australia/Lord_Howe")
+                .shiftId(defaultShift.getId())
                 .build();
         stubOpenNormalSession(open);
 
@@ -423,10 +1159,11 @@ class AttendanceServiceTest {
         // requirement). ZoneId.of accepts a bare numeric offset ("+05:30" etc.) just as well as a
         // real IANA region name, so this is otherwise the exact same technique as before.
         Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
-        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
-        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        Shift overnightShift = shift("US Night Shift", LocalTime.of(20, 30), LocalTime.of(5, 30));
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
         when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(any(), any())).thenReturn(Optional.empty());
+        currentEmployeeShift = overnightShift; // the fresh check-in must resolve via this assignment
 
         AttendanceResponse resp = service.checkIn(employeeEmail, null);
 
@@ -454,8 +1191,8 @@ class AttendanceServiceTest {
         ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
 
         Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
-        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
-        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        Shift overnightShift = shift("US Night Shift", LocalTime.of(20, 30), LocalTime.of(5, 30));
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
         when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
 
         LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId()));
@@ -468,6 +1205,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(checkInAt)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(overnightShift.getId())
                 .build();
         stubOpenNormalSession(open);
 
@@ -494,8 +1232,8 @@ class AttendanceServiceTest {
         ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
 
         Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
-        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
-        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        Shift overnightShift = shift("US Night Shift", LocalTime.of(20, 30), LocalTime.of(5, 30));
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
         when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
 
         // "Now" (5:35 AM) is past midnight relative to the shift's own start (20:30 the evening
@@ -511,6 +1249,7 @@ class AttendanceServiceTest {
                 .sessionStartedAt(checkInAt)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(overnightShift.getId())
                 .build();
         stubOpenNormalSession(open);
 
@@ -537,8 +1276,8 @@ class AttendanceServiceTest {
         ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
 
         Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
-        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
-        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        Shift overnightShift = shift("US Night Shift", LocalTime.of(20, 30), LocalTime.of(5, 30));
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
 
         LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId())).minusDays(1);
@@ -551,6 +1290,7 @@ class AttendanceServiceTest {
                 .workedMinutes(5)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(overnightShift.getId())
                 .build();
         when(attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(any(), any()))
                 .thenReturn(List.of(closed));
@@ -558,7 +1298,7 @@ class AttendanceServiceTest {
         service.finalizeStatusPastShiftEnd();
 
         assertEquals("HALF_DAY", closed.getStatus());
-        verify(attendanceRepository).save(closed);
+        verify(attendanceRepository).saveAndFlush(closed);
     }
 
     /** The mirror case: shift hasn't ended yet, so the sweep must leave the record untouched. */
@@ -572,8 +1312,8 @@ class AttendanceServiceTest {
         ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
 
         Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
-        Shift overnightShift = Shift.builder().name("US Night Shift").startTime(LocalTime.of(20, 30)).endTime(LocalTime.of(5, 30)).build();
-        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).build();
+        Shift overnightShift = shift("US Night Shift", LocalTime.of(20, 30), LocalTime.of(5, 30));
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(overnightShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
 
         LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId()));
@@ -586,6 +1326,7 @@ class AttendanceServiceTest {
                 .workedMinutes(1)
                 .lateByMinutes(0)
                 .status("PRESENT")
+                .shiftId(overnightShift.getId())
                 .build();
         when(attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(any(), any()))
                 .thenReturn(List.of(closed));
@@ -594,6 +1335,105 @@ class AttendanceServiceTest {
 
         assertEquals("PRESENT", closed.getStatus(), "shift ends at 05:30 the next day — 20:36 is nowhere near over yet");
         verify(attendanceRepository, never()).save(any(Attendance.class));
+        verify(attendanceRepository, never()).saveAndFlush(any(Attendance.class));
+    }
+
+    /**
+     * Same unified-grace fix as checkOut's own version above, for the sweep path: a genuinely
+     * within-privilege arrival (5 minutes late against a 10-minute grace) must still read PRESENT
+     * once the sweep finalizes the day past its shift end — never flipped to LATE from the raw
+     * `lateByMinutes > 0` figure alone.
+     */
+    @Test
+    void finalizeStatusPastShiftEnd_checkInWithinGrace_finalizesAsPresent_neverFlipsToLateFromRawLateByMinutes() {
+        LocalDateTime utcNow = LocalDateTime.now(ZoneOffset.UTC);
+        int targetSecondOfDay = LocalTime.of(18, 5).toSecondOfDay();
+        int offsetSeconds = targetSecondOfDay - utcNow.toLocalTime().toSecondOfDay();
+        if (offsetSeconds > 18 * 3600) offsetSeconds -= 24 * 3600;
+        if (offsetSeconds < -18 * 3600) offsetSeconds += 24 * 3600;
+        ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSeconds);
+
+        Location location = Location.builder().name("Test Location").timezone(offset.getId()).build();
+        Shift dayShift = shift("Day Shift", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        Employee employee = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(dayShift).location(location).user(User.builder().id(employeeId).active(true).build()).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        LocalDate workDate = LocalDate.now(ZoneId.of(offset.getId()));
+        Attendance closed = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(9, 5)))
+                .checkOutAt(LocalDateTime.of(workDate, LocalTime.of(17, 55)))
+                .workedMinutes(530)
+                .lateByMinutes(5)
+                .status("PRESENT")
+                .shiftId(dayShift.getId())
+                .build();
+        when(attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(any(), any()))
+                .thenReturn(List.of(closed));
+
+        service.finalizeStatusPastShiftEnd();
+
+        assertEquals("PRESENT", closed.getStatus(),
+                "5 minutes late is within the shift's 10-minute allowed-late privilege — the sweep "
+                        + "must never flip it to LATE from raw lateByMinutes alone");
+    }
+
+    /**
+     * Code-review fix: a closed NO_SHIFT_ASSIGNED record (no EmployeeShiftAssignment at all) has no
+     * checkout cutoff to compare "has the shift ended" against — the sweep must leave it untouched
+     * rather than NPE on a null cutoff, and must keep processing every other candidate in the same
+     * sweep run rather than aborting the whole batch.
+     */
+    @Test
+    void finalizeStatusPastShiftEnd_noShiftAssignedRecord_leftUntouched_neverThrowsAndOthersStillProcess() {
+        Employee noShiftEmployee = noShiftEmployee();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(noShiftEmployee));
+
+        LocalDate workDate = LocalDate.now().minusDays(1);
+        Attendance noShiftRecord = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .workDate(workDate)
+                .checkInAt(LocalDateTime.of(workDate, LocalTime.of(9, 0)))
+                .checkOutAt(LocalDateTime.of(workDate, LocalTime.of(9, 30)))
+                .workedMinutes(30)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .shiftId(null)
+                .noShiftAssigned(true)
+                .build();
+
+        UUID otherEmployeeId = UUID.randomUUID();
+        Employee otherEmployee = Employee.builder().userId(otherEmployeeId).employeeCode("E2").fullName("Other Employee")
+                .shift(defaultShift).user(User.builder().id(otherEmployeeId).active(true).build()).build();
+        when(employeeRepository.findById(otherEmployeeId)).thenReturn(Optional.of(otherEmployee));
+        LocalDate otherWorkDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(3);
+        Attendance otherRecord = Attendance.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(otherEmployeeId)
+                .workDate(otherWorkDate)
+                .checkInAt(LocalDateTime.of(otherWorkDate, LocalTime.of(15, 35)))
+                .checkOutAt(LocalDateTime.of(otherWorkDate, LocalTime.of(15, 40)))
+                .workedMinutes(5)
+                .lateByMinutes(0)
+                .status("PRESENT")
+                .shiftId(defaultShift.getId())
+                .build();
+
+        when(attendanceRepository.findByStatusInAndWorkDateGreaterThanEqual(any(), any()))
+                .thenReturn(List.of(noShiftRecord, otherRecord));
+
+        assertDoesNotThrow(() -> service.finalizeStatusPastShiftEnd());
+
+        assertEquals("PRESENT", noShiftRecord.getStatus(), "no shift to derive a checkout cutoff from — must be left exactly as is");
+        verify(attendanceRepository, never()).saveAndFlush(noShiftRecord);
+        // The other (properly shifted) record in the same sweep run must still be finalized —
+        // the NO_SHIFT_ASSIGNED record must not abort the whole batch.
+        assertEquals("HALF_DAY", otherRecord.getStatus());
+        verify(attendanceRepository).saveAndFlush(otherRecord);
     }
 
     // ---------------------------------------------------------------- break minutes
@@ -637,7 +1477,7 @@ class AttendanceServiceTest {
                 .id(UUID.randomUUID()).employeeUserId(employeeId).workDate(workDate)
                 .requestedCheckIn(LocalDateTime.of(workDate, LocalTime.of(22, 7)))
                 .checkedOutAt(LocalDateTime.of(workDate, LocalTime.of(22, 8)))
-                .reason("test").status("PENDING").build();
+                .reason("test").build();
         when(webClockInRequestRepository.findByEmployeeUserIdAndWorkDateOrderByRequestedCheckInAsc(employeeId, workDate))
                 .thenReturn(List.of(webCycle));
 

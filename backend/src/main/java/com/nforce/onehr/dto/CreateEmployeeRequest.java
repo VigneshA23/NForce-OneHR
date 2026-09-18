@@ -23,6 +23,7 @@ public class CreateEmployeeRequest {
 
     private String employeeCode;
 
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID locationId;
@@ -34,4 +35,22 @@ public class CreateEmployeeRequest {
     private LocalDate joiningDate;
 
     private UUID managerId;
+
+    // Code-review corrective pass, finding 10: optional, added so this path can support the same
+    // initial Shift assignment UserManagementService#createUser already offers — omitting it
+    // (the pre-existing behavior for every caller before this field existed) still leaves the
+    // employee shift-less, exactly as before. See EmployeeService#createEmployee's own comment
+    // for how a selected Shift here becomes an EmployeeShiftAssignment.
+    private UUID shiftId;
+
+    // Required whenever shiftId is set (validated in EmployeeService#createEmployee) — the exact
+    // date the admin chose in the Effective From picker. Today and any future date are valid; a
+    // past date is rejected. Never derived from joiningDate or "next working day."
+    private LocalDate effectiveFrom;
+
+    // Deliberately NO timezone field — the finalized Location/Timezone model derives an
+    // employee's effective attendance timezone entirely from their assigned Location (see
+    // Employee's own class Javadoc). locationId above is the only timezone-relevant input; an
+    // invalid, inactive, or timezone-less Location is rejected server-side rather than silently
+    // falling back to something else — see EmployeeService#validateAssignableLocation.
 }

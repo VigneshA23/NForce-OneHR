@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Clock, Calendar, TrendingUp, UserCheck, X,
@@ -28,6 +28,7 @@ import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -225,7 +226,7 @@ function JoinersChart({ joiners, title = 'Team Joiners per Month', description =
         style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', cursor: 'pointer' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             {title}
           </span>
           <span style={{ fontSize: 11, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 8px' }}>
@@ -286,7 +287,7 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
         style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 880, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             {modalTitle}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
@@ -334,7 +335,7 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
                 <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>
                   {j.designationName ?? '—'}{j.departmentName ? ` · ${j.departmentName}` : ''}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{j.employeeCode}</div>
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{j.employeeCode}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--brand)', marginTop: 6 }}>
                   Joined team: {new Date(j.joinedTeamOn).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
@@ -347,14 +348,30 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
   );
 }
 
-function EmployeeLink({ userId, name }: { userId: string; name: string }) {
+// Same avatar + bold name + employee code identity block People Directory's table rows use
+// (see DirectoryPage's Avatar/row-cell styling) — replaces the plain underlined-red name link
+// this used to be, so an employee "card" here reads the same way it does everywhere else in the
+// app. Still navigates to the same Directory detail-panel deep link on click.
+function EmployeeCard({ userId, name, code }: { userId: string; name: string; code?: string | null }) {
   const navigate = useNavigate();
   return (
     <button
       onClick={() => navigate(`/directory?userId=${userId}`)}
-      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left', fontSize: 13, fontWeight: 600, color: 'var(--brand)', textDecoration: 'underline' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
     >
-      {name}
+      <EmployeeAvatar
+        userId={userId}
+        name={name}
+        size={34}
+        fontSize={34 * 0.33}
+        background="rgba(177,17,22,.18)"
+        color="#e4373d"
+        style={{ fontFamily: 'Inter, sans-serif' }}
+      />
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{name}</div>
+        {code && <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 1 }}>{code}</div>}
+      </div>
     </button>
   );
 }
@@ -371,7 +388,7 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             Present Today — {scopeLabel} ({present.length})
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
@@ -385,12 +402,12 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0' }}>No one has checked in yet today.</div>
           ) : present.map(r => (
             <div key={r.employeeUserId} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <EmployeeLink userId={r.employeeUserId} name={r.fullName} />
-                <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace', marginTop: 2 }}>{r.employeeCode}</div>
-              </div>
+              <EmployeeCard userId={r.employeeUserId} name={r.fullName} code={r.employeeCode} />
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.checkInAt) ?? '—'}</div>
+                {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to the
+                    day's first one and never updated on a same-day checkout+checkin resume — see
+                    AttendanceService.checkIn. Same fallback as AttendanceHeroBanner/AttendancePage. */}
+                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.sessionStartedAt ?? r.checkInAt) ?? '—'}</div>
                 {r.status === 'LATE' && (
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
                     Late{r.lateByMinutes ? ` by ${formatWorkedMinutes(r.lateByMinutes)}` : ''}
@@ -420,8 +437,8 @@ function LeaveSection({ title, accent, rows }: { title: string; accent: string; 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {rows.map(r => (
             <div key={r.id} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
-              <EmployeeLink userId={r.employeeUserId} name={r.employeeName} />
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>
+              <EmployeeCard userId={r.employeeUserId} name={r.employeeName} code={r.employeeCode} />
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 6 }}>
                 {r.leaveTypeName} · {new Date(r.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 {r.startDate !== r.endDate ? ` – ${new Date(r.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
               </div>
@@ -446,7 +463,7 @@ function OnLeaveModal({ rows, loading, scopeLabel, onClose }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
             On Leave Today — {scopeLabel} ({rows.length})
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}>
@@ -475,14 +492,35 @@ type DashboardScope = 'manager' | 'hr';
 function useTeamAttendanceToday(token: string, scope: DashboardScope) {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  // Overlap guard for the 60s periodic refresh below (same in-flight/queued-ref coalescing
+  // pattern as AttendancePage's refreshLeaves) — if a slow request is still pending when the
+  // next tick fires, queue one more retry instead of piling up concurrent requests.
+  const inFlightRef = useRef(false);
+  const queuedRef = useRef(false);
 
-  useEffect(() => {
+  const load = useCallback((opts?: { silent?: boolean }) => {
+    if (inFlightRef.current) { queuedRef.current = true; return; }
+    inFlightRef.current = true;
+    if (!opts?.silent) setLoading(true);
     const fetchToday = scope === 'hr' ? attendanceApi.day : attendanceApi.team;
     fetchToday(todayIsoDate(), token)
       .then(setRecords)
-      .catch(() => setRecords([]))
-      .finally(() => setLoading(false));
+      .catch(() => { if (!opts?.silent) setRecords([]); })
+      .finally(() => {
+        setLoading(false);
+        inFlightRef.current = false;
+        if (queuedRef.current) { queuedRef.current = false; load({ silent: true }); }
+      });
   }, [token, scope]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Background refresh only — no loading spinner is toggled on these ticks (see load's
+  // `silent` guard), so a long-open tab keeps this stat current without flashing "—".
+  useEffect(() => {
+    const id = setInterval(() => load({ silent: true }), 60000);
+    return () => clearInterval(id);
+  }, [load]);
 
   return { records, loading };
 }
@@ -507,30 +545,51 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
   const [showPresentModal, setShowPresentModal] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
 
-  useEffect(() => {
+  // Overlap guard for the 60s periodic refresh below — same in-flight/queued-ref coalescing
+  // pattern as AttendancePage's refreshLeaves, so a slow response doesn't pile up requests.
+  const inFlightRef = useRef(false);
+  const queuedRef = useRef(false);
+
+  const loadTeamDashboardData = useCallback((opts?: { silent?: boolean }) => {
+    if (inFlightRef.current) { queuedRef.current = true; return; }
+    inFlightRef.current = true;
+    const silent = opts?.silent ?? false;
+    if (!silent) { setLoading(true); setOnLeaveLoading(true); }
+
     const fetchDashboard = isHr ? dashboardApi.hrDashboard : dashboardApi.managerDashboard;
-    fetchDashboard(token)
-      .then(setData)
-      .catch(e => setError(e instanceof Error ? e.message : `Failed to load ${isHr ? 'organization' : 'team'} data`))
-      .finally(() => setLoading(false));
+    const fetchOnLeave = isHr ? leaveApi.organization : leaveApi.team;
+    const today = todayIsoDate();
+
+    Promise.all([
+      fetchDashboard(token)
+        .then(d => { setData(d); setError(''); })
+        // Keep whatever dashboard data is already showing on a background refresh failure;
+        // only surface the error message on the initial (non-silent) load.
+        .catch(e => { if (!silent) setError(e instanceof Error ? e.message : `Failed to load ${isHr ? 'organization' : 'team'} data`); }),
+      fetchOnLeave(today, today, token)
+        .then(setOnLeaveRows)
+        .catch(() => { if (!silent) setOnLeaveRows([]); }),
+      leaveApi.listApprovals(token)
+        .then(rows => setPendingLeaveCount(rows.length))
+        .catch(() => { if (!silent) setPendingLeaveCount(0); }),
+    ]).finally(() => {
+      setLoading(false);
+      setOnLeaveLoading(false);
+      inFlightRef.current = false;
+      if (queuedRef.current) { queuedRef.current = false; loadTeamDashboardData({ silent: true }); }
+    });
   }, [token, isHr]);
 
+  useEffect(() => { loadTeamDashboardData(); }, [loadTeamDashboardData]);
+
+  // Background refresh only — no loading state is toggled on these ticks (silent: true), so
+  // stat tiles update quietly instead of flashing back to "—" every 60s.
   useEffect(() => {
-    const today = todayIsoDate();
-    const fetchOnLeave = isHr ? leaveApi.organization : leaveApi.team;
-    fetchOnLeave(today, today, token)
-      .then(setOnLeaveRows)
-      .catch(() => setOnLeaveRows([]))
-      .finally(() => setOnLeaveLoading(false));
-  }, [token, isHr]);
+    const id = setInterval(() => loadTeamDashboardData({ silent: true }), 60000);
+    return () => clearInterval(id);
+  }, [loadTeamDashboardData]);
 
   const onLeaveCount = useMemo(() => new Set(onLeaveRows.map(r => r.employeeUserId)).size, [onLeaveRows]);
-
-  useEffect(() => {
-    leaveApi.listApprovals(token)
-      .then(rows => setPendingLeaveCount(rows.length))
-      .catch(() => setPendingLeaveCount(0));
-  }, [token]);
 
   const firstName = user?.fullName ?? user?.email?.split('@')[0] ?? (isHr ? 'there' : 'Manager');
   const presentCount = teamToday.filter(r => r.checkInAt).length;
@@ -539,7 +598,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Welcome back, {firstName}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{isHr ? 'HR Dashboard' : 'Manager Dashboard'}</p>
@@ -557,7 +616,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
               {isHr ? 'Total Employees' : 'Direct Reports'}
             </span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {loading ? '—' : error ? '—' : (data?.directReportCount ?? 0)}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
@@ -570,7 +629,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             <UserCheck size={14} style={{ color: 'var(--ok)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Active</span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {loading ? '—' : error ? '—' : (data?.directReports.filter(r => r.active).length ?? 0)}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
@@ -586,7 +645,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             <Clock size={14} style={{ color: 'var(--brand)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Present Today</span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {teamLoading ? '—' : `${presentCount}/${teamToday.length}`}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today · view list →</div>
@@ -600,7 +659,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             <Calendar size={14} style={{ color: 'var(--brand)' }} />
             <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>On Leave</span>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
             {onLeaveLoading ? '—' : onLeaveCount}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
@@ -612,7 +671,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
               {isHr ? 'All Employees' : 'Your Team'}
             </span>
           </div>
@@ -657,7 +716,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
                     <tr key={r.userId} style={{ borderBottom: '1px solid var(--line)', ...inactiveDimStyle(r.active) }}>
                       <td style={{ padding: '10px 14px', fontSize: 12.5, overflow: 'hidden' }}>
                         <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 1, overflowWrap: 'break-word' }}>{r.fullName}</div>
-                        <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: '"JetBrains Mono", monospace' }}>{r.employeeCode}</div>
+                        <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</div>
                       </td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{r.designationName ?? '—'}</td>
                       {isHr && (
@@ -831,6 +890,15 @@ const SUPER_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
 
 // ── Stat tiles ───────────────────────────────────────────────────────────────────
 
+// Shared by the "Leave remaining" stat tile and the Leave Balance donut so the two
+// numbers can never diverge: entries with no configured quota (totalDays <= 0) are
+// excluded, and any negative remainingDays is clamped to 0 before summing.
+function usableRemaining(balances: LeaveBalance[]): number {
+  return balances
+    .filter(b => b.totalDays > 0)
+    .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0);
+}
+
 function EmployeeStatTiles({
   stats, balances, statsLoading,
 }: {
@@ -839,7 +907,7 @@ function EmployeeStatTiles({
   statsLoading: boolean;
 }) {
   const totalLeaveRemaining = useMemo(
-    () => balances.reduce((sum, b) => sum + (b.remainingDays ?? 0), 0),
+    () => usableRemaining(balances),
     [balances]
   );
 
@@ -891,7 +959,7 @@ function EmployeeStatTiles({
           </div>
           <div style={{
             fontSize: 28, fontWeight: 700, color: accent, lineHeight: 1, marginBottom: 6,
-            fontFamily: '"Space Grotesk", sans-serif', fontVariantNumeric: 'tabular-nums',
+            fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums',
           }}>
             {value}
           </div>
@@ -966,7 +1034,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
 
   return (
     <div className="nf-atn-cal-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 18 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 18 }}>
         Attendance Calendar
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -979,7 +1047,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
           >
             <ChevronLeft size={13} /> Prev
           </button>
-          <span style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <span style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             {monthLabel}
           </span>
           <button
@@ -1070,7 +1138,7 @@ const LEAVE_DONUT_COLORS = { available: '#7A0C10', consumed: '#E8B4B6' };
 function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
   const configured = useMemo(() => balances.filter(b => b.totalDays > 0), [balances]);
 
-  const totalRemaining = configured.reduce((s, b) => s + Math.max(0, Number(b.remainingDays)), 0);
+  const totalRemaining = usableRemaining(balances);
   const totalQuota = configured.reduce((s, b) => s + Number(b.totalDays), 0);
   const totalConsumed = Math.max(0, totalQuota - totalRemaining);
   const data = [
@@ -1082,7 +1150,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
 
   return (
     <div className="nf-leave-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
         Leave Balance
       </div>
 
@@ -1128,7 +1196,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
               }}>
-                <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+                <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
                   {totalRemaining}
                 </span>
                 <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>days left</span>
@@ -1140,7 +1208,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: LEAVE_DONUT_COLORS.available, flexShrink: 0 }} />
               <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)' }}>Available</span>
-              <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
+              <span style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
                 {totalRemaining}d
               </span>
               <span style={{ fontSize: 10, color: 'var(--txt-dim)', minWidth: 48, textAlign: 'right' }}>
@@ -1150,7 +1218,7 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: LEAVE_DONUT_COLORS.consumed, flexShrink: 0 }} />
               <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)' }}>Consumed/Reserved</span>
-              <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
+              <span style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 40, textAlign: 'right' }}>
                 {totalConsumed}d
               </span>
               <span style={{ fontSize: 10, color: 'var(--txt-dim)', minWidth: 48, textAlign: 'right' }}>
@@ -1177,7 +1245,6 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
   const REQ_LABEL: Record<string, string> = {
     LEAVE:         'Leave request',
     REGULARIZATION:'Regularization',
-    WEB_CLOCK_IN:  'Web clock-in',
     WFH:           'WFH request',
     PARTIAL_DAY:   'Partial day',
     OVERTIME:      'Overtime',
@@ -1186,7 +1253,7 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
   if (actionItems.length === 0) {
     return (
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
           Action Needed
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 0' }}>
@@ -1201,7 +1268,7 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <AlertTriangle size={14} style={{ color: 'var(--risk)', flexShrink: 0 }} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Action Needed
         </span>
         <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: 'color-mix(in srgb, var(--risk) 12%, transparent)', color: 'var(--risk)' }}>
@@ -1255,7 +1322,6 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
   const REQ_LABEL: Record<string, string> = {
     LEAVE:         'Leave',
     REGULARIZATION:'Regularization',
-    WEB_CLOCK_IN:  'Web Clock-In',
     WFH:           'WFH',
     PARTIAL_DAY:   'Partial Day',
     OVERTIME:      'Overtime',
@@ -1279,7 +1345,7 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
 
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
         My Recent Requests
       </div>
       {recent.length === 0 ? (
@@ -1348,7 +1414,7 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
 
   return (
     <div className="nf-holiday-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
         Upcoming Holidays
       </div>
       {upcoming.length === 0 ? (
@@ -1380,7 +1446,7 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
                     <span className="nf-holiday-month" style={{ fontSize: 8, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', lineHeight: 1 }}>
                       {d.toLocaleDateString('en-US', { month: 'short' })}
                     </span>
-                    <span className="nf-holiday-day" style={{ fontSize: 18, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt)', lineHeight: 1.1, fontFamily: '"Space Grotesk", sans-serif' }}>
+                    <span className="nf-holiday-day" style={{ fontSize: 18, fontWeight: 700, color: soon ? 'var(--brand)' : 'var(--txt)', lineHeight: 1.1, fontFamily: 'Inter, sans-serif' }}>
                       {d.getDate()}
                     </span>
                   </div>
@@ -1427,18 +1493,48 @@ function EmployeeDashboardView() {
   const [holidays, setHolidays]       = useState<HolidayRow[]>([]);
   const [config, setConfig]           = useState<AttendanceConfig | null>(null);
 
-  useEffect(() => {
+  // Overlap guard for the 60s periodic refresh below — same in-flight/queued-ref coalescing
+  // pattern as AttendancePage's refreshLeaves, so a slow response doesn't pile up requests.
+  const inFlightRef = useRef(false);
+  const queuedRef = useRef(false);
+
+  // Feeds the EmployeeStatTiles row (presentDays/avgHours/onTime + the leave-remaining tile) —
+  // pulled out of the mount-only effect below so it can also be re-run on a 60s interval.
+  const loadEmployeeStats = useCallback((opts?: { silent?: boolean }) => {
+    if (inFlightRef.current) { queuedRef.current = true; return; }
+    inFlightRef.current = true;
+    const silent = opts?.silent ?? false;
+    if (!silent) setStatsLoading(true);
+
     const today = todayIsoDate();
     const from  = `${today.slice(0, 8)}01`;
-    attendanceApi.stats(from, today, token)
-      .then(setStats)
-      .catch(() => {})
-      .finally(() => setStatsLoading(false));
-    leaveApi.listBalances(token).then(setBalances).catch(() => {});
+
+    Promise.all([
+      attendanceApi.stats(from, today, token).catch(() => null),
+      leaveApi.listBalances(token).catch(() => null),
+    ]).then(([s, b]) => {
+      if (s) setStats(s);
+      if (b) setBalances(b);
+    }).finally(() => {
+      setStatsLoading(false);
+      inFlightRef.current = false;
+      if (queuedRef.current) { queuedRef.current = false; loadEmployeeStats({ silent: true }); }
+    });
+  }, [token]);
+
+  useEffect(() => {
+    loadEmployeeStats();
     myRequestsApi.list(token).then(setRequests).catch(() => {});
     holidaysApi.listForMyLocation(token).then(setHolidays).catch(() => {});
     attendanceApi.config(token).then(setConfig).catch(() => {});
-  }, [token]);
+  }, [token, loadEmployeeStats]);
+
+  // Background refresh only — no loading state is toggled on these ticks (silent: true), so
+  // the stat tiles update quietly instead of flashing back to "—" every 60s.
+  useEffect(() => {
+    const id = setInterval(() => loadEmployeeStats({ silent: true }), 60000);
+    return () => clearInterval(id);
+  }, [loadEmployeeStats]);
 
   const today = new Date();
   const dateLabel = today.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -1447,7 +1543,7 @@ function EmployeeDashboardView() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
       <div>
-        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {greetingPrefix()}, {firstName}.
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-dim)' }}>{dateLabel}</p>
@@ -1495,12 +1591,12 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const APPROVAL_TYPE_COLORS: Record<string, string> = {
-  LEAVE: '#4E9EE8', REGULARIZATION: '#2FB67C', WEB_CLOCK_IN: '#E0A93B',
+  LEAVE: '#4E9EE8', REGULARIZATION: '#2FB67C',
   EXPENSE: '#8B5CF6', ASSET_REQUEST: '#F97316', WFH: '#EC4899',
   PARTIAL_DAY: '#14B8A6', OVERTIME: '#6366F1', HELP_CONTENT: '#6B7280',
 };
 const APPROVAL_TYPE_LABELS: Record<string, string> = {
-  LEAVE: 'Leave', REGULARIZATION: 'Regularization', WEB_CLOCK_IN: 'Web Clock-In',
+  LEAVE: 'Leave', REGULARIZATION: 'Regularization',
   EXPENSE: 'Expense', ASSET_REQUEST: 'Asset Request', WFH: 'WFH',
   PARTIAL_DAY: 'Partial Day', OVERTIME: 'Overtime', HELP_CONTENT: 'Document Review',
 };
@@ -1516,7 +1612,11 @@ function SuperAdminDashboardView() {
   const firstName = user?.fullName ?? user?.email?.split('@')[0] ?? 'there';
 
   const [allUsers,           setAllUsers]           = useState<EmployeeRecord[]>([]);
-  const [todayRecords,       setTodayRecords]       = useState<{ checkInAt: string | null }[]>([]);
+  // attendanceApi.day already returns full AttendanceRecord rows (same call TeamDashboardView's
+  // useTeamAttendanceToday makes for scope 'hr') — widened from the checkInAt-only shape this
+  // used to be typed as, so the Present Today tile can open the same PresentTodayModal.
+  const [todayRecords,       setTodayRecords]       = useState<AttendanceRecord[]>([]);
+  const [showPresentModal,   setShowPresentModal]   = useState(false);
   const [pendingItems,       setPendingItems]       = useState<ApprovalItem[]>([]);
   const [auditStats,         setAuditStats]         = useState<AuditLogStats | null>(null);
   const [recentAudit,        setRecentAudit]        = useState<AuditLogEntry[]>([]);
@@ -1531,7 +1631,16 @@ function SuperAdminDashboardView() {
   const pendingDonutRef = useRef<HTMLDivElement>(null);
   const roleDonutRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Overlap guard for the 60s periodic refresh below — same in-flight/queued-ref coalescing
+  // pattern as AttendancePage's refreshLeaves, so a slow response doesn't pile up requests.
+  const inFlightRef = useRef(false);
+  const queuedRef = useRef(false);
+
+  const loadSuperAdminData = useCallback((opts?: { silent?: boolean }) => {
+    if (inFlightRef.current) { queuedRef.current = true; return; }
+    inFlightRef.current = true;
+    if (!opts?.silent) setLoading(true);
+
     const today = todayIsoDate();
     const now = new Date();
     const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
@@ -1543,17 +1652,17 @@ function SuperAdminDashboardView() {
       auditApi.stats({}, token).catch(() => null),
       auditApi.list({}, 0, 8, token).catch(() => ({ content: [] as AuditLogEntry[] })),
       getAdminKpis(token).catch(() => null),
-      assetsApi.listAll(token).catch(() => [] as import('../api/assets').AssetResponse[]),
+      assetsApi.count(token).catch(() => ({ count: 0 })),
       auditApi.list({ action: 'PASSWORD_RESET', from: monthStartStr }, 0, 1, token).catch(() => ({ totalElements: 0 })),
       auditApi.exportAll({ action: 'USER_UPDATED', from: monthStartStr }, token).catch(() => [] as AuditLogEntry[]),
     ]).then(([users, attn, pending, stats, auditPage, kpis, assets, pwResetPage, userUpdated]) => {
       setAllUsers(users as EmployeeRecord[]);
-      setTodayRecords(attn as { checkInAt: string | null }[]);
+      setTodayRecords(attn as AttendanceRecord[]);
       setPendingItems(pending as ApprovalItem[]);
       setAuditStats(stats as AuditLogStats | null);
       setRecentAudit((auditPage as { content: AuditLogEntry[] }).content);
       setDocKpis(kpis as DocumentAdminKpi | null);
-      setTotalAssets((assets as import('../api/assets').AssetResponse[]).length);
+      setTotalAssets((assets as { count: number }).count);
       setPasswordResetsMonth((pwResetPage as { totalElements: number }).totalElements);
       const roleChanges = (userUpdated as AuditLogEntry[]).filter(e => {
         try {
@@ -1563,18 +1672,32 @@ function SuperAdminDashboardView() {
         } catch { return false; }
       }).length;
       setRoleChangesMonth(roleChanges);
-    }).finally(() => setLoading(false));
+    }).finally(() => {
+      setLoading(false);
+      inFlightRef.current = false;
+      if (queuedRef.current) { queuedRef.current = false; loadSuperAdminData({ silent: true }); }
+    });
   }, [token]);
+
+  useEffect(() => { loadSuperAdminData(); }, [loadSuperAdminData]);
+
+  // Background refresh only — no loading spinner is toggled on these ticks (silent: true), so
+  // this heavy multi-source dataset updates quietly instead of blanking the whole view every 60s.
+  useEffect(() => {
+    const id = setInterval(() => loadSuperAdminData({ silent: true }), 60000);
+    return () => clearInterval(id);
+  }, [loadSuperAdminData]);
 
   const activeUsers   = allUsers.filter(u => u.active).length;
   const inactiveUsers = allUsers.filter(u => !u.active).length;
   const presentCount  = todayRecords.filter(r => r.checkInAt).length;
   const pendingCount  = pendingItems.length;
 
-  const monthStart = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-  }, []);
+  // Computed fresh on every render (not memoized) so a long-open tab doesn't keep
+  // reporting a stale month boundary after a month rollover. Cheap: a single
+  // `new Date()` and two Date calls.
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
   const pendingByType = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1618,29 +1741,36 @@ function SuperAdminDashboardView() {
       icon: <Users size={16} />,
       label: 'Total Users',
       value: loading ? '—' : String(allUsers.length),
-      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive`,
+      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
       accent: '#4E9EE8',
+      onClick: () => navigate('/directory'),
     },
     {
       icon: <UserCheck size={16} />,
       label: 'Present Today',
       value: loading ? '—' : `${presentCount}/${todayRecords.length}`,
-      sub: 'org-wide check-ins',
+      sub: 'org-wide check-ins · view list →',
       accent: '#2FB67C',
+      onClick: () => setShowPresentModal(true),
     },
     {
       icon: <Package size={16} />,
       label: 'Total Assets',
       value: loading ? '—' : totalAssets === null ? '—' : String(totalAssets),
-      sub: 'company-wide inventory',
+      sub: 'company-wide inventory · view inventory →',
       accent: '#F97316',
+      onClick: () => navigate('/assets'),
     },
     {
       icon: <ShieldCheck size={16} />,
       label: 'Audit Events Today',
       value: loading ? '—' : auditStats ? String(auditStats.todayCount) : '—',
-      sub: 'security events logged',
+      sub: 'security events logged · view log →',
       accent: '#B11116',
+      onClick: () => {
+        const today = todayIsoDate();
+        navigate(`/audit?from=${today}&to=${today}`);
+      },
     },
   ];
 
@@ -1651,7 +1781,7 @@ function SuperAdminDashboardView() {
   };
   const cardTitle = (text: string) => (
     <div style={{ marginBottom: 14 }}>
-      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
         {text}
       </span>
     </div>
@@ -1660,7 +1790,7 @@ function SuperAdminDashboardView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 3, fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {greetingPrefix()}, {firstName}.
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-dim)' }}>Super Admin Dashboard</p>
@@ -1670,10 +1800,14 @@ function SuperAdminDashboardView() {
 
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
 
-      {/* Row 2 — Stat tiles */}
+      {/* Row 2 — Stat tiles, each clickable through to its detail view */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        {statTiles.map(({ icon, label, value, sub, accent }) => (
-          <div key={label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
+        {statTiles.map(({ icon, label, value, sub, accent, onClick }) => (
+          <button
+            key={label}
+            onClick={onClick}
+            style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
+          >
             <div style={{
               width: 34, height: 34, borderRadius: 8, marginBottom: 12,
               background: `color-mix(in srgb, ${accent} 12%, var(--raised2))`,
@@ -1683,13 +1817,13 @@ function SuperAdminDashboardView() {
             </div>
             <div style={{
               fontSize: 28, fontWeight: 700, color: accent, lineHeight: 1, marginBottom: 6,
-              fontFamily: '"Space Grotesk", sans-serif', fontVariantNumeric: 'tabular-nums',
+              fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums',
             }}>
               {value}
             </div>
             <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 500, marginBottom: 2 }}>{label}</div>
             <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{sub}</div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -1741,7 +1875,7 @@ function SuperAdminDashboardView() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                    <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{pendingCount}</span>
+                    <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{pendingCount}</span>
                     <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>pending</span>
                   </div>
                 </div>
@@ -1815,7 +1949,7 @@ function SuperAdminDashboardView() {
                   borderTop: i === 0 ? 'none' : '1px solid var(--line)',
                 }}>
                   <div style={{
-                    fontSize: 22, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif',
+                    fontSize: 22, fontWeight: 700, fontFamily: 'Inter, sans-serif',
                     fontVariantNumeric: 'tabular-nums', color: row.color,
                     minWidth: 32, lineHeight: 1,
                   }}>
@@ -1833,7 +1967,7 @@ function SuperAdminDashboardView() {
 
         {/* Users by Role — UNCHANGED */}
         <div className="nf-leave-panel" style={{ ...cardStyle, gap: 16 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             Users by Role
           </div>
           {loading || roleData.length === 0 ? (
@@ -1879,7 +2013,7 @@ function SuperAdminDashboardView() {
                     position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                     alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
                   }}>
-                    <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
                       {allUsers.length}
                     </span>
                     <span style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>total</span>
@@ -1893,7 +2027,7 @@ function SuperAdminDashboardView() {
                     <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.name}
                     </span>
-                    <span style={{ fontSize: 12, fontFamily: '"JetBrains Mono", monospace', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 24, textAlign: 'right' }}>
+                    <span style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums', color: 'var(--txt)', fontWeight: 600, minWidth: 24, textAlign: 'right' }}>
                       {item.value}
                     </span>
                   </div>
@@ -1906,7 +2040,7 @@ function SuperAdminDashboardView() {
 
       {/* Recent Audit Events — UNCHANGED */}
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', marginBottom: 14 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
           Recent Audit Events
         </div>
         {loading ? (
@@ -1959,6 +2093,15 @@ function SuperAdminDashboardView() {
           View all in Audit & Security →
         </button>
       </div>
+
+      {showPresentModal && (
+        <PresentTodayModal
+          records={todayRecords}
+          loading={loading}
+          scopeLabel="Organization"
+          onClose={() => setShowPresentModal(false)}
+        />
+      )}
     </div>
   );
 }

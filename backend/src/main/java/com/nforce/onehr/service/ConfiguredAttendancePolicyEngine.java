@@ -29,10 +29,13 @@ import java.util.Optional;
  * matched rule's configured {@code deductionDays} on {@link PolicyDecision#getDeductionDays()},
  * which {@link AttendancePenaltyEvaluationService} copies onto
  * {@link com.nforce.onehr.entity.AttendancePenalty#getDeductionDays()} — a real, persisted
- * execution path, not stored-but-unused configuration. {@code deductionPerShifts}/
- * {@code deductionMode} remain rate/aggregation *descriptions* of that same amount (every
- * approved-screenshot example uses "per 1 shift", so no multi-shift batching is implemented — see
- * {@link PolicyDecision} class javadoc). No field is stored and silently ignored by this engine.
+ * execution path, not stored-but-unused configuration. {@code mlDeductionMode}/
+ * {@code mlDeductionPerShifts} ({@link #isMissingLogDeductionDueThisOccurrence}) and
+ * {@code laDeductionPerShifts} ({@link #isLateArrivalDeductionDueThisOccurrence}) are both real
+ * occurrence-batching gates, not cosmetic rate descriptions — with {@code deductionPerShifts}
+ * defaulting to 1 (every pre-existing policy's implicit value), batching is a no-op and every
+ * occurrence past the exempt count is penalized exactly as before. No field is stored and
+ * silently ignored by this engine.
  *
  * <p><b>Phase 2 note on "Total Late Hours in Shift" (Section 31) vs "Total Hours" basis (Section
  * 25/29):</b> both are modeled as ONE mechanism here —
@@ -96,9 +99,15 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         if (ctx.getLateMinutes() == null) {
             return configurationRequired(v, "lateMinutes fact is required to evaluate Late Arrival.");
         }
-        if (v.getLaGracePeriodMinutes() != null && ctx.getLateMinutes() <= v.getLaGracePeriodMinutes()) {
-            return noMatch(v.getPolicyId(), v.getVersion(), "Late minutes are within the configured grace period.");
-        }
+        // Deliberately NOT re-applying v.getLaGracePeriodMinutes() as a second, independently-
+        // configured grace here. There is exactly one allowed-late privilege — the assigned Shift's
+        // own ShiftVersion.lateGraceMinutes — and it is already the sole reason this evaluation is
+        // even reached: ExceptionService only ever calls into this engine for a LATE_ARRIVAL
+        // discrepancy once Attendance.status is genuinely LATE against that shift grace (see
+        // ExceptionService#detectExceptions). Re-checking a second, separately configured grace
+        // here would let a Penalization Policy silently override (widen OR narrow) the shift's own
+        // privilege for the exact same occurrence — the two-grace duplication this engine used to
+        // have, now unified onto the shift as the single source of truth.
         if (v.isLaIgnoreWhenEffectiveHoursMetEnabled()
                 && ctx.getEffectiveHoursPercent() != null && ctx.getEffectiveHoursPercent() >= 100.0) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Employee completed full effective hours despite late arrival.");
@@ -126,13 +135,14 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
     private PolicyDecision evaluateLateArrivalByIncidents(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
         // "Exempt N late arrival(s) in a Month" — lateArrivalCountInPeriod is this occurrence's
         // running count for the period, inclusive of itself (see PolicyEvaluationContext javadoc);
-        // "Post N late arrivals, deduct..." means the (N+1)th occurrence is the first one penalized.
-        boolean incidentExceeded = v.getLaExemptCount() == null || ctx.getLateArrivalCountInPeriod() == null
-                || ctx.getLateArrivalCountInPeriod() > v.getLaExemptCount();
+        // "Post N late arrivals, deduct..." means the (N+1)th occurrence is the first one penalized,
+        // batched every laDeductionPerShifts occurrences past that point — see
+        // isLateArrivalDeductionDueThisOccurrence.
+        boolean incidentDeductionDue = isLateArrivalDeductionDueThisOccurrence(v, ctx);
         Optional<PenalizationPolicyLateHoursTier> matchedTotalHoursTier = matchTotalHoursTier(v, ctx);
         boolean totalHoursExceeded = matchedTotalHoursTier.isPresent();
 
-        if (!incidentExceeded && !totalHoursExceeded) {
+        if (!incidentDeductionDue && !totalHoursExceeded) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Late arrival occurrence is within the exempt count for this period.");
         }
         if (isRegularized(ctx)) {
@@ -144,7 +154,7 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         // AttendancePenalty row is ever recorded per (employee, date, discrepancy type)
         // (AttendancePenaltyEvaluationService's duplicate guard), so "BOTH" combines both
         // configured amounts into that one row rather than attempting two separate rows.
-        if (incidentExceeded && totalHoursExceeded) {
+        if (incidentDeductionDue && totalHoursExceeded) {
             BigDecimal totalHoursAmount = matchedTotalHoursTier.get().getDeductionDays();
             if ("BOTH".equals(v.getLaCombinedRuleBehavior())) {
                 BigDecimal combined = (v.getLaDeductionDays() == null ? BigDecimal.ZERO : v.getLaDeductionDays())
@@ -160,6 +170,36 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
                     "Total late hours in the period exceed a configured tier.");
         }
         return decideApplyPenalty(v, ctx, v.getLaDeductionDays(), "Late minutes exceed the configured grace period.");
+    }
+
+    /**
+     * Section 21: consumes {@code laDeductionPerShifts} — previously stored and versioned but
+     * never read by this engine (unlike its Missing Logs sibling, {@code mlDeductionPerShifts},
+     * already consumed by {@link #isMissingLogDeductionDueThisOccurrence}). Late Arrival has no
+     * {@code laDeductionMode} toggle, so this always applies PER_SHIFT-style batching: with
+     * {@code deductionPerShifts} defaulting to 1, this is identical to every pre-existing policy's
+     * behavior (a deduction on every incident-basis occurrence past the exempt count), preserving
+     * backward compatibility for policies saved before this field was consumed. Only gates the
+     * plain incident-count case above — the total-late-hours tier match is its own independent
+     * mechanism, not occurrence-counted.
+     */
+    private boolean isLateArrivalDeductionDueThisOccurrence(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        // Preserves the pre-existing incidentExceeded short-circuit exactly: no configured exempt
+        // count (or no count fact available) always applies, regardless of the occurrence count's
+        // actual value — unlike Missing Logs, Late Arrival's original gate never treated a null
+        // exempt count as "0 exempt" (see the equivalent boolean this replaces, previously
+        // `laExemptCount == null || count == null || count > laExemptCount`). Only once an exempt
+        // count is actually configured does "occurrences past it" become a meaningful basis to
+        // batch by deductionPerShifts.
+        if (v.getLaExemptCount() == null || ctx.getLateArrivalCountInPeriod() == null) {
+            return true;
+        }
+        int occurrencesPastExempt = ctx.getLateArrivalCountInPeriod() - v.getLaExemptCount();
+        if (occurrencesPastExempt <= 0) {
+            return false;
+        }
+        int perShifts = v.getLaDeductionPerShifts() != null && v.getLaDeductionPerShifts() > 0 ? v.getLaDeductionPerShifts() : 1;
+        return occurrencesPastExempt % perShifts == 0;
     }
 
     private PolicyDecision evaluateLateArrivalByTotalHours(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
@@ -209,8 +249,12 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         if (!v.isWorkHoursShortageEnabled()) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Work Hours Shortage section is disabled.");
         }
-        if (ctx.getEffectiveHoursPercent() == null) {
-            return configurationRequired(v, "effectiveHoursPercent fact is required to evaluate Work Hours Shortage.");
+        // Phase 3: distinct from effectiveHoursPercent above (which the no-show check just used,
+        // deliberately unchanged) — this fact already honors the version's configured basis
+        // (Effective/Gross), shift-exclusion, and daily/weekly/monthly frequency (see
+        // WorkHoursShortageCalculationService). The engine itself still never derives it.
+        if (ctx.getWorkHoursShortagePercent() == null) {
+            return configurationRequired(v, "workHoursShortagePercent fact is required to evaluate Work Hours Shortage.");
         }
         if (ctx.isLateArrivalAlsoOccurredSameDay() && !v.isWhsApplyPenaltyForShortageEnabled()) {
             return noMatch(v.getPolicyId(), v.getVersion(),
@@ -219,19 +263,19 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
 
         List<PenalizationPolicyWorkHoursTier> tiers = tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(v.getId());
         Optional<PenalizationPolicyWorkHoursTier> matched = tiers.stream()
-                .filter(t -> ctx.getEffectiveHoursPercent() < t.getThresholdPercent().doubleValue())
+                .filter(t -> ctx.getWorkHoursShortagePercent() < t.getThresholdPercent().doubleValue())
                 // Most severe matching tier (lowest threshold) — an employee below 50% also
                 // qualifies for the "less than 90%" tier but the stricter one governs.
                 .min(Comparator.comparing(PenalizationPolicyWorkHoursTier::getThresholdPercent));
         if (matched.isEmpty()) {
-            return noMatch(v.getPolicyId(), v.getVersion(), "Effective hours percent does not fall below any configured tier.");
+            return noMatch(v.getPolicyId(), v.getVersion(), "Work hours shortage percent does not fall below any configured tier.");
         }
         if (isRegularized(ctx)) {
             return exempt(v, "A pending or approved regularization covers this date.");
         }
         // The matched tier's own deduction, not a version-level field — a "less than 50%" match
         // deducts that tier's amount, not the "less than 90%" tier's.
-        return decideApplyPenalty(v, ctx, matched.get().getDeductionDays(), "Effective hours percent is below a configured shortage tier.");
+        return decideApplyPenalty(v, ctx, matched.get().getDeductionDays(), "Work hours shortage percent is below a configured shortage tier.");
     }
 
     private PolicyDecision evaluateMissingLogs(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
@@ -246,10 +290,39 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
                 && ctx.getMissingLogCountInPeriod() <= v.getMlExemptDays()) {
             return noMatch(v.getPolicyId(), v.getVersion(), "Missing-log occurrence is within the exempt days for this period.");
         }
+        if (!isMissingLogDeductionDueThisOccurrence(v, ctx)) {
+            return noMatch(v.getPolicyId(), v.getVersion(),
+                    "Missing-log occurrence does not fall on a configured deduction interval.");
+        }
         if (isRegularized(ctx)) {
             return exempt(v, "A pending or approved regularization covers this date.");
         }
         return decideApplyPenalty(v, ctx, v.getMlDeductionDays(), "Missing-log occurrences exceed the configured exempt days for this period.");
+    }
+
+    /**
+     * Consumes {@code mlDeductionMode}/{@code mlDeductionPerShifts} — previously stored and
+     * versioned but never read by this engine. {@code IRRESPECTIVE} applies the configured
+     * deduction exactly once per period, on the first occurrence past the exempt count;
+     * {@code PER_SHIFT} (default, {@code deductionPerShifts} defaulting to 1) batches the
+     * deduction every N occurrences past the exempt count — with N=1 this is identical to every
+     * pre-existing policy's behavior (a deduction on every occurrence past the exempt count),
+     * preserving backward compatibility for policies saved before this distinction existed.
+     */
+    private boolean isMissingLogDeductionDueThisOccurrence(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        if (ctx.getMissingLogCountInPeriod() == null) {
+            return true; // no count fact available — fall back to the pre-existing "every occurrence" behavior
+        }
+        int exempt = v.getMlExemptDays() != null ? v.getMlExemptDays() : 0;
+        int occurrencesPastExempt = ctx.getMissingLogCountInPeriod() - exempt;
+        if (occurrencesPastExempt <= 0) {
+            return false;
+        }
+        if ("IRRESPECTIVE".equals(v.getMlDeductionMode())) {
+            return occurrencesPastExempt == 1;
+        }
+        int perShifts = v.getMlDeductionPerShifts() != null && v.getMlDeductionPerShifts() > 0 ? v.getMlDeductionPerShifts() : 1;
+        return occurrencesPastExempt % perShifts == 0;
     }
 
     private boolean isRegularized(PolicyEvaluationContext ctx) {

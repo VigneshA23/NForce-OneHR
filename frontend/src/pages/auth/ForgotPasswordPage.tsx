@@ -48,7 +48,7 @@ export default function ForgotPasswordPage() {
         animate={reduced ? undefined : 'show'}
       >
         <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: 28 }}>
-          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--txt)', marginBottom: 6 }}>
             Reset password
           </h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.5 }}>

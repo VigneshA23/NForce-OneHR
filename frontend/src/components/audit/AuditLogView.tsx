@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -26,7 +27,7 @@ function formatTimestampForExport(iso: string): string {
 // under a different key per module (see each service's `auditSnapshot.toJson(...)` call) — no
 // single field name is shared across all of them. Try every known key rather than pick one.
 // Gated on the action itself ending in "REJECTED" (not just "does this key happen to exist") —
-// WEB_CLOCK_IN_APPROVED's own snapshot also carries a "reviewComment" (an optional approval
+// REGULARIZATION_APPROVED's own snapshot also carries a "reviewComment" (an optional approval
 // note), which would otherwise leak into this column for an approved row.
 const REJECTION_REASON_KEYS = [
   'reviewComment', 'decisionReason', 'rejectionReason', 'managerRejectionReason', 'finalRejectionReason',
@@ -59,9 +60,13 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
 
+  // Deep-link support: the Super Admin dashboard's "Audit Events Today" tile links here as
+  // /audit?from=<today>&to=<today> to pre-apply today's date filter — same pattern as
+  // DirectoryPage's ?userId= deep link from the Present Today/On Leave modals.
+  const [searchParams] = useSearchParams();
   const [targetSearch, setTargetSearch] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState(() => searchParams.get('from') ?? '');
+  const [to, setTo] = useState(() => searchParams.get('to') ?? '');
   const [activeGroup, setActiveGroup] = useState<ActionGroup | 'ALL'>('ALL');
   const [page, setPage] = useState(0);
   const [pageData, setPageData] = useState<PagedAuditLogs | null>(null);
@@ -78,18 +83,32 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   }), [targetSearch, activeGroup, from, to]);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     auditApi.list(filters, page, PAGE_SIZE, token)
-      .then(data => { setPageData(data); setLoadError(''); })
-      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load audit log'))
-      .finally(() => setLoading(false));
+      .then(data => { if (!cancelled) { setPageData(data); setLoadError(''); } })
+      .catch(err => { if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load audit log'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    // Guards against a stale response (from a superseded filter/page combo) resolving after a
+    // newer one and clobbering it — only the most recent request for this effect run may write state.
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, page, token]);
 
   // Stats reflect the whole filtered corpus, independent of pagination — kept as a separate
   // effect so paging doesn't refetch counts, and a stats failure never blocks the table.
   useEffect(() => {
-    auditApi.stats(filters, token).then(setStats).catch(() => { /* non-critical */ });
+    let cancelled = false;
+    auditApi.stats(filters, token)
+      .then(data => { if (!cancelled) setStats(data); })
+      .catch(err => {
+        // Non-critical (the table below still works without it), but a silent no-op here would
+        // leave the cards stale/hidden with no trace of the failure — at least surface it.
+        if (!cancelled) console.error('Failed to load audit stats', err);
+      });
+    // Same stale-response guard as the pageData effect above: under rapid filter changes an
+    // older request could otherwise resolve after a newer one and overwrite fresher stats.
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, token]);
 
@@ -138,7 +157,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {config.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{config.subtitle}</p>

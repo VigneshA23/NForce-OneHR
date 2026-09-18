@@ -232,7 +232,7 @@ function NotifRow({
           </span>
           <span style={{
             fontSize: 10, color: 'var(--txt-dim)', flexShrink: 0,
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: 'Inter, sans-serif',
           }}>
             {timeAgo(n.createdAt)}
           </span>
@@ -325,7 +325,7 @@ function DetailPane({ n, navigate }: { n: NotificationItem | null; navigate: Ret
       </div>
 
       <h2 style={{
-        fontFamily: '"Space Grotesk", sans-serif',
+        fontFamily: 'Inter, sans-serif',
         fontSize: 19, fontWeight: 700, color: 'var(--txt)',
         margin: '0 0 6px', lineHeight: 1.35, overflowWrap: 'break-word',
       }}>
@@ -386,6 +386,7 @@ export default function NotificationsPage() {
   const isWide   = useIsWide(900);
 
   const [items, setItems]       = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [total, setTotal]       = useState(0);
   const [totalPages, setPages]  = useState(0);
   const [page, setPage]         = useState(0);
@@ -416,6 +417,9 @@ export default function NotificationsPage() {
       })
       .catch(() => { if (!silent) setError(true); })
       .finally(() => { setLoading(false); setFetching(false); });
+    notificationsApi.unreadCount(token)
+      .then(data => setUnreadCount(data.count))
+      .catch(() => {});
   }, [token]);
 
   useEffect(() => {
@@ -435,6 +439,7 @@ export default function NotificationsPage() {
     setMarking(true);
     await notificationsApi.markAllRead(token).catch(() => {});
     setItems(prev => prev.map(n => ({ ...n, read: true })));
+    setUnreadCount(0);
     setMarking(false);
   }
 
@@ -442,6 +447,7 @@ export default function NotificationsPage() {
     setMarkingId(id);
     await notificationsApi.markRead(token, id).catch(() => {});
     setItems(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    setUnreadCount(prev => Math.max(0, prev - 1));
     setMarkingId(null);
   }
 
@@ -467,7 +473,6 @@ export default function NotificationsPage() {
 
   const groups   = groupByDate(visible);
   const selected = items.find(n => n.id === selectedId) ?? null;
-  const unread   = items.filter(n => !n.read).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }} className="nf-notif-page">
@@ -476,13 +481,13 @@ export default function NotificationsPage() {
       <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{
-            fontFamily: '"Space Grotesk", sans-serif',
+            fontFamily: 'Inter, sans-serif',
             fontSize: 22, fontWeight: 700, color: 'var(--txt)',
             margin: '0 0 4px', letterSpacing: '-0.01em',
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
             Notifications
-            {unread > 0 && (
+            {unreadCount > 0 && (
               <span style={{
                 padding: '2px 9px',
                 background: 'rgba(228,55,61,.15)',
@@ -491,7 +496,7 @@ export default function NotificationsPage() {
                 color: 'var(--brand-bright)',
                 fontVariantNumeric: 'tabular-nums',
               }}>
-                {unread} unread
+                {unreadCount} unread
               </span>
             )}
           </h1>
@@ -518,7 +523,7 @@ export default function NotificationsPage() {
             <RefreshCw size={14} style={(fetching || loading) ? { animation: 'nf-spin 1s linear infinite' } : undefined} />
           </button>
 
-          {unread > 0 && (
+          {unreadCount > 0 && (
             <button
               onClick={handleMarkAll}
               disabled={marking}

@@ -9,6 +9,7 @@ import java.util.UUID;
 // Manager and role changes are Super-Admin-only via /api/users.
 @Data
 public class UpdateEmployeeRequest {
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID locationId;
@@ -23,4 +24,7 @@ public class UpdateEmployeeRequest {
     // EmployeeService#updateEmployee). Defaults to false so a stale/older client that never
     // sends this field is always treated as unconfirmed.
     private boolean confirmInactiveEdit;
+
+    // Deliberately NO timezone field — see CreateEmployeeRequest's own comment. locationId above
+    // is the only timezone-relevant input this request accepts.
 }

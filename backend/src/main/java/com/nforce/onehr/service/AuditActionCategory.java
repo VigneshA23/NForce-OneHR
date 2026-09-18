@@ -53,13 +53,16 @@ public enum AuditActionCategory {
             // RegularizationService — REGULARIZATION_REQUESTED/UPDATED (self-submitted/self-edit)
             // intentionally omitted
             "REGULARIZATION_APPROVED", "REGULARIZATION_REJECTED",
-            // WebClockInService — WEB_CLOCK_IN_REQUESTED/WEB_CLOCK_OUT (self-service punches,
-            // same treatment as AttendanceService's own check-in/check-out) intentionally omitted
-            "WEB_CLOCK_IN_APPROVED", "WEB_CLOCK_IN_REJECTED",
+            // WebClockInService — WEB_CLOCK_IN_CHECKED_IN/WEB_CLOCK_OUT/WEB_CLOCK_IN_CANCELLED
+            // (self-service punches, same treatment as AttendanceService's own check-in/
+            // check-out) intentionally omitted — there is no approval decision to track at all.
             // PenalizationPolicyService — Organization Masters configuration changes, not a
             // self-service action, so both HR Admin and Super Admin see them (unlike
             // ACCESS_CONTROL, which is Super-Admin-only).
-            "PENALIZATION_POLICY_CREATED", "PENALIZATION_POLICY_UPDATED"
+            "PENALIZATION_POLICY_CREATED", "PENALIZATION_POLICY_UPDATED",
+            // LeaveTypeService — Organization Masters > Leave configuration changes, same
+            // treatment as PenalizationPolicyService above.
+            "LEAVE_TYPE_CREATED", "LEAVE_TYPE_UPDATED"
     ));
 
     private final Set<String> actions;

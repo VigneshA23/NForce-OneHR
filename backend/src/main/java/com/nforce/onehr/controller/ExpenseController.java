@@ -4,7 +4,11 @@ import com.nforce.onehr.dto.expense.*;
 import com.nforce.onehr.service.ExpenseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -52,6 +56,20 @@ public class ExpenseController {
     @GetMapping("/claims/mine")
     public List<ExpenseClaimResponse> myClaims(Principal principal) {
         return expenseService.myClaims(principal.getName());
+    }
+
+    // Permission enforced in the service (same convention as DocumentController#getFile) — the
+    // claim's own employee, their current manager, or HR_ADMIN/SUPER_ADMIN. No @PreAuthorize role
+    // gate here since which of those applies depends on the specific claim, not the caller's role
+    // alone.
+    @GetMapping("/claims/{id}/receipt")
+    public ResponseEntity<byte[]> getReceipt(@PathVariable UUID id, Principal principal) {
+        ExpenseService.ReceiptFile receipt = expenseService.getReceipt(id, principal.getName());
+        ContentDisposition cd = ContentDisposition.inline().filename(receipt.fileName()).build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.parseMediaType(receipt.contentType()))
+                .body(receipt.data());
     }
 
     // ── Manager stage ─────────────────────────────────────

@@ -25,8 +25,6 @@ public class AttendanceResponse {
     private Integer workedMinutes;
     private String status;
     private Integer lateByMinutes;
-    /** True once workedMinutes meets app.attendance.full-day-min-hours. Null while still open. */
-    private Boolean fullDay;
     /** SYSTEM for a normal punch, REGULARIZATION if this row came from an approved correction. */
     private String source;
     /** The employee's configured work mode (ONSITE/REMOTE/HYBRID) at the time of the query. */
@@ -34,4 +32,29 @@ public class AttendanceResponse {
     /** IANA zone id the browser/device reported at Check-In — see Attendance.timezone. Null for
      * records predating this field or where none was supplied (Location.timezone was used). */
     private String timezone;
+    /** Scheduled shift start for this row's own workDate, resolved against THAT ROW's own
+     * snapshotted Shift (never the employee's current one) — see
+     * AttendanceInterpretationService#resolveScheduledWindow. Same wall-clock basis as
+     * checkInAt/checkOutAt. Null for a legacy row predating the shiftId snapshot. Powers the
+     * Attendance Log's shift-boundary markers only — never used for lateness/cutoff math, which
+     * has its own dedicated resolution path. */
+    private LocalDateTime shiftStartAt;
+    /** Scheduled shift end for this row's own workDate — see {@link #shiftStartAt}. Rolls to the
+     * next calendar day for an overnight shift (end not after start). Null for a legacy row. */
+    private LocalDateTime shiftEndAt;
+    /** Start of this row's logical WORKDAY (never calendar midnight) — see
+     * AttendanceInterpretationService#resolveScheduledWindow / ShiftDayPolicy#workdayStartAt. The
+     * Attendance timeline's track spans workdayStartAt..workdayEndAt, not 00:00-24:00, so a
+     * post-midnight punch still positions correctly relative to the shift it belongs to. Null for
+     * a legacy row predating the shiftId snapshot, same as shiftStartAt/shiftEndAt. */
+    private LocalDateTime workdayStartAt;
+    /** End of this row's logical WORKDAY — see {@link #workdayStartAt} /
+     * ShiftDayPolicy#workdayEndAt (the same instant as ShiftDayPolicy#maximumAttendanceBoundary
+     * for this workDate). Null for a legacy row. */
+    private LocalDateTime workdayEndAt;
+    /** True when this employee has a still-active (PENDING_REVIEW) Attendance Penalty for this
+     * workDate — see AttendancePenaltyEvaluationService. Powers the Attendance Log's PENALIZED
+     * badge; false (never null) for a date with no penalty, or one that was cancelled/reversed. */
+    @Builder.Default
+    private boolean penalized = false;
 }

@@ -39,6 +39,17 @@ public class LeaveBalance {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    // Section 6: this row is read-modify-written by up to four independent services (LeaveService's
+    // submit reservation and approve, PenaltyDeductionService's PAID_LEAVE debit, and
+    // AttendancePenaltyService's reversal credit) with no other coordination between them.
+    // Optimistic locking is the minimal fix that actually matters here — without it, two
+    // concurrent writers (e.g. a leave approval racing a penalty evaluation for the same employee)
+    // can each read the same usedDays, and the second save silently overwrites the first's change
+    // instead of failing loudly. @Version turns that into ObjectOptimisticLockingFailureException
+    // (see GlobalExceptionHandler) rather than a silently wrong balance.
+    @Version
+    private Long version;
+
     @PrePersist
     protected void onCreate() {
         createdAt = updatedAt = LocalDateTime.now();

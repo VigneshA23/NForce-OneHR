@@ -52,33 +52,85 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5180,http://localhost:5173,http://localhost:3000}
   base-url: ${APP_BASE_URL:http://localhost:5180}
+  employee-creation:
+    # Temporary migration safety switch — see EmployeeCreationLockProperties. Off by default;
+    # set EMPLOYEE_CREATION_LOCKED=true only for the duration of a live Employee ID migration
+    # window, then unset it (or redeploy without it) once the migration is verified complete.
+    locked: ${EMPLOYEE_CREATION_LOCKED:false}
   attendance:
-    # Business timezone for punch timestamps and work-date attribution.
-    # Deliberately explicit — the JVM default is UTC on Railway.
+    # Business timezone — deploy-time default. Deliberately explicit, since the JVM default is
+    # UTC on Railway. As of the Phase 2 timezone pass, the Attendance/Web-Clock-In/Regularization
+    # flow no longer reads this directly — it uses AttendanceRulesService.getDefaultZoneId(), an
+    # Admin-configurable singleton seeded from this same value (see V167). This YAML value
+    # remains the source for every OTHER org-wide "what business day is it" consumer (Leave,
+    # Penalization Policy, EmployeeAssignmentService, ExceptionService, AttendanceRequestService).
     zone: ${ATTENDANCE_ZONE:Asia/Kolkata}
-    # Provisional shift rules pending PO confirmation.
-    shift-start: "15:30"
-    # Shift ends 12:30 AM, but a fresh punch anywhere from midnight up to this time still
-    # belongs to the shift-day that started the evening before — see
-    # AttendanceService.shiftDayOf.
-    shift-day-cutover: "07:00"
-    late-grace-minutes: 10
-    half-day-max-hours: 3.5
-    full-day-min-hours: 7.5
-    # Provisional — pending PO/final confirmation, same status as the shift fields above.
-    daily-break-budget-minutes: 60
+    # A fixed fallback shift-start was removed entirely (no replacement). A brand-new employee
+    # with no Shift assigned (or one whose first Shift Assignment isn't effective yet) is a valid,
+    # permanent state — see AttendanceInterpretationService's NO_SHIFT_ASSIGNED handling, which
+    # skips Shift-dependent interpretation entirely rather than guessing. ShiftDayPolicy itself
+    # still throws for a null-shift employee reaching ITS methods directly (resolveShiftStart/
+    # shiftEndAt/etc.) — those are only ever called once an effective assignment is already known
+    # to exist, never speculatively — there is no fixed-clock-time fallback anywhere in that class
+    # by design.
+    # late-grace-minutes previously lived here as the sole org-wide LATE/PRESENT status gate. As
+    # of the Phase 3 grace pass, grace is no longer a single global value — every Shift Version
+    # now has its own (shift_versions.late_grace_minutes, see V168), Admin-editable per Shift via
+    # the Shifts tab, resolved by ShiftDayPolicy#resolveLateGraceMinutes. Removed outright (not
+    # left as a dead/unused fallback) — there is no hidden global override of a Shift's own grace.
+    # half-day-max-hours, full-day-min-hours and daily-break-budget-minutes previously lived here.
+    # half-day-max-hours is now a persisted, Admin-editable org setting — see AttendanceRules/
+    # AttendanceRulesService/V162 (GET/PUT /api/org/attendance-rules). full-day-min-hours was
+    # removed outright (proven dead — AttendanceResponse.fullDay had zero readers anywhere).
+    # daily-break-budget-minutes was removed outright (display-only progress-bar denominator, no
+    # enforcement, not the same concept as the already-persisted, per-shift
+    # ShiftVersion.breakMinutes). See scratch/workstream-b-settings-investigation.md for the full
+    # audit behind each of these three.
     regularization:
       # N-day lookback window (counting today itself) for regularization requests submitted by
       # anyone other than Super Admin, who is exempt entirely — see
       # RegularizationService.submit/update/validateLookbackWindow. E.g. 7 with today=19th
-      # allows the 19th through the 13th and blocks the 12th onward.
+      # allows the 19th through the 13th and blocks the 12th onward. NOT migrated to a persisted
+      # Admin setting — pending a future, dedicated Regularization Policy that will own this
+      # alongside monthly-limit and other regularization-specific configuration.
       employee-lookback-days: 7
       # Max regularization requests a non-Super-Admin employee may submit per calendar month
-      # (counts every submission regardless of eventual status). Super Admin is exempt.
+      # (counts every submission regardless of eventual status). Super Admin is exempt. Same
+      # future-Regularization-Policy note as employee-lookback-days above.
       monthly-limit: 3
+  ai:
+    # Off by default so OneHR starts normally in an environment with no Mistral credentials at all.
+    # A missing AI key must never stop the HR system booting.
+    enabled: ${AI_ASSISTANT_ENABLED:false}
+    provider: ${AI_PROVIDER:mistral}
+    mistral:
+      # No default, matching JWT_SECRET/RESEND_API_KEY: an unset key fails loudly rather than
+      # silently calling an unauthenticated API. Local dev supplies it via application-local.yml.
+      api-key: ${MISTRAL_API_KEY:}
+      # Defaults to ministral-8b because that is what the current subscription can actually
+      # serve: mistral-large-latest returns 403 tier_not_allowed, and small/medium return a
+      # persistent 429. Verified against the live API. It handles the grounded question-answering
+      # this assistant does perfectly well. Raise to mistral-small/medium/large via this env var
+      # once the subscription allows - no code change needed.
+      chat-model: ${MISTRAL_CHAT_MODEL:ministral-8b-latest}
+      # 1024 dimensions - must match the vector(1024) column in V185. Changing this model means
+      # changing that column width and fully re-indexing.
+      embed-model: ${MISTRAL_EMBED_MODEL:mistral-embed}
+      timeout-seconds: 30
+    retrieval:
+      top-k: 8
+      # 0.60, not 0.35. Calibrated against real mistral-embed output: unrelated text still scores
+      # about 0.59 against this knowledge base, so a lower floor filters nothing. See AiProperties.
+      min-score: 0.60
+      max-context-chars: 12000
+    limits:
+      max-message-chars: 1000
+      max-requests-per-user-per-hour: 60
+      max-history-turns: 6
+
 resend:
   api-key: ${RESEND_API_KEY}
-  from: OneHR <onehr@resend.dev>
+  from: OneHR <onehr@nforceone.com>
 
 server:
   port: ${PORT:8081}

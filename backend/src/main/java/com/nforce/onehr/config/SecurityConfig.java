@@ -64,6 +64,10 @@ public class SecurityConfig {
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
+        // Response headers are opaque to fetch()/JS by default even same-origin-permissive CORS —
+        // must be explicitly exposed. Lets authFetch.ts (frontend) tell apart the different
+        // causes of a forced-logout 403 (see JwtAuthenticationFilter#SESSION_REASON_HEADER).
+        config.setExposedHeaders(List.of("X-Session-Reason"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

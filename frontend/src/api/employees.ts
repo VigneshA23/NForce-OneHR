@@ -20,6 +20,8 @@ export interface EmployeeRecord {
   fullName: string;
   email: string;
   role: string;
+  businessUnitId: string | null;
+  businessUnitName: string | null;
   departmentId: string | null;
   departmentName: string | null;
   designationId: string | null;
@@ -40,18 +42,26 @@ export interface CreateEmployeePayload {
   fullName: string;
   email: string;
   employeeCode?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
   shiftId?: string;
+  // Required whenever shiftId is set (the backend rejects a shiftId with no effectiveFrom, or a
+  // past date) — the exact date chosen in the Effective From picker. Today and any future date
+  // are valid. Never derived from joiningDate or "next working day" on the backend.
+  effectiveFrom?: string;
   employmentType?: string;
   workMode?: string;
   joiningDate: string;
   managerId?: string;
+  /** Admin-only. IANA zone id, e.g. "Asia/Kolkata"; omit/blank to leave unset (falls back to Location, then the org default). */
+  timezone?: string;
 }
 
 export interface UpdateEmployeePayload {
   fullName?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
@@ -60,6 +70,8 @@ export interface UpdateEmployeePayload {
   workMode?: string;
   /** Required (true) to change department/designation/employmentType on a deactivated employee. */
   confirmInactiveEdit?: boolean;
+  /** Admin-only. null/omit = leave unchanged; "" = clear it; else = set it. */
+  timezone?: string;
 }
 
 export interface CreateUserPayload extends CreateEmployeePayload {
@@ -68,7 +80,11 @@ export interface CreateUserPayload extends CreateEmployeePayload {
 
 export interface UpdateUserPayload {
   fullName?: string;
+  /** Super-Admin-only. Changing this updates the user's login email, force-logs them out, and
+   * sends an "email updated" notice to the NEW address (see UserManagementService#updateUser). */
+  email?: string;
   role?: string;
+  businessUnitId?: string;
   departmentId?: string;
   designationId?: string;
   locationId?: string;
@@ -78,6 +94,8 @@ export interface UpdateUserPayload {
   managerId?: string;
   /** Required (true) to change role/manager/department/designation/employmentType on a deactivated user. */
   confirmInactiveEdit?: boolean;
+  /** Admin-only (this endpoint is Super-Admin-only). null/omit = leave unchanged; "" = clear it; else = set it. */
+  timezone?: string;
 }
 
 export interface UpdateJoiningDatePayload {

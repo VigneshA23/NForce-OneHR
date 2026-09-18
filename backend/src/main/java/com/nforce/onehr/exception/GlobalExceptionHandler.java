@@ -3,6 +3,7 @@ package com.nforce.onehr.exception;
 import com.nforce.onehr.dto.ApiError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -14,6 +15,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.NoSuchElementException;
@@ -51,6 +53,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleEmployeeCodeConflict(EmployeeCodeConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiError(e.getMessage(), "EMPLOYEE_CODE_CONFLICT", null));
+    }
+
+    // Temporary migration safety switch (app.employee-creation.locked) — not a per-request
+    // conflict like EmployeeCodeConflictException, so it gets its own status/code.
+    @ExceptionHandler(EmployeeCreationLockedException.class)
+    public ResponseEntity<ApiError> handleEmployeeCreationLocked(EmployeeCreationLockedException e) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .body(new ApiError(e.getMessage(), "EMPLOYEE_CREATION_LOCKED", null));
     }
 
     @ExceptionHandler(DisabledException.class)
@@ -106,6 +116,16 @@ public class GlobalExceptionHandler {
                 .body(new ApiError("The uploaded file(s) exceed the maximum allowed size"));
     }
 
+    // A query/path param that can't be converted to its declared type — e.g. a filter id that
+    // isn't a well-formed UUID. Without this handler it falls through to the generic 500 below,
+    // indistinguishable from a real server error, for what is actually a malformed request.
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        String expectedType = e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "the expected type";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("'" + e.getName() + "' must be a valid " + expectedType));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldErrors().stream()
@@ -124,6 +144,16 @@ public class GlobalExceptionHandler {
         log.warn("Data integrity violation", e);
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiError("That value conflicts with an existing record. Please use a different value."));
+    }
+
+    // Section 6: a @Version-protected row (e.g. LeaveBalance) was concurrently modified by another
+    // request between this transaction's read and write — the losing transaction lands here
+    // instead of silently overwriting the winner's change. Safe to retry.
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLockingFailure(ObjectOptimisticLockingFailureException e) {
+        log.warn("Optimistic locking failure", e);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError("This record was just updated by another request. Please refresh and try again."));
     }
 
     @ExceptionHandler(Exception.class)

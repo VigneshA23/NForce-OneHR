@@ -47,13 +47,35 @@ export interface AttendanceRecord {
   workedMinutes: number | null;
   status: AttendanceStatus | null;
   lateByMinutes: number | null;
-  fullDay: boolean | null;
   source: AttendanceSource | null;
   /** The employee's configured work mode (ONSITE/REMOTE/HYBRID) at query time. */
   workMode: string | null;
   /** IANA zone id the browser reported at Check-In/Web Clock-In (e.g. "Australia/Adelaide") —
    * null for records predating this field, or where none was supplied. */
   timezone: string | null;
+  /** Scheduled shift start for this row's own workDate, resolved server-side against THIS ROW's
+   * own snapshotted Shift (never the employee's current one) — see
+   * AttendanceInterpretationService#resolveScheduledWindow. Same zone-less wall-clock basis as
+   * checkInAt/checkOutAt. Null for a legacy record predating the shiftId snapshot. Powers the
+   * Attendance Log's shift-boundary markers only (see AttendanceTimeline) — never used for any
+   * lateness/cutoff computation, which has its own dedicated backend resolution path. */
+  shiftStartAt: string | null;
+  /** Scheduled shift end for this row's own workDate — see {@link shiftStartAt}. Rolls onto the
+   * next calendar day for an overnight shift. Null for a legacy record. */
+  shiftEndAt: string | null;
+  /** Start of this row's logical WORKDAY (never calendar midnight) — see
+   * ShiftDayPolicy#workdayStartAt on the backend. The Attendance timeline's whole track spans
+   * workdayStartAt..workdayEndAt, not 00:00-24:00, so a punch after midnight still positions
+   * correctly relative to the shift it actually belongs to. Null for a legacy record predating
+   * the shiftId snapshot, same as shiftStartAt/shiftEndAt. */
+  workdayStartAt: string | null;
+  /** End of this row's logical WORKDAY — see {@link workdayStartAt} / ShiftDayPolicy#workdayEndAt.
+   * Null for a legacy record. */
+  workdayEndAt: string | null;
+  /** True when this employee has a still-active (PENDING_REVIEW) Attendance Penalty for this
+   * workDate — see AttendancePenaltyEvaluationService on the backend. Powers the Attendance Log's
+   * PENALIZED badge. */
+  penalized: boolean;
 }
 
 export interface Punch {
@@ -62,6 +84,8 @@ export interface Punch {
   checkOutAt: string | null;
   /** "SYSTEM" (normal Check-In/Check-Out) or "WEB_REMOTE" (Web Check-In/Check-Out). */
   source: 'SYSTEM' | 'WEB_REMOTE';
+  /** The Web Clock-In note, if one was provided — always null for a "SYSTEM" source punch. */
+  note: string | null;
 }
 
 export interface TodayAttendance {
@@ -74,7 +98,6 @@ export interface TodayAttendance {
   record: AttendanceRecord | null;
   /** Minutes spent on breaks so far today. Null until the employee has punched in. */
   breakUsedMinutes: number | null;
-  breakBudgetMinutes: number;
 }
 
 /** One side of the Me-vs-My-Team comparison. Null averages mean presentDays === 0. */
@@ -82,6 +105,13 @@ export interface AttendanceStatBucket {
   presentDays: number;
   avgHoursPerDay: number | null;
   onTimeArrivalPercent: number | null;
+  /**
+   * Average expected work hours per working day — the assigned shift's duration, reduced by any
+   * approved hourly/quarter-day leave (see ExpectedWorkHoursService on the backend), the same
+   * calculation the Penalization Policy engine uses. Null when there were no working days in
+   * range or no shift was assigned to compute it from. Never recalculated on the frontend.
+   */
+  expectedHoursPerDay: number | null;
 }
 
 export interface AttendanceStats {
@@ -96,15 +126,18 @@ export interface AttendanceStats {
  * global defaults (shiftEnd null, weeklyOffDays Sat/Sun) — see AttendanceService.getConfig.
  */
 export interface AttendanceConfig {
-  /** Null only if the caller has no Shift assigned. */
+  /** Null if the caller has no Shift assigned (ONEHR-355: a valid, permanent state — no Shift
+   * is ever auto-assigned at creation, and a freshly-picked one isn't effective until the
+   * employee's next working day). */
   shiftName: string | null;
-  shiftStart: string; // "HH:mm:ss"
-  /** Null only if the caller has no Shift assigned — every employee is seeded with one, so this is normally always set. */
+  /** Null in the same no-Shift-assigned case as {@link shiftName} — see its own doc comment. */
+  shiftStart: string | null; // "HH:mm:ss"
+  /** Null for the same no-Shift-assigned case as {@link shiftName}, or for an assigned Shift with
+   * no scheduled end. */
   shiftEnd: string | null;
   lateGraceMinutes: number;
+  /** Sourced from the persisted, Admin-editable Attendance Rules setting — see orgApi.getAttendanceRules. */
   halfDayMaxHours: number;
-  fullDayMinHours: number;
-  dailyBreakBudgetMinutes: number;
   /** java.time.DayOfWeek names, e.g. ["SATURDAY", "SUNDAY"]. */
   weeklyOffDays: string[];
 }

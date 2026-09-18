@@ -1,9 +1,10 @@
 package com.nforce.onehr.service;
 
-import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.attendance.ApprovalHistoryEntryDto;
 import com.nforce.onehr.dto.attendance.ApproverOptionDto;
+import com.nforce.onehr.dto.attendance.AttendanceInterpretation;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
+import com.nforce.onehr.dto.attendance.InterpretationOutcome;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.Employee;
@@ -11,7 +12,6 @@ import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.RegularizationApproval;
 import com.nforce.onehr.entity.RegularizationRequest;
 import com.nforce.onehr.entity.Role;
-import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -26,12 +26,14 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -41,6 +43,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Attendance Regularization: employee-submitted corrections for missed/wrong punches,
@@ -96,8 +99,28 @@ public class RegularizationService {
     private final EmployeeRepository employeeRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
-    private final AttendanceProperties attendanceProps;
     private final NotificationService notificationService;
+    private final ExceptionService exceptionService;
+    // The single, narrow, shared owner of Shift-relative punch interpretation — see its own class
+    // Javadoc. Replaces this class's own former private resolveShiftStart/recomputeDerivedFields,
+    // which independently resolved the employee's CURRENT (live) Shift even when correcting a
+    // historical record — the exact "reassigned since this record's date" drift this class now
+    // avoids by resolving through the record's own shiftId snapshot instead (see
+    // AttendanceInterpretationService.interpretExistingSession). This also deliberately unifies
+    // regularization's lateByMinutes onto the same shiftStart-anchored, grace-forgiving formula
+    // AttendanceService/WebClockInService already share — see approve()'s own comment for the
+    // exact, small, visible consequence of that unification. NOT used for this class's own
+    // REGULARIZATION_DAY_BOUNDARY/resolveBusinessDate below, which remains a separate,
+    // intentionally-independent request-validation concept, left untouched.
+    private final AttendanceInterpretationService attendanceInterpretationService;
+    // Persisted, Admin-editable HALF_DAY threshold (Workstream B) — see its own Javadoc.
+    private final AttendanceRulesService attendanceRulesService;
+    // The same test-controllable production Clock AuthService already uses (see TimeConfig/
+    // MutableClock) — real wall-clock time in production, freezable in tests. Backs ONLY the
+    // future-timestamp guard in resolveTimes() below; every other date/time computation in this
+    // class (REGULARIZATION_DAY_BOUNDARY/resolveBusinessDate, reviewedAt/approvedAt/
+    // finalApprovedAt, ...) is untouched and still reads the real system clock directly.
+    private final Clock clock;
 
     /** Resolved requested times after applying punch auto-fill from attendance history. */
     private record ResolvedTimes(LocalDateTime checkIn, LocalDateTime checkOut) {}
@@ -231,6 +254,30 @@ public class RegularizationService {
         return toResponse(existing);
     }
 
+    /**
+     * Complete pre/post-correction picture of one Attendance row, for the audit trail captured
+     * around the Attendance mutation in {@link #approve}. {@code null} (no record existed yet —
+     * the "brand-new row" branch) is captured explicitly as {@code existed=false} rather than
+     * an empty map, so the audit history can distinguish "there was nothing here before" from
+     * "the snapshot failed to capture something."
+     */
+    private Map<String, Object> attendanceSnapshot(Attendance a) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        if (a == null) {
+            snapshot.put("existed", false);
+            return snapshot;
+        }
+        snapshot.put("existed", true);
+        snapshot.put("checkInAt", a.getCheckInAt());
+        snapshot.put("checkOutAt", a.getCheckOutAt());
+        snapshot.put("status", a.getStatus());
+        snapshot.put("lateByMinutes", a.getLateByMinutes());
+        snapshot.put("workedMinutes", a.getWorkedMinutes());
+        snapshot.put("source", a.getSource());
+        snapshot.put("shiftId", a.getShiftId());
+        return snapshot;
+    }
+
     private Map<String, Object> regularizationSnapshot(RegularizationRequest r) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("attendanceDate", r.getAttendanceDate());
@@ -303,24 +350,77 @@ public class RegularizationService {
             checkOut = checkOut.plusDays(1);
         }
 
-        // Regularization's own 07:00 AM business-day boundary (REGULARIZATION_DAY_BOUNDARY /
-        // resolveBusinessDate — same rule already used for "today" in the lookback-window and
-        // monthly-limit checks) applies here too: a punch between midnight and 07:00 belongs to
-        // the PREVIOUS business date even though its own calendar date is the next day. Checked
-        // against the (possibly rolled-over) resolved value above, not the raw request field, so
-        // an overnight check-out — e.g. rolled over to 18-Aug 00:30 — is correctly attributed to
-        // 17-Aug's attendanceDate instead of being rejected for "not falling on" it.
-        if (req.getRequestedCheckIn() != null && !resolveBusinessDate(checkIn).equals(req.getAttendanceDate())) {
-            throw new IllegalArgumentException("Corrected check-in time must fall on the attendance date");
-        }
-        if (req.getRequestedCheckOut() != null && !resolveBusinessDate(checkOut).equals(req.getAttendanceDate())) {
-            throw new IllegalArgumentException("Corrected check-out time must fall on the attendance date");
+        // Validate each EXPLICITLY-requested correction against this attendance's actual
+        // shift-aware WORKDAY window (see ShiftDayPolicy#shiftDayOf), never a bare "same calendar
+        // date" or fixed-clock-time comparison. A 10:00-19:00 shift with an 18h maximum workday
+        // duration spans workday 04:00 -> 04:00 the NEXT calendar day, so a corrected punch at
+        // 12:21 AM or 3:30 AM the next calendar day can still legitimately belong to this
+        // attendanceDate's workday. Checked against the (possibly rolled-over) resolved value
+        // above, not the raw request field, so an overnight check-out — e.g. rolled over to
+        // 18-Aug 00:30 — is correctly validated against 17-Aug's own workday, not rejected for
+        // merely landing on a different calendar date. Resolved against existingPunch's own
+        // snapshotted shift when one already exists for this date (never the employee's current
+        // shift — see AttendanceInterpretationService#belongsToWorkday), or the employee's
+        // current shift for a brand-new correction with no prior punch to preserve context from.
+        if (req.getRequestedCheckIn() != null || req.getRequestedCheckOut() != null) {
+            Employee employee = employeeRepository.findById(employeeId).orElse(null);
+            if (req.getRequestedCheckIn() != null
+                    && !attendanceInterpretationService.belongsToWorkday(employee, existingPunch, req.getAttendanceDate(), checkIn)) {
+                throw new IllegalArgumentException(
+                        workdayValidationMessage("check-in", employee, existingPunch, req.getAttendanceDate()));
+            }
+            if (req.getRequestedCheckOut() != null
+                    && !attendanceInterpretationService.belongsToWorkday(employee, existingPunch, req.getAttendanceDate(), checkOut)) {
+                throw new IllegalArgumentException(
+                        workdayValidationMessage("check-out", employee, existingPunch, req.getAttendanceDate()));
+            }
+
+            // A corrected check-in/check-out must describe something that has already happened —
+            // never later than the authoritative server clock, read in the SAME employee/business
+            // zone every real Check-In/Web Clock-In/Attendance row already resolves through (see
+            // AttendanceRulesService#resolveEmployeeZoneId; mirrors AttendanceService.resolveZone's
+            // own "employee's configured timezone is the only authoritative source" rule). This is
+            // deliberately independent of attendanceDate/REGULARIZATION_DAY_BOUNDARY/
+            // resolveBusinessDate above (that 07:00 boundary remains scoped purely to the lookback-
+            // window check, untouched here): a genuinely historical correction's own resolved
+            // instant is, by construction, already in the past relative to "now," so this can never
+            // reject one. Checked against the same (auto-filled + overnight-rolled-over) `checkIn`/
+            // `checkOut` values the workday check above just validated, and independently for each
+            // side, so an overnight correction whose check-in already happened but whose check-out
+            // (rolled onto tomorrow) has not is caught correctly rather than treated as one unit.
+            LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), attendanceRulesService.resolveEmployeeZoneId(employee));
+            if (req.getRequestedCheckIn() != null && checkIn.isAfter(now)) {
+                throw new IllegalArgumentException("Corrected check-in time cannot be later than the current time");
+            }
+            if (req.getRequestedCheckOut() != null && checkOut.isAfter(now)) {
+                throw new IllegalArgumentException("Corrected check-out time cannot be later than the current time");
+            }
         }
 
         if (checkIn != null && checkOut != null && !checkOut.isAfter(checkIn)) {
             throw new IllegalArgumentException("Check-out time must be after check-in time");
         }
         return new ResolvedTimes(checkIn, checkOut);
+    }
+
+    /**
+     * "Corrected check-in/out time must fall within the attendance workday (X - Y)" — includes the
+     * actual resolved workday window (see {@link AttendanceInterpretationService#resolveWorkdayWindowFor})
+     * so a rejected correction tells the employee exactly what range would have been accepted,
+     * rather than a bare rejection. Falls back to a window-less message only in the (structurally
+     * unreachable here, since this is only ever called right after {@code belongsToWorkday}
+     * returned {@code false} — which itself requires a resolvable shift context) legacy-row case.
+     */
+    private String workdayValidationMessage(String field, Employee employee, Attendance existingRecordOrNull, LocalDate attendanceDate) {
+        AttendanceInterpretationService.WorkdayWindow window =
+                attendanceInterpretationService.resolveWorkdayWindowFor(employee, existingRecordOrNull, attendanceDate);
+        if (window == null) {
+            return "Corrected " + field + " time must fall within the attendance workday for "
+                    + attendanceDate.format(NOTIFICATION_DATE_FMT) + ".";
+        }
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("d MMM h:mm a");
+        return "Corrected " + field + " time must fall within the attendance workday ("
+                + window.start().format(fmt) + " - " + window.end().format(fmt) + ").";
     }
 
     /** Selected manager (validated as an eligible approver) else the employee's current manager. */
@@ -361,15 +461,15 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listAll(UUID employeeUserId, UUID approverUserId,
                                                  UUID departmentId, String month, String status) {
-        return regularizationRepository.findAll().stream()
+        List<RegularizationRequest> filtered = regularizationRepository.findAllWithActiveRequester().stream()
                 .filter(r -> employeeUserId == null || employeeUserId.equals(r.getEmployeeUserId()))
                 .filter(r -> approverUserId == null || approverUserId.equals(r.getAssignedApproverId()))
                 .filter(r -> status == null || status.equalsIgnoreCase(r.getStatus()))
                 .filter(r -> month == null || r.getAttendanceDate().toString().startsWith(month))
                 .filter(r -> departmentId == null || departmentId.equals(departmentIdOf(r.getEmployeeUserId())))
                 .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
-                .map(this::toResponse)
                 .toList();
+        return toResponses(filtered);
     }
 
     private UUID departmentIdOf(UUID employeeUserId) {
@@ -392,15 +492,13 @@ public class RegularizationService {
                 && !historyRepository.findCurrentDirectReportIds(actor.getId()).contains(employeeUserId)) {
             throw new AccessDeniedException("You can only view regularization history for your direct reports");
         }
-        return regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(employeeUserId, attendanceDate)
-                .stream().map(this::toResponse).toList();
+        return toResponses(regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(employeeUserId, attendanceDate));
     }
 
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listMine(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return regularizationRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId())
-                .stream().map(this::toResponse).toList();
+        return toResponses(regularizationRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()));
     }
 
     /**
@@ -431,7 +529,7 @@ public class RegularizationService {
                         .forEach(r -> queue.put(r.getId(), r));
             }
         }
-        return queue.values().stream().map(this::toResponse).toList();
+        return toResponses(new ArrayList<>(queue.values()));
     }
 
     /**
@@ -443,19 +541,17 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
-        List<RegularizationRequest> all = regularizationRepository.findAll();
+        List<RegularizationRequest> all = regularizationRepository.findAllWithActiveRequester();
 
         if (hasOverrideRole(actor)) {
-            return all.stream()
+            return toResponses(all.stream()
                     .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
-                    .map(this::toResponse)
-                    .toList();
+                    .toList());
         }
-        return all.stream()
+        return toResponses(all.stream()
                 .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
                 .sorted(Comparator.comparing(RegularizationRequest::getCreatedAt).reversed())
-                .map(this::toResponse)
-                .toList();
+                .toList());
     }
 
     /**
@@ -519,22 +615,65 @@ public class RegularizationService {
                 throw new IllegalArgumentException(
                         "Cannot approve: no attendance record exists for this date and no check-in time was requested");
             }
-            if (record == null) {
+            // Brand-new row (no prior punch existed for this date at all) vs. correcting an
+            // already-existing one are resolved differently — see
+            // AttendanceInterpretationService's own class Javadoc for why:
+            //  - brand-new: no prior context to preserve, so lateness/shiftId snapshot resolve
+            //    against the employee's CURRENT Shift (interpretForKnownWorkDate).
+            //  - existing: MUST retain that row's own shiftId snapshot — never re-resolve against
+            //    the employee's current Shift, even if the correction changes its check-in time —
+            //    or an employee reassigned since this record's date would silently get their
+            //    lateness recomputed against a Shift that didn't apply on that historical date.
+            boolean isNewRecord = record == null;
+            // Captured BEFORE any mutation below — this is the row's complete pre-correction
+            // state (including its own `source`, which the next few lines are about to
+            // overwrite), so a disputed or repeated correction can always be reconstructed from
+            // audit_log rather than silently losing what the record looked like beforehand.
+            Map<String, Object> beforeAttendanceSnapshot = attendanceSnapshot(record);
+            Employee employee = employeeRepository.findById(req.getEmployeeUserId()).orElse(null);
+            if (isNewRecord) {
                 record = Attendance.builder()
                         .employeeUserId(req.getEmployeeUserId())
                         .workDate(req.getAttendanceDate())
                         .checkInAt(req.getRequestedCheckIn())
+                        // Snapshotted once, at creation, exactly like a normal Check-In/Web
+                        // Clock-In — see AttendanceRulesService#resolveEmployeeZoneId and
+                        // Attendance#getTimezone's own doc comment. Never touched again after
+                        // this: an existing row (the non-isNewRecord branch below) keeps
+                        // whatever timezone it already snapshotted, even if this correction
+                        // changes its check-in time or the employee's Location has since changed.
+                        .timezone(attendanceRulesService.resolveEmployeeZoneId(employee).getId())
                         .build();
             }
             if (req.getRequestedCheckIn() != null) record.setCheckInAt(req.getRequestedCheckIn());
             if (req.getRequestedCheckOut() != null) record.setCheckOutAt(req.getRequestedCheckOut());
             record.setSource(SOURCE_REGULARIZATION);
-            recomputeDerivedFields(record, req.getEmployeeUserId());
-            attendanceRepository.save(record);
+            // For a brand-new (backdated) row, resolved via the employee's Shift Assignment
+            // EFFECTIVE ON record.getWorkDate() itself (never employee.getShift(), a best-effort
+            // display cache that may not reflect what governed this correction's own date) — a
+            // reassignment between that date and now must not silently change a freshly-created
+            // historical row's own snapshotted shift/lateness.
+            AttendanceInterpretation interpretation = isNewRecord
+                    ? attendanceInterpretationService.interpretForKnownWorkDate(req.getEmployeeUserId(), record.getWorkDate(), record.getCheckInAt())
+                    : attendanceInterpretationService.interpretExistingRecordLateness(record, record.getCheckInAt());
+            applyInterpretation(record, interpretation, isNewRecord);
+            Attendance savedAttendance = attendanceRepository.save(record);
+
+            auditService.log(actor.getId(), "ATTENDANCE_REGULARIZED", savedAttendance.getId(),
+                    auditSnapshot.toJson(beforeAttendanceSnapshot),
+                    auditSnapshot.toJson(attendanceSnapshot(savedAttendance)));
 
             req.setStatus(STATUS_APPROVED);
             req.setFinalApprovedBy(actor.getId());
             req.setFinalApprovedAt(LocalDateTime.now());
+            // Section 16/Gap-033: the attendance record for this date is now corrected — any
+            // penalty whose discrepancy no longer holds against the corrected record is reversed
+            // automatically, scoped to only the types this correction could have affected (not a
+            // blind "reverse everything for this date," which could erase an unrelated, still-
+            // legitimate penalty of a different discrepancy type on the same day).
+            exceptionService.reevaluateAndReverseIfInvalid(req.getEmployeeUserId(), req.getAttendanceDate(),
+                    ExceptionService.REGULARIZATION_REEVALUATION_TYPES, actor.getId(),
+                    "Attendance corrected via approved regularization", "ATTENDANCE_PENALTY_REVERSED");
         } else {
             req.setStatus(STATUS_PARTIALLY_APPROVED);
             req.setApprovedBy(actor.getId());
@@ -632,40 +771,72 @@ public class RegularizationService {
                 .build());
     }
 
-    /** The employee's actually-assigned Shift start (ONEHR-108) if present, else the global fallback. */
-    private LocalTime resolveShiftStart(UUID employeeUserId) {
-        return employeeRepository.findById(employeeUserId)
-                .map(Employee::getShift)
-                .map(Shift::getStartTime)
-                .orElse(attendanceProps.getShiftStart());
-    }
-
     /**
-     * Mirrors AttendanceService's check-in/check-out status derivation for a corrected row.
-     * shiftStart is anchored to the record's own workDate (not compared as a bare LocalTime-of-
-     * day) so an overnight shift's post-midnight check-in (e.g. 20:30-05:30 shift, 1:11 AM
-     * check-in) is correctly measured as hours late instead of reading as "before" shiftStart.
+     * Applies an {@link AttendanceInterpretationService} result to a record being approved —
+     * replaces this class's former private {@code recomputeDerivedFields}/{@code resolveShiftStart}.
+     *
+     * <p><b>A deliberate, small, visible consequence of unifying onto the shared interpretation
+     * service</b> (per explicit instruction — this was previously left untouched pending exactly
+     * this kind of shown-and-approved change): {@code lateByMinutes} is now the same
+     * shiftStart-anchored, no-grace-forgiveness figure AttendanceService/WebClockInService have
+     * always displayed, rather than this class's own previously-divergent deadline-anchored,
+     * truncated figure. {@code status} is unaffected — both formulas agree on whether the grace
+     * window was exceeded ({@code interpretation.getIsLate()} here; the old formula's
+     * {@code lateByMinutes > 0} was already exactly equivalent, since its own lateByMinutes was
+     * deadline-relative) — only the raw, employee-facing "late by N minutes" number changes,
+     * becoming consistent with what the same employee would see had they simply checked in late
+     * rather than had it regularization-corrected.
+     *
+     * <p>{@code isNewRecord} controls whether {@code shiftId} gets snapshotted (a brand-new row —
+     * see {@link AttendanceInterpretationService#interpretForKnownWorkDate}) or left exactly as it
+     * already was (an existing row — its own snapshot must never be replaced, even by this
+     * correction — see {@link AttendanceInterpretationService#interpretExistingRecordLateness}).
+     *
+     * <p>{@link InterpretationOutcome#LEGACY_UNRESOLVED} (an existing row predating the
+     * {@code shiftId} column, with no recorded Shift context) is never guessed past — this throws
+     * a clear, explicit failure rather than presenting a computed lateness figure that would
+     * necessarily be a guess against however the employee happens to be configured today.
      */
-    private void recomputeDerivedFields(Attendance record, UUID employeeUserId) {
-        LocalDateTime shiftStartAt = LocalDateTime.of(record.getWorkDate(), resolveShiftStart(employeeUserId));
-        LocalDateTime deadlineAt = shiftStartAt.plusMinutes(attendanceProps.getLateGraceMinutes());
-        LocalDateTime checkInAt = record.getCheckInAt();
-        int lateByMinutes = checkInAt.isAfter(deadlineAt)
-                ? (int) Duration.between(deadlineAt, checkInAt).toMinutes()
-                : 0;
-        record.setLateByMinutes(lateByMinutes);
+    private void applyInterpretation(Attendance record, AttendanceInterpretation interpretation, boolean isNewRecord) {
+        if (interpretation.isLegacyUnresolved()) {
+            throw new IllegalStateException(
+                    "Cannot recompute lateness for this record: it predates Shift-based attendance "
+                            + "tracking and has no recorded Shift context. This record cannot be safely "
+                            + "corrected through the normal regularization flow — contact an administrator.");
+        }
+        // NO_SHIFT_ASSIGNED (a brand-new row, backdated to a date with no effective
+        // EmployeeShiftAssignment — a brand-new/no-shift employee, or one whose first assignment
+        // isn't effective yet; OR an already-EXISTING valid no-Shift row being corrected, per
+        // Attendance.noShiftAssigned) never computes isLate/lateByMinutes at all — an ordinary
+        // PRESENT/HALF_DAY day with no shift interpretation, never a fabricated Shift. Mirrors
+        // AttendanceService.checkIn/WebClockInService's identical handling; the effective*()
+        // derivation is centralized on AttendanceInterpretation itself so it's defined exactly
+        // once, never re-derived per caller.
+        if (isNewRecord) {
+            record.setShiftId(interpretation.effectiveShiftId());
+            // Set once, at creation, exactly like shiftId above — an EXISTING record (the
+            // isNewRecord==false branch) never touches either field: its own noShiftAssigned was
+            // already fixed at ITS creation and must not be re-derived from this correction's own
+            // interpretation.
+            record.setNoShiftAssigned(interpretation.isNoShiftAssigned());
+        }
+        record.setLateByMinutes(interpretation.effectiveLateByMinutes());
+        boolean isLate = interpretation.effectiveIsLate();
 
         if (record.getCheckOutAt() == null) {
             record.setWorkedMinutes(null);
-            record.setStatus(lateByMinutes > 0 ? STATUS_LATE : STATUS_PRESENT);
+            record.setStatus(isLate ? STATUS_LATE : STATUS_PRESENT);
             return;
         }
 
+        // workedMinutes/HALF_DAY are genuinely Shift-independent (a plain duration, and the
+        // org-wide AttendanceRulesService threshold) — left exactly as this class always computed
+        // them, not touched by the interpretation-service unification above.
         int workedMinutes = (int) Duration.between(record.getCheckInAt(), record.getCheckOutAt()).toMinutes();
         record.setWorkedMinutes(workedMinutes);
-        record.setStatus(workedMinutes < attendanceProps.getHalfDayMaxHours() * 60
+        record.setStatus(workedMinutes < attendanceRulesService.getHalfDayMaxHours() * 60
                 ? STATUS_HALF_DAY
-                : (lateByMinutes > 0 ? STATUS_LATE : STATUS_PRESENT));
+                : (isLate ? STATUS_LATE : STATUS_PRESENT));
     }
 
     /**
@@ -738,7 +909,7 @@ public class RegularizationService {
     }
 
     private LocalDate regularizationBusinessToday() {
-        return resolveBusinessDate(LocalDateTime.now(ZoneId.of(attendanceProps.getZone())));
+        return resolveBusinessDate(LocalDateTime.now(attendanceRulesService.getDefaultZoneId()));
     }
 
     /**
@@ -771,34 +942,86 @@ public class RegularizationService {
     }
 
     private RegularizationResponse toResponse(RegularizationRequest req) {
-        Employee employee = employeeRepository.findById(req.getEmployeeUserId()).orElse(null);
+        return toResponses(List.of(req)).get(0);
+    }
+
+    /**
+     * Batch equivalent of {@link #toResponse} — every list-returning caller (listMine,
+     * listPendingForApprover, listForApprover, listAll, getHistoryForManager) funnels through
+     * here instead of mapping row-by-row. Previously each row cost up to 7 round trips
+     * (employee, email, reviewer, assignedApprover, approvedBy, finalApprovedBy, plus one
+     * findById per approval-history entry); this collects every distinct user id referenced
+     * across the whole batch — including every history row's actionBy — and resolves them with
+     * exactly one approval-history query and one name-lookup query total, regardless of how many
+     * requests are being mapped. Output fields/values are unchanged.
+     */
+    private List<RegularizationResponse> toResponses(List<RegularizationRequest> requests) {
+        if (requests.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> requestIds = requests.stream().map(RegularizationRequest::getId).toList();
+        Map<UUID, List<RegularizationApproval>> historyByRequest = regularizationApprovalRepository
+                .findByRequestIdInOrderByActionDateDesc(requestIds).stream()
+                .collect(Collectors.groupingBy(RegularizationApproval::getRequestId));
+
+        Set<UUID> allUserIds = new LinkedHashSet<>();
+        for (RegularizationRequest req : requests) {
+            allUserIds.add(req.getEmployeeUserId());
+            addIfNotNull(allUserIds, req.getReviewedBy());
+            addIfNotNull(allUserIds, req.getAssignedApproverId());
+            addIfNotNull(allUserIds, req.getApprovedBy());
+            addIfNotNull(allUserIds, req.getFinalApprovedBy());
+        }
+        for (List<RegularizationApproval> history : historyByRequest.values()) {
+            for (RegularizationApproval a : history) {
+                addIfNotNull(allUserIds, a.getActionBy());
+            }
+        }
+
+        Map<UUID, String> nameById = employeeRepository.findNamesByUserIds(allUserIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1]));
+        Map<UUID, Employee> employeeById = employeeRepository.findAllByIdWithDepartment(allUserIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+        Map<UUID, String> emailById = userRepository.findAllById(allUserIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getEmail));
+
+        return requests.stream().map(req -> toResponse(req, nameById, employeeById, emailById, historyByRequest)).toList();
+    }
+
+    private static void addIfNotNull(Set<UUID> ids, UUID id) {
+        if (id != null) {
+            ids.add(id);
+        }
+    }
+
+    private RegularizationResponse toResponse(RegularizationRequest req, Map<UUID, String> nameById,
+                                               Map<UUID, Employee> employeeById, Map<UUID, String> emailById,
+                                               Map<UUID, List<RegularizationApproval>> historyByRequest) {
+        Employee employee = employeeById.get(req.getEmployeeUserId());
         String employeeName = employee != null ? employee.getFullName() : "Unknown";
         String departmentName = employee != null && employee.getDepartment() != null
                 ? employee.getDepartment().getName() : null;
-        String employeeEmail = userRepository.findById(req.getEmployeeUserId())
-                .map(User::getEmail).orElse("");
-        String reviewerName = req.getReviewedBy() == null ? null
-                : employeeRepository.findById(req.getReviewedBy()).map(Employee::getFullName).orElse(null);
+        String employeeEmail = emailById.getOrDefault(req.getEmployeeUserId(), "");
+        String reviewerName = req.getReviewedBy() == null ? null : nameById.get(req.getReviewedBy());
         String assignedApproverName = req.getAssignedApproverId() == null ? null
-                : employeeRepository.findById(req.getAssignedApproverId()).map(Employee::getFullName).orElse(null);
+                : nameById.get(req.getAssignedApproverId());
         Long totalMinutes = (req.getRequestedCheckIn() != null && req.getRequestedCheckOut() != null)
                 ? Duration.between(req.getRequestedCheckIn(), req.getRequestedCheckOut()).toMinutes()
                 : null;
-        List<ApprovalHistoryEntryDto> history = regularizationApprovalRepository
-                .findByRequestIdOrderByActionDateDesc(req.getId()).stream()
+        List<ApprovalHistoryEntryDto> history = historyByRequest
+                .getOrDefault(req.getId(), List.of()).stream()
                 .map(a -> ApprovalHistoryEntryDto.builder()
                         .actionType(a.getActionType())
-                        .actorName(employeeRepository.findById(a.getActionBy())
-                                .map(Employee::getFullName).orElse("Unknown"))
+                        .actorName(nameById.getOrDefault(a.getActionBy(), "Unknown"))
                         .actorRole(a.getActorRole())
                         .comments(a.getComments())
                         .actionDate(a.getActionDate())
                         .build())
                 .toList();
-        String approvedByName = req.getApprovedBy() == null ? null
-                : employeeRepository.findById(req.getApprovedBy()).map(Employee::getFullName).orElse(null);
+        String approvedByName = req.getApprovedBy() == null ? null : nameById.get(req.getApprovedBy());
         String finalApprovedByName = req.getFinalApprovedBy() == null ? null
-                : employeeRepository.findById(req.getFinalApprovedBy()).map(Employee::getFullName).orElse(null);
+                : nameById.get(req.getFinalApprovedBy());
 
         return RegularizationResponse.builder()
                 .id(req.getId())

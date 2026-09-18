@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,10 @@ public interface PenalizationPolicyVersionRepository extends JpaRepository<Penal
 
     /** The row with no successor yet — i.e. the version Organization Masters shows/edits as "current". */
     Optional<PenalizationPolicyVersion> findByEffectiveToIsNull();
+
+    // Backs PenalisationPolicyManagementService#list: the "current version" column for every
+    // policy in one query instead of one findByPolicyIdAndEffectiveToIsNull round trip per policy.
+    List<PenalizationPolicyVersion> findByPolicyIdInAndEffectiveToIsNull(Collection<UUID> policyIds);
 
     List<PenalizationPolicyVersion> findAllByOrderByVersionDesc();
 

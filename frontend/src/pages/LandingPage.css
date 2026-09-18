@@ -16,24 +16,27 @@
 .lp-blob-2 { animation: lp-blob-2 25s ease-in-out infinite; }
 .lp-blob-3 { animation: lp-blob-3 18s ease-in-out infinite; }
 
-/* ── Scroll reveal — three variants ──────────────────────────────────────── */
+/* ── Scroll reveal — Keka AOS-identical pattern ──────────────────────────── */
+/* fade-up: 40px Y translate (matches Keka's data-aos="fade-up" measured value) */
 .lp-fade {
   opacity: 0;
-  transform: translateY(36px);
-  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(40px);
+  transition: opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
+/* fade-left: slides in from left (matches Keka's data-aos="fade-left") */
 .lp-fade-left {
   opacity: 0;
-  transform: translateX(-32px);
-  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateX(-40px);
+  transition: opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
+/* fade-right: slides in from right (matches Keka's data-aos="fade-right") */
 .lp-fade-right {
   opacity: 0;
-  transform: translateX(32px);
-  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateX(40px);
+  transition: opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 .lp-fade.lp-visible,
 .lp-fade-left.lp-visible,
@@ -42,19 +45,376 @@
   transform: none;
 }
 
-/* ── Nav ──────────────────────────────────────────────────────────────────── */
+/* scale: scale(0.9) → scale(1) (matches Keka's heading scale-in variant) */
+.lp-fade-scale {
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.lp-fade-scale.lp-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Nav shell — premium glassmorphism ────────────────────────────────────── */
 .lp-nav {
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 100;
-  border-bottom: 1px solid transparent;
-  transition: background 0.35s ease, border-color 0.35s ease, backdrop-filter 0.35s ease;
+  background: linear-gradient(
+    120deg,
+    rgba(177, 17, 22, 0.05) 0%,
+    rgba(10, 11, 15, 0.76) 22%,
+    rgba(10, 11, 15, 0.74) 78%,
+    rgba(228, 55, 61, 0.04) 100%
+  );
+  backdrop-filter: blur(36px) saturate(1.9);
+  -webkit-backdrop-filter: blur(36px) saturate(1.9);
+  border-bottom: none;
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.25);
+  transition: background 0.4s ease, box-shadow 0.4s ease, backdrop-filter 0.35s ease;
+}
+/* Glowing gradient bottom border */
+.lp-nav::before {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(228, 55, 61, 0.5) 12%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(228, 55, 61, 0.5) 88%,
+    transparent 100%
+  );
+}
+/* Inner diagonal warmth + top highlight */
+.lp-nav::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(177, 17, 22, 0.025) 40%,
+    transparent 100%
+  );
+  pointer-events: none;
 }
 .lp-nav-scrolled {
-  background: rgba(14, 15, 18, 0.92) !important;
-  backdrop-filter: blur(24px) saturate(1.6);
-  -webkit-backdrop-filter: blur(24px) saturate(1.6);
-  border-color: rgba(42, 46, 55, 0.7) !important;
+  background: linear-gradient(
+    120deg,
+    rgba(177, 17, 22, 0.07) 0%,
+    rgba(9, 10, 14, 0.93) 18%,
+    rgba(9, 10, 14, 0.91) 82%,
+    rgba(228, 55, 61, 0.05) 100%
+  ) !important;
+  backdrop-filter: blur(44px) saturate(2.2);
+  -webkit-backdrop-filter: blur(44px) saturate(2.2);
+  box-shadow: 0 8px 48px rgba(0, 0, 0, 0.45),
+              0 2px 0 rgba(255, 255, 255, 0.03) !important;
+}
+
+/* ── Radix NavigationMenu — desktop ──────────────────────────────────────── */
+.lp-nav-root {
+  position: relative;
+}
+
+/* Trigger button */
+.lp-nav-trigger {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--txt-mut);
+  font-size: 13.5px;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+.lp-nav-trigger:hover,
+.lp-nav-trigger[data-state="open"] {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07),
+              inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* Chevron inside trigger rotates when open */
+.lp-nav-chevron {
+  transition: transform 0.22s ease;
+  transform-origin: center;
+  flex-shrink: 0;
+}
+.lp-nav-trigger[data-state="open"] .lp-nav-chevron {
+  transform: rotate(180deg);
+}
+
+/* Dropdown content panel */
+.lp-nav-content {
+  background: rgba(18, 20, 26, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7),
+              0 0 0 1px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  animation: lp-nav-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lp-nav-content[data-motion="from-start"] { animation: lp-nav-from-left 0.22s ease; }
+.lp-nav-content[data-motion="from-end"]   { animation: lp-nav-from-right 0.22s ease; }
+.lp-nav-content[data-motion="to-start"]   { animation: lp-nav-to-left 0.22s ease; }
+.lp-nav-content[data-motion="to-end"]     { animation: lp-nav-to-right 0.22s ease; }
+
+@keyframes lp-nav-fade-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes lp-nav-from-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes lp-nav-from-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes lp-nav-to-left {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(-12px); }
+}
+@keyframes lp-nav-to-right {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(12px); }
+}
+
+/* Viewport wrap + viewport element */
+.lp-nav-viewport-wrap {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  perspective: 800px;
+}
+.lp-nav-viewport {
+  position: relative;
+  width: var(--radix-navigation-menu-viewport-width);
+  height: var(--radix-navigation-menu-viewport-height);
+  transform-origin: top center;
+  transition: width 0.3s ease, height 0.3s ease;
+  overflow: hidden;
+  border-radius: 14px;
+}
+.lp-nav-viewport[data-state="open"] {
+  animation: lp-nav-vp-open 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lp-nav-viewport[data-state="closed"] {
+  animation: lp-nav-vp-close 0.18s ease forwards;
+}
+@keyframes lp-nav-vp-open {
+  from { opacity: 0; transform: scaleY(0.9); }
+  to   { opacity: 1; transform: scaleY(1); }
+}
+@keyframes lp-nav-vp-close {
+  from { opacity: 1; transform: scaleY(1); }
+  to   { opacity: 0; transform: scaleY(0.9); }
+}
+
+/* Feature item in mega-menu */
+.lp-nav-feature-item:hover {
+  background: rgba(228, 55, 61, 0.07) !important;
+}
+
+/* ── Nav logo — fluid resize with viewport width ──────────────────────────
+   BrandMark sets fixed px width/height via inline style, so only an
+   !important rule can override it. clamp() here (vw-driven, since this
+   sits in a horizontal nav bar — unlike the auth page's vh-driven brand
+   mark) shrinks smoothly instead of snapping at a single breakpoint, and
+   naturally settles back at the original 46px/68px past ~650px wide. */
+.lp-nav-logo .nf-brandmark,
+.lp-nav-logo .nf-brandmark-ring,
+.lp-nav-logo .nf-brandmark-img {
+  width: clamp(30px, calc(20px + 4vw), 46px) !important;
+  height: clamp(30px, calc(20px + 4vw), 46px) !important;
+}
+.lp-nav-logo .nf-brandmark-glow {
+  width: clamp(44px, calc(30px + 6vw), 68px) !important;
+  height: clamp(44px, calc(30px + 6vw), 68px) !important;
+}
+.lp-nav-logo { gap: clamp(8px, 2vw, 12px) !important; }
+.lp-nav-logo-text { font-size: clamp(15px, calc(12px + 1.8vw), 19px) !important; }
+
+/* ── Hamburger morph ─────────────────────────────────────────────────────── */
+.lp-hamburger {
+  width: 22px;
+  height: 16px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.lp-hamburger span {
+  display: block;
+  height: 1.5px;
+  background: var(--txt);
+  border-radius: 2px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.2s ease,
+              top 0.3s ease;
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.lp-hamburger span:nth-child(1) { top: 0; }
+.lp-hamburger span:nth-child(2) { top: 50%; transform: translateY(-50%); }
+.lp-hamburger span:nth-child(3) { bottom: 0; }
+
+/* Open state — morph to X */
+.lp-hamburger[data-open="true"] span:nth-child(1) {
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+}
+.lp-hamburger[data-open="true"] span:nth-child(2) {
+  opacity: 0;
+  transform: translateY(-50%) scaleX(0);
+}
+.lp-hamburger[data-open="true"] span:nth-child(3) {
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+/* ── Mobile nav popover panel ─────────────────────────────────────────────── */
+.lp-mobile-nav {
+  background: rgba(18, 20, 26, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  padding: 16px;
+  width: min(320px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  animation: lp-nav-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Desktop/Mobile visibility ───────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .lp-nav-desktop { display: none !important; }
+}
+@media (min-width: 769px) {
+  .lp-mobile-menu-btn { display: none !important; }
+}
+
+/* ── Hero mobile CTA — Book Demo / Sign In, between the badge and headline ──
+   Desktop already has these two in the nav bar, so this only exists below
+   the hamburger breakpoint. Stacked 2x1 (one button per row, each full
+   width) rather than side by side. */
+.lp-hero-mobile-cta { display: none; }
+@media (max-width: 768px) {
+  .lp-hero-mobile-cta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* Narrower than full width and centered, but still tracks the viewport
+       (70% of the available width) up to a 260px cap, instead of a fixed
+       px value that wouldn't shrink further on smaller phones. */
+    width: min(70%, 260px);
+    margin: 0 auto 24px;
+  }
+  .lp-hero-mobile-cta > * {
+    width: 100%;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+  }
+}
+
+/* ── "Explore Agents" / "See the platform" — stay side by side on mobile ────
+   Their original fixed 30px horizontal padding + 15px text made the pair
+   wider than a phone screen, so flex-wrap kicked in and stacked them. Below
+   768px they instead split the row evenly (flex: 1 1 0) with smaller
+   padding/font, so they resize together with the viewport and never wrap. */
+@media (max-width: 768px) {
+  .lp-hero-cta-row {
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+  }
+  .lp-hero-cta-btn {
+    flex: 1 1 0;
+    min-width: 0 !important;
+    padding: 12px 14px !important;
+    font-size: 13px !important;
+    white-space: nowrap;
+  }
+}
+
+/* ── Screenshot tab switcher ─────────────────────────────────────────────── */
+.lp-tab {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  color: var(--txt-mut);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 10px 20px;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  text-align: center;
+  min-width: 130px;
+}
+.lp-tab:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--txt);
+}
+.lp-tab-active {
+  background: rgba(228, 55, 61, 0.1);
+  border-color: rgba(228, 55, 61, 0.28);
+  color: var(--txt);
+}
+
+/* ── AI Agent — editorial numbered list rows ─────────────────────────────── */
+.lp-agent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 28px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  position: relative;
+  transition: background 0.18s ease;
+}
+.lp-agent-row:last-child {
+  border-bottom: none;
+}
+.lp-agent-row:hover {
+  background: rgba(228, 55, 61, 0.025);
+  border-radius: 12px;
+  padding-left: 12px;
+  padding-right: 12px;
+  margin-left: -12px;
+  margin-right: -12px;
+}
+
+.lp-agent-number {
+  font-family: 'Inter', sans-serif;
+  font-size: 52px;
+  font-weight: 700;
+  color: rgba(228, 55, 61, 0.1);
+  line-height: 1;
+  width: 72px;
+  flex-shrink: 0;
+  letter-spacing: -0.06em;
+  user-select: none;
+  transition: color 0.2s ease;
+}
+.lp-agent-row:hover .lp-agent-number {
+  color: rgba(228, 55, 61, 0.18);
 }
 
 /* ── Feature cards ─────────────────────────────────────────────────────────── */
@@ -63,6 +423,17 @@
   overflow: hidden;
   transition: border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
 }
+/* Glass shimmer top-line on hover */
+.lp-feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 15%; right: 15%; height: 1px;
+  background: linear-gradient(to right, transparent, rgba(228, 55, 61, 0.7), transparent);
+  opacity: 0;
+  transition: opacity 0.28s ease, left 0.28s ease, right 0.28s ease;
+}
+.lp-feature-card:hover::before { opacity: 1; left: 0; right: 0; }
+/* Left-edge bar indicator */
 .lp-feature-card::after {
   content: '';
   position: absolute;
@@ -76,11 +447,14 @@
 .lp-feature-card:hover::after { opacity: 1; top: 0; bottom: 0; }
 .lp-feature-card:hover {
   border-color: rgba(228, 55, 61, 0.22) !important;
-  box-shadow: inset 0 0 56px rgba(177, 17, 22, 0.06), 0 12px 40px rgba(0, 0, 0, 0.38);
-  background: rgba(22, 24, 29, 0.98) !important;
+  box-shadow: inset 0 0 56px rgba(177, 17, 22, 0.07),
+              inset 0 1px 0 rgba(228, 55, 61, 0.08),
+              0 12px 40px rgba(0, 0, 0, 0.38),
+              0 0 0 1px rgba(228, 55, 61, 0.04);
+  background: rgba(20, 22, 27, 0.99) !important;
 }
 
-/* ── AI Agent cards — glass ────────────────────────────────────────────────── */
+/* ── AI Agent cards — glass (kept for any remaining usage) ──────────────── */
 .lp-agent-card {
   position: relative;
   backdrop-filter: blur(20px);
@@ -172,24 +546,101 @@
 /* ── Role cards ────────────────────────────────────────────────────────────── */
 .lp-role-card {
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
   transition: border-color 0.22s ease,
               transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-              box-shadow 0.22s ease;
+              box-shadow 0.22s ease,
+              background 0.22s ease;
 }
+.lp-role-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%; height: 1px;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.18), transparent);
+  opacity: 0;
+  transition: opacity 0.25s ease, left 0.25s ease, right 0.25s ease;
+}
+.lp-role-card:hover::before { opacity: 1; left: 0; right: 0; }
 .lp-role-card:hover {
   border-color: rgba(228, 55, 61, 0.38) !important;
   transform: translateY(-6px);
+  background: rgba(20, 22, 27, 0.98) !important;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4),
-              0 0 0 1px rgba(228, 55, 61, 0.1);
+              0 0 0 1px rgba(228, 55, 61, 0.1),
+              0 0 40px rgba(228, 55, 61, 0.06),
+              inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 /* ── Pricing cards ───────────────────────────────────────────────────────── */
 .lp-pricing-card {
+  position: relative;
+  overflow: hidden;
   transition: border-color 0.22s ease, transform 0.25s ease, box-shadow 0.22s ease;
 }
 .lp-pricing-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 20px 56px rgba(0, 0, 0, 0.42);
+}
+/* Glass highlight for the "most popular" pricing tier */
+.lp-pricing-highlight {
+  background: linear-gradient(140deg, var(--raised) 0%, rgba(177, 17, 22, 0.06) 100%) !important;
+  box-shadow: 0 0 0 1px rgba(228, 55, 61, 0.2),
+              0 8px 48px rgba(228, 55, 61, 0.1),
+              inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+.lp-pricing-highlight::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(to right, transparent, rgba(228, 55, 61, 0.7), transparent);
+}
+.lp-pricing-highlight:hover {
+  box-shadow: 0 0 0 1px rgba(228, 55, 61, 0.3),
+              0 20px 72px rgba(228, 55, 61, 0.18),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── Social buttons (Connect section) ────────────────────────────────────── */
+.lp-social-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s ease,
+              background 0.2s ease,
+              border-color 0.2s ease;
+  border: 1px solid;
+}
+.lp-social-ig {
+  color: #e1306c;
+  background: rgba(225, 48, 108, 0.07);
+  border-color: rgba(225, 48, 108, 0.2);
+}
+.lp-social-ig:hover {
+  transform: translateY(-4px);
+  background: rgba(225, 48, 108, 0.12);
+  border-color: rgba(225, 48, 108, 0.4);
+  box-shadow: 0 0 0 4px rgba(225, 48, 108, 0.08),
+              0 12px 32px rgba(225, 48, 108, 0.18);
+}
+.lp-social-li {
+  color: #0a66c2;
+  background: rgba(10, 102, 194, 0.07);
+  border-color: rgba(10, 102, 194, 0.2);
+}
+.lp-social-li:hover {
+  transform: translateY(-4px);
+  background: rgba(10, 102, 194, 0.12);
+  border-color: rgba(10, 102, 194, 0.4);
+  box-shadow: 0 0 0 4px rgba(10, 102, 194, 0.08),
+              0 12px 32px rgba(10, 102, 194, 0.18);
 }
 
 /* ── CTA pulse animation ─────────────────────────────────────────────────── */
@@ -240,29 +691,237 @@
   opacity: 0.3;
 }
 
-/* ── Mobile ──────────────────────────────────────────────────────────────── */
+/* ── Mobile breakpoints ──────────────────────────────────────────────────── */
+/* ── Hero 2-column grid ──────────────────────────────────────────────────── */
+.lp-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: center;
+}
+
+/* ── Keka-style scroll-spy feature grid ──────────────────────────────────── */
+.lp-spy-grid {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 56px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .lp-hero-grid {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  .lp-hero-img-cluster {
+    display: none;
+  }
+  .lp-spy-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .lp-agent-thumb {
+    display: none;
+  }
+  /* Features intro (text + photo) stacks instead of squeezing into 2 columns */
+  .lp-features-header {
+    grid-template-columns: 1fr !important;
+    gap: 32px !important;
+    margin-bottom: 40px !important;
+  }
+  /* Featured Approvals Agent card: text over image instead of fixed 340px rail */
+  .lp-featured-agent-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .lp-featured-agent-grid > div:first-child {
+    padding: 0 0 24px !important;
+  }
+  .lp-featured-agent-grid > div:last-child {
+    margin: 0 -28px -28px !important;
+    border-left: none !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+    min-height: 200px !important;
+  }
+  /* Footer: 5-column grid → 2 columns */
+  .lp-footer-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 32px 24px !important;
+  }
+}
+
 @media (max-width: 768px) {
-  .lp-nav-links-desktop { display: none !important; }
   .lp-hide-mobile       { display: none !important; }
   .lp-featured-agent    { padding: 28px 24px !important; }
+  .lp-agent-number      { font-size: 36px !important; width: 48px !important; }
+  .lp-agent-row         { gap: 16px !important; }
+  .lp-showcase-caption {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  /* The 3D scroll-tilt (rotateX/scale/translateY/opacity, driven by
+     useScroll+useTransform in LandingProductShowcase) reads as a jarring
+     tilt-and-fade on small screens where the section fills almost the
+     whole viewport. framer-motion re-sets these as plain inline styles
+     every scroll frame, so an !important override here still wins the
+     cascade every time and the three screenshots just render normally. */
+  .lp-showcase-scroll-anim {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .lp-tab {
+    min-width: 104px !important;
+    padding: 8px 14px !important;
+    font-size: 12.5px !important;
+  }
+  /* Two side-by-side office photos are too cramped on narrow screens */
+  .lp-photo-strip {
+    grid-template-columns: 1fr !important;
+  }
+  .lp-photo-strip img {
+    height: 200px !important;
+  }
 }
-@media (min-width: 769px) {
-  .lp-nav-links-desktop { display: flex !important; }
-  .lp-mobile-menu-btn   { display: none !important; }
+
+@media (max-width: 640px) {
+  .lp-hero-section { padding: 76px 20px 56px !important; }
+  #platform, #features, #ai-agents, #role-guides, #how-it-works, #pricing,
+  .lp-signin-section, .lp-connect-section {
+    padding: 64px 20px !important;
+  }
+  .lp-footer { padding: 56px 20px 32px !important; }
+}
+
+@media (max-width: 480px) {
+  /* Hero eyebrow pill: let the copy wrap instead of overflowing the viewport */
+  .lp-hero-badge {
+    white-space: normal !important;
+    max-width: 100%;
+  }
+  /* Drop the forced line break so the headline reflows to the actual width */
+  .lp-hero-break { display: none; }
+  .lp-hero-section h1 { font-size: 2.15rem !important; }
+  /* auto-fit minmax grids that are still wider than a small phone viewport */
+  .lp-features-grid,
+  .lp-pricing-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .lp-footer-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ── Glassmorphism chip — hero floating stat ─────────────────────────────── */
+.lp-glass-chip {
+  background: rgba(16, 18, 23, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 14px;
+  padding: 12px 18px;
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5),
+              0 0 0 1px rgba(255, 255, 255, 0.04),
+              inset 0 1px 0 rgba(255, 255, 255, 0.09);
+}
+.lp-glass-chip::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 25%; right: 25%; height: 1px;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.3), transparent);
+  border-radius: 999px;
+}
+
+/* ── Icon glow — feature/agent icon boxes ────────────────────────────────── */
+.lp-icon-glow {
+  box-shadow: 0 0 20px rgba(177, 17, 22, 0.14),
+              inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: box-shadow 0.22s ease, background 0.22s ease;
+}
+.lp-feature-card:hover .lp-icon-glow {
+  box-shadow: 0 0 28px rgba(228, 55, 61, 0.22),
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  background: rgba(177, 17, 22, 0.17) !important;
+}
+
+/* ── Shimmer button — moving light sweep across CTA ─────────────────────── */
+@keyframes lp-shimmer-move {
+  from { background-position: -200% center; }
+  to   { background-position: 200% center; }
+}
+.lp-btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.lp-btn-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.14) 50%,
+    transparent 65%
+  );
+  background-size: 200% 100%;
+  animation: lp-shimmer-move 2.8s linear infinite;
+  border-radius: inherit;
+}
+
+/* ── Step circle — how it works ──────────────────────────────────────────── */
+.lp-step-circle {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06),
+              0 8px 24px rgba(0, 0, 0, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lp-step-circle:hover {
+  box-shadow: 0 0 0 1px rgba(228, 55, 61, 0.2),
+              0 0 24px rgba(228, 55, 61, 0.14),
+              0 12px 32px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transform: scale(1.06);
+}
+
+/* ── Aurora glow — slow pulsing behind hero ──────────────────────────────── */
+@keyframes lp-aurora-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1) rotate(0deg); }
+  33%       { opacity: 0.85; transform: scale(1.08) rotate(2deg); }
+  66%       { opacity: 0.7; transform: scale(0.96) rotate(-1deg); }
+}
+.lp-aurora {
+  animation: lp-aurora-pulse 12s ease-in-out infinite;
+}
+
+/* ── Nav link glass pill ─────────────────────────────────────────────────── */
+.lp-nav-link-btn {
+  position: relative;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s !important;
+}
+.lp-nav-link-btn:hover {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07),
+              inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
 /* ── Reduced motion ──────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .lp-fade,
   .lp-fade-left,
-  .lp-fade-right { opacity: 1; transform: none; transition: none; }
+  .lp-fade-right,
+  .lp-fade-scale,
   .lp-fade.lp-visible,
   .lp-fade-left.lp-visible,
-  .lp-fade-right.lp-visible { opacity: 1; transform: none; }
+  .lp-fade-right.lp-visible,
+  .lp-fade-scale.lp-visible { opacity: 1 !important; transform: none !important; transition: none !important; }
   .lp-btn-primary     { animation: none; }
+  .lp-btn-shimmer::after { animation: none; }
+  .lp-aurora          { animation: none; }
   .lp-blob-1, .lp-blob-2, .lp-blob-3 { animation: none; }
   .lp-agent-card:hover,
   .lp-role-card:hover,
   .lp-pricing-card:hover,
   .lp-showcase-frame:hover { transform: none; }
+  .lp-social-btn:hover { transform: none; }
+  .lp-hamburger span { transition: none; }
 }

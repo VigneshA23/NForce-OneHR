@@ -11,10 +11,32 @@ export interface NavItem {
   icon: LucideIcon;
   phase: 1 | 2;
   path: string;
+  /**
+   * Temporarily gates an otherwise-shipped (phase 1) module behind the same
+   * disabled/placeholder treatment as a real Phase 2 item, without changing
+   * its `phase` — so consumers that read `phase` for roadmap purposes (e.g.
+   * RoleGuidePage's "coming soon" section) aren't misled. Reversing the lock
+   * is just deleting this flag / setting it false; nothing else changes.
+   */
+  locked?: boolean;
 }
 
-function item(key: string, label: string, icon: LucideIcon, phase: 1 | 2): NavItem {
-  return { key, label, icon, phase, path: `/${key}` };
+function item(key: string, label: string, icon: LucideIcon, phase: 1 | 2, locked?: boolean): NavItem {
+  return { key, label, icon, phase, path: `/${key}`, locked };
+}
+
+/** True if this item should render as the disabled, non-interactive placeholder — either a genuine Phase 2 roadmap item, or a Phase 1 item temporarily locked via `locked: true`. */
+export function isNavItemDisabled(item: NavItem): boolean {
+  return item.phase > 1 || !!item.locked;
+}
+
+/**
+ * Phase number to show on the placeholder badge/copy. A temporarily-locked
+ * Phase 1 item still displays "P2" so its treatment is visually identical to
+ * a real Phase 2 module — this is display-only and never touches `item.phase`.
+ */
+export function navItemDisplayPhase(item: NavItem): number {
+  return item.phase > 1 ? item.phase : 2;
 }
 
 export const NAV: Record<Role, NavItem[]> = {
@@ -28,7 +50,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('requests', 'My Requests', HelpCircle, 1),
     item('assets', 'Assets & Expenses', Package, 1),
     item('performance', 'Performance & Growth', GitBranch, 2),
-    item('documents', 'My Documents & Policies', FileText, 1),
+    item('my-documents', 'My Documents & Policies', FileText, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   Manager: [
@@ -43,7 +65,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('performance', 'Team Performance', GitBranch, 2),
     item('assets', 'Team Assets & Expenses', Package, 1),
-    item('documents', 'My Documents & Policies', FileText, 1),
+    item('my-documents', 'My Documents & Policies', FileText, 1),
     item('reports', 'Reports & Analytics', FileText, 2),
     item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
@@ -61,6 +83,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('documents', 'Documents & Compliance', FileText, 1),
     item('policies', 'Policies & Announcements', FileText, 1),
+    item('my-documents', 'My Documents & Policies', FileText, 1),
     item('organization', 'Organization Structure', GitBranch, 1),
     item('performance', 'Performance & Engagement', GitBranch, 2),
     item('assets', 'Assets & Expenses', Package, 1),
@@ -78,8 +101,10 @@ export const NAV: Record<Role, NavItem[]> = {
     item('leave', 'Leave & Holidays', Calendar, 1),
     item('approvals', 'Approval Center', FileText, 1),
     item('assets', 'Assets & Expenses', Package, 1),
-    item('workflows', 'Workflow Studio', GitBranch, 2),
+    item('workflows', 'Workflow Studio', GitBranch, 1),
     item('masters', 'Organization Masters', FileText, 1),
+    item('policies', 'Policies & Announcements', FileText, 1),
+    item('my-documents', 'My Documents & Policies', FileText, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
     item('integrations', 'Integrations', FileText, 2),
     item('audit', 'Audit & Security', Clock, 1),
@@ -127,7 +152,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports'] },
-  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'performance', 'documents', 'policies'] },
+  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'performance', 'documents', 'policies', 'my-documents'] },
   'help',
 ];
 

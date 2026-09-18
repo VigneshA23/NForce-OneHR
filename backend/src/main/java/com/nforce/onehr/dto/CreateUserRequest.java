@@ -29,9 +29,17 @@ public class CreateUserRequest {
     private String role;
 
     private String employeeCode;
+    private UUID businessUnitId;
     private UUID departmentId;
     private UUID designationId;
     private UUID shiftId;
+
+    // Required whenever shiftId is set (validated in UserManagementService#createUser, not here,
+    // since it's conditional on shiftId rather than always-mandatory) — the exact date the admin
+    // chose in the Effective From picker. Today and any future date are valid; a past date is
+    // rejected. Never derived from joiningDate or "next working day" — the user's own explicit
+    // choice is the sole source, matching EmployeeShiftAssignment.effectiveFrom's own contract.
+    private LocalDate effectiveFrom;
 
     @NotNull
     private UUID locationId;
@@ -43,4 +51,7 @@ public class CreateUserRequest {
     private LocalDate joiningDate;
 
     private UUID managerId;
+
+    // Deliberately NO timezone field — see CreateEmployeeRequest's identical comment. locationId
+    // above (mandatory here) is the only timezone-relevant input.
 }

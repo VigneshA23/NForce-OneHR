@@ -8,6 +8,7 @@ import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
+import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
@@ -18,6 +19,7 @@ import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -74,11 +78,19 @@ public class LeaveService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
+    // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
+    // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
+    // depended on LeaveService since before this change). A lazy proxy defers resolving the real
+    // ExceptionService bean until approve() actually calls it, well after the context has finished
+    // starting up, rather than needing it live during EmployeeService's own construction.
+    @Lazy
+    private final ExceptionService exceptionService;
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
         return leaveTypeRepository.findAll().stream()
-                .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName()).build())
+                .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
+                        .classification(t.getClassification()).build())
                 .collect(Collectors.toList());
     }
 
@@ -90,6 +102,9 @@ public class LeaveService {
         // only the ANNUAL row surfaces here, so the balance list/pie chart shows ONE Annual Leave
         // entry instead of three.
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
+                // Unpaid leave types (see LeaveType#isPaid) never deduct from/track a balance —
+                // see #submitRequest and #approve — so they have nothing meaningful to show here.
+                .filter(b -> b.getLeaveType().isPaid())
                 .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
                         || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
                 .map(this::toBalanceResponse)
@@ -160,20 +175,25 @@ public class LeaveService {
                 ? new BigDecimal("0.5")
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
 
-        int year = req.getStartDate().getYear();
-        // Sick/Casual requests draw from and are validated against the consolidated Annual
-        // balance row — the error message below therefore always names the balance actually
-        // being checked (Annual), not the literally-selected type, even though the LeaveRequest
-        // itself still records the type the employee actually chose.
-        LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
-        LeaveBalance balance = leaveBalanceRepository
-                .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), balanceType.getId(), year)
-                .orElseThrow(() -> new IllegalArgumentException("No " + balanceType.getName() + " balance configured for " + year));
+        // Unpaid leave types (see LeaveType#isPaid) don't draw from any LeaveBalance — the
+        // requested days must never consume the employee's paid leave balance, so there is
+        // nothing to look up or validate against here. Mirrors the skip in #approve below.
+        if (type.isPaid()) {
+            int year = req.getStartDate().getYear();
+            // Sick/Casual requests draw from and are validated against the consolidated Annual
+            // balance row — the error message below therefore always names the balance actually
+            // being checked (Annual), not the literally-selected type, even though the LeaveRequest
+            // itself still records the type the employee actually chose.
+            LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
+            LeaveBalance balance = leaveBalanceRepository
+                    .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), balanceType.getId(), year)
+                    .orElseThrow(() -> new IllegalArgumentException("No " + balanceType.getName() + " balance configured for " + year));
 
-        BigDecimal remaining = availableBalance(balance);
-        if (remaining.compareTo(totalDays) < 0) {
-            throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
-                    + " balance of " + formatDays(remaining) + " days.");
+            BigDecimal remaining = availableBalance(balance);
+            if (remaining.compareTo(totalDays) < 0) {
+                throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
+                        + " balance of " + formatDays(remaining) + " days.");
+            }
         }
 
         LeaveRequest request = LeaveRequest.builder()
@@ -185,6 +205,10 @@ public class LeaveService {
                 .totalDays(totalDays)
                 .status("PENDING")
                 .employeeReason(req.getReason().trim())
+                // is_half_day stays authoritative (unchanged above); duration_type just mirrors it
+                // for the FULL_DAY/HALF_DAY cases this form actually submits — HOURLY/QUARTER_DAY
+                // have no submission UI yet, so submitRequest never produces them.
+                .durationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY)
                 .build();
         request = leaveRequestRepository.save(request);
 
@@ -196,8 +220,11 @@ public class LeaveService {
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listMyRequests(String actorEmail) {
         User actor = requireActor(actorEmail);
-        return leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()).stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId());
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(Set.of(actor.getId()));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -217,9 +244,13 @@ public class LeaveService {
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
         if (hasOverrideRole(actor)) {
-            return leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+            List<LeaveRequest> requests = leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
                     .filter(r -> isVisibleToOverrideActor(r, actor))
-                    .map(this::toRequestResponse)
+                    .collect(Collectors.toList());
+            Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+            Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+            return requests.stream()
+                    .map(r -> toRequestResponse(r, namesById, codesById))
                     .collect(Collectors.toList());
         }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
@@ -228,8 +259,11 @@ public class LeaveService {
         if (reportIds.isEmpty()) {
             return List.of();
         }
-        return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING").stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING");
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -251,10 +285,12 @@ public class LeaveService {
         if (reportIds.isEmpty()) {
             return List.of();
         }
-        return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(reportIds, "APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -265,10 +301,12 @@ public class LeaveService {
      */
     @Transactional(readOnly = true)
     public List<LeaveRequestResponse> listOrgLeave(LocalDate from, LocalDate to) {
-        return leaveRequestRepository
-                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual("APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -290,10 +328,12 @@ public class LeaveService {
         // need to add actor.getId() again here.
         List<UUID> teamIds = historyRepository.findCurrentPeerIds(actor.getId());
 
-        return leaveRequestRepository
-                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from)
-                .stream()
-                .map(this::toRequestResponse)
+        List<LeaveRequest> requests = leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(teamIds, "APPROVED", to, from);
+        Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
+        Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
+        return requests.stream()
+                .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
     }
 
@@ -307,21 +347,28 @@ public class LeaveService {
             throw new IllegalStateException("Leave request has already been decided");
         }
 
-        int year = request.getStartDate().getYear();
-        // Approving a Sick/Casual request consumes from the SAME Annual balance row it was
-        // validated/reserved against at submission — usedDays on that one row naturally becomes
-        // the combined Annual+Sick+Casual approved total, with no separate cross-type sum needed.
-        LeaveType balanceType = isAnnualBalanceLeaveType(request.getLeaveType())
-                ? annualLeaveType() : request.getLeaveType();
-        LeaveBalance balance = leaveBalanceRepository
-                .findByEmployeeUserIdAndLeaveTypeIdAndYear(request.getEmployeeUserId(), balanceType.getId(), year)
-                .orElseThrow(() -> new IllegalStateException("No leave balance configured for " + year));
-        BigDecimal remaining = balance.getTotalDays().subtract(balance.getUsedDays());
-        if (remaining.compareTo(request.getTotalDays()) < 0) {
-            throw new IllegalStateException("Employee no longer has sufficient balance to approve this request");
+        // Unpaid leave types (see LeaveType#isPaid) never deduct from a LeaveBalance — approving
+        // one leaves the employee's paid leave balance untouched, per the current classification
+        // at approval time (a type changed Paid<->Unpaid after submission is honored as of NOW,
+        // not as of when the request was originally submitted — there is no snapshot to fall back
+        // to, see LeaveRequest#getLeaveType()).
+        if (request.getLeaveType().isPaid()) {
+            int year = request.getStartDate().getYear();
+            // Approving a Sick/Casual request consumes from the SAME Annual balance row it was
+            // validated/reserved against at submission — usedDays on that one row naturally becomes
+            // the combined Annual+Sick+Casual approved total, with no separate cross-type sum needed.
+            LeaveType balanceType = isAnnualBalanceLeaveType(request.getLeaveType())
+                    ? annualLeaveType() : request.getLeaveType();
+            LeaveBalance balance = leaveBalanceRepository
+                    .findByEmployeeUserIdAndLeaveTypeIdAndYear(request.getEmployeeUserId(), balanceType.getId(), year)
+                    .orElseThrow(() -> new IllegalStateException("No leave balance configured for " + year));
+            BigDecimal remaining = balance.getTotalDays().subtract(balance.getUsedDays());
+            if (remaining.compareTo(request.getTotalDays()) < 0) {
+                throw new IllegalStateException("Employee no longer has sufficient balance to approve this request");
+            }
+            balance.setUsedDays(balance.getUsedDays().add(request.getTotalDays()));
+            leaveBalanceRepository.save(balance);
         }
-        balance.setUsedDays(balance.getUsedDays().add(request.getTotalDays()));
-        leaveBalanceRepository.save(balance);
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("APPROVED");
@@ -333,7 +380,28 @@ public class LeaveService {
         auditService.log(actor.getId(), "LEAVE_REQUEST_APPROVED", request.getId(), before, after);
 
         notifyDecision(request, "LEAVE_APPROVED", "Leave Request Approved", "approved", null, actor);
+        reevaluatePenaltiesForApprovedLeave(request, actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Gap-034: the leave-approval half of the shared re-evaluation engine {@link RegularizationService#approve}
+     * already uses — this request's now-approved days may have lowered expected work minutes (or,
+     * for a full day, removed the working-day expectation entirely) below what a WORK_HOURS_SHORTAGE
+     * or NO_ATTENDANCE penalty on that date assumed when it was applied. Runs once per covered
+     * calendar day — a multi-day request can invalidate a different subset of days than others —
+     * and reverses only the two discrepancy types leave approval can actually affect
+     * ({@link ExceptionService#LEAVE_REEVALUATION_TYPES}), never LATE_ARRIVAL/MISSING_PUNCH, which
+     * a leave approval has no bearing on. Covers both full-day and half-day requests identically:
+     * the engine re-derives "is this still a shortage" from current data, not from this method
+     * knowing which kind of leave was approved.
+     */
+    private void reevaluatePenaltiesForApprovedLeave(LeaveRequest request, User actor) {
+        for (LocalDate date = request.getStartDate(); !date.isAfter(request.getEndDate()); date = date.plusDays(1)) {
+            exceptionService.reevaluateAndReverseIfInvalid(request.getEmployeeUserId(), date,
+                    ExceptionService.LEAVE_REEVALUATION_TYPES, actor.getId(),
+                    "Leave approved for " + date.format(NOTIFICATION_DATE_FMT), "ATTENDANCE_PENALTY_REVERSED");
+        }
     }
 
     @Transactional
@@ -496,6 +564,65 @@ public class LeaveService {
                 .orElseGet(() -> userRepository.findById(userId).map(User::getEmail).orElse("Unknown"));
     }
 
+    /** Employee code for the single-record {@link #toRequestResponse(LeaveRequest)} path — null
+     * for a User with no Employee row (auth-only account), same as the batched variant below. */
+    private String employeeCode(UUID userId) {
+        return employeeRepository.findById(userId).map(Employee::getEmployeeCode).orElse(null);
+    }
+
+    /**
+     * Batch counterpart of {@link #employeeName(UUID)} for list-mapping call sites
+     * (listMyRequests/listPendingApprovals/listTeamLeave/listOrgLeave/listPeerLeave): resolves
+     * every id in one {@link EmployeeRepository#findNamesByUserIds} call instead of one query per
+     * row, falling back to a single batch {@code userRepository.findAllById} (email) for any ids
+     * Employee doesn't cover — same two-tier fallback as {@link #employeeName(UUID)}, just batched.
+     */
+    private Map<UUID, String> namesByUserIds(Set<UUID> ids) {
+        if (ids.isEmpty()) return Map.of();
+        Map<UUID, String> namesById = new HashMap<>();
+        for (Object[] row : employeeRepository.findNamesByUserIds(ids)) {
+            namesById.put((UUID) row[0], (String) row[1]);
+        }
+        Set<UUID> missing = new HashSet<>(ids);
+        missing.removeAll(namesById.keySet());
+        if (!missing.isEmpty()) {
+            for (User u : userRepository.findAllById(missing)) {
+                namesById.put(u.getId(), u.getEmail());
+            }
+        }
+        return namesById;
+    }
+
+    /** Collects the distinct ids {@link #toRequestResponse(LeaveRequest, Map, Map)} needs a name for. */
+    private Set<UUID> collectNameIds(Collection<LeaveRequest> requests) {
+        Set<UUID> ids = new HashSet<>();
+        for (LeaveRequest r : requests) {
+            ids.add(r.getEmployeeUserId());
+            if (r.getDecidedBy() != null) ids.add(r.getDecidedBy());
+        }
+        return ids;
+    }
+
+    /** Distinct requester ids only — the input {@link #codesByUserIds} needs, narrower than
+     * {@link #collectNameIds} since decidedBy has no code to resolve. */
+    private Set<UUID> collectEmployeeIds(Collection<LeaveRequest> requests) {
+        return requests.stream().map(LeaveRequest::getEmployeeUserId).collect(Collectors.toSet());
+    }
+
+    /**
+     * Batch counterpart of {@link #employeeCode(UUID)} — only ever needed for the requester
+     * (unlike {@link #collectNameIds}, decidedBy has no code to resolve), so this takes the plain
+     * employeeUserId set rather than duplicating collectNameIds' broader id collection.
+     */
+    private Map<UUID, String> codesByUserIds(Set<UUID> employeeIds) {
+        if (employeeIds.isEmpty()) return Map.of();
+        Map<UUID, String> codesById = new HashMap<>();
+        for (Object[] row : employeeRepository.findCodesByUserIds(employeeIds)) {
+            codesById.put((UUID) row[0], (String) row[1]);
+        }
+        return codesById;
+    }
+
     /**
      * Single source of truth for "available" balance, shared by {@link #submitRequest} (what may
      * a new request consume) and {@link #toBalanceResponse} (what the balance API — and the Leave
@@ -556,8 +683,10 @@ public class LeaveService {
                 .id(r.getId())
                 .employeeUserId(r.getEmployeeUserId())
                 .employeeName(employeeName(r.getEmployeeUserId()))
+                .employeeCode(employeeCode(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
+                .leaveTypeClassification(r.getLeaveType().getClassification())
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
                 .halfDay(r.isHalfDay())
@@ -566,6 +695,37 @@ public class LeaveService {
                 .employeeReason(r.getEmployeeReason())
                 .decisionReason(r.getDecisionReason())
                 .decidedByName(r.getDecidedBy() != null ? employeeName(r.getDecidedBy()) : null)
+                .decidedAt(r.getDecidedAt())
+                .createdAt(r.getCreatedAt())
+                .build();
+    }
+
+    /**
+     * List-mapping variant of {@link #toRequestResponse(LeaveRequest)}: looks employeeName/
+     * decidedByName up in a pre-built map (from {@link #namesByUserIds}) instead of issuing a
+     * query per row. Falls back to "Unknown" for an id absent from the map, matching
+     * {@link #employeeName(UUID)}'s own fallback. employeeCode comes from a second pre-built map
+     * ({@link #codesByUserIds}) — null (not "Unknown") for a missing id, matching
+     * {@link #employeeCode(UUID)}'s own fallback, since it's a secondary display detail rather
+     * than the primary identity label.
+     */
+    private LeaveRequestResponse toRequestResponse(LeaveRequest r, Map<UUID, String> namesById, Map<UUID, String> codesById) {
+        return LeaveRequestResponse.builder()
+                .id(r.getId())
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(namesById.getOrDefault(r.getEmployeeUserId(), "Unknown"))
+                .employeeCode(codesById.get(r.getEmployeeUserId()))
+                .leaveTypeCode(r.getLeaveType().getCode())
+                .leaveTypeName(r.getLeaveType().getName())
+                .leaveTypeClassification(r.getLeaveType().getClassification())
+                .startDate(r.getStartDate())
+                .endDate(r.getEndDate())
+                .halfDay(r.isHalfDay())
+                .totalDays(r.getTotalDays())
+                .status(r.getStatus())
+                .employeeReason(r.getEmployeeReason())
+                .decisionReason(r.getDecisionReason())
+                .decidedByName(r.getDecidedBy() != null ? namesById.getOrDefault(r.getDecidedBy(), "Unknown") : null)
                 .decidedAt(r.getDecidedAt())
                 .createdAt(r.getCreatedAt())
                 .build();

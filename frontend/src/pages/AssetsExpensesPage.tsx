@@ -23,6 +23,8 @@ import {
   type ExpenseTileHR,
   type ExpenseTileManager,
 } from '../api/expenses';
+import { employeesApi } from '../api/employees';
+import { ReceiptViewerModal } from '../components/expenses/ReceiptViewerModal';
 
 // ── Shared styles ─────────────────────────────────────────
 
@@ -42,6 +44,19 @@ function fmtCurrency(n?: number | null) {
 function fmtDate(s?: string | null) {
   if (!s) return '—';
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+export function todayIsoDate(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function isExpenseDateInFuture(dateStr: string, todayStr: string = todayIsoDate()): boolean {
+  if (!dateStr) return false;
+  return dateStr > todayStr;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -86,7 +101,7 @@ function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
       onMouseEnter={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--brand)') : undefined}
       onMouseLeave={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--line)') : undefined}
     >
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{value}</div>
       <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3, fontWeight: 600 }}>{label}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{sub}</div>}
       {clickable && onClick && clickHint && <div style={{ fontSize: 10, color: 'var(--brand)', marginTop: 6, fontWeight: 600 }}>{clickHint}</div>}
@@ -97,7 +112,7 @@ function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
 function SectionHead({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: '"Space Grotesk", sans-serif', color: 'var(--txt)' }}>{title}</h2>
+      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
       {action}
     </div>
   );
@@ -118,7 +133,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>
         </div>
         <div style={{ padding: 20 }}>{children}</div>
@@ -179,6 +194,7 @@ function EmployeeView({ token }: { token: string }) {
   const [reqStatusFilter, setReqStatusFilter] = useState('');
   const [claimStatusFilter, setClaimStatusFilter] = useState('');
   const [claimCatFilter, setClaimCatFilter] = useState('');
+  const [viewingReceiptClaimId, setViewingReceiptClaimId] = useState<string | null>(null);
 
   function reload() {
     assetsApi.employeeTiles(token).then(setTiles).catch(() => {});
@@ -198,7 +214,7 @@ function EmployeeView({ token }: { token: string }) {
     try {
       const updated = await assetsApi.acknowledge(id, token);
       setAssignments(prev => prev.map(a => a.id === updated.id ? updated : a));
-      assetsApi.employeeTiles(token).then(setTiles).catch(() => {});
+      reload();
       showToast('success', 'Receipt acknowledged');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed');
@@ -255,7 +271,7 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Assets tab */}
       {activeTab === 'assets' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <select value={assetCatFilter} onChange={e => setAssetCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Categories</option>
               {assetCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
@@ -304,7 +320,7 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Asset Requests tab */}
       {activeTab === 'requests' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             <select value={reqStatusFilter} onChange={e => setReqStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Statuses</option>
               {requestStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -349,8 +365,8 @@ function EmployeeView({ token }: { token: string }) {
       {/* My Expense Claims tab */}
       {activeTab === 'claims' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <select value={claimStatusFilter} onChange={e => setClaimStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
                 <option value="">All Statuses</option>
                 {claimStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -366,10 +382,10 @@ function EmployeeView({ token }: { token: string }) {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr>{['Category', 'Amount', 'Expense Date', 'Purpose', 'Status', 'Submitted'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                  <tr>{['Category', 'Amount', 'Expense Date', 'Purpose', 'Status', 'Submitted', 'Receipt'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {filteredClaims.length === 0 ? <EmptyRow cols={6} msg="No expense claims yet." /> : filteredClaims.map(c => (
+                  {filteredClaims.length === 0 ? <EmptyRow cols={7} msg="No expense claims yet." /> : filteredClaims.map(c => (
                     <tr key={c.id}>
                       <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.categoryName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
@@ -382,6 +398,14 @@ function EmployeeView({ token }: { token: string }) {
                         )}
                       </td>
                       <td style={tdStyle}>{fmtDate(c.createdAt)}</td>
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => setViewingReceiptClaimId(c.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', fontSize: 11.5, color: 'var(--brand)', cursor: 'pointer' }}
+                        >
+                          <Paperclip size={12} /> View Receipt
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -395,7 +419,7 @@ function EmployeeView({ token }: { token: string }) {
       {ackTarget && (
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 440 }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Acknowledge Asset Receipt</div>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>Acknowledge Asset Receipt</div>
             <div style={{ padding: 20 }}>
               <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
                 <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px' }}>
@@ -439,7 +463,7 @@ function EmployeeView({ token }: { token: string }) {
           categories={categories}
           token={token}
           onClose={() => setShowRequestModal(false)}
-          onCreated={r => { setRequests(prev => [r, ...prev]); assetsApi.employeeTiles(token).then(setTiles).catch(() => {}); showToast('success', 'Asset request submitted — pending manager approval'); }}
+          onCreated={r => { setRequests(prev => [r, ...prev]); reload(); showToast('success', 'Asset request submitted — pending manager approval'); }}
         />
       )}
       {showExpModal && (
@@ -447,7 +471,14 @@ function EmployeeView({ token }: { token: string }) {
           categories={expCategories}
           token={token}
           onClose={() => setShowExpModal(false)}
-          onCreated={c => { setClaims(prev => [c, ...prev]); expensesApi.employeeTiles(token).then(setExpTiles).catch(() => {}); showToast('success', 'Expense claim submitted'); }}
+          onCreated={c => { setClaims(prev => [c, ...prev]); reload(); showToast('success', 'Expense claim submitted'); }}
+        />
+      )}
+      {viewingReceiptClaimId && (
+        <ReceiptViewerModal
+          claimId={viewingReceiptClaimId}
+          token={token}
+          onClose={() => setViewingReceiptClaimId(null)}
         />
       )}
     </div>
@@ -529,9 +560,15 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
   const selectedCat = categories.find(c => c.id === Number(categoryId));
   const amountNum = parseFloat(amount) || 0;
   const receiptRequired = selectedCat != null && amountNum > selectedCat.requiresReceiptAbove;
+  const maxDate = todayIsoDate();
+  const isFutureDate = isExpenseDateInFuture(expenseDate, maxDate);
 
   async function submit() {
     if (!categoryId || !amount || !expenseDate || !businessPurpose.trim()) return;
+    if (isFutureDate) {
+      showToast('error', 'Expense date cannot be in the future');
+      return;
+    }
     if (receiptRequired && !receiptFile) { showToast('error', `Receipt required for ${selectedCat!.name} amounts above ${fmtCurrency(selectedCat!.requiresReceiptAbove)}`); return; }
     setSubmitting(true);
     try {
@@ -566,7 +603,21 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Expense Date *</label>
-        <input type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)} style={inputStyle} />
+        <input
+          type="date"
+          max={maxDate}
+          value={expenseDate}
+          onChange={e => setExpenseDate(e.target.value)}
+          style={{
+            ...inputStyle,
+            borderColor: isFutureDate ? '#E4373D' : undefined,
+          }}
+        />
+        {isFutureDate && (
+          <div style={{ fontSize: 11, color: '#E4373D', marginTop: 4 }}>
+            Expense date cannot be in the future.
+          </div>
+        )}
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Business Purpose *</label>
@@ -583,7 +634,7 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <BtnGhost onClick={onClose}>Cancel</BtnGhost>
-        <BtnPrimary onClick={submit} disabled={!categoryId || !amount || !expenseDate || !businessPurpose.trim() || (receiptRequired && !receiptFile) || submitting}>{submitting ? 'Submitting…' : 'Submit Claim'}</BtnPrimary>
+        <BtnPrimary onClick={submit} disabled={!categoryId || !amount || !expenseDate || isFutureDate || !businessPurpose.trim() || (receiptRequired && !receiptFile) || submitting}>{submitting ? 'Submitting…' : 'Submit Claim'}</BtnPrimary>
       </div>
     </Modal>
   );
@@ -673,7 +724,7 @@ function ManagerView({ token }: { token: string }) {
       {/* Team Assets tab */}
       {activeTab === 'assets' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={assetSearch} onChange={e => setAssetSearch(e.target.value)} placeholder="Search employee…" style={{ ...inputStyle, width: 180, fontSize: 12, padding: '6px 10px' }} />
             <select value={assetCatFilter} onChange={e => setAssetCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
               <option value="">All Categories</option>
@@ -815,7 +866,6 @@ function HRView({ token }: { token: string }) {
   const [assetRequests, setAssetRequests] = useState<AssetRequestResponse[]>([]);
   const [expCategories, setExpCategories] = useState<ExpenseCategory[]>([]);
   const [payrollClaims, setPayrollClaims] = useState<ExpenseClaimResponse[]>([]);
-  const [inventoryFilter, setInventoryFilter] = useState<'ALL' | 'OVERDUE'>('ALL');
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCatFilter, setInventoryCatFilter] = useState('');
   const [inventoryStatusFilter, setInventoryStatusFilter] = useState('');
@@ -845,7 +895,6 @@ function HRView({ token }: { token: string }) {
   const inventoryStatusOptions = Array.from(new Set(inventory.map(a => a.status)));
 
   const filteredInventory = inventory
-    .filter(a => inventoryFilter === 'ALL' || a.status === 'ASSIGNED')
     .filter(a => !inventorySearch || a.assetTag.toLowerCase().includes(inventorySearch.toLowerCase()) || (a.serialNumber ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.brand ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.model ?? '').toLowerCase().includes(inventorySearch.toLowerCase()))
     .filter(a => !inventoryCatFilter || a.categoryName === inventoryCatFilter)
     .filter(a => !inventoryStatusFilter || a.status === inventoryStatusFilter);
@@ -854,6 +903,7 @@ function HRView({ token }: { token: string }) {
     try {
       const updated = await assetsApi.retireAsset(assetId, token);
       setInventory(prev => prev.map(a => a.id === updated.id ? updated : a));
+      reload();
       showToast('success', 'Asset retired');
     } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
   }
@@ -877,9 +927,14 @@ function HRView({ token }: { token: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => setActiveTab('inventory')} />
-        <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => setActiveTab('inventory')} />
-        <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryFilter('OVERDUE'); setActiveTab('inventory'); }} />
+        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
+        <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
+        {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
+            model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
+            see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
+            predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
+            filter rather than silently showing "assigned" assets under an "overdue" label. */}
+        <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
         <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
         <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
       </div>
@@ -917,10 +972,6 @@ function HRView({ token }: { token: string }) {
           <select value={inventoryStatusFilter} onChange={e => setInventoryStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
             <option value="">All Statuses</option>
             {inventoryStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-          </select>
-          <select value={inventoryFilter} onChange={e => setInventoryFilter(e.target.value as 'ALL' | 'OVERDUE')} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
-            <option value="ALL">All Assets</option>
-            <option value="OVERDUE">Overdue Returns</option>
           </select>
         </div>
         <div style={panelStyle}>
@@ -1030,7 +1081,7 @@ function HRView({ token }: { token: string }) {
         <div style={{ marginBottom: 10 }}>
           <input value={payrollSearch} onChange={e => setPayrollSearch(e.target.value)} placeholder="Search employee…" style={{ ...inputStyle, width: 200, fontSize: 12, padding: '6px 10px' }} />
         </div>
-        <div style={{ ...panelStyle, padding: '14px 18px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ ...panelStyle, padding: '14px 18px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
             {hrExpTiles?.pendingClearanceCount ? `${hrExpTiles.pendingClearanceCount} claims pending final approval in Approval Center` : 'No claims pending final approval'}
           </div>
@@ -1069,8 +1120,8 @@ function HRView({ token }: { token: string }) {
       {showAddAsset && <AddAssetModal token={token} onClose={() => setShowAddAsset(false)} onCreated={a => { setInventory(prev => [a, ...prev]); showToast('success', 'Asset added'); }} />}
       {showAssignModal && <AssignAssetModal asset={showAssignModal} token={token} mode="assign" onClose={() => setShowAssignModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); showToast('success', 'Asset assigned'); setShowAssignModal(null); }} />}
       {showReassignModal && <AssignAssetModal asset={showReassignModal} token={token} mode="reassign" onClose={() => setShowReassignModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); showToast('success', 'Asset reassigned'); setShowReassignModal(null); }} />}
-      {showReturnModal && <MarkReturnedModal asset={showReturnModal} token={token} onClose={() => setShowReturnModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); setShowReturnModal(null); showToast('success', 'Asset marked returned'); }} />}
-      {showFulfillModal && <FulfillRequestModal request={showFulfillModal} token={token} onClose={() => setShowFulfillModal(null)} onDone={r => { setAssetRequests(prev => prev.map(x => x.id === r.id ? r : x)); setShowFulfillModal(null); showToast('success', 'Request fulfilled'); }} />}
+      {showReturnModal && <MarkReturnedModal asset={showReturnModal} token={token} onClose={() => setShowReturnModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); setShowReturnModal(null); showToast('success', 'Asset marked returned'); }} />}
+      {showFulfillModal && <FulfillRequestModal request={showFulfillModal} token={token} onClose={() => setShowFulfillModal(null)} onDone={r => { setAssetRequests(prev => prev.map(x => x.id === r.id ? r : x)); reload(); setShowFulfillModal(null); showToast('success', 'Request fulfilled'); }} />}
       {showCatModal && <ExpenseCategoryModal category={showCatModal === 'new' ? null : showCatModal} token={token} onClose={() => setShowCatModal(null)} onSaved={c => { setExpCategories(prev => { const idx = prev.findIndex(x => x.id === c.id); return idx >= 0 ? prev.map((x, i) => i === idx ? c : x) : [c, ...prev]; }); showToast('success', 'Category saved'); setShowCatModal(null); }} />}
     </div>
   );
@@ -1127,16 +1178,19 @@ function AssignAssetModal({ asset, token, mode, onClose, onDone }: { asset: Asse
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch('/api/employees', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then((data: { userId: string; fullName?: string; firstName?: string; lastName?: string; active?: boolean }[]) =>
+    let cancelled = false;
+    employeesApi.list(token)
+      .then(data => {
+        if (cancelled) return;
         setEmployees(
           data
-            .filter(e => e.active !== false)
-            .map(e => ({ id: e.userId, name: e.fullName ?? `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim() }))
-        )
-      ).catch(() => {});
-  }, [token]);
+            .filter(e => e.active !== false && e.role !== 'SUPER_ADMIN')
+            .map(e => ({ id: e.userId, name: e.fullName }))
+        );
+      })
+      .catch(() => { if (!cancelled) showToast('error', 'Could not load employees'); });
+    return () => { cancelled = true; };
+  }, [token, showToast]);
 
   async function submit() {
     if (!employeeUserId) return;
@@ -1272,7 +1326,15 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
   function setPositiveDecimal(k: string, v: string) { set(k, sanitizePositiveDecimalInput(v)); }
 
   async function submit() {
-    if (!form.name.trim()) return;
+    const trimmedName = form.name.trim();
+    if (!trimmedName) return;
+    // Mirrors OrgSetupPage's Department/Designation name check: must include at least one
+    // letter, rejecting numeric-only ("123"), negative-number ("-5"), and symbol-only ("@#$")
+    // category names before they ever reach the backend's identical @Pattern check.
+    if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmedName)) {
+      showToast('error', 'Category name must contain letters and cannot contain numbers or be made up of special characters only');
+      return;
+    }
     const dailyLimitNum = form.dailyLimit ? parseFloat(form.dailyLimit) : null;
     const secondApprovalNum = form.secondApprovalAbove ? parseFloat(form.secondApprovalAbove) : null;
     if (dailyLimitNum != null && (isNaN(dailyLimitNum) || dailyLimitNum < 0)) {
@@ -1286,7 +1348,7 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
     setSubmitting(true);
     try {
       const payload = {
-        name: form.name.trim(),
+        name: trimmedName,
         requiresReceiptAbove: parseFloat(form.requiresReceiptAbove) || 0,
         dailyLimit: dailyLimitNum,
         secondApprovalAbove: secondApprovalNum,
@@ -1328,7 +1390,7 @@ export default function AssetsExpensesPage() {
   return (
     <div>
       <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
+        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
             : role === 'HR Admin' || role === 'Super Admin' ? 'Manage company inventory, expense policies, and payroll-ready claims.'
