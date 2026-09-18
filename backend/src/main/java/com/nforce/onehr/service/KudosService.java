@@ -61,7 +61,16 @@ public class KudosService {
         notificationService.send(to.getId(), "KUDOS",
                 "You've been appreciated 🎉",
                 fromName + " sent you kudos for \"" + req.getCategory() + "\"" + note,
-                "/my-team");
+                // No linkPath: nothing in OneHR displays received kudos. KudosController exposes
+                // /received and the API client has kudosApi.received, but no page renders either, so
+                // there is no destination to offer. This previously pointed at /my-team, which is
+                // where kudos are SENT from - the recipient landed on a team roster with no mention
+                // of the appreciation they had just been notified about.
+                //
+                // NotificationsPage hides the "Open related page" button when linkPath is null, so
+                // the notification simply reads as the complete message it already is. Give it a
+                // real path the day a page exists to show these.
+                null);
 
         return toResponse(saved);
     }

@@ -16,11 +16,13 @@ AiAssistantService
    3. NavigationValidator      re-validate currentPageId; a spoofed one is dropped
    4. VectorKnowledgeRetriever embed the question, kNN with the audience filter IN SQL
    5. ── empty? ──────────────▶ controlled UNKNOWN. The model is never called.
-   6. PromptBuilder            policy + who is asking + reachable pages + fenced knowledge
-   7. MistralLlmProvider       one completion, JSON mode
-   8. ResponseValidator        parse, coerce, drop unknown fields, re-check navigation
-   9. ConversationService      record the turn
-  10. AiInteractionLogger      record what it was working from
+   6. AssistantDataService     the asker's own records, chosen from what retrieval matched
+   7. PromptBuilder            policy + who is asking + reachable pages + fenced knowledge
+                               + their live records, fenced separately
+   8. MistralLlmProvider       one completion, JSON mode
+   9. ResponseValidator        parse, coerce, drop unknown fields, re-check navigation
+  10. ConversationService      record the turn
+  11. AiInteractionLogger      record what it was working from
         ▼
 AssistantResponse              always HTTP 200, even for a decline
 ```
@@ -109,6 +111,27 @@ The model is also shown only the pages the caller's own role can reach, which re
 likely cause of bad navigation before it can happen. `NavigationValidator` re-checks the result
 independently anyway.
 
+### Live records reuse the existing scoping, rather than re-implementing it
+
+Every live figure comes from a service method that already takes the actor's email and resolves the
+caller itself — `listMyBalances(actorEmail)`, `myClaims(actorEmail)`,
+`getMyExceptions(actorEmail, from, to)`. **This feature contains no authorisation logic of its own**,
+which is the single reason it is safe to have built: it walks the same code path the page walks, so
+there is no second implementation that could drift out of agreement with the first.
+
+Methods that take no actor at all, such as `LeaveService.listOrgLeave(from, to)`, would hand over an
+entire organisation. `DataProviderSafetyTest` fails the build if a provider reaches one, and pins
+the provider list to a reviewed set so a new one cannot appear without somebody answering "does this
+read only the caller's own data?".
+
+Live records are fenced in `<userdata>` tags rather than folded into `<knowledge>`, because the two
+are different kinds of claim and the model must not treat them alike: knowledge says how OneHR
+behaves for everyone, while this says what is true for one person right now. They are also the first
+content in the system an ordinary employee can influence — an expense rejection reason is free text
+typed by a manager — so they go through the same fence sanitiser.
+
+See [live-data.md](live-data.md).
+
 ### Failure degrades; it does not throw
 
 A provider outage is not the user's error. `AiAssistantService` catches its own failures and returns
@@ -144,6 +167,7 @@ worth checking twice. The server remains authoritative.
 | `ai/prompt/` | System and user prompt assembly. |
 | `ai/response/` | Model output validation and the controlled declines. |
 | `ai/service/` | Orchestration, conversations, rate limiting. |
+| `ai/data/` | The asker's own live records, read through existing actor-scoped services. |
 | `ai/observability/` | The interaction log and feedback. |
 | `ai/action/` | The inert extension point. See [action-execution.md](action-execution.md). |
 

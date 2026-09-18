@@ -189,6 +189,8 @@ pages:
   - pageId: policies
     module: policies
     variants:
+      # Super Admin gained this item when dev merged in the policy-acknowledgement work.
+      # PageRegistryParityTest caught the drift the same day.
       - roles: [HR_ADMIN, SUPER_ADMIN]
         label: "Policies & Announcements"
         route: /policies

@@ -5,15 +5,19 @@ import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
+import com.nforce.onehr.entity.AttendanceRequest;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.RegularizationRequest;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
+import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
+import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
@@ -53,6 +57,8 @@ class AttendancePenaltyServiceTest {
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository managerHistoryRepository;
     @Mock private RegularizationRequestRepository regularizationRequestRepository;
+    @Mock private AttendanceRequestRepository attendanceRequestRepository;
+    @Mock private LeaveRequestRepository leaveRequestRepository;
     @Mock private AuditService auditService;
     @Mock private LeaveBalanceRepository leaveBalanceRepository;
     @Mock private LeaveTypeRepository leaveTypeRepository;
@@ -83,6 +89,11 @@ class AttendancePenaltyServiceTest {
         lenient().when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(empId));
         lenient().when(employeeRepository.findAllByIdWithScheduleDetails(List.of(empId))).thenReturn(List.of(employee));
         lenient().when(regularizationRequestRepository.findByEmployeeUserIdInAndAttendanceDateBetween(any(), any(), any()))
+                .thenReturn(List.of());
+        lenient().when(attendanceRequestRepository.findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(any(), any(), any(), any()))
+                .thenReturn(List.of());
+        lenient().when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        any(), any(), any(), any()))
                 .thenReturn(List.of());
         // Default: the conditional status transition succeeds (affects exactly one row) — tests
         // for the "lost the concurrency race" case override this explicitly to return 0.
@@ -185,6 +196,84 @@ class AttendancePenaltyServiceTest {
         List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
 
         assertEquals(1, result.size());
+    }
+
+    // ── Defect fix: Attendance Discrepancy list must also exclude approved Partial Day requests
+    // ── and applicable approved Leave, the same way it already excludes active regularizations.
+
+    @Test
+    void list_excludesPenaltiesCoveredByAnApprovedPartialDayRequest() {
+        AttendancePenalty p = penalty(AttendancePenaltyStatus.PENDING_REVIEW);
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of(p));
+        when(attendanceRequestRepository.findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(List.of(empId), "PARTIAL_DAY", from, to))
+                .thenReturn(List.of(AttendanceRequest.builder()
+                        .employeeUserId(empId).requestType("PARTIAL_DAY").requestDate(incidentDate).status("APPROVED").reason("x").build()));
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void list_pendingPartialDayRequest_doesNotBlockThePenalty() {
+        // Only an APPROVED Partial Day request legitimately covers the discrepancy — a merely
+        // submitted/pending one must not suppress it.
+        AttendancePenalty p = penalty(AttendancePenaltyStatus.PENDING_REVIEW);
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of(p));
+        when(attendanceRequestRepository.findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(List.of(empId), "PARTIAL_DAY", from, to))
+                .thenReturn(List.of(AttendanceRequest.builder()
+                        .employeeUserId(empId).requestType("PARTIAL_DAY").requestDate(incidentDate).status("PENDING").reason("x").build()));
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void list_excludesPenaltiesCoveredByApplicableApprovedLeave() {
+        AttendancePenalty p = penalty(AttendancePenaltyStatus.PENDING_REVIEW);
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of(p));
+        when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        List.of(empId), "APPROVED", to, from))
+                .thenReturn(List.of(LeaveRequest.builder()
+                        .employeeUserId(empId).startDate(incidentDate.minusDays(1)).endDate(incidentDate.plusDays(1))
+                        .status("APPROVED").totalDays(new BigDecimal("3")).build()));
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void list_pendingLeave_doesNotBlockThePenalty() {
+        // Only APPROVED leave legitimately covers the discrepancy — a pending/rejected leave
+        // request must not suppress it (mirrors the regularization semantics above).
+        AttendancePenalty p = penalty(AttendancePenaltyStatus.PENDING_REVIEW);
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of(p));
+        // A PENDING leave is never returned by the APPROVED-status query, same as production code.
+        when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                        List.of(empId), "APPROVED", to, from))
+                .thenReturn(List.of());
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void list_returnsEmpty_whenPolicyProducedNoPenaltyForTheRange() {
+        // No AttendancePenalty row exists at all — the configured Penalization Policy never
+        // matched anything in range, so there is nothing to list, not a bug.
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of());
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertTrue(result.isEmpty());
     }
 
     @Test

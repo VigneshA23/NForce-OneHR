@@ -3,6 +3,7 @@ package com.nforce.onehr.ai.prompt;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.PageReference;
 import com.nforce.onehr.ai.contract.RetrievalResult;
+import com.nforce.onehr.ai.data.AssistantDataService;
 import com.nforce.onehr.ai.navigation.PageRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -36,6 +37,26 @@ public class PromptBuilder {
     public String buildSystemPrompt(AssistantRequestContext context,
                                     List<RetrievalResult> knowledge,
                                     Optional<PageReference> currentPage) {
+        return buildSystemPrompt(context, knowledge, currentPage, AssistantDataService.LiveData.empty());
+    }
+
+    /**
+     * Builds the system prompt including the caller's own live records.
+     *
+     * <p>Live data is fenced in its own tag rather than folded into KNOWLEDGE, because the two
+     * are not the same kind of thing and the model must not treat them alike: knowledge says how
+     * OneHR behaves for everyone and was authored by us, while this says what is true for one
+     * person right now. Blurring them is how an assistant ends up stating somebody's leave
+     * balance as though it were a general rule.
+     *
+     * <p>It is also the first content here that an ordinary user can influence - an expense
+     * rejection reason is free text typed by a manager - so it goes through the same fence
+     * sanitiser as retrieved knowledge.
+     */
+    public String buildSystemPrompt(AssistantRequestContext context,
+                                    List<RetrievalResult> knowledge,
+                                    Optional<PageReference> currentPage,
+                                    AssistantDataService.LiveData liveData) {
         StringBuilder sb = new StringBuilder(SystemPromptTemplate.POLICY);
 
         sb.append("\n\nSIGNED-IN USER\n");
@@ -70,6 +91,20 @@ public class PromptBuilder {
                     .append("describe if asked, never navigate to)\n");
             for (PageReference page : placeholders) {
                 sb.append("- ").append(page.getLabel()).append('\n');
+            }
+        }
+
+        if (liveData != null && !liveData.isEmpty()) {
+            sb.append("\nTHIS USER'S CURRENT RECORDS\n");
+            sb.append("Live values read from OneHR a moment ago, for this signed-in user only. ")
+                    .append("You may state these as fact. Do not infer any other figure, status or ")
+                    .append("date that is not written here - if it is not below, say where to look ")
+                    .append("instead of estimating.\n");
+            for (AssistantDataService.Section section : liveData.getSections()) {
+                sb.append("<userdata id=\"").append(section.providerId()).append("\">\n");
+                sb.append(fence(section.title())).append('\n');
+                sb.append(fence(section.body())).append('\n');
+                sb.append("</userdata>\n\n");
             }
         }
 
@@ -130,7 +165,10 @@ public class PromptBuilder {
      */
     private String fence(String text) {
         if (text == null) return "";
-        return text.replace("</knowledge", "&lt;/knowledge").replace("<knowledge", "&lt;knowledge");
+        return text.replace("</knowledge", "&lt;/knowledge")
+                .replace("<knowledge", "&lt;knowledge")
+                .replace("</userdata", "&lt;/userdata")
+                .replace("<userdata", "&lt;userdata");
     }
 
     private String describeRole(AssistantRequestContext context) {

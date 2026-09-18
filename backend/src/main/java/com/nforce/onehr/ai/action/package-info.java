@@ -23,8 +23,12 @@
  *   <li>Nothing in com.nforce.onehr.ai uses reflection, SpEL, dynamic bean lookup, or LLM-supplied
  *       SQL or URLs. Retrieval is parameterised JdbcTemplate only; the model contributes a query
  *       string that is embedded, never interpolated.</li>
- *   <li>The assistant service depends on no mutating domain service. Its only write paths are
- *       conversation logging and the knowledge index, both confined to ai_ tables.</li>
+ *   <li>The assistant reaches no write. Its only write paths are conversation logging and the
+ *       knowledge index, both confined to ai_ tables. Note this guarantee is narrower than it was:
+ *       since live data was added, the object graph reaches LeaveService, ExpenseService and
+ *       AttendanceService through com.nforce.onehr.ai.data, and those can mutate. What holds it is
+ *       that providers call read methods only, enforced by DataProviderSafetyTest rather than by
+ *       the graph containing no opportunity.</li>
  * </ol>
  *
  * <p>ActionFrameworkDisabledTest asserts each of these, so re-enabling one by accident fails the
