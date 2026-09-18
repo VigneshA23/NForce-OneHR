@@ -96,8 +96,12 @@ their leave request; the metrics are for us.
 
 | Table | Contains | Sensitivity |
 |---|---|---|
-| `ai_conversation_message` | questions and answers as written | **employee free text** — can describe personal circumstances |
+| `ai_conversation_message` | questions and answers as written | **employee free text, and now live figures** — an answer can contain a leave balance or a claim amount |
 | `ai_interaction_log` | metrics, knowledge ids, `feedback_comment` | links a user to a timestamped activity trail |
+
+Since live data was added, a stored answer can contain the asker's own balances, claim statuses and
+amounts. That raises the sensitivity of `ai_conversation_message` specifically, and makes a
+retention policy more pressing than it was when answers held only documentation.
 
 **Nothing purges either table today.** When a policy is agreed, the intended shape is: delete
 `ai_conversation_message` rows beyond the window first, then `ai_interaction_log` rows beyond a

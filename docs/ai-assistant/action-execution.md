@@ -26,10 +26,19 @@ harmless in review. It is enforced by what does and does not exist.
 7. **Nothing in `com.nforce.onehr.ai` uses reflection, SpEL, dynamic bean lookup, or LLM-supplied
    SQL or URLs.** Retrieval is parameterised `JdbcTemplate` only; the model contributes a query
    string that is embedded, never interpolated. It returns a `pageId`, never a route.
-8. **`AiAssistantService` depends on no mutating domain service.** Its only writes are conversation
-   and log rows, both confined to `ai_*` tables. This is what makes the read-only guarantee
-   structural rather than a promise — there is no code path from the assistant into leave,
-   attendance or anything else.
+8. **The assistant reaches no write.** Its only writes are conversation and log rows, both confined
+   to `ai_*` tables.
+
+   **This guarantee weakened when live data was added, and the doc says so rather than pretending
+   otherwise.** Before that, `AiAssistantService` depended on no domain service at all, so "no code
+   path into leave or attendance" was true of the object graph itself. Now the graph reaches
+   `LeaveService`, `ExpenseService` and `AttendanceService` through `ai/data/`, and those classes
+   *can* mutate — `LeaveService.approve` exists.
+
+   What holds it is narrower and worth stating plainly: providers call read methods only, and
+   `DataProviderSafetyTest` fails the build if any provider declares a method whose name suggests a
+   write, or reaches an unscoped read. That is a real guard, but it is a guard on discipline rather
+   than an absence of opportunity, which is a weaker thing than guarantees 1–7.
 
 `ActionFrameworkDisabledTest` asserts every one of these, so re-enabling one by accident fails the
 build rather than shipping. The classpath scan that checks guarantee 2 includes a self-check
@@ -86,5 +95,7 @@ If you are the person implementing this, in order:
 7. **Add it to the evaluation set with a `why`**, including the case where the user asks for it and
    should be refused.
 
-At that point — and only then — does guarantee 8 change, and it should change for exactly one
-domain service, visibly, in one pull request.
+At that point guarantee 8 narrows again: the graph already reaches these services, so what changes
+is that one of them is called for a write. That should happen for exactly one domain service,
+visibly, in one pull request — and `DataProviderSafetyTest` will fail until somebody deliberately
+carves out the exception.

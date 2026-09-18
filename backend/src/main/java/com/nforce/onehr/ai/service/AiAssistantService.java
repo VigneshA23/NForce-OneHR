@@ -12,6 +12,7 @@ import com.nforce.onehr.ai.contract.PageReference;
 import com.nforce.onehr.ai.contract.RetrievalQuery;
 import com.nforce.onehr.ai.contract.RetrievalResult;
 import com.nforce.onehr.ai.contract.ShellRole;
+import com.nforce.onehr.ai.data.AssistantDataService;
 import com.nforce.onehr.ai.entity.AiConversation;
 import com.nforce.onehr.ai.exception.AiProviderException;
 import com.nforce.onehr.ai.navigation.NavigationValidator;
@@ -63,6 +64,7 @@ public class AiAssistantService {
     private final UnknownResponses unknownResponses;
     private final ConversationService conversationService;
     private final AiRateLimiter rateLimiter;
+    private final AssistantDataService dataService;
     private final AiInteractionLogger interactionLogger;
     private final AiProperties properties;
 
@@ -141,7 +143,13 @@ public class AiAssistantService {
             return unknown;
         }
 
-        String systemPrompt = promptBuilder.buildSystemPrompt(context, knowledge, currentPage);
+        // The caller's own records, selected from what retrieval already matched. Fetched only
+        // after retrieval has found something relevant, so an unrelated question never causes a
+        // read of personal data - and never throws, so a failure here costs the live figure but
+        // still leaves the static answer.
+        AssistantDataService.LiveData liveData = dataService.fetch(context, knowledge);
+
+        String systemPrompt = promptBuilder.buildSystemPrompt(context, knowledge, currentPage, liveData);
         String userPrompt = promptBuilder.buildUserPrompt(
                 question, conversationService.recentTurns(conversation.getId()));
 
@@ -225,6 +233,7 @@ public class AiAssistantService {
 
         return AssistantRequestContext.builder()
                 .userId(actor.getId())
+                .actorEmail(actor.getEmail())
                 .primaryRoleCode(primaryRoleCode)
                 .shellRole(ShellRole.fromPrimaryRoleCode(primaryRoleCode))
                 .audiences(audiences)
@@ -235,6 +244,7 @@ public class AiAssistantService {
         if (page.isEmpty()) return context;
         return AssistantRequestContext.builder()
                 .userId(context.getUserId())
+                .actorEmail(context.getActorEmail())
                 .primaryRoleCode(context.getPrimaryRoleCode())
                 .shellRole(context.getShellRole())
                 .audiences(context.getAudiences())
