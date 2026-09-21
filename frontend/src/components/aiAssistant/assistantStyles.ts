@@ -7,6 +7,11 @@ import type React from 'react';
  * re-declares what it needs. Building the assistant in a different idiom would make it the one
  * surface that does not follow the theme.
  *
+ * Every accent tint below goes through `color-mix(in srgb, var(--brand) X%, ...)` rather than a
+ * literal `rgba(177,17,22,X)` — that literal is this app's shipped red hardcoded, so it used to be
+ * the one surface that stayed red under every other Theme color. `color-mix` against `var(--brand)`
+ * is the same pattern SidebarNav's active-item bar and DashboardPage's stat-tile icons already use.
+ *
  * The z-index values are the part worth reading. OneHR already has a ladder — topbar 30, mobile
  * scrim 90, sidebar 100, dropdowns 200, modals 500, portals 999, toasts 9999 — and the assistant
  * slots into it rather than topping it:
@@ -26,14 +31,48 @@ export const launcherStyle: React.CSSProperties = {
   width: 50,
   height: 50,
   borderRadius: '50%',
-  border: '1px solid rgba(177,17,22,.35)',
-  background: 'var(--brand)',
+  border: '1px solid color-mix(in srgb, var(--brand-bright) 40%, transparent)',
+  background: 'linear-gradient(150deg, var(--brand-bright) 0%, var(--brand) 55%, var(--brand-deep) 100%)',
   color: '#fff',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   cursor: 'pointer',
-  boxShadow: '0 10px 28px rgba(0,0,0,.45)',
+  boxShadow: '0 10px 28px rgba(0,0,0,.45), 0 0 0 1px color-mix(in srgb, var(--brand-bright) 18%, transparent)',
+  transition: 'transform 150ms ease',
+};
+
+/** The launcher's permanent ambient halo — present on every page, indefinitely, so it's a much
+ *  slower and fainter breathe than the header badge's (nf-assistant-launcher-breathe, not
+ *  glow-pulse). `pointerEvents: none` and `zIndex` one below the button keep it purely visual. */
+export const launcherGlowStyle: React.CSSProperties = {
+  position: 'fixed',
+  right: 22,
+  bottom: 22,
+  zIndex: Z_LAUNCHER - 1,
+  width: 50,
+  height: 50,
+  borderRadius: '50%',
+  pointerEvents: 'none',
+  background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-bright) 55%, transparent) 0%, transparent 70%)',
+  animation: 'nf-assistant-launcher-breathe 3.4s ease-in-out infinite',
+};
+
+/** The one-time "try me" bubble (AssistantLauncher's first-session invite). */
+export const inviteBubbleStyle: React.CSSProperties = {
+  position: 'fixed',
+  right: 22,
+  bottom: 82,
+  zIndex: Z_LAUNCHER,
+  maxWidth: 208,
+  background: 'var(--panel)',
+  border: '1px solid color-mix(in srgb, var(--brand) 25%, var(--line))',
+  borderRadius: 10,
+  padding: '9px 12px',
+  fontSize: 12,
+  color: 'var(--txt)',
+  boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+  animation: 'nf-assistant-invite-in 260ms ease-out',
 };
 
 export const panelStyle: React.CSSProperties = {
@@ -47,9 +86,9 @@ export const panelStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   background: 'var(--panel)',
-  border: '1px solid var(--line)',
-  borderRadius: 12,
-  boxShadow: '0 24px 64px rgba(0,0,0,.55)',
+  border: '1px solid color-mix(in srgb, var(--brand) 20%, var(--line))',
+  borderRadius: 14,
+  boxShadow: '0 24px 64px rgba(0,0,0,.5), 0 4px 18px color-mix(in srgb, var(--brand) 12%, transparent)',
   overflow: 'hidden',
 };
 
@@ -60,15 +99,112 @@ export const headerStyle: React.CSSProperties = {
   gap: 8,
   padding: '12px 14px',
   borderBottom: '1px solid var(--line)',
-  background: 'var(--raised)',
+  background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand) 16%, var(--raised)) 0%, var(--raised) 65%)',
   flexShrink: 0,
 };
 
+/** Outer wrapper for the header badge — sized to leave a couple of px around the icon circle for
+ *  the spinning ring (headerBadgeRingStyle) to show in, plus the pulsing glow behind both. */
+export const headerBadgeWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  width: 30,
+  height: 30,
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+/** Soft ambient halo behind the badge, breathing via the same `glow-pulse` keyframe BrandMark's
+ *  logo already uses — one shared animation vocabulary for "this is a living AI presence" across
+ *  the app, rather than a one-off invented just for this panel. */
+export const headerBadgeGlowStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: -6,
+  borderRadius: '50%',
+  background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-bright) 35%, transparent) 0%, transparent 72%)',
+  animation: 'glow-pulse 2.4s ease-in-out infinite',
+  pointerEvents: 'none',
+};
+
+/** A slow (7s), calm conic-gradient ring that rotates behind the icon circle — the one place in
+ *  this panel that moves on its own without a user action, so the assistant reads as alert rather
+ *  than static chrome. Deliberately not on the always-visible launcher: a ring spinning forever in
+ *  the corner of every page would wear out its welcome fast; reserved for while the panel is open. */
+export const headerBadgeRingStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: -3,
+  borderRadius: '50%',
+  background: 'conic-gradient(from 0deg, var(--brand-bright), transparent 30%, transparent 70%, var(--brand-bright))',
+  animation: 'nf-assistant-ring-spin 7s linear infinite',
+  opacity: 0.65,
+};
+
+export const headerBadgeStyle: React.CSSProperties = {
+  position: 'relative',
+  width: 26,
+  height: 26,
+  borderRadius: '50%',
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'color-mix(in srgb, var(--brand) 16%, var(--panel))',
+  color: 'var(--brand-bright)',
+};
+
+/** A faint, non-interactive accent texture behind the transcript — the same "designed background,
+ *  not a blank surface" move as the sidebar's decorative artwork, but deliberately quieter: two
+ *  soft corner glows plus a barely-there dot grid, all built from `color-mix(var(--brand), X%,
+ *  transparent)` rather than a raster image. That's the key difference from the sidebar version —
+ *  the sidebar is always dark, so a fixed PNG works there, but this panel's background flips
+ *  between --shell light and dark with the user's Display Mode. Compositing true alpha against
+ *  transparent (instead of a color baked over a fixed dark ground) means the browser blends it
+ *  against whatever --shell actually is, so it reads equally faint in both without any separate
+ *  per-theme values needed. Sits behind the message list, never affects text contrast. */
+export const transcriptGlowStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  // Negative, not 0: an absolutely-positioned element with z-index:0 paints ABOVE static in-flow
+  // siblings under normal CSS stacking rules (it stops being a flex/flow item once absolute), so
+  // 0 here would put this glow on top of the message bubbles instead of behind them. -1 keeps it
+  // above the transcript's own solid background but below every real message.
+  zIndex: -1,
+  pointerEvents: 'none',
+  backgroundImage: [
+    'radial-gradient(260px circle at 100% 0%, color-mix(in srgb, var(--brand) 14%, transparent) 0%, transparent 72%)',
+    'radial-gradient(300px circle at 0% 100%, color-mix(in srgb, var(--brand) 9%, transparent) 0%, transparent 72%)',
+    'radial-gradient(circle, color-mix(in srgb, var(--brand) 9%, transparent) 1px, transparent 1.6px)',
+  ].join(', '),
+  backgroundSize: 'auto, auto, 22px 22px',
+  backgroundRepeat: 'no-repeat, no-repeat, repeat',
+};
+
 export const transcriptStyle: React.CSSProperties = {
+  position: 'relative',
   flex: 1,
   overflowY: 'auto',
   padding: '14px 14px 6px',
   background: 'var(--shell)',
+};
+
+/** Wraps the panel's header/transcript/composer, keyed by AssistantLauncher's `openToken` in
+ *  AssistantPanel. The panel itself now stays mounted across close/reopen — see the comment on
+ *  AssistantLauncher's `hidden` prop for why — so this inner wrapper is what actually re-mounts on
+ *  every open, which is what lets `nf-assistant-panel-in` replay each time instead of only once
+ *  on the very first open ever. */
+export const panelBodyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  flex: 1,
+  minHeight: 0,
+  animation: 'nf-assistant-panel-in 240ms cubic-bezier(.16,1,.3,1)',
+};
+
+/** Per-message entrance — applied to each bubble row's outer div in MessageList so a new turn
+ *  (yours or the assistant's) settles in rather than snapping into place. */
+export const messageEnterStyle: React.CSSProperties = {
+  animation: 'nf-assistant-msg-in 220ms ease-out',
 };
 
 export const composerStyle: React.CSSProperties = {
@@ -101,8 +237,8 @@ export const sendButtonStyle: React.CSSProperties = {
   width: 36,
   height: 36,
   borderRadius: 8,
-  border: '1px solid rgba(177,17,22,.3)',
-  background: 'var(--brand)',
+  border: '1px solid color-mix(in srgb, var(--brand) 30%, transparent)',
+  background: 'linear-gradient(150deg, var(--brand-bright) 0%, var(--brand) 100%)',
   color: '#fff',
   display: 'flex',
   alignItems: 'center',
@@ -110,6 +246,18 @@ export const sendButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
   flexShrink: 0,
 };
+
+/** One dot of the "thinking" indicator (see TypingIndicator in MessageList). `delay` offsets each
+ *  dot's bounce so they ripple left-to-right instead of bouncing in lockstep. */
+export function typingDotStyle(delayMs: number): React.CSSProperties {
+  return {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    background: 'var(--brand-bright)',
+    animation: `nf-assistant-typing-bounce 1.1s ease-in-out ${delayMs}ms infinite`,
+  };
+}
 
 export const iconButtonStyle: React.CSSProperties = {
   background: 'none',
@@ -126,8 +274,8 @@ export const iconButtonStyle: React.CSSProperties = {
 export function bubbleStyle(isUser: boolean): React.CSSProperties {
   return {
     maxWidth: '88%',
-    background: isUser ? 'rgba(177,17,22,.08)' : 'var(--raised)',
-    border: `1px solid ${isUser ? 'rgba(177,17,22,.25)' : 'var(--line)'}`,
+    background: isUser ? 'color-mix(in srgb, var(--brand) 9%, var(--panel))' : 'var(--raised)',
+    border: `1px solid ${isUser ? 'color-mix(in srgb, var(--brand) 25%, transparent)' : 'var(--line)'}`,
     borderRadius: 10,
     padding: '10px 12px',
     fontSize: 13,
@@ -151,15 +299,30 @@ export const navActionStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  background: 'rgba(177,17,22,.10)',
-  border: '1px solid rgba(177,17,22,.30)',
-  borderRadius: 7,
-  padding: '6px 11px',
+  background: 'color-mix(in srgb, var(--brand) 10%, transparent)',
+  border: '1px solid color-mix(in srgb, var(--brand) 30%, transparent)',
+  borderRadius: 999,
+  padding: '6px 12px',
   fontSize: 12,
   fontWeight: 600,
   color: 'var(--txt)',
   cursor: 'pointer',
 };
+
+/** Active-state styling for the thumbs-up/down rate buttons in MessageList — split out so the
+ *  color-mix accent tint lives with the rest of this file's theme logic. */
+export function rateButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    background: active ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'none',
+    border: `1px solid ${active ? 'color-mix(in srgb, var(--brand) 30%, transparent)' : 'transparent'}`,
+    borderRadius: 5,
+    padding: '3px 5px',
+    color: active ? 'var(--txt)' : 'var(--txt-dim)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+  };
+}
 
 export const errorBannerStyle: React.CSSProperties = {
   display: 'flex',
