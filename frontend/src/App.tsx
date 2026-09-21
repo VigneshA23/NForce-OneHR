@@ -27,6 +27,9 @@ import AuditHistoryPage from './pages/AuditHistoryPage';
 import AuditSecurityPage from './pages/AuditSecurityPage';
 import HelpDeskPage from './pages/HelpDeskPage';
 import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
+// Mock/visual-preview page only — not part of the real Leave Management module.
+// See the file header in LeaveManagementPreviewPage.tsx for details.
+import LeaveManagementPreviewPage from './pages/preview/LeaveManagementPreviewPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -82,6 +85,10 @@ export default function App() {
         {/* Public */}
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+
+        {/* Design-review mock only — self-contained, mock data, no auth, not linked from
+            the app nav. Not the real Leave Management screen (that's still /leave below). */}
+        <Route path="/leave-management-preview" element={<LeaveManagementPreviewPage />} />
 
         {/* Auth required, password-change gate */}
         <Route
