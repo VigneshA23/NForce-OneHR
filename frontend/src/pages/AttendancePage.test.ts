@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fullDayTargetMinutesFor } from './AttendancePage';
+import { fullDayTargetMinutesFor, filterByAttendanceDate } from './AttendancePage';
 import type { AttendanceConfig } from '../api/attendance';
 
 function baseConfig(overrides: Partial<AttendanceConfig>): AttendanceConfig {
@@ -43,5 +43,34 @@ describe('fullDayTargetMinutesFor', () => {
    */
   it('returns null when shiftStart is null but shiftEnd is set', () => {
     expect(fullDayTargetMinutesFor(baseConfig({ shiftStart: null }))).toBeNull();
+  });
+});
+
+describe('filterByAttendanceDate', () => {
+  const rows = [
+    { id: '1', attendanceDate: '2026-09-17' },
+    { id: '2', attendanceDate: '2026-09-09' },
+    { id: '3', attendanceDate: '2026-09-16' },
+    { id: '4', attendanceDate: '2026-09-09' },
+    { id: '5', attendanceDate: '2026-09-11' },
+  ];
+
+  it('returns only rows matching the picked date, never a nearby date', () => {
+    // ONEHR bug: selecting 09-09-2026 must never surface 09-17/09-16/09-11 rows alongside it.
+    const result = filterByAttendanceDate(rows, '2026-09-09');
+    expect(result.map(r => r.id)).toEqual(['2', '4']);
+    expect(result.every(r => r.attendanceDate === '2026-09-09')).toBe(true);
+  });
+
+  it('returns every row when no date is picked (empty string)', () => {
+    expect(filterByAttendanceDate(rows, '')).toEqual(rows);
+  });
+
+  it('returns an empty array for a date with no matching rows', () => {
+    expect(filterByAttendanceDate(rows, '2026-01-01')).toEqual([]);
+  });
+
+  it('handles an empty input list', () => {
+    expect(filterByAttendanceDate([], '2026-09-09')).toEqual([]);
   });
 });

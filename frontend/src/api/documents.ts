@@ -49,6 +49,9 @@ export interface EmployeeDocument {
   rejectionReason: string | null;
   uploadedAt: string;
   updatedAt: string;
+  versionNumber: number;
+  superseded: boolean;
+  previousVersionId: string | null;
 }
 
 export interface RequiredDocument {
@@ -174,6 +177,10 @@ export async function getAdminKpis(token: string): Promise<DocumentAdminKpi> {
 
 export function documentFileUrl(id: string): string {
   return `${BASE_DOCS}/${id}/file`;
+}
+
+export async function documentHistory(token: string, id: string): Promise<EmployeeDocument[]> {
+  return handle(await fetch(`${BASE_DOCS}/${id}/history`, { headers: authHeaders(token) }));
 }
 
 export async function fetchDocumentFile(token: string, id: string): Promise<string> {

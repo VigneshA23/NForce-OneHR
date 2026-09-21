@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
-import { readRecentSearches, addRecentSearch } from '../lib/recentSearches';
+import { readRecentSearches, addRecentSearch, clearRecentSearches } from '../lib/recentSearches';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
@@ -263,7 +263,7 @@ export function Shell() {
     if (result.kind === 'nav') {
       navigate(result.item.path);
     } else {
-      if (email) addRecentSearch(email, trimmedQuery);
+      if (email) setRecentSearches(addRecentSearch(email, trimmedQuery));
       navigate(result.result.detailUrl);
     }
     closeSearch();
@@ -272,6 +272,12 @@ export function Shell() {
   function handleRecentSearchClick(q: string) {
     setSearchQuery(q);
     setSearchIdx(-1);
+  }
+
+  function handleClearRecentSearches() {
+    if (!email) return;
+    clearRecentSearches(email);
+    setRecentSearches([]);
   }
 
   function handleSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -516,7 +522,17 @@ export function Shell() {
     <>
       {showRecent && (
         <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
-          <div style={dropdownSectionLabelStyle}>Recent Searches</div>
+          <div style={{ ...dropdownSectionLabelStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Recent Searches</span>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); handleClearRecentSearches(); }}
+              style={{ background: 'none', border: 'none', padding: 0, color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', cursor: 'pointer' }}
+              aria-label="Clear recent searches"
+            >
+              Clear
+            </button>
+          </div>
           {recentSearches.map(q => (
             <button key={q} onMouseDown={() => handleRecentSearchClick(q)} style={dropdownRowStyle(false)}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}

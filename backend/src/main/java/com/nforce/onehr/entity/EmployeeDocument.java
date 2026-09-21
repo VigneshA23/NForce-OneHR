@@ -7,9 +7,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+// One row per submission ("version"). At most one row per (employeeUserId, documentType) has
+// superseded = false — enforced by the partial unique index ux_employee_documents_current
+// (V190), not a JPA-level @UniqueConstraint, since JPA cannot express a partial index.
 @Entity
-@Table(name = "employee_documents",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"employee_user_id", "document_type_id"}))
+@Table(name = "employee_documents")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class EmployeeDocument {
 
@@ -51,6 +53,17 @@ public class EmployeeDocument {
 
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
+
+    @Column(name = "version_number", nullable = false)
+    @Builder.Default
+    private Integer versionNumber = 1;
+
+    @Column(name = "superseded", nullable = false)
+    @Builder.Default
+    private boolean superseded = false;
+
+    @Column(name = "previous_version_id")
+    private UUID previousVersionId;
 
     @Column(name = "uploaded_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
     @Builder.Default

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, XCircle, Eye, Search, Users } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Eye, Search, Users, History } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
   listAllDocuments, listPendingDocuments, verifyDocument, getAdminKpis, fetchDocumentFile, listMissingDocuments, remindMissingDocument,
+  documentHistory,
   type EmployeeDocument, type DocumentAdminKpi, type MissingDocument,
 } from '../api/documents';
 
@@ -30,6 +31,79 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+
+// ── History version view/download ─────────────────────────
+
+function HistoryViewButton({ docId }: { docId: string }) {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
+  const [loading, setLoading] = useState(false);
+
+  async function open() {
+    setLoading(true);
+    try {
+      const url = await fetchDocumentFile(token, docId);
+      window.open(url, '_blank');
+    } catch {
+      showToast('error', 'Could not open file');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button onClick={open} disabled={loading}
+      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 11 }}>
+      <Eye size={11} /> {loading ? '…' : 'View'}
+    </button>
+  );
+}
+
+// ── Document History section — retains prior submissions on re-upload ────
+
+function DocumentHistorySection({ documentId }: { documentId: string }) {
+  const token = useAuthStore(s => s.token)!;
+  const [versions, setVersions] = useState<EmployeeDocument[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    documentHistory(token, documentId).then(v => { if (!cancelled) setVersions(v); }).catch(() => { if (!cancelled) setVersions([]); });
+    return () => { cancelled = true; };
+  }, [documentId, token]);
+
+  if (!versions || versions.length <= 1) return null;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <History size={13} color="var(--txt-dim)" />
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Document History</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
+        {versions.map(v => (
+          <div key={v.id} style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Version {v.versionNumber}</span>
+                {!v.superseded
+                  ? <span style={{ fontSize: 10, fontWeight: 700, color: '#22c55e', background: 'rgba(34,197,94,.12)', borderRadius: 4, padding: '1px 6px' }}>Current</span>
+                  : <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 4, padding: '1px 6px' }}>Superseded</span>}
+                <StatusBadge status={v.status} />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+                {v.fileName} · Submitted {new Date(v.uploadedAt).toLocaleDateString()}
+              </div>
+              {v.rejectionReason && (
+                <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>Reason: {v.rejectionReason}</div>
+              )}
+            </div>
+            <HistoryViewButton docId={v.id} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ── Document Detail Modal (shows file + approve/reject) ───
 
@@ -134,6 +208,8 @@ function DetailModal({
             {doc.rejectionReason && <span style={{ fontSize: 12, color: '#ef4444' }}>Reason: {doc.rejectionReason}</span>}
           </div>
         )}
+
+        <DocumentHistorySection documentId={doc.id} />
 
         {/* Actions — only for pending docs */}
         {doc.status === 'PENDING_VERIFICATION' && (
