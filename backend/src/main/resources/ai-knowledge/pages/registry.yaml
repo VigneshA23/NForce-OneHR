@@ -229,6 +229,18 @@ pages:
         route: /workflows
         description: "Visual approval-rule builder. Configure amount-threshold rules for Expense claims (e.g. \"over $500 requires a second approval from HR\"), preview how a rule routes a sample amount before saving, and activate/deactivate rules - the Approval Center then routes new Expense submissions accordingly. Currently Expense-only; Leave, Regularization and Asset rules are not yet supported."
 
+  - pageId: reports
+    module: reports
+    variants:
+      - roles: [MANAGER]
+        label: "Reports & Analytics"
+        route: /reports
+        description: "Your team's headcount, today's attendance breakdown (present/late/absent/on leave/not checked in) and approved leave for a selected period, with charts, tables and an Export to Excel button. Scoped to your current direct reports only."
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Reports & Analytics"
+        route: /reports
+        description: "Company-wide headcount, today's attendance breakdown (present/late/absent/on leave/not checked in) and approved leave for a selected period, with charts, tables and an Export to Excel button. The separate attendance-request reporting library (regularization, web clock-in, overtime, partial day, WFH) still lives inside My Team, not here."
+
   # ---------------------------------------------------------------- reachable, but not nav items
 
   - pageId: profile
@@ -268,15 +280,6 @@ pages:
         label: "Performance & Engagement"
         route: /performance
         description: "Planned for a future phase. Currently shows a roadmap placeholder, and no performance functionality exists yet."
-
-  - pageId: reports
-    module: reports
-    placeholder: true
-    variants:
-      - roles: [MANAGER, HR_ADMIN, SUPER_ADMIN]
-        label: "Reports & Analytics"
-        route: /reports
-        description: "Planned for a future phase and currently a roadmap placeholder. Some attendance-request reporting and Excel export does already exist, but it lives inside My Team rather than on a reports page."
 
   - pageId: integrations
     module: administration

@@ -72,6 +72,24 @@ class NavigationValidatorTest {
             assertThat(validator.validate("  leave  ", contextFor(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)))
                     .isPresent();
         }
+
+        @Test
+        void managerCanBeSentToReports() {
+            Optional<NavigationAction> action = validator.validate("reports",
+                    contextFor(ShellRole.MANAGER, AudienceBucket.MANAGER, AudienceBucket.EMPLOYEE));
+
+            assertThat(action).isPresent();
+            assertThat(action.get().getLabel()).isEqualTo("Reports & Analytics");
+        }
+
+        @Test
+        void hrAdminCanBeSentToReports() {
+            Optional<NavigationAction> action = validator.validate("reports",
+                    contextFor(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE));
+
+            assertThat(action).isPresent();
+            assertThat(action.get().getLabel()).isEqualTo("Reports & Analytics");
+        }
     }
 
     @Nested
@@ -164,9 +182,10 @@ class NavigationValidatorTest {
 
         @Test
         void everyPhaseTwoPlaceholderIsRefusedForEveryRole() {
-            // workflows shipped (Workflow Studio) and is no longer a placeholder — see its real
-            // registry entry in ai-knowledge/pages/registry.yaml.
-            for (String placeholder : Set.of("performance", "reports", "integrations", "featurelab")) {
+            // workflows shipped (Workflow Studio) and reports shipped (Reports & Analytics) — see
+            // their real registry entries in ai-knowledge/pages/registry.yaml. Neither is a
+            // placeholder any more.
+            for (String placeholder : Set.of("performance", "integrations", "featurelab")) {
                 for (ShellRole role : ShellRole.values()) {
                     assertThat(validator.validate(placeholder, contextFor(role, AudienceBucket.EMPLOYEE)))
                             .as("placeholder %s must never be a navigation target (role %s)", placeholder, role)
@@ -176,11 +195,11 @@ class NavigationValidatorTest {
         }
 
         @Test
-        void reportsIsRefusedEvenThoughItsBackendIsImplemented() {
-            // ReportsController and ReportsService are real, but the nav entry is still a Phase 2
-            // placeholder and there is no /reports route, so navigating there would dead-end.
+        void reportsIsRefusedForEmployee() {
+            // The Reports & Analytics dashboard is Manager/HR/Super Admin only — nav.config.ts
+            // has no 'reports' entry for Employee at all.
             assertThat(validator.validate("reports",
-                    contextFor(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)))
+                    contextFor(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)))
                     .isEmpty();
         }
 
