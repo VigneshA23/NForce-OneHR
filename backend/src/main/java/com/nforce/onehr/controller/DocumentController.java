@@ -104,6 +104,13 @@ public class DocumentController {
         service.remindMissingDocument(principal.getName(), employeeUserId, documentTypeId);
     }
 
+    // ── Version history (permission enforced in service; owner or HR/SA) ───
+
+    @GetMapping("/{id}/history")
+    public List<EmployeeDocumentResponse> history(Principal principal, @PathVariable UUID id) {
+        return service.getDocumentHistory(principal.getName(), id);
+    }
+
     // ── File download (permission enforced in service) ─────
 
     @GetMapping("/{id}/file")

@@ -39,7 +39,7 @@ public class DocumentService {
     public List<EmployeeDocumentResponse> myDocuments(String actorEmail) {
         UUID actorId = requireUser(actorEmail).getId();
         checkExpiryReminders(actorId);
-        return docRepo.findByEmployeeUserIdOrderByUploadedAtDesc(actorId).stream()
+        return docRepo.findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(actorId).stream()
                 .map(EmployeeDocumentResponse::from)
                 .collect(Collectors.toList());
     }
@@ -65,7 +65,7 @@ public class DocumentService {
                 .collect(Collectors.toList());
 
         Map<Integer, EmployeeDocument> uploaded = docRepo
-                .findByEmployeeUserIdOrderByUploadedAtDesc(employeeUserId).stream()
+                .findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeUserId).stream()
                 .collect(Collectors.toMap(d -> d.getDocumentType().getId(), d -> d, (a, b) -> a));
 
         return applicable.stream().map(dt -> {
@@ -91,37 +91,57 @@ public class DocumentService {
         DocumentType dt = docTypeRepo.findById(documentTypeId)
                 .orElseThrow(() -> new NoSuchElementException("Document type not found: " + documentTypeId));
 
-        Optional<EmployeeDocument> existing = docRepo.findByEmployeeUserIdAndDocumentTypeId(actorId, documentTypeId);
-        EmployeeDocument doc;
-        if (existing.isPresent()) {
-            doc = existing.get();
-            doc.setFileName(file.getOriginalFilename());
-            doc.setFileUrl("/api/documents/" + doc.getId() + "/file");
-            doc.setFileData(file.getBytes());
-            doc.setIssueDate(issueDate);
-            doc.setExpiryDate(expiryDate);
-            if (dt.isRequiresVerification()) {
-                doc.setStatus("PENDING_VERIFICATION");
-                doc.setVerifiedBy(null);
-                doc.setVerifiedAt(null);
-                doc.setRejectionReason(null);
-            }
-        } else {
-            doc = EmployeeDocument.builder()
-                    .employeeUserId(actorId)
-                    .documentType(dt)
-                    .fileName(file.getOriginalFilename())
-                    .fileUrl("")
-                    .fileData(file.getBytes())
-                    .issueDate(issueDate)
-                    .expiryDate(expiryDate)
-                    .status(dt.isRequiresVerification() ? "PENDING_VERIFICATION" : "VERIFIED")
-                    .build();
-            doc = docRepo.save(doc);
-            doc.setFileUrl("/api/documents/" + doc.getId() + "/file");
+        // Retain document history on re-upload (AC1): the current version, if any, is never
+        // mutated — it's flagged superseded and a brand-new row becomes current. Flushing the
+        // supersede update before inserting the new row matters: Hibernate flushes inserts before
+        // updates within one flush, and both rows would otherwise briefly be non-superseded at
+        // once, tripping the ux_employee_documents_current partial unique index (V190).
+        Optional<EmployeeDocument> currentOpt = docRepo.findByEmployeeUserIdAndDocumentTypeIdAndSupersededFalse(actorId, documentTypeId);
+        int nextVersion = 1;
+        UUID previousVersionId = null;
+        if (currentOpt.isPresent()) {
+            EmployeeDocument current = currentOpt.get();
+            current.setSuperseded(true);
+            docRepo.saveAndFlush(current);
+            nextVersion = current.getVersionNumber() + 1;
+            previousVersionId = current.getId();
         }
+
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .employeeUserId(actorId)
+                .documentType(dt)
+                .fileName(file.getOriginalFilename())
+                .fileUrl("")
+                .fileData(file.getBytes())
+                .issueDate(issueDate)
+                .expiryDate(expiryDate)
+                .status(dt.isRequiresVerification() ? "PENDING_VERIFICATION" : "VERIFIED")
+                .versionNumber(nextVersion)
+                .previousVersionId(previousVersionId)
+                .superseded(false)
+                .build();
+        doc = docRepo.save(doc);
+        doc.setFileUrl("/api/documents/" + doc.getId() + "/file");
         doc = docRepo.save(doc);
         return EmployeeDocumentResponse.from(doc);
+    }
+
+    // ── HR/SA & owning employee: full version history for a document ──
+
+    @Transactional(readOnly = true)
+    public List<EmployeeDocumentResponse> getDocumentHistory(String actorEmail, UUID documentId) {
+        User actor = requireUser(actorEmail);
+        EmployeeDocument doc = docRepo.findById(documentId)
+                .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
+        boolean isAdmin = actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
+        boolean isOwner = doc.getEmployeeUserId().equals(actor.getId());
+        if (!isAdmin && !isOwner) {
+            throw new AccessDeniedException("Access denied");
+        }
+        return docRepo.findByEmployeeUserIdAndDocumentTypeIdOrderByVersionNumberDesc(
+                        doc.getEmployeeUserId(), doc.getDocumentType().getId()).stream()
+                .map(EmployeeDocumentResponse::from)
+                .collect(Collectors.toList());
     }
 
     // ── HR/SA: list pending documents (excludes HR/SA employees) ──
@@ -261,7 +281,7 @@ public class DocumentService {
                 .collect(Collectors.toList());
 
         Map<Integer, EmployeeDocument> uploaded = docRepo
-                .findByEmployeeUserIdOrderByUploadedAtDesc(actorId).stream()
+                .findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(actorId).stream()
                 .collect(Collectors.toMap(d -> d.getDocumentType().getId(), d -> d, (a, b) -> a));
 
         int totalRequired = applicable.size();
@@ -305,7 +325,7 @@ public class DocumentService {
     }
 
     private void checkExpiryReminders(UUID userId) {
-        docRepo.findByEmployeeUserIdOrderByUploadedAtDesc(userId).forEach(doc -> {
+        docRepo.findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(userId).forEach(doc -> {
             if (doc.getExpiryDate() == null || !"VERIFIED".equals(doc.getStatus())) return;
             long days = ChronoUnit.DAYS.between(LocalDate.now(), doc.getExpiryDate());
             if (days < 0) return;
