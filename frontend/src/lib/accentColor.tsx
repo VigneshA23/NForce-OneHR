@@ -26,6 +26,15 @@ export const ACCENT_SWATCHES: Record<AccentColor, AccentSwatch> = {
   pink:   { label: 'Pink',   brand: '#BE185D', brandBright: '#EC4899', brandDeep: '#831843' },
 };
 
+// Sidebar decoration (assets/sidebar-decoration.png) is one 1536×1024 image containing all 5
+// accent colors as 5 equal-width vertical bands, left to right: Red, Blue, Pink, Purple, Green.
+// Rather than cropping 5 separate image files, Shell.tsx renders it at `background-size: 500%
+// auto` (5x the sidebar's width) and picks a band via `background-position-x` — the standard
+// CSS-sprite technique. At that size, 0/25/50/75/100% each land exactly on one band's left edge.
+export const ACCENT_BAND_POSITION_X: Record<AccentColor, string> = {
+  red: '0%', blue: '25%', pink: '50%', purple: '75%', green: '100%',
+};
+
 const ACCENT_STORAGE_KEY = 'onehr.accentColor';
 
 function isAccentColor(v: string | null): v is AccentColor {

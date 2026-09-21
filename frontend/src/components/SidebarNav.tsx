@@ -15,6 +15,15 @@ interface SidebarNavProps {
  * categories/subcategories that expand INLINE, in normal document flow,
  * pushing the rest of the list down. Click-only — there is no hover-driven
  * opening anywhere in this component, at any depth.
+ *
+ * This div (not the outer <aside> in Shell.tsx) is the ONE scroll container for the sidebar:
+ * `flex: 1, minHeight: 0, overflowY: 'auto'` means that when an expanded dropdown makes the
+ * total nav content taller than the space actually available, only THIS region grows a
+ * scrollbar — the logo above and the profile card below (both siblings of this div, outside it)
+ * never move, and neither does the rest of the page. The decorative artwork in Shell.tsx sits
+ * behind this div as a fixed background layer, so as nav content scrolls/grows over it, the
+ * artwork just shows through (or gets covered by) whatever's currently in front — no separate
+ * "make room for the artwork" logic needed here.
  */
 export function SidebarNav({ role, currentKey, onNavigate }: SidebarNavProps) {
   const tree = buildRoleNav(role);

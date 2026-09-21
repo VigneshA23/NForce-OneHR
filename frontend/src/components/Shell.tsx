@@ -21,6 +21,8 @@ import { StatusBadge, inactiveDimStyle } from './EmployeeStatus';
 import { EmployeeAvatar } from './EmployeeAvatar';
 import { WorkAnniversaryOverlay } from './WorkAnniversaryOverlay';
 import { getAnniversaryYears, hasShownAnniversaryThisYear, markAnniversaryShown } from '../lib/workAnniversary';
+import { useAccentColor, ACCENT_BAND_POSITION_X } from '../lib/accentColor';
+import sidebarDecoration from '../assets/sidebar-decoration.png';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -143,6 +145,7 @@ export function Shell() {
   const clearAuth  = useAuthStore((s) => s.clearAuth);
   const navigate   = useNavigate();
   const location   = useLocation();
+  const { accent }  = useAccentColor();
   const [dropdownOpen, setDropdownOpen]   = useState(false);
   const [unreadCount, setUnreadCount]     = useState(0);
   // Work-anniversary celebration — null means "not showing"; see the profile-sync effect below
@@ -521,6 +524,37 @@ export function Shell() {
           height: 'var(--app-height, 100dvh)',
         }}
       >
+        {/* Decorative artwork for the sidebar's lower empty area — purely visual, so it's
+            absolutely positioned (removed from the flex flow entirely: adds no height, never
+            pushes the logo/nav/profile card) and pointer-events:none (never intercepts clicks).
+            Flex items (the Logo/SidebarNav/profile card below) paint like z-index:auto positioned
+            boxes per the flex spec, so placing this plain z-index:0 image first in DOM is enough
+            for it to sit behind all of them without needing z-index on each — SidebarNav's own
+            nav list (which can grow taller than its own space and scroll internally, covering
+            this artwork as it does) then paints above this the same way.
+            One 5-band sprite image (assets/sidebar-decoration.png) covers all 5 Theme colors —
+            background-size stretches it to 5x this box's width, and background-position-x picks
+            one 1x-wide band per accent (see ACCENT_BAND_POSITION_X) — no per-color image files,
+            and the PNG itself is never cropped/stretched/distorted, only positioned.
+            The mask-image (not a solid overlay box, which would itself look like a second hard
+            edge) fades the image's own alpha from 0 at this box's top down to fully opaque by
+            40% — so the sidebar's plain #0B0C0F background shows through smoothly at the seam
+            instead of a visible boundary line, matching how index.css already fades the profile
+            page's hero banner into its panel background the same way. */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: 380, zIndex: 0,
+            overflow: 'hidden', pointerEvents: 'none',
+            backgroundImage: `url(${sidebarDecoration})`,
+            backgroundSize: '500% auto',
+            backgroundPosition: `${ACCENT_BAND_POSITION_X[accent]} 100%`,
+            backgroundRepeat: 'no-repeat',
+            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.5) 22%, black 42%)',
+            maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.5) 22%, black 42%)',
+          }}
+        />
+
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
         <Link to="/" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size="sm" />
