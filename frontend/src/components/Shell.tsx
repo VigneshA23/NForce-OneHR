@@ -9,7 +9,8 @@ import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
-import { publishNewNotifications } from '../lib/notificationEvents';
+import { publishNewNotifications, subscribeToNewNotifications } from '../lib/notificationEvents';
+import { KudosCelebrationToast, type KudosCelebrationItem } from './KudosCelebrationToast';
 import { authApi } from '../api/auth';
 import { stashSessionMessageForLogin, SESSION_PROFILE_UPDATED_MESSAGE } from '../lib/authFetch';
 import { API_ORIGIN } from '../api/config';
@@ -18,6 +19,8 @@ import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
 import { StatusBadge, inactiveDimStyle } from './EmployeeStatus';
 import { EmployeeAvatar } from './EmployeeAvatar';
+import { WorkAnniversaryOverlay } from './WorkAnniversaryOverlay';
+import { getAnniversaryYears, hasShownAnniversaryThisYear, markAnniversaryShown } from '../lib/workAnniversary';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -142,6 +145,12 @@ export function Shell() {
   const location   = useLocation();
   const [dropdownOpen, setDropdownOpen]   = useState(false);
   const [unreadCount, setUnreadCount]     = useState(0);
+  // Work-anniversary celebration — null means "not showing"; see the profile-sync effect below
+  // for when/how this gets set, and workAnniversary.ts for the date/once-per-year logic.
+  const [anniversaryYears, setAnniversaryYears] = useState<number | null>(null);
+  // Small on-page "you've been appreciated" celebration — see KudosCelebrationToast. Fed by the
+  // notification poll below via notificationEvents, so it's not its own network call.
+  const [kudosQueue, setKudosQueue] = useState<KudosCelebrationItem[]>([]);
   // Mobile-only off-canvas nav toggle (≤767px). Defaults closed; the CSS that
   // reads this className only exists inside the ≤767px media query, so this
   // state never affects rendering at tablet/desktop widths.
@@ -256,10 +265,39 @@ export function Shell() {
         if (p.fullName && !storeUser.fullName) patch.fullName = p.fullName;
         if (p.photoDataUrl !== storeUser.photoDataUrl) patch.photoDataUrl = p.photoDataUrl;
         if (Object.keys(patch).length > 0) setAuth(token, { ...storeUser, ...patch });
+
+        // Work-anniversary celebration — piggybacks on this same profile fetch rather than
+        // making its own network call. p.hasEmployeeRecord/p.joiningDate cover the "missing or
+        // invalid joining date" case safely (getAnniversaryYears returns null for either), and
+        // hasShownAnniversaryThisYear gates it to once per employee per year even across
+        // logout/login or a page refresh (persisted in localStorage, not just this session).
+        if (p.hasEmployeeRecord) {
+          const years = getAnniversaryYears(p.joiningDate, new Date());
+          if (years !== null) {
+            const thisYear = new Date().getFullYear();
+            if (!hasShownAnniversaryThisYear(window.localStorage, p.email, thisYear)) {
+              markAnniversaryShown(window.localStorage, p.email, thisYear);
+              setAnniversaryYears(years);
+            }
+          }
+        }
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Manual QA hook for the work-anniversary celebration — e.g. /dashboard?anniversaryTest=5 forces
+  // it open showing "5 Years of Excellence", bypassing both the real join-date check and the
+  // once-per-year localStorage gate above. There's no UI path to set an arbitrary employee's join
+  // date to today for testing, and this shared dev database has real teammates' data in it, so
+  // this is the safe way to preview/QA the overlay without touching any employee record. Never
+  // fires for a real user unless they specifically type this query param.
+  useEffect(() => {
+    const raw = new URLSearchParams(location.search).get('anniversaryTest');
+    if (raw === null) return;
+    const years = Number(raw);
+    if (Number.isInteger(years) && years > 0) setAnniversaryYears(years);
+  }, [location.search]);
 
   // The one app-wide notification poll (drives the bell badge). Other mounted pages (e.g.
   // LeavePage) react to what it finds via notificationEvents instead of running their own
@@ -305,6 +343,20 @@ export function Shell() {
     const id = setInterval(pollNotifications, 30000);
     return () => clearInterval(id);
   }, [pollNotifications]);
+
+  // "A teammate appreciated you" celebration — reacts to whatever the poll above just found,
+  // same as AttendancePage/LeavePage/MyRequestsPage already do via this same pub/sub, except
+  // this lives in Shell (the root layout) so it fires no matter which page is currently open.
+  // Sending kudos already creates a KUDOS-type Notification server-side (see KudosService); there
+  // is no push/SSE channel for regular notifications in this app today, only this 30s poll, so
+  // the animation can appear up to ~30s after the kudos was actually sent, not instantly.
+  useEffect(() => {
+    return subscribeToNewNotifications((items) => {
+      const kudos = items.filter(n => n.type === 'KUDOS');
+      if (kudos.length === 0) return;
+      setKudosQueue(prev => [...prev, ...kudos.map(n => ({ id: n.id, title: n.title, message: n.message }))]);
+    });
+  }, []);
 
   // Server-initiated logout: a Super Admin changing this user's profile bumps their tokenVersion
   // and pushes a FORCE_LOGOUT event (see UserManagementService#updateUser /
@@ -664,6 +716,19 @@ export function Shell() {
           {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
         </main>
       </div>
+
+      <WorkAnniversaryOverlay
+        open={anniversaryYears !== null}
+        employeeName={name}
+        photoDataUrl={storeUser?.photoDataUrl}
+        years={anniversaryYears ?? 0}
+        onClose={() => setAnniversaryYears(null)}
+      />
+
+      <KudosCelebrationToast
+        items={kudosQueue}
+        onDismiss={(id) => setKudosQueue(prev => prev.filter(k => k.id !== id))}
+      />
     </div>
   );
 }
