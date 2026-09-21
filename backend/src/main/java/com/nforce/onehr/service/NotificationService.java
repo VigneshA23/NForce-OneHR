@@ -61,6 +61,8 @@ public class NotificationService {
         m.put("HELPDESK_TICKET_REPLIED",          "MEDIUM");
         m.put("HELPDESK_TICKET_STATUS_CHANGED",   "MEDIUM");
         m.put("HELPDESK_TICKET_ASSIGNED",         "MEDIUM");
+        m.put("HELPDESK_TICKET_RESOLVED",         "MEDIUM");
+        m.put("HELPDESK_TICKET_CLOSED",           "MEDIUM");
         m.put("KUDOS",                            "MEDIUM");
         m.put("ACCOUNT",                          "MEDIUM");
         // LOW — purely informational
