@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Lock, Shield, X } from 'lucide-react';
+import { Camera, Lock, Shield, X, Mail, Phone as PhoneIcon, MapPin, Building2, Users, Hash, Sparkles, Check } from 'lucide-react';
 import { profileApi, type ProfileData, type UpdateProfilePayload } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { invalidateEmployeePhoto } from '../components/EmployeeAvatar';
+import { useAccentColor, type AccentColor } from '../lib/accentColor';
+import profileBannerRed from '../assets/profile-banner-red.png';
+import profileBannerBlue from '../assets/profile-banner-blue.png';
+import profileBannerPink from '../assets/profile-banner-pink.png';
+import profileBannerGreen from '../assets/profile-banner-green.png';
+import profileBannerPurple from '../assets/profile-banner-purple.png';
 
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -133,13 +139,14 @@ function PhoneField({ label, value, onChange, placeholder, error }: {
 // `clamp()` driven by `vw`, with no max-width media query gating it, so it resizes smoothly at
 // every viewport width — phone through ultrawide desktop — rather than jumping between a
 // handful of fixed breakpoint sizes.
-function PhotoModal({ photoDataUrl, initials, uploading, removing, onEditClick, onRemove, onClose }: {
+function PhotoModal({ photoDataUrl, initials, uploading, removing, onEditClick, onRemove, onChooseAvatarClick, onClose }: {
   photoDataUrl: string | null;
   initials: string;
   uploading: boolean;
   removing: boolean;
   onEditClick: () => void;
   onRemove: () => void;
+  onChooseAvatarClick: () => void;
   onClose: () => void;
 }) {
   const busy = uploading || removing;
@@ -214,6 +221,102 @@ function PhotoModal({ photoDataUrl, initials, uploading, removing, onEditClick, 
             {uploading ? 'Uploading…' : 'Edit'}
           </button>
         </div>
+
+        <button
+          onClick={onChooseAvatarClick}
+          disabled={busy}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%',
+            padding: 'clamp(8px, 1.4vw, 10px) clamp(10px, 2vw, 16px)', background: 'none',
+            border: '1px dashed var(--line2)', borderRadius: 7, fontSize: 'clamp(12px, 1.3vw, 13.5px)',
+            fontWeight: 600, color: 'var(--txt-mut)', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? .7 : 1,
+          }}
+        >
+          <Sparkles size={14} aria-hidden="true" /> Choose an avatar instead
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// DiceBear "lorelei" avatars — a fixed set of seeds so the grid is stable across renders (a random
+// seed per render would make every option change every time the modal reopens). Picking one
+// replaces any uploaded photo (see ProfileService#setAvatar on the backend — the two are
+// mutually exclusive), matching "either a real photo or a generated avatar, not both".
+const AVATAR_SEEDS = ['Aria', 'Milo', 'Nova', 'Leo', 'Zara', 'Kai', 'Luna', 'Finn', 'Iris', 'Theo', 'Maya', 'Ezra'];
+// A fixed, neutral slate-gray palette (skin/hair/outline/eyes/etc. all one muted tone, light
+// background) so every generated avatar reads as calm and monochrome instead of DiceBear's
+// default randomized, often brightly-colored look clashing with whatever's around it.
+const AVATAR_STYLE_PARAMS =
+  // backgroundType=solid is required for backgroundColor to actually paint a fill — without it
+  // DiceBear leaves the background transparent regardless of backgroundColor, letting whatever
+  // sits behind the avatar (the topbar's gradient, a panel, etc.) show through unevenly whenever
+  // the character illustration itself doesn't reach every edge of the square.
+  'backgroundType=solid&backgroundColor=f0f0f2&skinColor=e4e4e6&hairColor=3f4247&outlineColor=3f4247' +
+  '&eyebrowsColor=3f4247&eyesColor=3f4247&noseColor=3f4247&mouthColor=3f4247' +
+  '&frecklesColor=3f4247&glassesColor=3f4247&earringsColor=3f4247&hairAccessoriesColor=3f4247';
+
+function dicebearUrl(seed: string): string {
+  return `https://api.dicebear.com/10.x/lorelei/svg?seed=${encodeURIComponent(seed)}&${AVATAR_STYLE_PARAMS}`;
+}
+
+function AvatarPickerModal({ currentAvatarUrl, settingAvatar, onPick, onClose }: {
+  currentAvatarUrl: string | null;
+  settingAvatar: string | null;
+  onPick: (seed: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 610, padding: 'clamp(16px, 4vw, 40px)' }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'clamp(10px, 1.4vw, 16px)',
+          padding: 'clamp(20px, 3.4vw, 32px)', display: 'flex', flexDirection: 'column',
+          gap: 'clamp(14px, 2.4vw, 20px)', width: 'clamp(280px, 42vw, 480px)', maxWidth: '92vw',
+          boxShadow: '0 24px 64px rgba(0,0,0,.55)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 'clamp(13px, 1.4vw, 15px)', fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
+            Choose an avatar
+          </span>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          {AVATAR_SEEDS.map(seed => {
+            const url = dicebearUrl(seed);
+            const isCurrent = currentAvatarUrl === url;
+            const isBusy = settingAvatar === seed;
+            return (
+              <button
+                key={seed}
+                onClick={() => onPick(seed)}
+                disabled={settingAvatar !== null}
+                aria-label={`Use the ${seed} avatar`}
+                style={{
+                  position: 'relative', padding: 6, borderRadius: '50%', aspectRatio: '1',
+                  border: isCurrent ? '2px solid var(--brand)' : '2px solid var(--line)',
+                  background: 'var(--raised2)', cursor: settingAvatar !== null ? 'not-allowed' : 'pointer',
+                  opacity: settingAvatar !== null && !isBusy ? .5 : 1,
+                }}
+              >
+                <img src={url} alt="" aria-hidden="true" style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'block' }} />
+                {isCurrent && (
+                  <span style={{ position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center' }}>
+                    <Check size={10} color="#fff" aria-hidden="true" />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -225,6 +328,7 @@ export default function ProfilePage() {
   const setAuth   = useAuthStore(s => s.setAuth);
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { accent } = useAccentColor();
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile]   = useState<ProfileData | null>(null);
@@ -234,6 +338,8 @@ export default function ProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [settingAvatar, setSettingAvatar] = useState<string | null>(null);
   const [form, setForm]         = useState<UpdateProfilePayload>({});
 
   const errors = {
@@ -356,6 +462,23 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleSetAvatar(seed: string) {
+    setSettingAvatar(seed);
+    try {
+      const updated = await profileApi.setAvatar(token, dicebearUrl(seed));
+      setProfile(updated);
+      if (storeUser) setAuth(token, { ...storeUser, photoDataUrl: updated.photoDataUrl });
+      invalidateEmployeePhoto(updated.userId);
+      showToast('success', 'Avatar updated');
+      setShowAvatarPicker(false);
+      setShowPhotoModal(false);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to set avatar');
+    } finally {
+      setSettingAvatar(null);
+    }
+  }
+
   function field(key: keyof UpdateProfilePayload) {
     return (String(form[key] ?? ''));
   }
@@ -375,84 +498,145 @@ export default function ProfilePage() {
 
   const initials = profile.fullName ? profile.fullName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : profile.email.slice(0, 2).toUpperCase();
 
+  // Every Theme color now has a real banner image (orange has none — it was dropped from the
+  // accent palette entirely, see accentColor.tsx). Each is square with a watermark sitting in its
+  // vertical middle; "top center" plus this short/wide banner box means CSS only ever paints
+  // roughly the top 15-20% of any of them, which is comfortably above the watermark in every one
+  // — no manual cropping needed.
+  const BANNER_IMAGES: Partial<Record<AccentColor, string>> = {
+    red: profileBannerRed,
+    blue: profileBannerBlue,
+    pink: profileBannerPink,
+    green: profileBannerGreen,
+    purple: profileBannerPurple,
+  };
+  const bannerImage = BANNER_IMAGES[accent];
+  const heroBackground = bannerImage
+    ? `url(${bannerImage}) top center / cover no-repeat`
+    : 'linear-gradient(135deg, var(--brand-deep) 0%, var(--brand) 100%)';
+
+  // Employee summary strip — every field here is a real column already returned by
+  // GET /api/profile (see ProfileData); nothing here is fabricated. "Business unit" was asked
+  // for too, but there's no such field anywhere in the profile API today, so it's left out
+  // rather than shown with made-up data.
+  const summaryItems: { icon: typeof Mail; label: string; value: string }[] = [
+    { icon: Mail,       label: 'Email',             value: profile.email },
+    { icon: PhoneIcon,  label: 'Phone',              value: profile.phone || '—' },
+    { icon: MapPin,     label: 'Location',           value: profile.locationName || '—' },
+    { icon: Hash,       label: 'Employee ID',        value: profile.employeeCode },
+    { icon: Building2,  label: 'Department',         value: profile.departmentName || '—' },
+    { icon: Users,      label: 'Reporting Manager',  value: profile.managerName || '—' },
+  ];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 900 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Page header */}
       <div>
         <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Profile</h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>View and update your personal information.</p>
       </div>
 
-      {/* Avatar + identity card */}
-      <div className="nf-profile-header" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 20 }}>
-        <div className="nf-profile-top" style={{ display: 'flex', alignItems: 'center', gap: 20, flex: 1, minWidth: 0 }}>
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => { if (profile.hasEmployeeRecord) setShowPhotoModal(true); }}
-              aria-label={profile.hasEmployeeRecord ? 'View profile photo' : 'Profile photo'}
-              style={{ padding: 0, border: 'none', background: 'none', cursor: profile.hasEmployeeRecord ? 'pointer' : 'default', display: 'block', borderRadius: '50%' }}
-            >
-              {profile.photoDataUrl ? (
-                <img src={profile.photoDataUrl} alt="Profile" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--line2)' }} />
-              ) : (
-                <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#B11116', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 22, fontWeight: 700, border: '2px solid rgba(177,17,22,.4)' }}>
-                  {initials}
-                </div>
-              )}
-            </button>
-            {profile.hasEmployeeRecord && (
-              <>
-                <button
-                  onClick={() => setShowPhotoModal(true)}
-                  aria-label="Change photo"
-                  style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
-                >
-                  <Camera size={11} color="#fff" aria-hidden />
-                </button>
-                <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
-              </>
-            )}
-          </div>
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{profile.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{profile.email}</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(177,17,22,.18)', color: '#e4373d' }}>
-                {ROLE_LABELS[profile.role] ?? profile.role}
-              </span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(47,182,124,.15)', color: 'var(--ok)' }}>
-                {profile.active ? 'Active' : 'Inactive'}
-              </span>
-              <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: 'rgba(107,114,128,.15)', color: 'var(--txt-dim)' }}>
-                {profile.employeeCode}
-              </span>
-            </div>
-          </div>
+      {/* Hero banner + identity card */}
+      <div className="nf-profile-header" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ position: 'relative', height: 'clamp(130px, 14vw, 160px)' }}>
+          <div style={{ position: 'absolute', inset: 0, background: heroBackground }} />
+          {/* Fades the banner's bottom edge into the panel background instead of cutting off
+              abruptly — var(--panel) matches the solid color the row below sits on, in both
+              themes, so the seam disappears rather than needing to match each banner image. */}
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 85%, var(--panel) 100%)' }} />
         </div>
 
-        {profile.hasEmployeeRecord && (
-          <div className="nf-profile-actions" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            {editing ? (
-              <>
-                <button onClick={() => { setEditing(false); setForm(toForm(profile)); }}
-                  style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-                  Cancel
-                </button>
-                <button onClick={handleSave} disabled={saving || hasErrors}
-                  style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: (saving || hasErrors) ? 'not-allowed' : 'pointer', opacity: (saving || hasErrors) ? .7 : 1 }}>
-                  {saving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </>
-            ) : (
-              <button onClick={() => setEditing(true)}
-                style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
-                Edit Profile
+        {/* Normal document flow, no negative margin on the row itself — only the avatar (fixed,
+            known size) pokes up into the banner via its own small negative margin below. Pulling
+            the *whole* row (name/badges/Edit button) up here previously made the outer card's
+            auto-computed height unreliable, clipping the row's bottom unpredictably. Name/
+            designation now sit on the plain panel background instead of over the image, which
+            also sidesteps needing a contrast-scrim over the banner. */}
+        <div className="nf-profile-row" style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '0 24px 20px' }}>
+          <div className="nf-profile-top" style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flex: 1, minWidth: 0 }}>
+            <div style={{ position: 'relative', flexShrink: 0, marginTop: 'clamp(-56px, -7vw, -44px)' }}>
+              <button
+                type="button"
+                onClick={() => { if (profile.hasEmployeeRecord) setShowPhotoModal(true); }}
+                aria-label={profile.hasEmployeeRecord ? 'View profile photo' : 'Profile photo'}
+                style={{ padding: 0, border: 'none', background: 'none', cursor: profile.hasEmployeeRecord ? 'pointer' : 'default', display: 'block', borderRadius: '50%' }}
+              >
+                {profile.photoDataUrl ? (
+                  <img src={profile.photoDataUrl} alt="Profile" style={{ width: 104, height: 104, borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--panel)', boxShadow: '0 2px 10px rgba(0,0,0,.25)' }} />
+                ) : (
+                  <div style={{ width: 104, height: 104, borderRadius: '50%', background: 'var(--brand)', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 30, fontWeight: 700, border: '4px solid var(--panel)', boxShadow: '0 2px 10px rgba(0,0,0,.25)' }}>
+                    {initials}
+                  </div>
+                )}
               </button>
-            )}
+              {profile.hasEmployeeRecord && (
+                <>
+                  <button
+                    onClick={() => setShowPhotoModal(true)}
+                    aria-label="Change photo"
+                    style={{ position: 'absolute', bottom: 4, right: 4, width: 26, height: 26, borderRadius: '50%', background: 'var(--brand)', border: '2px solid var(--panel)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
+                  >
+                    <Camera size={12} color="#fff" aria-hidden />
+                  </button>
+                  <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+                </>
+              )}
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0, paddingBottom: 4 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{profile.fullName}</div>
+              <div style={{ fontSize: 13.5, color: 'var(--txt-mut)', marginBottom: 8 }}>{profile.designationName ?? ROLE_LABELS[profile.role] ?? profile.role}</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'color-mix(in srgb, var(--brand) 16%, transparent)', color: 'var(--brand-bright)' }}>
+                  {ROLE_LABELS[profile.role] ?? profile.role}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(47,182,124,.15)', color: 'var(--ok)' }}>
+                  {profile.active ? 'Active' : 'Inactive'}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: 'rgba(107,114,128,.15)', color: 'var(--txt-dim)' }}>
+                  {profile.employeeCode}
+                </span>
+              </div>
+            </div>
           </div>
-        )}
+
+          {profile.hasEmployeeRecord && (
+            <div className="nf-profile-actions" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              {editing ? (
+                <>
+                  <button onClick={() => { setEditing(false); setForm(toForm(profile)); }}
+                    style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleSave} disabled={saving || hasErrors}
+                    style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: (saving || hasErrors) ? 'not-allowed' : 'pointer', opacity: (saving || hasErrors) ? .7 : 1 }}>
+                    {saving ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setEditing(true)}
+                  style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+                  Edit Profile
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Employee summary strip */}
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 24px', display: 'flex', flexWrap: 'wrap', gap: '18px 32px' }}>
+        {summaryItems.map(({ icon: Icon, label, value }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 180, flex: '1 1 200px' }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'color-mix(in srgb, var(--brand) 12%, var(--raised2))', color: 'var(--brand-bright)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <Icon size={15} aria-hidden="true" />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>{label}</div>
+              <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -565,7 +749,17 @@ export default function ProfilePage() {
           removing={removing}
           onEditClick={() => photoInputRef.current?.click()}
           onRemove={handleRemovePhoto}
+          onChooseAvatarClick={() => setShowAvatarPicker(true)}
           onClose={() => setShowPhotoModal(false)}
+        />
+      )}
+
+      {showAvatarPicker && profile.hasEmployeeRecord && (
+        <AvatarPickerModal
+          currentAvatarUrl={profile.photoDataUrl}
+          settingAvatar={settingAvatar}
+          onPick={handleSetAvatar}
+          onClose={() => setShowAvatarPicker(false)}
         />
       )}
     </div>

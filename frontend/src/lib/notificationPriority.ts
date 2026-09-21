@@ -54,6 +54,8 @@ const CATEGORY_BY_TYPE: Record<string, NotificationCategory> = {
   HELPDESK_TICKET_REPLIED:           'Helpdesk',
   HELPDESK_TICKET_STATUS_CHANGED:    'Helpdesk',
   HELPDESK_TICKET_ASSIGNED:          'Helpdesk',
+  HELPDESK_TICKET_RESOLVED:          'Helpdesk',
+  HELPDESK_TICKET_CLOSED:            'Helpdesk',
   // Recognition
   KUDOS:                             'Recognition',
   // Account & Security

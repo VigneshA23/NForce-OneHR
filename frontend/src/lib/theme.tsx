@@ -1,20 +1,25 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
-import { THEME_STORAGE_KEY, readStoredTheme, resolveInitialTheme, type Theme } from './themePreference';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+  THEME_STORAGE_KEY, readStoredThemeMode, resolveAppliedTheme,
+  type Theme, type ThemeMode,
+} from './themePreference';
 
-export type { Theme };
+export type { Theme, ThemeMode };
 
-function getInitialTheme(): Theme {
-  const stored = readStoredTheme(window.localStorage);
-  let prefersLight = false;
+function prefersLightNow(): boolean {
   try {
-    prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+    return window.matchMedia('(prefers-color-scheme: light)').matches;
   } catch {
-    // ignore — resolveInitialTheme's default (dark) covers this case too.
+    return false;
   }
-  return resolveInitialTheme(stored, prefersLight);
 }
 
-let _theme: Theme = getInitialTheme();
+function getInitialMode(): ThemeMode {
+  return readStoredThemeMode(window.localStorage) ?? 'auto';
+}
+
+let _mode: ThemeMode = getInitialMode();
+let _theme: Theme = resolveAppliedTheme(_mode, prefersLightNow());
 
 function applyTheme(theme: Theme) {
   const html = document.documentElement;
@@ -23,8 +28,8 @@ function applyTheme(theme: Theme) {
   setTimeout(() => html.classList.remove('nf-theme-transitioning'), 200);
 }
 
-function persistTheme(theme: Theme) {
-  try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* best effort */ }
+function persistMode(mode: ThemeMode) {
+  try { window.localStorage.setItem(THEME_STORAGE_KEY, mode); } catch { /* best effort */ }
 }
 
 // Runs at module load, before ThemeProvider ever mounts — so the persisted theme is applied
@@ -32,28 +37,54 @@ function persistTheme(theme: Theme) {
 applyTheme(_theme);
 
 interface ThemeContextValue {
+  /** The concrete theme actually painted right now. */
   theme: Theme;
-  toggleTheme: () => void;
+  /** The user's chosen display mode — 'auto' tracks the OS, the other two pin it explicitly. */
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: 'dark',
-  toggleTheme: () => {},
+  mode: 'auto',
+  setMode: () => {},
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(_theme);
+  const [mode, setModeState]   = useState<ThemeMode>(_mode);
+  const [theme, setThemeState] = useState<Theme>(_theme);
 
-  function toggleTheme() {
-    const next: Theme = theme === 'dark' ? 'light' : 'dark';
-    _theme = next;
-    applyTheme(next);
-    persistTheme(next);
-    setTheme(next);
+  function setMode(next: ThemeMode) {
+    _mode = next;
+    persistMode(next);
+    setModeState(next);
+    const applied = resolveAppliedTheme(next, prefersLightNow());
+    _theme = applied;
+    applyTheme(applied);
+    setThemeState(applied);
   }
 
+  // While in 'auto', keep tracking the OS preference live instead of only reading it once.
+  useEffect(() => {
+    if (mode !== 'auto') return;
+    let mql: MediaQueryList;
+    try {
+      mql = window.matchMedia('(prefers-color-scheme: light)');
+    } catch {
+      return;
+    }
+    function onChange() {
+      const applied = resolveAppliedTheme('auto', mql.matches);
+      _theme = applied;
+      applyTheme(applied);
+      setThemeState(applied);
+    }
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [mode]);
+
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, mode, setMode }}>
       {children}
     </ThemeContext.Provider>
   );

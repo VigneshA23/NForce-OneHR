@@ -14,6 +14,7 @@ import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
 import ProfilePage from './pages/ProfilePage';
+import UserPreferencesPage from './pages/UserPreferencesPage';
 import NotificationsPage from './pages/NotificationsPage';
 import DirectoryPage from './pages/DirectoryPage';
 import HierarchyPage from './pages/HierarchyPage';
@@ -32,6 +33,7 @@ import HelpDeskPage from './pages/HelpDeskPage';
 import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
 import WorkflowStudioPage from './pages/WorkflowStudioPage';
 import SearchResultsPage from './pages/SearchResultsPage';
+import ReportsPage from './pages/ReportsPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -134,6 +136,7 @@ export default function App() {
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />
+          <Route path="/user-preferences" element={<UserPreferencesPage />} />
           <Route path="/notifications"  element={<NotificationsPage />} />
           <Route path="/directory"      element={<DirectoryPage />} />
           <Route path="/hierarchy"      element={<HierarchyPage />} />
@@ -148,6 +151,7 @@ export default function App() {
           <Route path="/workflows"      element={<WorkflowStudioPage />} />
           <Route path="/audit"          element={<AuditRouter />} />
           <Route path="/search"         element={<SearchResultsPage />} />
+          <Route path="/reports"        element={<ReportsPage />} />
         </Route>
 
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />

@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
 import { ThemeProvider } from './lib/theme';
+import { AccentColorProvider } from './lib/accentColor';
+import { AccessibilityProvider } from './lib/accessibilityPrefs';
 import { installAuthFetch } from './lib/authFetch';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -34,7 +36,11 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <ThemeProvider>
-        <App />
+        <AccentColorProvider>
+          <AccessibilityProvider>
+            <App />
+          </AccessibilityProvider>
+        </AccentColorProvider>
       </ThemeProvider>
     </ErrorBoundary>
   </StrictMode>
