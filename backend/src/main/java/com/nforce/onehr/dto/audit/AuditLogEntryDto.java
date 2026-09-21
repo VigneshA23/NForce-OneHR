@@ -3,6 +3,7 @@ package com.nforce.onehr.dto.audit;
 import lombok.*;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -18,6 +19,10 @@ public class AuditLogEntryDto {
     private UUID targetId;
     private String targetLabel;    // best-effort human label, never null (has a fallback)
     private String targetEmployeeCode; // affected employee's business id (e.g. "NF-00001") for Excel export — never a UUID; empty if unresolvable
+    // Populated only for actions where "affected user" is a set of employees rather than one
+    // (e.g. PENALIZATION_POLICY_CREATED/UPDATED) — null/empty for every other action, where
+    // targetLabel already covers it. See AuditTargetResolver#resolveAffectedUsers.
+    private List<AffectedUserDto> affectedUsers;
     private String beforeState;    // raw JSON string, pass-through, nullable
     private String afterState;     // raw JSON string, pass-through, nullable
     // Instant, not LocalDateTime — serializes with an explicit "Z" offset so the frontend's

@@ -334,6 +334,9 @@ const STATUS_COLORS: Record<AttendanceStatus, string> = {
   HALF_DAY: '#4C8DD6',
   ABSENT: '#E4373D',
   MISSING_CHECKOUT: '#E4373D',
+  // Deliberately not the red used for ABSENT/MISSING_CHECKOUT: approved leave is an accounted-for
+  // day, and colouring it like a no-show is what made HR chase people who did nothing wrong.
+  ON_LEAVE: '#8B7BD6',
 };
 
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
@@ -342,6 +345,7 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   HALF_DAY: 'Half Day',
   ABSENT: 'Absent',
   MISSING_CHECKOUT: 'Missing Check-Out',
+  ON_LEAVE: 'On Leave',
 };
 
 const REGULARIZATION_STATUS_COLOR: Record<string, string> = {

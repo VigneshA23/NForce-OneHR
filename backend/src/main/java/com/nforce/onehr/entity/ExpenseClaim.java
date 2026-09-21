@@ -62,6 +62,21 @@ public class ExpenseClaim {
     @Column(name = "paid_at")
     private Instant paidAt;
 
+    // Snapshotted by ExpenseService#submit at submission time from whatever Workflow Studio rule
+    // (see ApprovalRuleEvaluationService) is active for EXPENSE right then — never re-derived
+    // later, so an in-flight claim's approval requirements can't change out from under it if an
+    // admin edits/activates/deactivates a rule after this claim was already submitted. Defaults
+    // true (both stages) to match this app's one and only behavior before Workflow Studio existed.
+    @Column(name = "requires_second_approval", nullable = false)
+    @Builder.Default
+    private boolean requiresSecondApproval = true;
+
+    // Which rule produced the decision above, for audit/debugging — null when no rule was active
+    // and the legacy default applied. No FK: a rule may later be deleted (only once inactive —
+    // see ApprovalRuleService#delete) without breaking historical claims' audit trail.
+    @Column(name = "evaluated_rule_id")
+    private UUID evaluatedRuleId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

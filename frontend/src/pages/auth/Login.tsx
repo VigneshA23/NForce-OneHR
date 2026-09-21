@@ -6,6 +6,7 @@ import { AuthLayout } from './AuthLayout';
 import { authApi, LoginLockedError } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { consumeSessionMessage } from '../../lib/authFetch';
+import loginReference from '../../assets/login-reference.png';
 
 // Persists only the lock expiry the server already returned, so a page refresh keeps
 // showing the locked state without sending another login request. Not a client-side
@@ -62,11 +63,213 @@ const itemVariants = {
   show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.23, 1, 0.32, 1] as const } },
 };
 
+// Field rectangles measured directly from login-reference.png (1671x941),
+// expressed as percentages of the full image. The frame these map onto
+// always preserves that exact aspect ratio (see .nf-login-frame below), so
+// plain percentage-of-container positioning keeps these overlays aligned to
+// the artwork's fields at any viewport size.
+const FIELD_RECT = {
+  email:    { left: 67.32, top: 39.53, width: 25.91, height: 5.21 },
+  password: { left: 67.32, top: 47.50, width: 25.91, height: 5.31 },
+  toggle:   { left: 89.73, top: 47.50, width: 3.5,   height: 5.31 },
+  forgot:   { left: 86.53, top: 53.8,  width: 6.9,   height: 3.0  },
+  signIn:   { left: 67.32, top: 59.40, width: 25.91, height: 5.21 },
+  sso:      { left: 67.32, top: 73.01, width: 25.91, height: 5.21 },
+  // Taller than the other rows and positioned over the card's own logo lockup
+  // (rather than squeezed into the short gap above Email) because the
+  // account-lockout message is long enough to wrap 3+ lines — a single
+  // short-error-sized box would overflow into "Welcome back" beneath it.
+  error:    { left: 67.32, top: 16.5,  width: 25.91, height: 11.5 },
+} as const;
+
+function rectStyle(r: { left: number; top: number; width: number; height: number }): React.CSSProperties {
+  return { position: 'absolute', left: `${r.left}%`, top: `${r.top}%`, width: `${r.width}%`, height: `${r.height}%` };
+}
+
+// Below this width, login-reference.png's fixed 1671x941 composition would
+// scale its login card down to an unreadable/untappable size, so we fall
+// back to the existing plain (non-image) mobile-optimized card below —
+// with its own lockout/session-message handling and fluid clamp() sizing —
+// instead of distorting or shrinking the artwork past the point of usability.
+const IMAGE_LAYOUT_MIN_WIDTH = 701;
+
+function useIsImageLayout() {
+  const [isImageLayout, setIsImageLayout] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(`(min-width: ${IMAGE_LAYOUT_MIN_WIDTH}px)`).matches : true
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${IMAGE_LAYOUT_MIN_WIDTH}px)`);
+    const handler = () => setIsImageLayout(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isImageLayout;
+}
+
+interface ImageLoginProps {
+  lockedMessage: string | null;
+  hasError: boolean; error: string | null; errorId: string;
+  email: string; setEmail: (v: string) => void; emailId: string; emailRef: React.RefObject<HTMLInputElement | null>;
+  password: string; setPassword: (v: string) => void; passId: string;
+  showPass: boolean; setShowPass: (updater: (v: boolean) => boolean) => void;
+  submitting: boolean; locked: boolean; onSubmit: (e: React.FormEvent) => void;
+}
+
+// Full-viewport (100vw x 100dvh, no scrollbar) rendering of login-reference.png
+// as a two-layer composition:
+//   Layer 1 — a cover-scaled, blurred/darkened copy of the same artwork,
+//     filling the entire viewport edge-to-edge purely to blend away any
+//     letterbox margin (never shown crisply, never the thing being measured
+//     against, so its own cover-crop doesn't matter).
+//   Layer 2 — the actual artwork, uniformly scaled (no independent X/Y
+//     stretch) at its true 1671:941 ratio and centered — this is what stays
+//     visually identical to the fullscreen case at every viewport size.
+// Interactive overlays are positioned as percentages of Layer 2's box only,
+// so they scale and move together with the real artwork, never with the
+// viewport directly. The account-lockout state from the parent is wired in
+// here (disabled fields, a locked banner in place of the generic error, the
+// Forgot Password link hidden) so the security behavior survives this
+// visual layer exactly as it works in the fallback card below.
+function ImageLogin({
+  lockedMessage, hasError, error, errorId, email, setEmail, emailId, emailRef,
+  password, setPassword, passId, showPass, setShowPass, submitting, locked, onSubmit,
+}: ImageLoginProps) {
+  const bannerMessage = lockedMessage ?? (hasError ? error : null);
+  return (
+    <div style={{ position: 'relative', width: '100vw', height: '100dvh', overflow: 'hidden', background: '#060608' }}>
+      <img
+        aria-hidden="true"
+        src={loginReference}
+        draggable={false}
+        style={{
+          position: 'absolute', inset: -40, width: 'calc(100% + 80px)', height: 'calc(100% + 80px)',
+          objectFit: 'cover', filter: 'blur(60px) brightness(0.5) saturate(1.15)',
+          userSelect: 'none', pointerEvents: 'none',
+        }}
+      />
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'rgba(6,7,10,.35)' }} />
+
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div
+          className="nf-login-frame"
+          style={{
+            position: 'relative', width: '100%', maxWidth: 'calc(100dvh * 1671 / 941)', aspectRatio: '1671 / 941',
+            boxShadow: '0 40px 120px rgba(0,0,0,.55)',
+          }}
+        >
+          <img
+            src={loginReference}
+            alt="NForce OneHR — Welcome back. Access your OneHR account."
+            draggable={false}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', userSelect: 'none', pointerEvents: 'none' }}
+          />
+
+          {bannerMessage && (
+            <div
+              role="alert" aria-live={lockedMessage ? 'assertive' : 'polite'} id={errorId}
+              style={{
+                ...rectStyle(FIELD_RECT.error),
+                display: 'flex', alignItems: 'flex-start', gap: 8, padding: '3% 3%', borderRadius: 8,
+                background: 'rgba(10,11,14,.92)', border: '1px solid rgba(228,55,61,.4)', color: '#f4a5a8',
+                boxSizing: 'border-box', overflow: 'auto',
+              }}
+            >
+              {lockedMessage
+                ? <Lock size={16} style={{ flexShrink: 0, marginTop: 1, color: 'var(--risk)' }} aria-hidden="true" />
+                : <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1, color: 'var(--risk)' }} aria-hidden="true" />}
+              <span style={{ fontSize: 13, lineHeight: 1.4 }}>{bannerMessage}</span>
+            </div>
+          )}
+
+          <form onSubmit={onSubmit} noValidate>
+            <label htmlFor={emailId} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Email</label>
+            <input
+              ref={emailRef} id={emailId} type="text" inputMode="email" autoComplete="email" placeholder=""
+              value={email} onChange={(e) => setEmail(e.target.value)}
+              disabled={locked}
+              aria-invalid={hasError} aria-describedby={bannerMessage ? errorId : undefined}
+              style={{
+                ...rectStyle(FIELD_RECT.email),
+                // The field's placeholder icon/text are baked into the reference art and show
+                // through this transparent input while empty; once real text is entered, an
+                // opaque fill (colour-matched to the art's own field interior) masks that
+                // baked-in placeholder so the two don't overlap/garble.
+                background: email ? 'rgb(16,28,38)' : 'transparent',
+                border: 'none', outline: 'none', boxSizing: 'border-box',
+                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 2% 0 8%',
+                opacity: locked ? 0.55 : 1, cursor: locked ? 'not-allowed' : 'text',
+              }}
+            />
+
+            <label htmlFor={passId} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Password</label>
+            <input
+              id={passId} type={showPass ? 'text' : 'password'} autoComplete="current-password" placeholder=""
+              value={password} onChange={(e) => setPassword(e.target.value)}
+              disabled={locked}
+              aria-invalid={hasError} aria-describedby={bannerMessage ? errorId : undefined}
+              style={{
+                ...rectStyle(FIELD_RECT.password),
+                background: password ? 'rgb(16,28,38)' : 'transparent',
+                border: 'none', outline: 'none', boxSizing: 'border-box',
+                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 4% 0 8%',
+                opacity: locked ? 0.55 : 1, cursor: locked ? 'not-allowed' : 'text',
+              }}
+            />
+            <button
+              type="button" aria-label={showPass ? 'Hide password' : 'Show password'} onClick={() => setShowPass((v) => !v)}
+              disabled={locked}
+              style={{
+                ...rectStyle(FIELD_RECT.toggle),
+                background: '#12141a', border: 'none', cursor: locked ? 'not-allowed' : 'pointer', color: 'var(--txt-dim)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                opacity: locked ? 0.55 : 1,
+              }}
+            >
+              {showPass ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+            </button>
+
+            {!locked && (
+              <Link
+                to="/forgot-password"
+                aria-label="Forgot password?"
+                style={{ ...rectStyle(FIELD_RECT.forgot), display: 'block' }}
+              />
+            )}
+
+            <button
+              type="submit" disabled={submitting || locked} aria-label={submitting ? 'Signing in…' : 'Sign In'}
+              style={{
+                ...rectStyle(FIELD_RECT.signIn),
+                background: submitting ? 'rgba(122,12,16,.94)' : 'transparent',
+                border: 'none', borderRadius: 8, cursor: (submitting || locked) ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 15, fontWeight: 600, fontFamily: 'Inter, sans-serif',
+                opacity: locked ? 0.55 : 1,
+              }}
+            >
+              {submitting ? 'Signing in…' : ''}
+            </button>
+          </form>
+
+          <button
+            type="button"
+            disabled
+            title="Microsoft SSO arrives in a later phase, once Azure AD coordination is ready"
+            aria-label="Microsoft SSO — coming soon"
+            style={{ ...rectStyle(FIELD_RECT.sso), background: 'transparent', border: 'none', cursor: 'not-allowed', padding: 0 }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Login() {
   const navigate   = useNavigate();
   const setAuth    = useAuthStore((s) => s.setAuth);
   const clearAuth  = useAuthStore((s) => s.clearAuth);
   const reduced    = useReducedMotion();
+  const isImageLayout = useIsImageLayout();
   const emailId    = useId();
   const passId     = useId();
   const errorId    = useId();
@@ -157,6 +360,22 @@ export default function Login() {
   }
 
   const hasError = Boolean(error);
+
+  if (isImageLayout) {
+    const lockedMessage = locked
+      ? `Your account ${lock!.email} has been locked due to multiple incorrect login attempts. ${formatRemainingLockTime(lock!.lockedUntil)}`
+      : null;
+    return (
+      <ImageLogin
+        lockedMessage={lockedMessage}
+        hasError={hasError} error={error} errorId={errorId}
+        email={email} setEmail={setEmail} emailId={emailId} emailRef={emailRef}
+        password={password} setPassword={setPassword} passId={passId}
+        showPass={showPass} setShowPass={setShowPass}
+        submitting={submitting} locked={locked} onSubmit={handleCredentialSubmit}
+      />
+    );
+  }
 
   return (
     <AuthLayout

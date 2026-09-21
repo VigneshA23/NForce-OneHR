@@ -1,0 +1,177 @@
+# Module-level coverage for the areas outside the deep-authored core.
+#
+# These answer "what is this and where do I find it" and say who can reach them, without claiming
+# step-level detail that has not been verified against the code. That restraint is deliberate: an
+# invented step is worse than an honest "open this page", because the user acts on it.
+
+knowledge:
+
+  - knowledgeId: module.dashboard
+    type: MODULE
+    module: dashboard
+    pageId: dashboard
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Home (dashboard)
+    synonyms: [home page, dashboard, landing page, main screen]
+    body: |
+      Home is where you land after signing in. It brings together your current attendance state,
+      items needing your attention, quick actions, and announcements relevant to your role.
+
+      What appears varies by role: a Manager sees team-level information their reports generate,
+      and an HR Admin or Super Admin sees organisation-level figures.
+
+      Kudos, for recognising a colleague, is reached from Home rather than from the sidebar.
+
+  - knowledgeId: module.assets-expenses
+    type: MODULE
+    module: assets
+    pageId: assets
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Assets and Expenses
+    synonyms: [my laptop, company assets, expense claim, claim expenses, reimbursement, asset request]
+    body: |
+      Assets and Expenses covers two things on one page: company assets assigned to you, and
+      expense claims you have submitted.
+
+      For assets you can see what is assigned to you and raise a request for something new. An
+      asset request moves from PENDING to APPROVED and then to FULFILLED once it is actually handed
+      over, or to REJECTED.
+
+      Expense claims go through two approval stages rather than one: your manager approves first,
+      then a final approver clears it for payroll, after which it is marked paid. A claim can be
+      rejected at either stage.
+
+      Asset requests and expense claims are tracked here, not in Requests.
+
+      Managers additionally see their direct reports' asset requests and expense claims awaiting
+      their decision.
+
+  - knowledgeId: module.documents-policies
+    type: MODULE
+    module: documents
+    pageId: my-documents
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: My Documents and Policies
+    synonyms: [upload document, my documents, company policies, acknowledge policy, id proof, certificates]
+    body: |
+      My Documents and Policies holds the documents on your employee record and the company
+      policies you are expected to read.
+
+      A document you upload is not immediately accepted: it goes to HR for verification and moves
+      from pending verification to verified or rejected. Documents can carry an expiry date, and
+      OneHR sends a reminder as that date approaches.
+
+      Policies are listed with whether you have acknowledged them. Acknowledging is a one-time
+      action and cannot be undone.
+
+      HR Admins have a separate Documents and Compliance page for verifying documents and chasing
+      missing or expiring ones organisation-wide.
+
+  - knowledgeId: module.people
+    type: MODULE
+    module: people
+    pageId: directory
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: People Directory, Org Hierarchy and My Team
+    synonyms: [find a colleague, who is my manager, org chart, reporting line, team members, employee search, phone number]
+    body: |
+      Three related pages cover people.
+
+      People Directory is a searchable list of everyone in the organisation with their contact and
+      reporting details. The top-bar search box also searches it.
+
+      Org Hierarchy shows the reporting structure as a tree you can navigate, which is where to
+      look for who reports to whom or who someone's manager is.
+
+      My Team is your immediate working group: your peers and, if you are a manager, your reports,
+      with their attendance and leave at a glance. Kudos are visible here too.
+
+      HR Admins additionally have Employee Master, the authoritative record set where employees are
+      created and their department, designation, location, shift and manager are maintained.
+
+  - knowledgeId: module.administration
+    type: MODULE
+    module: administration
+    version: 1
+    audience: [HR, ADMIN]
+    title: "Administration: User Management, Organization Structure and Masters"
+    synonyms: [user management, add a user, reset password, deactivate account, departments, designations, locations, shifts, master data]
+    body: |
+      Administration is split between two roles.
+
+      Super Admins have User Management, which is about accounts rather than people records:
+      inviting users, assigning roles, resetting passwords, and deactivating or restoring accounts.
+      They also have Organization Masters, the master data the rest of OneHR depends on -
+      business units, departments, designations, locations, shifts, weekly-off policies and
+      attendance rules.
+
+      HR Admins have Organization Structure, which is the same master data surface under a
+      different name, alongside Employee Master, Onboarding, Documents and Compliance, and Policies
+      and Announcements.
+
+      Master data is referenced by employee records, so entries are generally deactivated rather
+      than deleted, and an inactive entry cannot be assigned to anyone new.
+
+  - knowledgeId: module.audit
+    type: MODULE
+    module: audit
+    pageId: audit
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Audit History
+    synonyms: [audit trail, who changed this, history of changes, audit log, security log]
+    body: |
+      Audit History records what changed, who changed it and when, with before and after snapshots.
+
+      Managers and HR Admins see Audit History scoped to what they are permitted to see, which the
+      server enforces rather than the page.
+
+      Super Admins see a fuller Audit and Security view that additionally includes access-control
+      events such as role changes and account deactivations.
+
+      Records are grouped by area - employee, attendance, leave, expense, asset and access - so a
+      particular kind of change can be found without reading everything.
+
+  - knowledgeId: module.onboarding
+    type: MODULE
+    module: onboarding
+    pageId: onboarding
+    version: 1
+    audience: [HR]
+    title: Onboarding
+    synonyms: [new joiner, onboarding checklist, new starter, induction]
+    body: |
+      Onboarding, available to HR Admins, tracks new joiners through a checklist.
+
+      A checklist is started for an employee and runs until every item is done, at which point it
+      is complete. Items are grouped into pre-boarding and setup.
+
+      Onboarding can only be started once per employee, and a completed flow is archived rather
+      than restarted.
+
+  - knowledgeId: module.profile-notifications
+    type: MODULE
+    module: profile
+    pageId: profile
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: My Profile and Notifications
+    synonyms: [change my photo, update my details, my profile, notifications, alerts, change password, my phone number]
+    body: |
+      My Profile holds your personal details, contact information and profile photo. It is reached
+      from your avatar in the top right, not from the sidebar.
+
+      Some fields you can maintain yourself. Details that belong to your employment record - your
+      department, designation, manager, shift or employee code - are maintained by HR, so changing
+      one means asking HR rather than editing it.
+
+      Notifications, reached from the bell icon, lists what OneHR has told you: decisions on your
+      requests, items awaiting your approval, document expiry reminders and announcements. The
+      badge on the bell counts unread items.
+
+      Changing your password signs you out of other sessions, and an administrator changing your
+      account details will also sign you out, so you sign back in with the current information.

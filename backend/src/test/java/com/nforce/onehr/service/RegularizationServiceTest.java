@@ -1749,7 +1749,7 @@ class RegularizationServiceTest {
                 .reason("z").status("REJECTED").createdAt(LocalDateTime.now()).build();
 
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
-        when(regularizationRepository.findAll()).thenReturn(List.of(assignedPending, assignedApproved, notAssignedRejected));
+        when(regularizationRepository.findAllWithActiveRequester()).thenReturn(List.of(assignedPending, assignedApproved, notAssignedRejected));
 
         List<RegularizationResponse> all = regularizationService.listForApprover(managerEmail);
 
@@ -1768,7 +1768,7 @@ class RegularizationServiceTest {
                 .reason("y").status("APPROVED").createdAt(LocalDateTime.now()).build();
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
-        when(regularizationRepository.findAll())
+        when(regularizationRepository.findAllWithActiveRequester())
                 .thenReturn(List.of(assignedToManagerPending, assignedToManagerApproved));
 
         List<RegularizationResponse> all = regularizationService.listForApprover(hrEmail);

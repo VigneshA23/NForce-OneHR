@@ -5,11 +5,29 @@ function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+function bearerOnly(token: string) {
+  return { Authorization: `Bearer ${token}` };
+}
+
 async function handle<T>(res: Response): Promise<T> {
   let body: { message?: string } = {};
   try { body = await res.json(); } catch { /* non-json */ }
   if (!res.ok) throw new Error((body as any).message ?? `Request failed (${res.status})`);
   return body as T;
+}
+
+/** Same fetch-then-blob pattern as helpContentApprovalApi.downloadAttachment — bytes only ever
+ *  reach the DOM via an authenticated blob fetch, never a raw data: URI baked into page HTML, so
+ *  the backend's own role check (ExpenseService#getReceipt) is what actually gates access, not
+ *  which page happens to render a button. On failure, surfaces the backend's own message (e.g.
+ *  "No receipt attached to this claim") rather than a generic one. */
+async function handleBlob(res: Response): Promise<Blob> {
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try { const body = await res.json(); if (body?.message) message = body.message; } catch { /* non-json */ }
+    throw new Error(message);
+  }
+  return res.blob();
 }
 
 export interface ExpenseCategory {
@@ -39,6 +57,9 @@ export interface ExpenseClaimResponse {
   finalRejectionReason: string | null;
   paidAt: string | null;
   createdAt: string;
+  // Workflow Studio: false means Manager approval alone cleared this claim straight to
+  // CLEARED_FOR_PAYROLL — there was never an HR/final stage to display for it.
+  requiresSecondApproval: boolean;
 }
 
 export interface ExpenseTileEmployee {
@@ -84,6 +105,9 @@ export const expensesApi = {
 
   myClaims: (token: string) =>
     fetch(`${BASE}/claims/mine`, { headers: authHeaders(token) }).then(handle<ExpenseClaimResponse[]>),
+
+  getReceipt: (claimId: string, token: string) =>
+    fetch(`${BASE}/claims/${claimId}/receipt`, { headers: bearerOnly(token) }).then(handleBlob),
 
   pendingForManager: (token: string) =>
     fetch(`${BASE}/claims/pending-manager`, { headers: authHeaders(token) }).then(handle<ExpenseClaimResponse[]>),

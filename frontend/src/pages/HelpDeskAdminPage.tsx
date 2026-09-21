@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Clock, Inbox, Paperclip, Send, UserCog } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -415,6 +416,18 @@ export default function HelpDeskAdminPage() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+
+  // Deep-link support: the header/global search's Helpdesk results link here as
+  // /requests?ticketId=<id> (opens the read-only preview, same as clicking a row) or
+  // /requests?search=<term> — read once on mount, same as DirectoryPage's ?userId= convention.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const ticketId = searchParams.get('ticketId');
+    if (ticketId) setPreviewId(ticketId);
+    const q = searchParams.get('search');
+    if (q) setSearch(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const activeFilter = QUEUE_FILTERS.find(f => f.key === statusFilter) ?? QUEUE_FILTERS[0];
 
