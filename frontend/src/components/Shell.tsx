@@ -527,11 +527,16 @@ export function Shell() {
         {/* Decorative artwork for the sidebar's lower empty area — purely visual, so it's
             absolutely positioned (removed from the flex flow entirely: adds no height, never
             pushes the logo/nav/profile card) and pointer-events:none (never intercepts clicks).
-            Flex items (the Logo/SidebarNav/profile card below) paint like z-index:auto positioned
-            boxes per the flex spec, so placing this plain z-index:0 image first in DOM is enough
-            for it to sit behind all of them without needing z-index on each — SidebarNav's own
-            nav list (which can grow taller than its own space and scroll internally, covering
-            this artwork as it does) then paints above this the same way.
+            Note this div is NOT a flex item (position:absolute children are pulled out of flex
+            layout entirely per spec), so the "z-index:auto flex items paint in DOM order" rule
+            does not apply to it — it paints under plain CSS stacking rules instead, where a
+            positioned element needs a NEGATIVE z-index to paint behind its static in-flow
+            siblings (z-index:0 would do the opposite and paint above them, hiding the Logo/nav
+            text/profile-card name behind this opaque artwork — that was the bug: zIndex:-1 is
+            what actually keeps it behind everything while still painting above <aside>'s own
+            solid background). SidebarNav's own nav list (which can grow taller than its own
+            space and scroll internally, covering this artwork as it does) then paints above
+            this the same way, being static in-flow content itself.
             One 5-band sprite image (assets/sidebar-decoration.png) covers all 5 Theme colors —
             background-size stretches it to 5x this box's width, and background-position-x picks
             one 1x-wide band per accent (see ACCENT_BAND_POSITION_X) — no per-color image files,
@@ -544,7 +549,7 @@ export function Shell() {
         <div
           aria-hidden="true"
           style={{
-            position: 'absolute', left: 0, right: 0, bottom: 0, height: 380, zIndex: 0,
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: 380, zIndex: -1,
             overflow: 'hidden', pointerEvents: 'none',
             backgroundImage: `url(${sidebarDecoration})`,
             backgroundSize: '500% auto',
@@ -569,9 +574,23 @@ export function Shell() {
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
 
-        {/* Profile card (sidebar) */}
-        <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EmployeeAvatar photoDataUrl={storeUser?.photoDataUrl} name={name} size={30} fontSize={11} />
+        {/* Profile card (sidebar) — deliberately has no background of its own, so the decorative
+            artwork behind it (see above) shows through around the name/role text, same as the
+            avatar/name treatment sitting directly on the artwork. The glow behind the avatar
+            reuses --bm-glow/--bm-ring, the same per-accent tokens BrandMark's logo uses, so it
+            follows the selected Theme color automatically with no separate color logic here. */}
+        <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+          <div style={{ position: 'relative', width: 30, height: 30, flexShrink: 0 }}>
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute', inset: 0, margin: 'auto', width: 52, height: 52,
+                borderRadius: '50%', background: 'var(--bm-glow)', pointerEvents: 'none',
+              }}
+            />
+            <EmployeeAvatar photoDataUrl={storeUser?.photoDataUrl} name={name} size={30} fontSize={11} />
+            <span aria-hidden="true" style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px solid var(--bm-ring)', pointerEvents: 'none' }} />
+          </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
             <div style={{ fontSize: 10, color: '#6B7280' }}>{role}</div>
