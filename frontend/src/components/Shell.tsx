@@ -690,29 +690,6 @@ export function Shell() {
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
-
-        {/* Profile card (sidebar) — deliberately has no background of its own, so the decorative
-            artwork behind it (see above) shows through around the name/role text, same as the
-            avatar/name treatment sitting directly on the artwork. The glow behind the avatar
-            reuses --bm-glow/--bm-ring, the same per-accent tokens BrandMark's logo uses, so it
-            follows the selected Theme color automatically with no separate color logic here. */}
-        <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
-          <div style={{ position: 'relative', width: 30, height: 30, flexShrink: 0 }}>
-            <span
-              aria-hidden="true"
-              style={{
-                position: 'absolute', inset: 0, margin: 'auto', width: 52, height: 52,
-                borderRadius: '50%', background: 'var(--bm-glow)', pointerEvents: 'none',
-              }}
-            />
-            <EmployeeAvatar photoDataUrl={storeUser?.photoDataUrl} name={name} size={30} fontSize={11} />
-            <span aria-hidden="true" style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px solid var(--bm-ring)', pointerEvents: 'none' }} />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-            <div style={{ fontSize: 10, color: '#6B7280' }}>{role}</div>
-          </div>
-        </div>
       </aside>
 
       {/* Main area */}
