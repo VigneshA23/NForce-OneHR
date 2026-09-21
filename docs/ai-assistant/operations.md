@@ -10,11 +10,54 @@
 | POST | `/api/ai-assistant/feedback` | authenticated |
 | GET | `/api/ai-assistant/health` | authenticated |
 | POST | `/api/ai-assistant/admin/reindex` | `hasRole('SUPER_ADMIN')` |
+| GET | `/api/ai-assistant/admin/rate-limit-settings` | `hasRole('SUPER_ADMIN')` |
+| PUT | `/api/ai-assistant/admin/rate-limit-settings` | `hasRole('SUPER_ADMIN')` |
 
 Owner-scoping is in the query, not in a check afterwards — `AiConversationRepository` has no
 unscoped `findById`, so someone else's conversation id returns an empty transcript rather than a
 403. `/health` is open to any authenticated user on purpose: it decides whether the launcher renders
-at all, and gating it would make every employee's first interaction a 403.
+at all, and gating it would make every employee's first interaction a 403. The rate-limit settings
+endpoints are the deliberate exception in the other direction — **read is Super-Admin-only too**,
+not just write, matching the rate-limiting brief's AC7 rather than `AttendanceRulesService`'s
+open-read precedent.
+
+## Rate limiting
+
+`AiRateLimiter` enforces a per-user request budget before any retrieval, embedding, or LLM call —
+see `AiAssistantService.chat()`. The budget itself (on/off, requests per window, window length in
+minutes) is Super-Admin-editable from **Organization Masters → AI Assistant** in the UI, or via the
+two endpoints above, and persists in the `ai_rate_limit_settings` table (`V192`) rather than static
+config.
+
+**Algorithm.** In-memory sliding window, one `Deque<Instant>` per user, guarded by a per-user lock so
+concurrent requests from the same person cannot exceed the budget. Unchanged from the feature's
+original design — only *where the limit/window values come from* changed.
+
+**Multi-instance.** The counting store is still per-JVM memory, not Redis-backed. On N backend
+instances the effective ceiling is the configured limit × N — acceptable, because this is a cost
+guard, not a security control, and not worth introducing Redis for on this deployment. A Super
+Admin's change to the setting itself is visible immediately on the instance that made it, and on
+every other instance within 30 seconds (`AiRateLimitSettingsService`'s cache TTL) — so a multi-instance
+deployment can briefly enforce the old and new limits on different instances simultaneously.
+
+**Configuration-change semantics.** Changing the limit or window never resets or migrates a user's
+already-accumulating window. Lowering the limit mid-window can put a user immediately over budget on
+their very next request, evaluated against the new limit over their existing recorded timestamps.
+Disabling the feature (`enabled=false`) makes every request succeed and stops recording new
+timestamps, without clearing what is already recorded; re-enabling resumes from whatever remains.
+
+**Failure behaviour.** If `ai_rate_limit_settings` cannot be read, `AiRateLimitSettingsService` serves
+the last-known-good cached value, or safe defaults if nothing has ever been cached. A rate-limiter
+outage must never be the reason the assistant stops working.
+
+**Over the limit.** Unlike every other assistant decline (outage, no knowledge, message too long),
+which return HTTP 200 with a controlled `UNKNOWN` response, exceeding the rate limit returns a real
+**HTTP 429** with a `Retry-After` header and an `ApiError` body (`code:
+"AI_ASSISTANT_RATE_LIMIT_EXCEEDED"`, `lockedUntil` set to when the caller's oldest counted request
+ages out — the same shape already used for account lockouts). This is a deliberate, narrowly scoped
+exception to the "everything is a controlled 200" design: the rate-limiting brief specifically asked
+for a distinguishable, conventional status with retry information, and a 429 with a JSON body does
+not trip `authFetch.ts`'s empty-bodied-**403** session-kill guard (it only special-cases 403).
 
 ## Re-indexing
 

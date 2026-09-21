@@ -1,14 +1,17 @@
 package com.nforce.onehr.ai.controller;
 
 import com.nforce.onehr.ai.contract.AssistantResponse;
+import com.nforce.onehr.ai.dto.AiRateLimitSettingsResponse;
 import com.nforce.onehr.ai.dto.AssistantChatRequest;
 import com.nforce.onehr.ai.dto.AssistantFeedbackRequest;
 import com.nforce.onehr.ai.dto.AssistantHealthResponse;
 import com.nforce.onehr.ai.dto.AssistantMessageDto;
+import com.nforce.onehr.ai.dto.UpdateAiRateLimitSettingsRequest;
 import com.nforce.onehr.ai.config.AiProperties;
 import com.nforce.onehr.ai.knowledge.KnowledgeIndexingService;
 import com.nforce.onehr.ai.observability.AiInteractionLogger;
 import com.nforce.onehr.ai.service.AiAssistantService;
+import com.nforce.onehr.ai.service.AiRateLimitSettingsService;
 import com.nforce.onehr.ai.service.ConversationService;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
@@ -20,6 +23,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -56,6 +60,7 @@ public class AiAssistantController {
     private final AiInteractionLogger interactionLogger;
     private final UserRepository userRepository;
     private final AiProperties properties;
+    private final AiRateLimitSettingsService rateLimitSettingsService;
 
     /** Ask a question. Always returns 200 with a valid response, including for controlled declines. */
     @PostMapping("/chat")
@@ -149,6 +154,24 @@ public class AiAssistantController {
     public KnowledgeIndexingService.IndexingReport reindex(Principal principal) {
         log.info("Knowledge re-index requested by {}", principal.getName());
         return indexingService.reindex();
+    }
+
+    /**
+     * The current per-user request budget. Super Admin only for both read and write — a deliberate
+     * departure from {@code AttendanceRulesService.getRules()}'s open read, because the
+     * rate-limiting brief's AC7 is explicit that this configuration is Super-Admin-only end to end.
+     */
+    @GetMapping("/admin/rate-limit-settings")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public AiRateLimitSettingsResponse rateLimitSettings() {
+        return rateLimitSettingsService.getForAdmin();
+    }
+
+    @PutMapping("/admin/rate-limit-settings")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public AiRateLimitSettingsResponse updateRateLimitSettings(
+            @Valid @RequestBody UpdateAiRateLimitSettingsRequest request, Principal principal) {
+        return rateLimitSettingsService.update(request, currentUserId(principal));
     }
 
     private UUID currentUserId(Principal principal) {

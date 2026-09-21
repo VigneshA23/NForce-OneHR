@@ -29,7 +29,6 @@ app:
       max-context-chars: 12000
     limits:
       max-message-chars: 1000
-      max-requests-per-user-per-hour: 60
       max-history-turns: 6
 ```
 
@@ -76,13 +75,13 @@ match `KnowledgeIndexRepository.EMBEDDING_DIMENSIONS`. Discovering a mismatch af
 hundred rows would leave an index full of vectors that are individually valid and collectively
 meaningless — every similarity score would be noise, and nothing would look broken.
 
-### `max-requests-per-user-per-hour: 60`
+### The per-user request budget — no longer static config
 
-Every message costs a real embedding call *and* a real completion call. `AiRateLimiter` is in-memory
-and per-instance, following the same pragmatic choice already made for `SseTicketService` and
-`ForceLogoutBroadcaster`. On a multi-instance deployment the effective limit is this number times the
-instance count — acceptable, because **it is a cost guard, not a security control**, and not worth
-introducing Redis for.
+Every message costs a real embedding call *and* a real completion call. This used to be the static
+`max-requests-per-user-per-hour: 60` value here. It is now Super-Admin-editable and persisted in
+Postgres — see [operations.md](operations.md#rate-limiting) for how it works and how to change it.
+`app.ai.limits` keeps only `max-message-chars` and `max-history-turns`, which remain genuinely
+deploy-time.
 
 ### `max-history-turns: 6`
 

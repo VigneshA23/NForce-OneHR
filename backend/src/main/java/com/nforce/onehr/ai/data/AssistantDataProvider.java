@@ -21,6 +21,12 @@ import java.util.Set;
  * reason it is safe to build. A method that takes no actor, such as
  * {@code LeaveService.listOrgLeave(from, to)}, must never be reached from here.
  *
+ * <p>{@link ApprovalSummaryProvider} is the one narrow, deliberate exception: it calls six such
+ * methods, one per Approval Center request type, because a total across all of them cannot be
+ * assembled any other way once {@code AssistantDataService}'s per-turn provider cap makes it
+ * impossible for every type's own detail provider to run in the same turn. It still calls only
+ * actor-scoped read methods, and returns counts only, never a row of anyone's request detail.
+ *
  * <p><strong>Reads only.</strong> A provider may hold a domain service that is capable of mutation
  * — {@code LeaveService} can approve leave — so the discipline is that a provider calls exactly one
  * read method and returns text. {@code AssistantDataProviderTest} asserts that no provider's fetch

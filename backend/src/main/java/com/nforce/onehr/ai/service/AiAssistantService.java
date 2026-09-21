@@ -15,6 +15,7 @@ import com.nforce.onehr.ai.contract.ShellRole;
 import com.nforce.onehr.ai.data.AssistantDataService;
 import com.nforce.onehr.ai.entity.AiConversation;
 import com.nforce.onehr.ai.exception.AiProviderException;
+import com.nforce.onehr.ai.exception.AiRateLimitExceededException;
 import com.nforce.onehr.ai.navigation.NavigationValidator;
 import com.nforce.onehr.ai.observability.AiInteractionLogger;
 import com.nforce.onehr.ai.prompt.PromptBuilder;
@@ -92,9 +93,15 @@ public class AiAssistantService {
             return refuse(unknownResponses.messageTooLong(context, maxChars), context, question,
                     AiInteractionLogger.MESSAGE_TOO_LONG, startedNanos);
         }
-        if (!rateLimiter.tryAcquire(context.getUserId())) {
-            return refuse(unknownResponses.rateLimited(context), context, question,
+        AiRateLimiter.RateLimitDecision decision = rateLimiter.tryAcquire(context.getUserId());
+        if (!decision.allowed()) {
+            // Unlike every other decline above, this one is not returned in-band as a 200/UNKNOWN
+            // response — the rate-limiting brief specifically calls for a distinguishable HTTP 429
+            // with retry information (see AiExceptionHandler). Still recorded the same way so
+            // observability is unaffected by which path a turn was refused through.
+            record(context, null, question, List.of(), null, null,
                     AiInteractionLogger.RATE_LIMITED, startedNanos);
+            throw new AiRateLimitExceededException(decision.retryAfterSeconds());
         }
 
         // The hint is validated before it can influence anything. A spoofed or stale pageId is

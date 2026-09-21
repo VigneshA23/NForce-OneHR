@@ -9,10 +9,12 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.time.Instant;
 import java.util.stream.Collectors;
 
 /**
@@ -62,6 +64,32 @@ public class AiExceptionHandler {
         log.error("AI action execution was attempted and blocked. This should be unreachable.", e);
         return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(new ApiError("The assistant cannot perform actions."));
+    }
+
+    /**
+     * The caller's assistant request budget is exhausted.
+     *
+     * <p>Unlike every other assistant decline (outage, no knowledge, message too long), which are
+     * all returned in-band as HTTP 200 with a controlled {@code UNKNOWN} response, rate limiting is
+     * deliberately surfaced as a real 429 — the rate-limiting brief's AC2/AC8/AC10 specifically call
+     * for a distinguishable, conventional status with retry information, and a 429 with a JSON body
+     * is safe against {@code authFetch.ts}'s empty-bodied-<strong>403</strong> session-kill trap
+     * regardless (it only special-cases 403).
+     *
+     * <p>{@code Retry-After} is set per RFC 9110 alongside the body, and {@link ApiError#getLockedUntil()}
+     * is reused for the same absolute-instant-to-count-down-to shape the frontend already renders
+     * for account lockouts ({@code LoginLockedError}/{@code Login.tsx}) — no new response shape.
+     */
+    @ExceptionHandler(AiRateLimitExceededException.class)
+    public ResponseEntity<ApiError> handleRateLimitExceeded(AiRateLimitExceededException e) {
+        log.debug("Assistant rate limit exceeded: retryAfterSeconds={}", e.getRetryAfterSeconds());
+        ApiError body = new ApiError(
+                "You have reached the AI Assistant usage limit. Please try again shortly.",
+                "AI_ASSISTANT_RATE_LIMIT_EXCEEDED",
+                Instant.now().plusSeconds(e.getRetryAfterSeconds()));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.getRetryAfterSeconds()))
+                .body(body);
     }
 
     /**
