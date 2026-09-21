@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -122,7 +122,7 @@ function ContactHRModal({ categories, token, initialDescription, onClose, onCrea
               <StatusBadge status={created.status} />
             </div>
             <button onClick={onClose} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              View My Requests
+              Done
             </button>
           </div>
         </div>
@@ -640,16 +640,25 @@ function GuideList({ items, onOpen, token, isAdmin, actions, busyIds }: {
 }
 
 /** Full-content view for any content item — fetches its own detail and, if present, offers the shared attachment viewer. */
-function ContentModal({ id, token, onClose, onContactHR }: {
-  id: string; token: string; onClose: () => void; onContactHR: (guideTitle: string) => void;
+function ContentModal({ id, token, isAdmin, viewedRef, onClose, onContactHR }: {
+  id: string; token: string; isAdmin: boolean; viewedRef: MutableRefObject<Set<string>>;
+  onClose: () => void; onContactHR: (guideTitle: string) => void;
 }) {
   const [item, setItem] = useState<HelpContentDetail | null>(null);
   const [viewingAttachments, setViewingAttachments] = useState(false);
 
   useEffect(() => {
-    helpContentApi.getOne(id, token).then(setItem);
-    helpContentApi.trackView(id, token);
-  }, [id, token]);
+    // Admins fetch via the admin endpoint so this modal also works for the non-published
+    // statuses admins can legitimately open (e.g. from search or "View") — the employee-facing
+    // endpoint requires PUBLISHED and would otherwise leave this stuck on "Loading…" forever.
+    const fetchDetail = isAdmin ? hrHelpContentApi.getOne(id, token) : helpContentApi.getOne(id, token);
+    fetchDetail.then(setItem);
+    // Deduped per session, same as FAQAccordion's viewedRef — see D10.
+    if (!viewedRef.current.has(id)) {
+      viewedRef.current.add(id);
+      helpContentApi.trackView(id, token);
+    }
+  }, [id, token, isAdmin, viewedRef]);
 
   if (!item) {
     return (
@@ -870,6 +879,15 @@ export default function HelpDeskPage() {
   // every mutating call still goes through the same @PreAuthorize-guarded HR endpoints.
   const isAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN';
 
+  // Session-scoped view-count dedup, shared across every content-detail open on this page visit
+  // (Guides/Quick Help/Documents opened via ContentModal) — kept here rather than inside
+  // ContentModal itself because that component unmounts/remounts on every open (activeContentId
+  // toggling), so a ref local to it would never actually dedupe anything. Mirrors FAQAccordion's
+  // own viewedRef, which persists across FAQ expand/collapse because FAQAccordion itself doesn't
+  // unmount — same semantics, just lifted one level up so it survives a modal being closed and
+  // reopened. See D10: viewCount/popularity semantics should be consistent across content types.
+  const viewedContentRef = useRef<Set<string>>(new Set());
+
   const [categories, setCategories] = useState<HelpdeskCategory[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
   // Seeded onto the Contact HR modal's description so HR sees what the employee was already
@@ -913,9 +931,17 @@ export default function HelpDeskPage() {
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAllRequests, setShowAllRequests] = useState(false);
+
+  // Debounced the same way as the content search above (300ms) — the raw `search` state
+  // updates the input instantly, but the ticket list only re-fetches once typing pauses.
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(handle);
+  }, [search]);
 
   // Deep-link support: the header/global search's Helpdesk and Help & Guidance results link
   // here as /help?ticketId=<id>, /help?ticketSearch=<term> or /help?contentId=<id>/
@@ -938,7 +964,7 @@ export default function HelpDeskPage() {
     const size = showAllRequests ? 10 : 5;
     helpdeskApi.listMine(token, {
       status: showAllRequests && statusFilter !== 'ALL' ? statusFilter : undefined,
-      search: showAllRequests && search ? search : undefined,
+      search: showAllRequests && debouncedSearch ? debouncedSearch : undefined,
       page: p, size,
     })
       .then(res => { setTickets(res.content); setTotalPages(res.totalPages); setPage(res.number); })
@@ -980,15 +1006,19 @@ export default function HelpDeskPage() {
     setBusyIds(prev => new Set(prev).add(id));
     try {
       await fn();
-      refreshContent();
     } finally {
+      // Refresh regardless of outcome: a failed action can still have partially applied
+      // server-side (or another admin may have changed the row concurrently), so the list
+      // should reflect the true current state either way. The error itself still propagates
+      // to the caller (e.g. ConfirmModal), which is what keeps the modal open on failure.
+      refreshContent();
       setBusyIds(prev => { const next = new Set(prev); next.delete(id); return next; });
     }
   }
 
   useEffect(() => { helpdeskApi.listCategories(token).then(setCategories); }, [token]);
   useEffect(refreshContent, [token, isAdmin]);
-  useEffect(() => { loadTickets(0); }, [token, statusFilter, search, showAllRequests]);
+  useEffect(() => { loadTickets(0); }, [token, statusFilter, debouncedSearch, showAllRequests]);
 
   function openCreateContent(type: HelpContentType) {
     setEditingContent(null);
@@ -1111,16 +1141,23 @@ export default function HelpDeskPage() {
     onDelete: handleDelete,
   };
 
-  // Debounced content search — fires 300ms after typing stops, clears back to the curated view when empty.
+  // Debounced content search — fires 300ms after typing stops, clears back to the curated view
+  // when empty. Admins search the same admin-visible universe (all statuses) they already see in
+  // the "View all" modals, not just the published/audience-visible employee index — the backend
+  // endpoint itself is the actual authorization boundary (@PreAuthorize on HrHelpContentController),
+  // this is just choosing the right endpoint, not the security check.
   useEffect(() => {
     const q = contentSearch.trim();
     if (!q) { setSearchResults([]); setSearching(false); return; }
     setSearching(true);
     const handle = setTimeout(() => {
-      helpContentApi.list(token, { search: q, size: 20 }).then(res => setSearchResults(res.content)).finally(() => setSearching(false));
+      const call = isAdmin
+        ? hrHelpContentApi.list(token, { search: q, size: 20 })
+        : helpContentApi.list(token, { search: q, size: 20 });
+      call.then(res => setSearchResults(res.content)).finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(handle);
-  }, [contentSearch, token]);
+  }, [contentSearch, token, isAdmin]);
 
   function openContactFromModal(guideTitle: string) {
     setActiveContentId(null);
@@ -1340,6 +1377,8 @@ export default function HelpDeskPage() {
         <ContentModal
           id={activeContentId}
           token={token}
+          isAdmin={isAdmin}
+          viewedRef={viewedContentRef}
           onClose={() => setActiveContentId(null)}
           onContactHR={openContactFromModal}
         />
