@@ -108,6 +108,90 @@ public class PolicyService {
                 .build();
         p = policyRepo.save(p);
 
+        seedAcknowledgmentsAndNotify(p, "New Policy: " + p.getTitle(),
+                "Please review and acknowledge version " + p.getVersion() + ".");
+
+        return PolicyResponse.from(p);
+    }
+
+    // ── HR/SA: publish a substantive new version of an existing policy ──
+    //
+    // Separate from editPolicy (metadata-only, same version, acknowledgments untouched). This
+    // increments the version, makes the new content current, and requires every employee to
+    // re-acknowledge — previous acknowledgments stay attached to the superseded version's row and
+    // are preserved for audit, never deleted or mutated.
+
+    @Transactional
+    public PolicyResponse publishNewVersion(String actorEmail, Long policyId, PublishPolicyVersionRequest req) {
+        User actor = requireUser(actorEmail);
+        requireAdminRole(actorEmail);
+
+        Policy current = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+
+        // Flush the supersede before inserting the new version's acknowledgment rows below — not
+        // required for correctness here (no uniqueness constraint spans policy rows), but keeps
+        // the write order explicit and matches the document-versioning supersede-then-insert
+        // pattern.
+        current.setActive(false);
+        policyRepo.saveAndFlush(current);
+
+        String title = notBlank(req.getTitle(), current.getTitle());
+        String description = notBlank(req.getDescription(), current.getDescription());
+        String audience = notBlank(req.getAudience(), current.getAudience());
+        boolean required = req.getRequired() != null ? req.getRequired() : current.isRequired();
+        String version = notBlank(req.getVersion(), suggestNextVersion(current.getVersion()));
+
+        Policy p = Policy.builder()
+                .title(title)
+                .version(version)
+                .versionNumber(current.getVersionNumber() + 1)
+                .previousVersionId(current.getId())
+                .description(description)
+                .audience(audience)
+                .required(required)
+                .publishedBy(actor.getId())
+                .publishedAt(Instant.now())
+                .active(true)
+                .build();
+        p = policyRepo.save(p);
+
+        seedAcknowledgmentsAndNotify(p, "Updated Policy: " + p.getTitle(),
+                "A new version (" + p.getVersion() + ") has been published. Please review and acknowledge again.");
+
+        return PolicyResponse.from(p);
+    }
+
+    // ── HR/SA: this policy's version chain, oldest first, for grouped acknowledgment history ──
+
+    @Transactional(readOnly = true)
+    public List<PolicyResponse> getVersionHistory(String actorEmail, Long policyId) {
+        requireAdminRole(actorEmail);
+        Policy anchor = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+
+        LinkedList<Policy> chain = new LinkedList<>();
+        chain.add(anchor);
+
+        Policy cursor = anchor;
+        while (cursor.getPreviousVersionId() != null) {
+            Long previousId = cursor.getPreviousVersionId();
+            cursor = policyRepo.findById(previousId)
+                    .orElseThrow(() -> new NoSuchElementException("Policy not found: " + previousId));
+            chain.addFirst(cursor);
+        }
+        cursor = anchor;
+        Optional<Policy> next = policyRepo.findByPreviousVersionId(cursor.getId());
+        while (next.isPresent()) {
+            cursor = next.get();
+            chain.addLast(cursor);
+            next = policyRepo.findByPreviousVersionId(cursor.getId());
+        }
+
+        return chain.stream().map(PolicyResponse::from).collect(Collectors.toList());
+    }
+
+    private void seedAcknowledgmentsAndNotify(Policy p, String notificationTitle, String notificationMessage) {
         Set<String> audienceRoles = parseAudienceToRoleCodes(p.getAudience());
         List<Employee> targetEmployees = audienceRoles.equals(ALL_ROLE_CODES)
                 ? employeeRepo.findAllActiveWithDetails()
@@ -119,13 +203,23 @@ public class PolicyService {
                     .employeeUserId(emp.getUserId())
                     .build();
             ackRepo.save(ack);
-            notificationService.send(emp.getUserId(), "POLICY_PUBLISHED",
-                    "New Policy: " + p.getTitle(),
-                    "Please review and acknowledge version " + p.getVersion() + ".",
-                    POLICIES_TAB_LINK);
+            notificationService.send(emp.getUserId(), "POLICY_PUBLISHED", notificationTitle, notificationMessage, POLICIES_TAB_LINK);
         }
+    }
 
-        return PolicyResponse.from(p);
+    private static String notBlank(String candidate, String fallback) {
+        return (candidate != null && !candidate.isBlank()) ? candidate : fallback;
+    }
+
+    // "1.0" -> "2.0", "3.2" -> "4.0"; anything unparsable falls back to "2.0" — same
+    // auto-suggestion the existing PublishModal frontend already does for a same-titled republish.
+    private static String suggestNextVersion(String currentVersion) {
+        try {
+            int major = Integer.parseInt(currentVersion.split("\\.")[0]);
+            return (major + 1) + ".0";
+        } catch (Exception e) {
+            return "2.0";
+        }
     }
 
     // ── HR/SA: edit policy (same version, update metadata) ──

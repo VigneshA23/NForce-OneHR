@@ -4,7 +4,8 @@ import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
-  listAllPolicies, publishPolicy, editPolicy, deactivatePolicy, reactivatePolicy, deletePolicy,
+  listAllPolicies, publishPolicy, editPolicy, publishPolicyVersion, policyVersionHistory,
+  deactivatePolicy, reactivatePolicy, deletePolicy,
   listAcknowledgments, listAllAnnouncements, createAnnouncement, publishAnnouncement,
   updateAnnouncement, deactivateAnnouncement, reactivateAnnouncement, deleteAnnouncement,
   resetAcknowledgment, remindEmployee, globalPendingAckCount,
@@ -219,6 +220,78 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
   );
 }
 
+// ── Publish New Version Modal ─────────────────────────────
+// Distinct from EditPolicyModal: this increments the version and forces every affected
+// employee to re-acknowledge (previous acknowledgments stay attached to the superseded
+// version for audit — see PolicyService#publishNewVersion).
+
+function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy; onClose(): void; onPublished(p: Policy): void }) {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
+  const suggestedVersion = `${(parseInt(policy.version.split('.')[0] ?? '1', 10) || 1) + 1}.0`;
+  const [version, setVersion] = useState(suggestedVersion);
+  const [description, setDescription] = useState(policy.description);
+  const [audience, setAudience] = useState<string[]>(parseAudienceToArr(policy.audience));
+  const [required, setRequired] = useState(policy.required);
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (audience.length === 0) return showToast('error', 'Select at least one audience');
+    setLoading(true);
+    try {
+      const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
+      const p = await publishPolicyVersion(token, policy.id, { version, description, audience: audienceStr, required });
+      onPublished(p);
+      showToast('success', 'New version published — employees must re-acknowledge');
+      onClose();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Publish failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 500, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Publish New Version — {policy.title}</h3>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#eab308' }}>
+          Currently v{policy.version}. Publishing a new version supersedes it and requires every affected employee to re-acknowledge.
+        </p>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>New Version *</label>
+            <input style={inputS} value={version} onChange={e => setVersion(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Description *</label>
+            <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 8 }}>Audience *</label>
+            <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
+              <AudiencePicker value={audience} onChange={setAudience} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            <input type="checkbox" id="reqv" checked={required} onChange={e => setRequired(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            <label htmlFor="reqv" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Required acknowledgment</label>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading}
+              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+            <button type="submit" disabled={loading}
+              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              {loading ? 'Publishing…' : 'Publish New Version'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Create/Edit Announcement Modal ────────────────────────
 
 function AnnounceModal({ initial, onClose, onSaved }: {
@@ -301,22 +374,29 @@ function AnnounceModal({ initial, onClose, onSaved }: {
 function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): void; onReset(): void }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
+  const [versions, setVersions] = useState<Policy[]>([policy]);
+  const [selected, setSelected] = useState<Policy>(policy);
   const [acks, setAcks] = useState<PolicyAcknowledgment[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    listAcknowledgments(token, policy.id)
+    policyVersionHistory(token, policy.id).then(setVersions).catch(() => {});
+  }, [policy.id, token]);
+
+  useEffect(() => {
+    setLoading(true);
+    listAcknowledgments(token, selected.id)
       .then(setAcks)
       .catch(e => showToast('error', e instanceof Error ? e.message : 'Load failed'))
       .finally(() => setLoading(false));
-  }, [policy.id, token]);
+  }, [selected.id, token]);
 
   async function doReset(userId: string) {
     setActionLoading(userId);
     try {
-      await resetAcknowledgment(token, policy.id, userId);
+      await resetAcknowledgment(token, selected.id, userId);
       setAcks(prev => prev.map(a => a.employeeUserId === userId ? { ...a, acknowledgedAt: null, pending: true } : a));
       onReset();
       showToast('success', 'Acknowledgment reset');
@@ -330,7 +410,7 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
   async function doRemind(userId: string) {
     setActionLoading(userId + '_r');
     try {
-      await remindEmployee(token, policy.id, userId);
+      await remindEmployee(token, selected.id, userId);
       showToast('success', 'Reminder sent');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Remind failed');
@@ -349,7 +429,7 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 600, maxWidth: '94vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{policy.title} — v{policy.version}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{selected.title} — v{selected.version}</h3>
             {!loading && (
               <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt-dim)' }}>
                 {acknowledged}/{total} acknowledged
@@ -359,6 +439,21 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', fontSize: 20, lineHeight: 1 }}>×</button>
         </div>
+        {versions.length > 1 && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+            {versions.map(v => (
+              <button key={v.id} onClick={() => setSelected(v)}
+                style={{
+                  padding: '4px 12px', borderRadius: 12, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                  border: v.id === selected.id ? '1px solid #A01418' : '1px solid var(--line)',
+                  background: v.id === selected.id ? 'rgba(160,20,24,.12)' : 'var(--shell)',
+                  color: v.id === selected.id ? '#A01418' : 'var(--txt-dim)',
+                }}>
+                v{v.version}{v.active ? ' · Current' : ''}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{ marginBottom: 12, position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name…"
@@ -419,6 +514,7 @@ export default function PoliciesPage() {
   const [showPublish, setShowPublish] = useState(false);
   const [showAnnounce, setShowAnnounce] = useState(false);
   const [editPolicyTarget, setEditPolicyTarget] = useState<Policy | null>(null);
+  const [publishVersionTarget, setPublishVersionTarget] = useState<Policy | null>(null);
   const [editAnnouncement, setEditAnnouncement] = useState<Announcement | null>(null);
   const [ackPolicy, setAckPolicy] = useState<Policy | null>(null);
   const [publishingAnn, setPublishingAnn] = useState<number | null>(null);
@@ -666,6 +762,7 @@ export default function PoliciesPage() {
                       <td style={{ ...tdS, width: 48 }}>
                         <KebabMenu items={[
                           { label: 'Edit', onClick: () => setEditPolicyTarget(p) },
+                          { label: 'Publish New Version', onClick: () => setPublishVersionTarget(p) },
                           ...(p.active ? [{ label: 'Deactivate', onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', onClick: () => doReactivatePolicy(p.id) }]),
                           { label: 'Delete', onClick: () => doDeletePolicy(p.id), danger: true },
                         ]} />
@@ -772,6 +869,16 @@ export default function PoliciesPage() {
           policy={editPolicyTarget}
           onClose={() => setEditPolicyTarget(null)}
           onSaved={updated => { setPolicies(prev => prev.map(p => p.id === updated.id ? updated : p)); setEditPolicyTarget(null); }}
+        />
+      )}
+      {publishVersionTarget && (
+        <PublishVersionModal
+          policy={publishVersionTarget}
+          onClose={() => setPublishVersionTarget(null)}
+          onPublished={p => {
+            setPolicies(prev => [p, ...prev.map(old => old.id === publishVersionTarget.id ? { ...old, active: false } : old)]);
+            refreshPendingAckTotal();
+          }}
         />
       )}
       {editAnnouncement && (

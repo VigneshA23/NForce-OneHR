@@ -59,6 +59,23 @@ body {
   min-height: var(--app-height, 100dvh);
 }
 
+/* Accent ("Theme color") tokens — deliberately theme-independent and declared ONCE here, not
+   inside the [data-theme="dark"|"light"] blocks below. accentColor.tsx overrides these three
+   (plus --bm-ring/--bm-glow) as inline styles on <html> when the user picks a color, and inline
+   styles only win over an inherited value — a rule that *directly* matches a lower element (e.g.
+   HeroCard's own `data-theme="dark"` attribute) would otherwise re-declare these locally on that
+   element and silently shadow the user's chosen accent for that subtree. Keeping them out of
+   both per-theme blocks means no other rule anywhere can match on an element's own data-theme
+   attribute and re-assert the hardcoded default, so the inherited/overridden value always wins. */
+:root {
+  --brand:       #B11116;
+  --brand-bright:#E4373D;
+  --brand-deep:  #7A0C10;
+
+  --bm-ring:         rgba(228,55,61,.25);
+  --bm-glow:         radial-gradient(circle, rgba(228,55,61,.18) 0%, rgba(228,55,61,0) 70%);
+}
+
 :root,
 [data-theme="dark"] {
   --shell:       #0E0F12;
@@ -68,12 +85,6 @@ body {
   --line:        #2A2E37;
   --line2:       #353A45;
 
-  --brand:       #B11116;
-  --brand-bright:#E4373D;
-  --brand-deep:  #7A0C10;
-
-  --bm-ring:         rgba(228,55,61,.25);
-  --bm-glow:         radial-gradient(circle, rgba(228,55,61,.18) 0%, rgba(228,55,61,0) 70%);
   --bm-inner-shadow: inset 0 1px 3px rgba(0,0,0,.6), inset 0 -1px 1px rgba(255,255,255,.03), 0 0 0 1px rgba(0,0,0,.4);
 
   --txt:         #E8EAED;
@@ -95,12 +106,6 @@ body {
   --line:        #E3E6EA;
   --line2:       #D3D8DE;
 
-  --brand:       #B11116;
-  --brand-bright:#C81A1F;
-  --brand-deep:  #7A0C10;
-
-  --bm-ring:         rgba(0,0,0,.15);
-  --bm-glow:         radial-gradient(circle, rgba(0,0,0,.04) 0%, rgba(0,0,0,0) 70%);
   --bm-inner-shadow: inset 0 1px 2px rgba(255,255,255,.8), 0 2px 6px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.09);
 
   --txt:         #1A1D23;
@@ -111,6 +116,49 @@ body {
   --warn:        #896010;
   --risk:        #C81A1F;
   --info:        #1A5FAA;
+}
+
+/* Accessibility: "High contrast" (User Preferences → Accessibility) — pushes text/border tokens
+   to near-maximum contrast against their panel/shell background, on top of whichever dark/light
+   theme is active. Only overrides the tokens components already read (--txt/--txt-mut/--txt-dim/
+   --line/--line2), so it reaches every panel, table, and label built from them without needing
+   its own rule per component. */
+[data-theme="dark"][data-contrast="high"] {
+  --txt:     #FFFFFF;
+  --txt-mut: #ECEDEF;
+  --txt-dim: #D0D3D8;
+  --line:    #565C68;
+  --line2:   #6B7280;
+}
+[data-theme="light"][data-contrast="high"] {
+  --txt:     #000000;
+  --txt-mut: #14171C;
+  --txt-dim: #2B2F36;
+  --line:    #7A818C;
+  --line2:   #5B616B;
+}
+
+/* Accessibility: "Reduce animations" (User Preferences → Accessibility) — collapses every
+   animation/transition to effectively instant instead of disabling them outright (duration: 0
+   can skip an animation's end-state entirely in some browsers; a near-zero duration always
+   still resolves to it). */
+[data-motion="reduce"] *,
+[data-motion="reduce"] *::before,
+[data-motion="reduce"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Accessibility: "Keyboard navigation" (User Preferences → Accessibility) — a stronger,
+   high-visibility focus ring on whatever element currently has keyboard focus, for anyone who
+   navigates by Tab rather than mouse. Scoped to :focus-visible so it never appears on a mouse
+   click, only real keyboard focus. */
+[data-kbd-nav="on"] :focus-visible {
+  outline: 2px solid var(--brand-bright) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
 }
 
 /* Scrollbars — thin, low-contrast, theme-aware (replaces the default
@@ -147,6 +195,37 @@ body {
 @keyframes nf-toast-in { from { opacity: 0; transform: translateY(-6px) scale(.97) } to { opacity: 1; transform: none } }
 @keyframes nf-hero-pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
+/* Work-anniversary celebration overlay (WorkAnniversaryOverlay.tsx) — ambient background effects.
+   Plain CSS animations (not framer-motion) specifically so the existing
+   [data-motion="reduce"] rule above already neutralizes them for anyone with that preference on,
+   with no extra wiring. The one-time entrance sequencing (heading/photo/button) is framer-motion,
+   since it's a single orchestrated run rather than an ongoing loop. */
+@keyframes nf-anniv-confetti-fall {
+  0%   { transform: translateY(-10vh) rotate(0deg); opacity: 0; }
+  10%  { opacity: 1; }
+  100% { transform: translateY(110vh) rotate(360deg); opacity: .85; }
+}
+@keyframes nf-anniv-balloon-float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50%      { transform: translateY(-26px) rotate(3deg); }
+}
+@keyframes nf-anniv-sparkle-twinkle {
+  0%, 100% { opacity: .15; transform: scale(.7); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+@keyframes nf-anniv-ring-glow {
+  0%, 100% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 35%, transparent), 0 0 24px 8px color-mix(in srgb, var(--brand) 25%, transparent); }
+  50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--brand) 55%, transparent), 0 0 40px 14px color-mix(in srgb, var(--brand) 40%, transparent); }
+}
+
+/* KudosCelebrationToast's emoji burst — rises from the bottom of the screen with a slight
+   horizontal drift (--nf-emoji-drift, set per-piece inline) and fades out near the top. */
+@keyframes nf-kudos-emoji-rise {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translate(var(--nf-emoji-drift, 0px), -100vh) rotate(20deg); opacity: 0; }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   html.nf-theme-transitioning * {
     transition:
@@ -166,7 +245,7 @@ body {
   color: #FFFFFF !important;
 }
 .nf-sidebar-item[aria-current="page"] {
-  background: linear-gradient(90deg, rgba(177,17,22,.22), rgba(177,17,22,.05));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brand) 22%, transparent), color-mix(in srgb, var(--brand) 5%, transparent));
   color: #FFFFFF;
 }
 
@@ -718,10 +797,12 @@ input[type="date"] {
    identity text squeezed into overlapping space instead of the row simply
    getting taller. Stack the header into two rows (avatar+identity, then
    actions) on mobile and give the actions their own full-width row below,
-   so the buttons never share horizontal space with the name/email/badges
-   again. Desktop/tablet keep the original single-row layout, untouched. */
+   so the buttons never share horizontal space with the name/badges again.
+   Desktop/tablet keep the original single-row layout, untouched.
+   Targets .nf-profile-row (the flex row below the hero banner), not
+   .nf-profile-header (now the outer card wrapping the banner + this row). */
 @media (max-width: 767px) {
-  .nf-profile-header { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; }
+  .nf-profile-row { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; }
   .nf-profile-actions { width: 100% !important; }
   .nf-profile-actions button { flex: 1 1 0; justify-content: center; }
 }

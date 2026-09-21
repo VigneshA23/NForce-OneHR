@@ -72,4 +72,11 @@ export const profileApi = {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     }).then(handle<ProfileData>),
+
+  setAvatar: (token: string, avatarUrl: string) =>
+    fetch(`${BASE}/avatar`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ avatarUrl }),
+    }).then(handle<ProfileData>),
 };

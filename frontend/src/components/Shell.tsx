@@ -1,22 +1,29 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Outlet, useNavigate, Link } from 'react-router-dom';
-import { Search, Bell, Sun, Moon, Shield, User, LogOut, Menu, X as CloseIcon, Clock as ClockIcon, ArrowRight } from 'lucide-react';
+import {
+  Search, Bell, Settings, KeyRound,
+  Shield, User, LogOut, Menu, X as CloseIcon,
+  Clock as ClockIcon, ArrowRight,
+} from 'lucide-react';
 import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
-import { readRecentSearches, addRecentSearch } from '../lib/recentSearches';
-import { useTheme } from '../lib/theme';
+import { readRecentSearches, addRecentSearch, clearRecentSearches } from '../lib/recentSearches';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
-import { publishNewNotifications } from '../lib/notificationEvents';
+import { publishNewNotifications, subscribeToNewNotifications } from '../lib/notificationEvents';
+import { KudosCelebrationToast, type KudosCelebrationItem } from './KudosCelebrationToast';
 import { authApi } from '../api/auth';
 import { stashSessionMessageForLogin, SESSION_PROFILE_UPDATED_MESSAGE } from '../lib/authFetch';
 import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
 import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
-import { SidebarNetworkDecor } from './decor/SidebarNetworkDecor';
 import { EmployeeAvatar } from './EmployeeAvatar';
+import { WorkAnniversaryOverlay } from './WorkAnniversaryOverlay';
+import { getAnniversaryYears, hasShownAnniversaryThisYear, markAnniversaryShown } from '../lib/workAnniversary';
+import { useAccentColor, ACCENT_BAND_POSITION_X } from '../lib/accentColor';
+import sidebarDecoration from '../assets/sidebar-decoration.png';
 import { AssistantLauncher } from './aiAssistant/AssistantLauncher';
 
 function toRoleTagline(role: Role): string {
@@ -50,6 +57,38 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
   );
 }
 
+function DropdownItem({ icon: Icon, label, onClick, trailing, danger }: {
+  icon: typeof User;
+  label: string;
+  onClick: () => void;
+  trailing?: React.ReactNode;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+        background: 'none', border: 'none', cursor: 'pointer',
+        color: danger ? '#E4373D' : '#C8CCD2', fontSize: 13, textAlign: 'left',
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = danger ? 'rgba(228,55,61,.08)' : '#1E2128';
+        if (!danger) (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = 'none';
+        if (!danger) (e.currentTarget as HTMLButtonElement).style.color = '#C8CCD2';
+      }}
+    >
+      <Icon size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>{label}</span>
+      {trailing}
+    </button>
+  );
+}
+
 function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
   name: string;
   email: string;
@@ -71,7 +110,7 @@ function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
       style={{
         position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 220,
         background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10,
-        boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'visible',
       }}
       role="menu"
     >
@@ -86,35 +125,16 @@ function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
         </div>
       </div>
 
-      {[
-        { icon: User, label: 'My Profile', action: () => { onClose(); navigate('/profile'); } },
-      ].map(({ icon: Icon, label, action }) => (
-        <button
-          key={label}
-          role="menuitem"
-          onClick={action}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-            background: 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#1E2128'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; (e.currentTarget as HTMLButtonElement).style.color = '#C8CCD2'; }}
-        >
-          <Icon size={14} aria-hidden="true" />
-          {label}
-        </button>
-      ))}
+      <div style={{ padding: '4px 0' }}>
+        <DropdownItem icon={User} label="My Profile" onClick={() => { onClose(); navigate('/profile'); }} />
+        {/* Display mode / Theme color live only in User preferences → Appearance now — no
+            duplicate controls here. */}
+        <DropdownItem icon={Settings} label="User preferences" onClick={() => { onClose(); navigate('/user-preferences'); }} />
+        <DropdownItem icon={KeyRound} label="Change password" onClick={() => { onClose(); navigate('/change-password'); }} />
+      </div>
 
       <div style={{ borderTop: '1px solid #2A2E37', marginTop: 2 }}>
-        <button
-          role="menuitem"
-          onClick={handleSignOut}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-            background: 'none', border: 'none', cursor: 'pointer', color: '#E4373D', fontSize: 13, textAlign: 'left' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(228,55,61,.08)'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-        >
-          <LogOut size={14} aria-hidden="true" />
-          Sign out
-        </button>
+        <DropdownItem icon={LogOut} label="Sign out" onClick={handleSignOut} danger />
       </div>
     </div>
   );
@@ -126,10 +146,16 @@ export function Shell() {
   const token      = useAuthStore((s) => s.token) ?? '';
   const clearAuth  = useAuthStore((s) => s.clearAuth);
   const navigate   = useNavigate();
-  const { theme, toggleTheme } = useTheme();
   const location   = useLocation();
+  const { accent }  = useAccentColor();
   const [dropdownOpen, setDropdownOpen]   = useState(false);
   const [unreadCount, setUnreadCount]     = useState(0);
+  // Work-anniversary celebration — null means "not showing"; see the profile-sync effect below
+  // for when/how this gets set, and workAnniversary.ts for the date/once-per-year logic.
+  const [anniversaryYears, setAnniversaryYears] = useState<number | null>(null);
+  // Small on-page "you've been appreciated" celebration — see KudosCelebrationToast. Fed by the
+  // notification poll below via notificationEvents, so it's not its own network call.
+  const [kudosQueue, setKudosQueue] = useState<KudosCelebrationItem[]>([]);
   // Mobile-only off-canvas nav toggle (≤767px). Defaults closed; the CSS that
   // reads this className only exists inside the ≤767px media query, so this
   // state never affects rendering at tablet/desktop widths.
@@ -237,7 +263,7 @@ export function Shell() {
     if (result.kind === 'nav') {
       navigate(result.item.path);
     } else {
-      if (email) addRecentSearch(email, trimmedQuery);
+      if (email) setRecentSearches(addRecentSearch(email, trimmedQuery));
       navigate(result.result.detailUrl);
     }
     closeSearch();
@@ -246,6 +272,12 @@ export function Shell() {
   function handleRecentSearchClick(q: string) {
     setSearchQuery(q);
     setSearchIdx(-1);
+  }
+
+  function handleClearRecentSearches() {
+    if (!email) return;
+    clearRecentSearches(email);
+    setRecentSearches([]);
   }
 
   function handleSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -277,10 +309,39 @@ export function Shell() {
         if (p.fullName && !storeUser.fullName) patch.fullName = p.fullName;
         if (p.photoDataUrl !== storeUser.photoDataUrl) patch.photoDataUrl = p.photoDataUrl;
         if (Object.keys(patch).length > 0) setAuth(token, { ...storeUser, ...patch });
+
+        // Work-anniversary celebration — piggybacks on this same profile fetch rather than
+        // making its own network call. p.hasEmployeeRecord/p.joiningDate cover the "missing or
+        // invalid joining date" case safely (getAnniversaryYears returns null for either), and
+        // hasShownAnniversaryThisYear gates it to once per employee per year even across
+        // logout/login or a page refresh (persisted in localStorage, not just this session).
+        if (p.hasEmployeeRecord) {
+          const years = getAnniversaryYears(p.joiningDate, new Date());
+          if (years !== null) {
+            const thisYear = new Date().getFullYear();
+            if (!hasShownAnniversaryThisYear(window.localStorage, p.email, thisYear)) {
+              markAnniversaryShown(window.localStorage, p.email, thisYear);
+              setAnniversaryYears(years);
+            }
+          }
+        }
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Manual QA hook for the work-anniversary celebration — e.g. /dashboard?anniversaryTest=5 forces
+  // it open showing "5 Years of Excellence", bypassing both the real join-date check and the
+  // once-per-year localStorage gate above. There's no UI path to set an arbitrary employee's join
+  // date to today for testing, and this shared dev database has real teammates' data in it, so
+  // this is the safe way to preview/QA the overlay without touching any employee record. Never
+  // fires for a real user unless they specifically type this query param.
+  useEffect(() => {
+    const raw = new URLSearchParams(location.search).get('anniversaryTest');
+    if (raw === null) return;
+    const years = Number(raw);
+    if (Number.isInteger(years) && years > 0) setAnniversaryYears(years);
+  }, [location.search]);
 
   // The one app-wide notification poll (drives the bell badge). Other mounted pages (e.g.
   // LeavePage) react to what it finds via notificationEvents instead of running their own
@@ -326,6 +387,20 @@ export function Shell() {
     const id = setInterval(pollNotifications, 30000);
     return () => clearInterval(id);
   }, [pollNotifications]);
+
+  // "A teammate appreciated you" celebration — reacts to whatever the poll above just found,
+  // same as AttendancePage/LeavePage/MyRequestsPage already do via this same pub/sub, except
+  // this lives in Shell (the root layout) so it fires no matter which page is currently open.
+  // Sending kudos already creates a KUDOS-type Notification server-side (see KudosService); there
+  // is no push/SSE channel for regular notifications in this app today, only this 30s poll, so
+  // the animation can appear up to ~30s after the kudos was actually sent, not instantly.
+  useEffect(() => {
+    return subscribeToNewNotifications((items) => {
+      const kudos = items.filter(n => n.type === 'KUDOS');
+      if (kudos.length === 0) return;
+      setKudosQueue(prev => [...prev, ...kudos.map(n => ({ id: n.id, title: n.title, message: n.message }))]);
+    });
+  }, []);
 
   // Server-initiated logout: a Super Admin changing this user's profile bumps their tokenVersion
   // and pushes a FORCE_LOGOUT event (see UserManagementService#updateUser /
@@ -447,7 +522,17 @@ export function Shell() {
     <>
       {showRecent && (
         <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
-          <div style={dropdownSectionLabelStyle}>Recent Searches</div>
+          <div style={{ ...dropdownSectionLabelStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Recent Searches</span>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); handleClearRecentSearches(); }}
+              style={{ background: 'none', border: 'none', padding: 0, color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', cursor: 'pointer' }}
+              aria-label="Clear recent searches"
+            >
+              Clear
+            </button>
+          </div>
           {recentSearches.map(q => (
             <button key={q} onMouseDown={() => handleRecentSearchClick(q)} style={dropdownRowStyle(false)}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}
@@ -556,6 +641,42 @@ export function Shell() {
           height: 'var(--app-height, 100dvh)',
         }}
       >
+        {/* Decorative artwork for the sidebar's lower empty area — purely visual, so it's
+            absolutely positioned (removed from the flex flow entirely: adds no height, never
+            pushes the logo/nav/profile card) and pointer-events:none (never intercepts clicks).
+            Note this div is NOT a flex item (position:absolute children are pulled out of flex
+            layout entirely per spec), so the "z-index:auto flex items paint in DOM order" rule
+            does not apply to it — it paints under plain CSS stacking rules instead, where a
+            positioned element needs a NEGATIVE z-index to paint behind its static in-flow
+            siblings (z-index:0 would do the opposite and paint above them, hiding the Logo/nav
+            text/profile-card name behind this opaque artwork — that was the bug: zIndex:-1 is
+            what actually keeps it behind everything while still painting above <aside>'s own
+            solid background). SidebarNav's own nav list (which can grow taller than its own
+            space and scroll internally, covering this artwork as it does) then paints above
+            this the same way, being static in-flow content itself.
+            One 5-band sprite image (assets/sidebar-decoration.png) covers all 5 Theme colors —
+            background-size stretches it to 5x this box's width, and background-position-x picks
+            one 1x-wide band per accent (see ACCENT_BAND_POSITION_X) — no per-color image files,
+            and the PNG itself is never cropped/stretched/distorted, only positioned.
+            The mask-image (not a solid overlay box, which would itself look like a second hard
+            edge) fades the image's own alpha from 0 at this box's top down to fully opaque by
+            40% — so the sidebar's plain #0B0C0F background shows through smoothly at the seam
+            instead of a visible boundary line, matching how index.css already fades the profile
+            page's hero banner into its panel background the same way. */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: 380, zIndex: -1,
+            overflow: 'hidden', pointerEvents: 'none',
+            backgroundImage: `url(${sidebarDecoration})`,
+            backgroundSize: '500% auto',
+            backgroundPosition: `${ACCENT_BAND_POSITION_X[accent]} 100%`,
+            backgroundRepeat: 'no-repeat',
+            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.5) 22%, black 42%)',
+            maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.5) 22%, black 42%)',
+          }}
+        />
+
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
         <Link to="/" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size="sm" />
@@ -570,12 +691,23 @@ export function Shell() {
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
 
-        {/* Reference artwork — fills the empty space above the profile card, never overlapping nav items */}
-        <SidebarNetworkDecor />
-
-        {/* Profile card (sidebar) */}
-        <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EmployeeAvatar photoDataUrl={storeUser?.photoDataUrl} name={name} size={30} fontSize={11} />
+        {/* Profile card (sidebar) — deliberately has no background of its own, so the decorative
+            artwork behind it (see above) shows through around the name/role text, same as the
+            avatar/name treatment sitting directly on the artwork. The glow behind the avatar
+            reuses --bm-glow/--bm-ring, the same per-accent tokens BrandMark's logo uses, so it
+            follows the selected Theme color automatically with no separate color logic here. */}
+        <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+          <div style={{ position: 'relative', width: 30, height: 30, flexShrink: 0 }}>
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute', inset: 0, margin: 'auto', width: 52, height: 52,
+                borderRadius: '50%', background: 'var(--bm-glow)', pointerEvents: 'none',
+              }}
+            />
+            <EmployeeAvatar photoDataUrl={storeUser?.photoDataUrl} name={name} size={30} fontSize={11} />
+            <span aria-hidden="true" style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px solid var(--bm-ring)', pointerEvents: 'none' }} />
+          </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
             <div style={{ fontSize: 10, color: '#6B7280' }}>{role}</div>
@@ -589,8 +721,8 @@ export function Shell() {
         <header
           style={{
             height: 56,
-            background: 'linear-gradient(90deg, #050506 0%, #6B0C10 40%, #A01418 100%)',
-            borderBottom: '1px solid rgba(228,55,61,.22)',
+            background: 'linear-gradient(90deg, #050506 0%, var(--brand-deep) 40%, var(--brand) 100%)',
+            borderBottom: '1px solid color-mix(in srgb, var(--brand-bright) 22%, transparent)',
             position: 'sticky', top: 0, zIndex: 30,
             display: 'flex', alignItems: 'center', padding: '0 18px', gap: 10,
           }}
@@ -681,25 +813,18 @@ export function Shell() {
                 <Search size={15} aria-hidden="true" />
               </button>
 
-              <button
-                onClick={toggleTheme}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                className="nf-topbar-item"
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 7, borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-              >
-                {theme === 'dark' ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}
-                {theme === 'dark' ? 'Light' : 'Dark'}
-              </button>
-
               <Link
                 to="/notifications"
                 aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
                 className="nf-topbar-item"
                 style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, borderRadius: 6, color: 'inherit', textDecoration: 'none' }}
               >
-                <Bell size={15} aria-hidden="true" />
+                <Bell size={19} aria-hidden="true" />
                 {unreadCount > 0 && (
-                  <span style={{ position: 'absolute', top: 3, right: 3, minWidth: 14, height: 14, borderRadius: 7, background: '#e4373d', color: '#fff', fontSize: 9, fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 3px', lineHeight: 1 }}>
+                  // Deliberately var(--risk), not the accent-following var(--brand-bright) — an
+                  // unread-count badge reads as an attention/urgency signal, so it stays red
+                  // regardless of the user's chosen Theme color (same reasoning as "Sign out").
+                  <span style={{ position: 'absolute', top: 3, right: 3, minWidth: 14, height: 14, borderRadius: 7, background: 'var(--risk)', color: '#fff', fontSize: 9, fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 3px', lineHeight: 1 }}>
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
@@ -737,7 +862,7 @@ export function Shell() {
                         display: 'grid', placeItems: 'center',
                       }}
                     >
-                      <Shield size={8} color="#E4373D" aria-hidden="true" />
+                      <Shield size={8} color="var(--brand-bright)" aria-hidden="true" />
                     </span>
                   )}
                 </button>
@@ -761,6 +886,19 @@ export function Shell() {
           {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
         </main>
       </div>
+
+      <WorkAnniversaryOverlay
+        open={anniversaryYears !== null}
+        employeeName={name}
+        photoDataUrl={storeUser?.photoDataUrl}
+        years={anniversaryYears ?? 0}
+        onClose={() => setAnniversaryYears(null)}
+      />
+
+      <KudosCelebrationToast
+        items={kudosQueue}
+        onDismiss={(id) => setKudosQueue(prev => prev.filter(k => k.id !== id))}
+      />
 
       {/* Outside <main> so the panel is not inside its 26px padding or the sticky header's
           stacking context, and last in the tree so it layers without changing anything above it.
