@@ -14,9 +14,10 @@ import java.util.stream.Stream;
  * at all — the audit pages were narrowed from a system-wide trail to a personal activity
  * history, so pure authentication/session events (AuthService's login and password
  * self-service flows), self-service attendance punches (attendance check-in/out, web
- * clock-in requests and checkout), and self-submitted requests (leave/expense/asset
- * submissions, regularization requests/edits) are deliberately omitted from both sets
- * below — they never appear anywhere in the feature (table, cards, stats, or export),
+ * clock-in requests and checkout), self-submitted requests (leave/expense/asset
+ * submissions, regularization requests/edits), and HelpdeskService's ticket-created/replied
+ * actions (self-submitted or mixed-sender, same treatment) are deliberately omitted from both
+ * sets below — they never appear anywhere in the feature (table, cards, stats, or export),
  * since {@link AuditActionGroup#knownActions()} and every query in {@code AuditQueryService}
  * derive from {@link #allActions()}.
  */
@@ -59,7 +60,14 @@ public enum AuditActionCategory {
             // PenalizationPolicyService — Organization Masters configuration changes, not a
             // self-service action, so both HR Admin and Super Admin see them (unlike
             // ACCESS_CONTROL, which is Super-Admin-only).
-            "PENALIZATION_POLICY_CREATED", "PENALIZATION_POLICY_UPDATED"
+            "PENALIZATION_POLICY_CREATED", "PENALIZATION_POLICY_UPDATED",
+            // LeaveTypeService — Organization Masters > Leave configuration changes, same
+            // treatment as PenalizationPolicyService above.
+            "LEAVE_TYPE_CREATED", "LEAVE_TYPE_UPDATED",
+            // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
+            // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
+            // two actions that are always an HR/Super Admin operational decision are included.
+            "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED"
     ));
 
     private final Set<String> actions;

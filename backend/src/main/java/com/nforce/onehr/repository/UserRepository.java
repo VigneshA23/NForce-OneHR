@@ -28,6 +28,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code IN ('HR_ADMIN', 'SUPER_ADMIN') AND u.deletedAt IS NULL")
     Set<UUID> findAdminUserIds();
 
+    // Same role scope as findAdminUserIds (both HR_ADMIN and SUPER_ADMIN), but active-only — used
+    // by HelpdeskService for anything that hands out *new* work (ticket-created notification
+    // fan-out, assignment-target validation), where a deactivated admin shouldn't be paged or
+    // assignable. Existing/historical assignments to a since-deactivated admin are untouched —
+    // this only gates who can be picked for something new.
+    @Query("SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code IN ('HR_ADMIN', 'SUPER_ADMIN') AND u.active = true AND u.deletedAt IS NULL")
+    Set<UUID> findActiveAdminUserIds();
+
     // Help Content approver-resolution fallback: the final authority when an author's reporting
     // chain has no active manager. Ordered by createdAt for a deterministic pick.
     @Query("SELECT u FROM User u JOIN u.roles r WHERE r.code = 'SUPER_ADMIN' AND u.active = true AND u.deletedAt IS NULL ORDER BY u.createdAt ASC")

@@ -189,7 +189,7 @@ class RegularizationServiceTest {
             @Override
             public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
                 return resolveIfPresent(employeeUserId, workDate)
-                        .orElseThrow(() -> new IllegalStateException("no assignment effective on or before " + workDate));
+                        .orElseThrow(() -> new NoShiftAssignmentException("no assignment effective on or before " + workDate));
             }
         };
         ShiftDayPolicy shiftDayPolicy = new ShiftDayPolicy(new ShiftWeeklyOffRulesService(shiftWeeklyOffRulesRepository), shiftVersionResolver, employeeShiftAssignmentResolver);
@@ -314,6 +314,32 @@ class RegularizationServiceTest {
 
         assertEquals(existingCheckIn, resp.getRequestedCheckIn());
         assertEquals(today.atTime(18, 30), resp.getRequestedCheckOut());
+    }
+
+    /**
+     * ONEHR-355 fix: an employee with no effective EmployeeShiftAssignment at all (a brand-new/
+     * no-shift employee, or one whose first assignment isn't effective yet) must still be able to
+     * SUBMIT a regularization request for a brand-new day (no existing punch to validate against
+     * either) — the workday-window check below must degrade gracefully for a no-shift employee,
+     * never throw, exactly like AttendanceInterpretationService's own NO_SHIFT_ASSIGNED handling
+     * for check-in/check-out.
+     */
+    @Test
+    void submit_noEffectiveShiftAssignment_forABrandNewDayWithNoExistingPunch_succeeds() {
+        currentShiftByEmployee.remove(employeeId);
+        when(employeeRepository.findById(employeeId))
+                .thenReturn(Optional.of(Employee.builder().userId(employeeId).shift(null).build()));
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.empty());
+        LocalDate today = LocalDate.now();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today)).thenReturn(Optional.empty());
+
+        RegularizationResponse resp = assertDoesNotThrow(() -> regularizationService.submit(
+                request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot to punch"), employeeEmail));
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(today.atTime(9, 0), resp.getRequestedCheckIn());
+        assertEquals(today.atTime(18, 0), resp.getRequestedCheckOut());
     }
 
     // ---------------------------------------------------------------- overnight check-in/check-out
@@ -1010,6 +1036,37 @@ class RegularizationServiceTest {
     }
 
     /**
+     * ONEHR-355 fix: a brand-new Attendance row created via Regularization for an employee with
+     * no effective EmployeeShiftAssignment (a brand-new/no-shift employee, or one whose first
+     * assignment isn't effective yet) must still be approvable — recorded as an ordinary PRESENT
+     * day with no Shift interpretation at all (shiftId null, lateByMinutes 0), never LATE despite
+     * a 9:30 check-in that would have been LATE under defaultShift's 15-minute grace, and never a
+     * thrown IllegalStateException. See AttendanceInterpretationService's NO_SHIFT_ASSIGNED
+     * handling.
+     */
+    @Test
+    void approve_createsANewRecord_noEffectiveShiftAssignment_recordsOrdinaryPresentAttendance() {
+        currentShiftByEmployee.remove(employeeId);
+        when(employeeRepository.findById(employeeId))
+                .thenReturn(Optional.of(Employee.builder().userId(employeeId).shift(null).build()));
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 30)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertDoesNotThrow(() -> regularizationService.approve(pending.getId(), null, managerEmail));
+
+        verify(attendanceRepository).save(argThat(a ->
+                a.getShiftId() == null && a.getLateByMinutes() == 0 && "PRESENT".equals(a.getStatus())));
+    }
+
+    /**
      * An EXISTING legacy row (predates the shiftId snapshot column, {@code shiftId == null})
      * cannot be safely recomputed for lateness — this must fail loudly and explicitly rather than
      * substitute the employee's current Shift or present a guessed number as reliable. See
@@ -1036,6 +1093,44 @@ class RegularizationServiceTest {
         assertThrows(IllegalStateException.class,
                 () -> regularizationService.approve(pending.getId(), null, managerEmail));
         verify(attendanceRepository, never()).save(any(Attendance.class));
+    }
+
+    /**
+     * Code-review corrective pass, finding 1: a valid, CURRENT no-Shift attendance row
+     * (Attendance.noShiftAssigned == true) must remain regularizable/approvable — it is NOT the
+     * same "cannot safely recompute" case the legacy test right above covers, even though both
+     * share {@code shiftId == null}. The discriminator is exactly what tells them apart.
+     */
+    @Test
+    void approve_existingNoShiftAssignedRecord_succeeds_asAnOrdinaryPresentDay() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 5)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Wrong check-in time").status("PENDING").build();
+        Attendance existingNoShiftRecord = Attendance.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).workDate(date)
+                .checkInAt(date.atTime(9, 30)).checkOutAt(date.atTime(18, 0))
+                .shiftId(null).noShiftAssigned(true) // a valid, current no-Shift row — not legacy
+                .status("PRESENT").lateByMinutes(0)
+                .build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(regularizationRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date))
+                .thenReturn(Optional.of(existingNoShiftRecord));
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Attendance saved = assertDoesNotThrow(() -> {
+            regularizationService.approve(pending.getId(), null, managerEmail);
+            return existingNoShiftRecord;
+        });
+
+        assertNull(saved.getShiftId(), "an existing row's own snapshot (or lack of one) is never re-derived");
+        assertTrue(saved.isNoShiftAssigned(), "an existing record's own discriminator is never re-derived from this correction");
+        assertEquals(0, saved.getLateByMinutes());
+        assertEquals("PRESENT", saved.getStatus(), "worked 9:05-18:00 (>= half-day threshold), never LATE with no Shift to be late against");
+        verify(attendanceRepository).save(existingNoShiftRecord);
     }
 
     /**
@@ -1654,7 +1749,7 @@ class RegularizationServiceTest {
                 .reason("z").status("REJECTED").createdAt(LocalDateTime.now()).build();
 
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
-        when(regularizationRepository.findAll()).thenReturn(List.of(assignedPending, assignedApproved, notAssignedRejected));
+        when(regularizationRepository.findAllWithActiveRequester()).thenReturn(List.of(assignedPending, assignedApproved, notAssignedRejected));
 
         List<RegularizationResponse> all = regularizationService.listForApprover(managerEmail);
 
@@ -1673,7 +1768,7 @@ class RegularizationServiceTest {
                 .reason("y").status("APPROVED").createdAt(LocalDateTime.now()).build();
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
-        when(regularizationRepository.findAll())
+        when(regularizationRepository.findAllWithActiveRequester())
                 .thenReturn(List.of(assignedToManagerPending, assignedToManagerApproved));
 
         List<RegularizationResponse> all = regularizationService.listForApprover(hrEmail);

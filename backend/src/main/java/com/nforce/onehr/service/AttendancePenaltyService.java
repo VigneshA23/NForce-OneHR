@@ -8,15 +8,19 @@ import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
+import com.nforce.onehr.entity.AttendanceRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.LeaveBalance;
+import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.AttendancePenaltySpecifications;
+import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
+import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
@@ -54,6 +58,11 @@ public class AttendancePenaltyService {
 
     // Statuses a regularization request being in blocks the corresponding penalty from view/action.
     private static final Set<String> ACTIVE_REGULARIZATION_STATUSES = Set.of("PENDING", "PARTIALLY_APPROVED", "APPROVED");
+    // An approved Partial Day request or an approved Leave overlapping the incident date also
+    // legitimately covers/explains the discrepancy — same "hide the penalty" treatment as an
+    // active regularization, just sourced from a different request type.
+    private static final String STATUS_APPROVED = "APPROVED";
+    private static final String PARTIAL_DAY_REQUEST_TYPE = "PARTIAL_DAY";
     private static final Set<String> CANCELLABLE_STATUSES = Set.of(AttendancePenaltyStatus.PENDING_REVIEW);
     // Same convention as ExceptionService.HR_ROLES: HR_ADMIN/SUPER_ADMIN get organization-wide
     // scope, never the "direct reports" restriction a plain Manager is subject to. Before this,
@@ -67,6 +76,8 @@ public class AttendancePenaltyService {
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
     private final RegularizationRequestRepository regularizationRequestRepository;
+    private final AttendanceRequestRepository attendanceRequestRepository;
+    private final LeaveRequestRepository leaveRequestRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final LeaveBalanceRepository leaveBalanceRepository;
@@ -116,12 +127,18 @@ public class AttendancePenaltyService {
             return List.of();
         }
 
-        // Bulk cross-reference against active regularizations — one query for the whole scoped
-        // range, not one lookup per penalty row.
+        // Bulk cross-reference against active regularizations, approved Partial Day requests and
+        // approved Leave — one query each for the whole scoped range, not one lookup per penalty
+        // row. A penalty is only a genuine, unresolved discrepancy when none of the three cover
+        // its employee+incidentDate.
         Set<String> activeRegularizationKeys = activeRegularizationKeys(reportIds, from, to);
+        Set<String> approvedPartialDayKeys = approvedPartialDayKeys(reportIds, from, to);
+        Set<String> approvedLeaveKeys = approvedLeaveKeys(reportIds, from, to);
 
         return penalties.stream()
-                .filter(p -> !activeRegularizationKeys.contains(regularizationKey(p.getEmployeeUserId(), p.getIncidentDate())))
+                .filter(p -> !activeRegularizationKeys.contains(dayKey(p.getEmployeeUserId(), p.getIncidentDate())))
+                .filter(p -> !approvedPartialDayKeys.contains(dayKey(p.getEmployeeUserId(), p.getIncidentDate())))
+                .filter(p -> !approvedLeaveKeys.contains(dayKey(p.getEmployeeUserId(), p.getIncidentDate())))
                 .map(p -> toResponse(p, employeesById.get(p.getEmployeeUserId())))
                 .sorted(Comparator.comparing(AttendancePenaltyResponse::getIncidentDate).reversed())
                 .toList();
@@ -329,11 +346,34 @@ public class AttendancePenaltyService {
     private Set<String> activeRegularizationKeys(List<UUID> employeeIds, LocalDate from, LocalDate to) {
         return regularizationRequestRepository.findByEmployeeUserIdInAndAttendanceDateBetween(employeeIds, from, to).stream()
                 .filter(r -> ACTIVE_REGULARIZATION_STATUSES.contains(r.getStatus()))
-                .map(r -> regularizationKey(r.getEmployeeUserId(), r.getAttendanceDate()))
+                .map(r -> dayKey(r.getEmployeeUserId(), r.getAttendanceDate()))
                 .collect(Collectors.toSet());
     }
 
-    private String regularizationKey(UUID employeeUserId, LocalDate date) {
+    /** Partial Day requests only carry a single {@code requestDate}, so this is a direct match, no range expansion needed. */
+    private Set<String> approvedPartialDayKeys(List<UUID> employeeIds, LocalDate from, LocalDate to) {
+        return attendanceRequestRepository
+                .findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(employeeIds, PARTIAL_DAY_REQUEST_TYPE, from, to).stream()
+                .filter(r -> STATUS_APPROVED.equals(r.getStatus()))
+                .map(r -> dayKey(r.getEmployeeUserId(), r.getRequestDate()))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Leave spans a date range, so each covered day is expanded individually — same
+     * {@code startDate.datesUntil(endDate.plusDays(1))} idiom {@code ExceptionService#detectExceptions}
+     * already uses to build its own leave-covered-days set.
+     */
+    private Set<String> approvedLeaveKeys(List<UUID> employeeIds, LocalDate from, LocalDate to) {
+        return leaveRequestRepository
+                .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(employeeIds, STATUS_APPROVED, to, from)
+                .stream()
+                .flatMap(leave -> leave.getStartDate().datesUntil(leave.getEndDate().plusDays(1))
+                        .map(date -> dayKey(leave.getEmployeeUserId(), date)))
+                .collect(Collectors.toSet());
+    }
+
+    private String dayKey(UUID employeeUserId, LocalDate date) {
         return employeeUserId + "|" + date;
     }
 

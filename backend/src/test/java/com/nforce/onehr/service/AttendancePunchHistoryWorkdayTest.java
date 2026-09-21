@@ -11,6 +11,7 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePunchRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
+import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.WebClockInRequestRepository;
@@ -55,6 +56,7 @@ import static org.mockito.Mockito.when;
 class AttendancePunchHistoryWorkdayTest {
 
     @Mock private AttendanceRepository attendanceRepository;
+    @Mock private LeaveRequestRepository leaveRequestRepository;
     @Mock private AttendancePunchRepository attendancePunchRepository;
     @Mock private WebClockInRequestRepository webClockInRequestRepository;
     @Mock private AttendanceExceptionRepository attendanceExceptionRepository;
@@ -68,6 +70,7 @@ class AttendancePunchHistoryWorkdayTest {
     @Mock private com.nforce.onehr.repository.ShiftWeeklyOffRulesRepository shiftWeeklyOffRulesRepository;
     @Mock private com.nforce.onehr.repository.AttendanceRulesRepository attendanceRulesRepository;
     @Mock private com.nforce.onehr.repository.ShiftRepository shiftRepository;
+    @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
 
     private AttendanceService service;
     private final UUID employeeId = UUID.randomUUID();
@@ -105,7 +108,7 @@ class AttendancePunchHistoryWorkdayTest {
             @Override
             public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
                 return resolveIfPresent(employeeUserId, workDate)
-                        .orElseThrow(() -> new IllegalStateException("no assignment effective on or before " + workDate));
+                        .orElseThrow(() -> new NoShiftAssignmentException("no assignment effective on or before " + workDate));
             }
         };
         ShiftDayPolicy shiftDayPolicy = new ShiftDayPolicy(new ShiftWeeklyOffRulesService(shiftWeeklyOffRulesRepository), shiftVersionResolver, employeeShiftAssignmentResolver);
@@ -120,10 +123,12 @@ class AttendancePunchHistoryWorkdayTest {
         });
         AttendanceInterpretationService attendanceInterpretationService =
                 new AttendanceInterpretationService(shiftDayPolicy, shiftRepository, employeeShiftAssignmentResolver);
-        service = new AttendanceService(attendanceRepository, attendancePunchRepository, webClockInRequestRepository,
+        service = new AttendanceService(attendanceRepository, leaveRequestRepository,
+                attendancePunchRepository, webClockInRequestRepository,
                 attendanceExceptionRepository, employeeRepository, managerHistoryRepository,
                 auditService, auditSnapshot, latePenaltyService, workingDayService, expectedWorkHoursService,
-                shiftDayPolicy, attendanceRulesService, attendanceInterpretationService, employeeShiftAssignmentResolver);
+                shiftDayPolicy, attendanceRulesService, attendanceInterpretationService, employeeShiftAssignmentResolver,
+                attendancePenaltyRepository);
 
         // The spec's own worked example: 10:00-19:00 shift, 18h max -> workday Sep 8 04:00 to
         // Sep 9 04:00.

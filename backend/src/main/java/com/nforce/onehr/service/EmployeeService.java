@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
@@ -40,6 +41,14 @@ public class EmployeeService {
     private final EmailService emailService;
     private final LeaveService leaveService;
     private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for createEmployee's initial EmployeeShiftAssignment (effective the admin's own chosen
+    // Effective From date, when a Shift is explicitly chosen at creation) — mirrors
+    // UserManagementService#createUser's identical use. Added last so every existing
+    // explicit-constructor test only needs to append one argument.
+    private final EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
+    // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
+    // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
+    private final AttendanceProperties attendanceProperties;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -104,24 +113,50 @@ public class EmployeeService {
             validateAssignableLocation(loc);
             emp.setLocation(loc);
         }
-        // CreateEmployeeRequest has no shiftId field to pick a specific shift, so this always
-        // defaults to the organization's default shift, resolved server-side — same default,
-        // same stable-name lookup, same live (never cached) read as
-        // UserManagementService#createUser's identical default. Every employee is a hard invariant
-        // to always have an assigned shift (see ShiftDayPolicy, which throws for a null-shift
-        // employee everywhere), so a missing/deactivated default shift now fails account creation
-        // loudly rather than silently leaving the employee shift-less. OrgService also refuses to
-        // rename/deactivate/delete the default shift itself, so this should be unreachable in
-        // practice — it still must fail clearly if it ever isn't.
-        Shift defaultShift = shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME)
-                .filter(Shift::isActive)
-                .orElseThrow(() -> new IllegalStateException(
-                        "The organization's default shift ('" + Shift.DEFAULT_SHIFT_NAME + "') is missing or "
-                                + "inactive — an employee cannot be created without a Shift. Contact an administrator."));
-        emp.setShift(defaultShift);
-
+        // No shiftId in the request at all — same valid, permanent shift-less state
+        // UserManagementService#createUser leaves an employee in when its own shiftId is omitted:
+        // Shift-dependent interpretation (lateness, scheduled hours) is simply skipped until HR/a
+        // Manager assigns one via the Bulk-Edit Team Assignment flow (see
+        // EmployeeAssignmentService#bulkUpdateShift) — never fabricated onto the organization's
+        // Default Shift just to satisfy a schema invariant that no longer exists (employees.shift_id
+        // is nullable — see V178). Check-In/Check-Out still work and attendance is still recorded
+        // for a shift-less employee — see AttendanceInterpretationService's NO_SHIFT_ASSIGNED
+        // handling. A bogus/stale shift id must never silently leave the employee on an unintended
+        // Shift — mirrors UserManagementService#createUser's identical validation.
+        Shift selectedShift = null;
+        if (req.getShiftId() != null) {
+            Shift shift = shiftRepository.findById(req.getShiftId())
+                    .orElseThrow(() -> new IllegalArgumentException("Shift not found"));
+            if (!shift.isActive())
+                throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+            // The admin's own explicit Effective From choice is the ONLY source of this date —
+            // required whenever a Shift is picked, never silently defaulted to an "immediately
+            // active" assignment the business rule requires an explicit date for. Today and any
+            // future date are valid, a past date is rejected — mirrors
+            // UserManagementService#createUser/EmployeeAssignmentService#bulkUpdateShift's
+            // identical rule. Deliberately NOT derived from joiningDate or "next working day" (the
+            // previous, incorrect rule this replaces). Validated before any mutation below.
+            if (req.getEffectiveFrom() == null
+                    || req.getEffectiveFrom().isBefore(LocalDate.now(ZoneId.of(attendanceProperties.getZone())))) {
+                throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+            }
+            // Employee.shift is only a display/roster cache (see its own Javadoc) — set here for
+            // that purpose only; the EmployeeShiftAssignment row below is the sole authoritative
+            // source EmployeeShiftAssignmentResolver reads.
+            emp.setShift(shift);
+            selectedShift = shift;
+        }
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
+
+        if (selectedShift != null) {
+            employeeShiftAssignmentRepository.save(EmployeeShiftAssignment.builder()
+                    .employeeUserId(newUser.getId())
+                    .shift(selectedShift)
+                    .effectiveFrom(req.getEffectiveFrom())
+                    .createdBy(actor.getId())
+                    .build());
+        }
 
         if (req.getManagerId() != null) {
             EmployeeManagerHistory history = EmployeeManagerHistory.builder()

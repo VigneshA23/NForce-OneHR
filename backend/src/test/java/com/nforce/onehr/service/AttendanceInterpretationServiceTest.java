@@ -103,7 +103,7 @@ class AttendanceInterpretationServiceTest {
             @Override
             public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
                 return resolveIfPresent(employeeUserId, workDate)
-                        .orElseThrow(() -> new IllegalStateException("no assignment effective on or before " + workDate));
+                        .orElseThrow(() -> new NoShiftAssignmentException("no assignment effective on or before " + workDate));
             }
         };
         ShiftDayPolicy shiftDayPolicy = new ShiftDayPolicy(new ShiftWeeklyOffRulesService(shiftWeeklyOffRulesRepository), shiftVersionResolver, employeeShiftAssignmentResolver);
@@ -173,16 +173,86 @@ class AttendanceInterpretationServiceTest {
         assertTrue(interpretation.getIsLate(), "Shift A's 0-minute grace makes this LATE — Shift B's 30-minute grace would have forgiven it");
     }
 
+    // ── ONEHR-355 fix: no effective EmployeeShiftAssignment is a valid state, never a throw ──────
+
     @Test
-    void interpretFreshAction_invariantViolation_isLoudAndNeverDegradesToCalendarDateAttribution() {
-        // A null-shift employee should be database-impossible (mandatory-Shift invariant) — if it
-        // ever happens, this must fail loudly, never silently attribute by plain calendar date
-        // (which would be provably wrong for an overnight shift).
+    void interpretFreshAction_noEffectiveAssignmentAtAll_returnsNoShiftAssigned_neverThrows() {
+        // A brand-new/no-shift employee (no EmployeeShiftAssignment at all — nothing added to
+        // `assignments`) is a valid, permanent state, never the invariant violation this used to
+        // guard against. Work-date falls back to the plain calendar date; no Shift-dependent fact
+        // (isLate/lateByMinutes/shiftId) is computed or guessed.
         Employee shiftlessEmployee = Employee.builder().userId(UUID.randomUUID()).shift(null).build();
         AttendanceContext context = new AttendanceContext(
                 shiftlessEmployee.getUserId(), LocalDateTime.of(2026, 1, 1, 1, 0), ZoneId.of("Asia/Kolkata"));
 
-        assertThrows(IllegalStateException.class, () -> service.interpretFreshAction(shiftlessEmployee, context));
+        AttendanceInterpretation interpretation = service.interpretFreshAction(shiftlessEmployee, context);
+
+        assertEquals(InterpretationOutcome.NO_SHIFT_ASSIGNED, interpretation.getOutcome());
+        assertTrue(interpretation.isNoShiftAssigned());
+        assertEquals(LocalDate.of(2026, 1, 1), interpretation.getWorkDate());
+        assertNull(interpretation.getIsLate());
+        assertNull(interpretation.getLateByMinutes());
+        assertNull(interpretation.getShiftId());
+    }
+
+    @Test
+    void interpretForKnownWorkDate_noEffectiveAssignmentAtAll_returnsNoShiftAssigned() {
+        // Same guard, exercised via the UUID-taking overload directly — covers a brand-new
+        // Regularization row backdated to a date with no effective assignment.
+        UUID employeeUserId = UUID.randomUUID();
+        LocalDate workDate = LocalDate.of(2026, 1, 5);
+        LocalDateTime checkInAt = LocalDateTime.of(workDate, LocalTime.of(9, 20));
+
+        AttendanceInterpretation interpretation = service.interpretForKnownWorkDate(employeeUserId, workDate, checkInAt);
+
+        assertEquals(InterpretationOutcome.NO_SHIFT_ASSIGNED, interpretation.getOutcome());
+        assertEquals(workDate, interpretation.getWorkDate());
+        assertNull(interpretation.getShiftId());
+    }
+
+    /**
+     * The exact ONEHR-355 reproduction shape: an employee has a real EmployeeShiftAssignment, but
+     * it isn't effective until their next working day. Today (before effectiveFrom) must resolve
+     * NO_SHIFT_ASSIGNED, never throw and never resolve the future Shift early; from effectiveFrom
+     * onward it resolves normally.
+     */
+    @Test
+    void interpretFreshAction_beforeAssignmentsEffectiveFrom_returnsNoShiftAssigned_thenResolvesFromEffectiveFromOnward() {
+        Shift shiftA = shift("Shift A", LocalTime.of(9, 0), LocalTime.of(18, 0), LocalDate.MIN, true);
+        UUID employeeUserId = UUID.randomUUID();
+        LocalDate effectiveFrom = LocalDate.of(2026, 9, 14);
+        assignments.add(EmployeeShiftAssignment.builder()
+                .employeeUserId(employeeUserId).shift(shiftA).effectiveFrom(effectiveFrom).build());
+        Employee employee = Employee.builder().userId(employeeUserId).shift(shiftA).build();
+
+        AttendanceInterpretation dayBefore = service.interpretFreshAction(employee, new AttendanceContext(
+                employeeUserId, LocalDateTime.of(effectiveFrom.minusDays(1), LocalTime.of(9, 5)), ZoneId.of("Asia/Kolkata")));
+        assertEquals(InterpretationOutcome.NO_SHIFT_ASSIGNED, dayBefore.getOutcome(),
+                "today's attendance must not be governed by a not-yet-effective assignment");
+
+        AttendanceInterpretation onEffectiveFrom = service.interpretFreshAction(employee, new AttendanceContext(
+                employeeUserId, LocalDateTime.of(effectiveFrom, LocalTime.of(9, 5)), ZoneId.of("Asia/Kolkata")));
+        assertEquals(InterpretationOutcome.RESOLVED, onEffectiveFrom.getOutcome());
+        assertEquals(shiftA.getId(), onEffectiveFrom.getShiftId());
+    }
+
+    /**
+     * Distinguishes "no assignment" (valid, degrades gracefully) from "an assignment exists but
+     * its own Shift is genuinely broken" (data corruption — must still fail loudly, never silently
+     * degrade to calendar-date attribution).
+     */
+    @Test
+    void interpretFreshAction_effectiveAssignmentWithNoShiftVersionAtAll_stillThrows() {
+        Shift brokenShift = Shift.builder().id(UUID.randomUUID()).name("Broken Shift").active(true).build();
+        // Deliberately no shiftVersions entry added for brokenShift — resolving its timing must fail.
+        UUID employeeUserId = UUID.randomUUID();
+        assignments.add(EmployeeShiftAssignment.builder()
+                .employeeUserId(employeeUserId).shift(brokenShift).effectiveFrom(LocalDate.MIN).build());
+        Employee employee = Employee.builder().userId(employeeUserId).shift(brokenShift).build();
+        AttendanceContext context = new AttendanceContext(
+                employeeUserId, LocalDateTime.of(2026, 1, 1, 9, 0), ZoneId.of("Asia/Kolkata"));
+
+        assertThrows(IllegalStateException.class, () -> service.interpretFreshAction(employee, context));
     }
 
     // ── Existing session: resolves ONLY against the record's own snapshotted shiftId ──────────
@@ -305,6 +375,29 @@ class AttendanceInterpretationServiceTest {
         assertNull(interpretation.getWorkDate());
     }
 
+    /**
+     * Code-review corrective pass, finding 1/2: a valid, CURRENT no-Shift session (shiftId==null,
+     * noShiftAssigned==true) must resolve NO_SHIFT_ASSIGNED, never LEGACY_UNRESOLVED — staleness
+     * detection (AttendanceService#flagMissingCheckoutIfStale) depends on this distinction to
+     * still catch a forgotten no-Shift checkout, which LEGACY_UNRESOLVED would leave alone
+     * forever. workDate degrades to now's own plain calendar date (no Shift to roll against).
+     */
+    @Test
+    void interpretExistingSession_noShiftAssignedNullShiftId_returnsNoShiftAssigned_neverLegacy() {
+        Attendance noShiftRecord = Attendance.builder().id(UUID.randomUUID()).employeeUserId(UUID.randomUUID())
+                .workDate(LocalDate.of(2025, 1, 1)).checkInAt(LocalDateTime.of(2025, 1, 1, 9, 5))
+                .shiftId(null).noShiftAssigned(true)
+                .build();
+
+        AttendanceInterpretation interpretation = service.interpretExistingSession(
+                noShiftRecord, LocalDateTime.of(2025, 1, 3, 19, 0));
+
+        assertEquals(InterpretationOutcome.NO_SHIFT_ASSIGNED, interpretation.getOutcome());
+        assertFalse(interpretation.isLegacyUnresolved());
+        assertNull(interpretation.getShiftId());
+        assertEquals(LocalDate.of(2025, 1, 3), interpretation.getWorkDate(), "now's own plain calendar date, not the record's stored workDate");
+    }
+
     @Test
     void interpretExistingRecordLateness_legacyNullShiftId_returnsUnresolved() {
         Attendance legacyRecord = Attendance.builder().id(UUID.randomUUID()).employeeUserId(UUID.randomUUID())
@@ -318,6 +411,30 @@ class AttendanceInterpretationServiceTest {
         assertTrue(interpretation.isLegacyUnresolved());
         assertNull(interpretation.getIsLate());
         assertNull(interpretation.getLateByMinutes());
+    }
+
+    /**
+     * Code-review corrective pass, finding 1: this is the exact method a Regularization approval
+     * for an EXISTING attendance row calls — a valid, current no-Shift row must resolve
+     * NO_SHIFT_ASSIGNED here (approvable), never LEGACY_UNRESOLVED (which RegularizationService
+     * turns into a hard rejection).
+     */
+    @Test
+    void interpretExistingRecordLateness_noShiftAssignedNullShiftId_returnsNoShiftAssigned_neverLegacy() {
+        LocalDate workDate = LocalDate.of(2025, 1, 1);
+        Attendance noShiftRecord = Attendance.builder().id(UUID.randomUUID()).employeeUserId(UUID.randomUUID())
+                .workDate(workDate).checkInAt(LocalDateTime.of(workDate, LocalTime.of(9, 5)))
+                .shiftId(null).noShiftAssigned(true)
+                .build();
+
+        AttendanceInterpretation interpretation = service.interpretExistingRecordLateness(
+                noShiftRecord, LocalDateTime.of(workDate, LocalTime.of(9, 5)));
+
+        assertEquals(InterpretationOutcome.NO_SHIFT_ASSIGNED, interpretation.getOutcome());
+        assertFalse(interpretation.isLegacyUnresolved());
+        assertNull(interpretation.getIsLate());
+        assertNull(interpretation.getLateByMinutes());
+        assertEquals(workDate, interpretation.getWorkDate());
     }
 
     // ── Phase 3: per-Shift-Version grace period ──────────────────────────────
@@ -512,6 +629,74 @@ class AttendanceInterpretationServiceTest {
 
         assertTrue(service.belongsToWorkday(null, legacyRecord, LocalDate.of(2025, 1, 1),
                 LocalDateTime.of(2025, 1, 2, 12, 0)), "a legacy row with no shift snapshot is not this validation's job to reject");
+    }
+
+    /**
+     * Code-review corrective pass, finding 1: an EXISTING valid no-Shift row (shiftId==null,
+     * noShiftAssigned==true) must NOT fail open the way a genuine legacy row does — there IS a
+     * well-defined answer (no Shift to roll an overnight boundary against, so a plain calendar-
+     * date check applies), so it must actually be enforced, not waved through.
+     */
+    @Test
+    void belongsToWorkday_existingNoShiftAssignedRecord_degradesToCalendarDateCheck_neverFailsOpen() {
+        LocalDate workDate = LocalDate.of(2025, 1, 1);
+        Attendance noShiftRecord = Attendance.builder().id(UUID.randomUUID()).employeeUserId(UUID.randomUUID())
+                .workDate(workDate).checkInAt(LocalDateTime.of(workDate, LocalTime.of(9, 5)))
+                .shiftId(null).noShiftAssigned(true).build();
+
+        assertTrue(service.belongsToWorkday(null, noShiftRecord, workDate, LocalDateTime.of(workDate, LocalTime.of(9, 5))),
+                "same calendar date as workDate belongs to it");
+        assertFalse(service.belongsToWorkday(null, noShiftRecord, workDate, LocalDateTime.of(workDate.plusDays(1), LocalTime.of(0, 1))),
+                "a genuine legacy row would fail open (true) here — a no-Shift row must not");
+    }
+
+    /**
+     * Code-review corrective pass, finding 4: {@code workDate} itself has an effective assignment
+     * (the guard above passes), but the REQUESTED timestamp's own calendar date is far enough
+     * before the assignment's {@code effectiveFrom} that {@code ShiftDayPolicy#shiftDayOf}'s own
+     * internal resolution throws {@link IllegalStateException} — an inconsistent/out-of-range
+     * correction, not a legitimate no-shift case. Must be a controlled "does not belong to this
+     * workday" rejection (what RegularizationService.resolveTimes turns into an ordinary
+     * {@code IllegalArgumentException}), never an uncaught exception surfacing as a 500.
+     */
+    @Test
+    void belongsToWorkday_timestampsOwnCalendarDatePredatesTheAssignment_isRejectedNotThrown() {
+        Shift shiftA = shift("Shift A", LocalTime.of(9, 0), LocalTime.of(18, 0), LocalDate.MIN, true);
+        UUID employeeUserId = UUID.randomUUID();
+        LocalDate workDate = LocalDate.of(2026, 3, 10);
+        assignments.add(EmployeeShiftAssignment.builder()
+                .employeeUserId(employeeUserId).shift(shiftA).effectiveFrom(workDate).build());
+        Employee employee = Employee.builder().userId(employeeUserId).shift(shiftA).build();
+        LocalDateTime outOfRangeTimestamp = LocalDateTime.of(workDate.minusDays(3), LocalTime.of(9, 5));
+
+        boolean result = assertDoesNotThrow(() ->
+                service.belongsToWorkday(employee, null, workDate, outOfRangeTimestamp));
+
+        assertFalse(result);
+    }
+
+    /**
+     * Code-review fix: a genuine Shift/ShiftVersion invariant violation (the Shift has NO version
+     * covering the date in question, even though the employee's assignment itself resolves fine)
+     * must never be silently degraded into an ordinary "does not belong to this workday" false —
+     * that would mask real data corruption as routine validation. Distinct from the
+     * "no assignment for that date" case above (which IS a controlled, expected fallback): here
+     * {@link ShiftVersionResolver#resolve} throws, not {@link EmployeeShiftAssignmentResolver#resolve}.
+     */
+    @Test
+    void belongsToWorkday_shiftHasNoVersionCoveringTheDate_propagatesGenuineCorruption() {
+        Shift shiftA = shift("Shift A", LocalTime.of(9, 0), LocalTime.of(18, 0), LocalDate.of(2026, 3, 10), true);
+        UUID employeeUserId = UUID.randomUUID();
+        LocalDate workDate = LocalDate.of(2026, 3, 15);
+        assignments.add(EmployeeShiftAssignment.builder()
+                .employeeUserId(employeeUserId).shift(shiftA).effectiveFrom(LocalDate.MIN).build());
+        Employee employee = Employee.builder().userId(employeeUserId).shift(shiftA).build();
+        // The assignment covers this date (effective since the dawn of time), but the Shift itself
+        // has no version effective this early — a genuine corruption case, not a no-shift one.
+        LocalDateTime beforeShiftExisted = LocalDateTime.of(LocalDate.of(2026, 3, 5), LocalTime.of(9, 5));
+
+        assertThrows(IllegalStateException.class, () ->
+                service.belongsToWorkday(employee, null, workDate, beforeShiftExisted));
     }
 
     @Test

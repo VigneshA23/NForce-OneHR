@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
+import { ReceiptViewerModal } from '../components/expenses/ReceiptViewerModal';
 import { leaveApi } from '../api/leave';
 import { regularizationApi } from '../api/attendance';
 import { expensesApi } from '../api/expenses';
@@ -319,15 +320,6 @@ function HelpContentReviewSection({ item, token }: { item: ApprovalItem; token: 
   );
 }
 
-function ReceiptLightbox({ src, onClose }: { src: string; onClose: () => void }) {
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, cursor: 'zoom-out' }}>
-      <img src={src} alt="Receipt" onClick={e => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, boxShadow: '0 8px 48px rgba(0,0,0,.8)' }} />
-      <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,.1)', border: 'none', borderRadius: 6, padding: '6px 10px', color: '#fff', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>✕</button>
-    </div>
-  );
-}
-
 function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   item: ApprovalItem;
   mode: ReviewMode;
@@ -339,7 +331,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   const { showToast } = useToast();
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [viewingReceipt, setViewingReceipt] = useState(false);
 
   async function handleApprove() {
     setSubmitting(true);
@@ -407,21 +399,15 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
               <Row label="Amount" value={fmtCurrency(item.expenseAmount ?? 0)} />
               <Row label="Expense Date" value={fmtDate(item.expenseDate)} />
               <Row label="Business Purpose" value={item.businessPurpose} />
-              {item.receiptUrl && (
-                <div>
-                  <div style={labelStyle}>Receipt</div>
-                  {item.receiptUrl.startsWith('data:image') ? (
-                    <img
-                      src={item.receiptUrl}
-                      alt="Receipt"
-                      onClick={() => setLightboxSrc(item.receiptUrl!)}
-                      style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 6, border: '1px solid var(--line)', cursor: 'zoom-in', display: 'block' }}
-                    />
-                  ) : (
-                    <a href={item.receiptUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand)', fontSize: 13 }}>View receipt</a>
-                  )}
-                </div>
-              )}
+              <div>
+                <div style={labelStyle}>Receipt</div>
+                <button
+                  onClick={() => setViewingReceipt(true)}
+                  style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12.5, color: 'var(--brand)', cursor: 'pointer' }}
+                >
+                  View Receipt
+                </button>
+              </div>
             </div>
           )}
 
@@ -478,7 +464,9 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
           )}
         </div>
       </div>
-      {lightboxSrc && <ReceiptLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {viewingReceipt && item.requestType === 'EXPENSE' && (
+        <ReceiptViewerModal claimId={item.id} token={token} onClose={() => setViewingReceipt(false)} />
+      )}
     </div>
   );
 }

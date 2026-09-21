@@ -875,3 +875,35 @@ input[type="date"] {
   .nf-roleguide-header > button { width: 100%; justify-content: center; }
 }
 .nf-attendance-action-label { white-space: normal; word-break: break-word; line-height: 1.25; }
+
+/* ── AI assistant ──────────────────────────────────────────────────────────
+   Two rules only; everything else about the assistant is inline styles over the
+   same CSS custom properties every other page uses (see assistantStyles.ts).
+
+   The panel is a floating card on desktop and a full-screen sheet on phones —
+   a 396px card at 360px viewport width would either overflow or leave no room
+   to read an answer. Height uses var(--app-height) rather than bare 100dvh, for
+   the same iOS Safari reason the rest of this file does: the browser chrome
+   changes 100dvh mid-scroll and the composer ends up under the address bar.
+
+   The launcher sits at z-index 80, below the mobile nav scrim at 90, so the
+   off-canvas menu covers it instead of leaving a button floating over the
+   overlay. It also shifts up on phones to clear the thumb zone. */
+@media (max-width: 767px) {
+  .nf-assistant-panel {
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-height: var(--app-height, 100dvh) !important;
+    height: var(--app-height, 100dvh) !important;
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+  }
+  .nf-assistant-launcher {
+    right: 16px !important;
+    bottom: 16px !important;
+  }
+}

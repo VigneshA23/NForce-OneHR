@@ -110,8 +110,10 @@ function latestIso(...candidates: (string | null | undefined)[]): string | null 
  * here (the old global full-day-min-hours target was removed as dead code once that invariant
  * shipped).
  */
-function fullDayTargetMinutesFor(config: AttendanceConfig | null): number | null {
-  if (!config?.shiftEnd) return null;
+export function fullDayTargetMinutesFor(config: AttendanceConfig | null): number | null {
+  // shiftStart/shiftEnd are independently nullable (see AttendanceConfig's own doc comment) —
+  // both are required for a meaningful duration, so guard both rather than only shiftEnd.
+  if (!config?.shiftStart || !config?.shiftEnd) return null;
   const startMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftStart}`) ?? 0;
   const endMin = minutesSinceMidnight(`${todayIsoDate()}T${config.shiftEnd}`) ?? 0;
   return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
@@ -332,6 +334,9 @@ const STATUS_COLORS: Record<AttendanceStatus, string> = {
   HALF_DAY: '#4C8DD6',
   ABSENT: '#E4373D',
   MISSING_CHECKOUT: '#E4373D',
+  // Deliberately not the red used for ABSENT/MISSING_CHECKOUT: approved leave is an accounted-for
+  // day, and colouring it like a no-show is what made HR chase people who did nothing wrong.
+  ON_LEAVE: '#8B7BD6',
 };
 
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
@@ -340,6 +345,7 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   HALF_DAY: 'Half Day',
   ABSENT: 'Absent',
   MISSING_CHECKOUT: 'Missing Check-Out',
+  ON_LEAVE: 'On Leave',
 };
 
 const REGULARIZATION_STATUS_COLOR: Record<string, string> = {
@@ -1385,6 +1391,12 @@ function primaryDayBadge(info: DayInfo): React.ReactNode {
       ? <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>WFH</span>
       : <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.18)', color: '#E0A93B' }}>Partial Day</span>;
   }
+  // Reflects an actually-persisted, still-active penalty (see AttendanceRecord.penalized) — never
+  // a frontend-computed eligibility guess. Checked before the plain status pill, same precedence
+  // Regularization/WFH get above, so a penalized day never just looks like an ordinary LATE/PRESENT day.
+  if (info.record?.penalized) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(166,52,46,.15)', color: '#E08A83' }}>Penalized</span>;
+  }
   if (info.record) {
     return <StatusPill status={info.record.status} />;
   }
@@ -2186,10 +2198,11 @@ function AttendanceStatsPanel({ token }: { token: string }) {
 }
 
 // ─── Today's Timings ────────────────────────────────────────────────────────────
-// Every employee is expected to always have an assigned Shift (ONEHR-108 shipped as a hard DB
-// invariant), so config.shiftEnd is effectively always populated here — see
-// fullDayTargetMinutesFor's own comment. The break-used/break-budget progress bar this panel used
-// to show was removed along with app.attendance.daily-break-budget-minutes (Workstream B): it was
+// config.shiftStart/shiftEnd are both null for an employee with no effective Shift assignment
+// (ONEHR-355: a valid, permanent state, not an invariant violation) — see this component's own
+// null-guard below and fullDayTargetMinutesFor's own comment. The break-used/break-budget
+// progress bar this panel used to show was removed along with app.attendance.daily-break-budget-minutes
+// (Workstream B): it was
 // a display-only denominator with no enforcement and no other config to source it from (Shift's
 // own per-shift breakMinutes is a separate, admin-metadata concept — not an org-wide live budget).
 // Break used time itself (real, computed from actual punch gaps) is still shown, just without a
@@ -2210,7 +2223,13 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
   return (
     <div style={{ ...panelStyle, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 9 }}>
       <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Today's Timings</span>
-      {config && (
+      {/* config.shiftStart is null for a NO_SHIFT_ASSIGNED employee (a valid, permanent state —
+          no Shift is ever auto-assigned at creation, and a freshly-picked one isn't effective
+          until the employee's next working day) — guarded here exactly like
+          AttendanceHeroBanner's own shiftInfo, so this line is simply omitted rather than
+          rendering a garbled "Shift starts  · grace 0m" from formatTime failing to parse a null
+          time. Never fabricates a 07:00 (or any other) fallback start time. */}
+      {config?.shiftStart && (
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>
           {config.shiftEnd
             ? <>Shift {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} – {formatTime(`${todayIsoDate()}T${config.shiftEnd}`)} · grace {config.lateGraceMinutes}m</>
@@ -3214,6 +3233,11 @@ function InlineDayBadge({ info }: { info: DayInfo }) {
     return info.attendanceRequest.requestType === 'WFH'
       ? <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>WFH</span>
       : <span style={{ ...DAY_TAG_STYLE, background: 'rgba(224,169,59,.18)', color: '#E0A93B' }}>PARTIAL DAY</span>;
+  }
+  // See primaryDayBadge's identical check — an actually-persisted, still-active penalty, never a
+  // frontend-computed guess.
+  if (info.record?.penalized) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(166,52,46,.15)', color: '#E08A83' }}>PENALIZED</span>;
   }
   if (info.isWeekend && !info.record) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(155,161,172,.15)', color: '#9BA1AC' }}>W-OFF</span>;

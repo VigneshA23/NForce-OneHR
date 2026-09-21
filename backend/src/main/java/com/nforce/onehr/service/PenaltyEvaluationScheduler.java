@@ -39,5 +39,13 @@ public class PenaltyEvaluationScheduler {
             // scheduler thread — log and let the next scheduled run retry.
             log.error("Scheduled attendance penalty evaluation failed", e);
         }
+        // Separate try/catch: a failure evaluating penalties above must never suppress emailing
+        // occurrences that were already detected (by this run or an earlier dashboard load) and
+        // are still waiting on notifiedAt — and vice versa.
+        try {
+            exceptionService.notifyUnnotifiedExceptions();
+        } catch (Exception e) {
+            log.error("Scheduled attendance exception notification failed", e);
+        }
     }
 }

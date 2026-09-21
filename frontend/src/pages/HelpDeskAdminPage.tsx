@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Clock, Inbox, Paperclip, Send, UserCog } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -411,18 +412,38 @@ export default function HelpDeskAdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
 
+  // Deep-link support: the header/global search's Helpdesk results link here as
+  // /requests?ticketId=<id> (opens the read-only preview, same as clicking a row) or
+  // /requests?search=<term> — read once on mount, same as DirectoryPage's ?userId= convention.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const ticketId = searchParams.get('ticketId');
+    if (ticketId) setPreviewId(ticketId);
+    const q = searchParams.get('search');
+    if (q) setSearch(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const activeFilter = QUEUE_FILTERS.find(f => f.key === statusFilter) ?? QUEUE_FILTERS[0];
+
+  // Debounced 300ms, matching the content-search pattern on /help, so typing doesn't fire a
+  // request per keystroke.
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(handle);
+  }, [search]);
 
   function loadQueue(p = page) {
     setLoading(true);
     hrHelpdeskApi.listQueue(token, {
       status: activeFilter.statuses,
       assignedTo: assigneeFilter || undefined,
-      search: search || undefined,
+      search: debouncedSearch || undefined,
       page: p, size: 10,
     }).then(res => { setTickets(res.content); setTotalPages(res.totalPages); setPage(res.number); setTotalElements(res.totalElements); })
       .finally(() => setLoading(false));
@@ -431,14 +452,14 @@ export default function HelpDeskAdminPage() {
   // Cards above are always global totals across every ticket, regardless of these filters —
   // that mismatch is expected, but only worth calling out once a search/assignee filter is
   // actually narrowing the list below.
-  const hasActiveNarrowing = Boolean(search || assigneeFilter);
+  const hasActiveNarrowing = Boolean(debouncedSearch || assigneeFilter);
 
   function loadDashboard() {
     hrHelpdeskApi.dashboard(token).then(setDashboard);
   }
 
   useEffect(() => { hrHelpdeskApi.listAgents(token).then(setAgents); loadDashboard(); }, [token]);
-  useEffect(() => { loadQueue(0); }, [token, statusFilter, assigneeFilter, search]);
+  useEffect(() => { loadQueue(0); }, [token, statusFilter, assigneeFilter, debouncedSearch]);
 
   function refreshAll() { loadQueue(); loadDashboard(); }
 

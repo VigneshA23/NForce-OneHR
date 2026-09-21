@@ -213,7 +213,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Leave Type *">
               <select style={inputStyle} value={form.leaveTypeCode} onChange={e => setForm(f => ({ ...f, leaveTypeCode: e.target.value }))}>
-                {types.map(t => <option key={t.code} value={t.code}>{t.name}</option>)}
+                {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
               </select>
             </Field>
             {selectedBalance && (
@@ -377,7 +377,14 @@ export default function LeavePage() {
               <tbody>
                 {requests.map(r => (
                   <tr key={r.id}>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.leaveTypeName}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                      {r.leaveTypeName}
+                      {r.leaveTypeClassification === 'UNPAID' && (
+                        <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
+                          (Unpaid)
+                        </span>
+                      )}
+                    </td>
                     <td style={tdStyle}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
                     <td style={tdStyle}>{r.totalDays}</td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>

@@ -12,7 +12,7 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export type AttendanceRequestReportType = 'REGULARIZATION' | 'WEB_CLOCK_IN';
+export type AttendanceRequestReportType = 'REGULARIZATION' | 'WEB_CLOCK_IN' | 'OVERTIME' | 'PARTIAL_DAY' | 'WFH_OD';
 
 export interface AttendanceRequestReportRow {
   employeeUserId: string;
@@ -23,6 +23,8 @@ export interface AttendanceRequestReportRow {
   checkOut: string | null;
   reason: string | null;
   status: string;
+  requestMode: string | null;
+  hours: number | null;
 }
 
 export const reportsApi = {

@@ -36,6 +36,7 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
   approvals:    'A single queue for every pending decision — leave, expenses, and asset requests — so nothing gets lost in email.',
   exceptions:   'Surface attendance anomalies, irregular patterns, and policy violations across your team for quick review and resolution.',
   documents:    'Access your personal HR documents, track required submissions, and read company policies shared with your role.',
+  'my-documents': 'Access your personal HR documents, track required submissions, and read company policies shared with your role.',
   policies:     'Publish company policies and HR announcements, and track who has read and acknowledged each one.',
   organization: 'Set up and maintain departments, designations, reporting structures, and locations for the entire organization.',
   performance:  'Track goals, log progress updates, and review growth milestones for individuals and teams.',

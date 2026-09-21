@@ -89,7 +89,8 @@ public class LeaveService {
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
         return leaveTypeRepository.findAll().stream()
-                .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName()).build())
+                .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
+                        .classification(t.getClassification()).build())
                 .collect(Collectors.toList());
     }
 
@@ -101,6 +102,9 @@ public class LeaveService {
         // only the ANNUAL row surfaces here, so the balance list/pie chart shows ONE Annual Leave
         // entry instead of three.
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
+                // Unpaid leave types (see LeaveType#isPaid) never deduct from/track a balance —
+                // see #submitRequest and #approve — so they have nothing meaningful to show here.
+                .filter(b -> b.getLeaveType().isPaid())
                 .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
                         || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
                 .map(this::toBalanceResponse)
@@ -171,20 +175,25 @@ public class LeaveService {
                 ? new BigDecimal("0.5")
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
 
-        int year = req.getStartDate().getYear();
-        // Sick/Casual requests draw from and are validated against the consolidated Annual
-        // balance row — the error message below therefore always names the balance actually
-        // being checked (Annual), not the literally-selected type, even though the LeaveRequest
-        // itself still records the type the employee actually chose.
-        LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
-        LeaveBalance balance = leaveBalanceRepository
-                .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), balanceType.getId(), year)
-                .orElseThrow(() -> new IllegalArgumentException("No " + balanceType.getName() + " balance configured for " + year));
+        // Unpaid leave types (see LeaveType#isPaid) don't draw from any LeaveBalance — the
+        // requested days must never consume the employee's paid leave balance, so there is
+        // nothing to look up or validate against here. Mirrors the skip in #approve below.
+        if (type.isPaid()) {
+            int year = req.getStartDate().getYear();
+            // Sick/Casual requests draw from and are validated against the consolidated Annual
+            // balance row — the error message below therefore always names the balance actually
+            // being checked (Annual), not the literally-selected type, even though the LeaveRequest
+            // itself still records the type the employee actually chose.
+            LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
+            LeaveBalance balance = leaveBalanceRepository
+                    .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), balanceType.getId(), year)
+                    .orElseThrow(() -> new IllegalArgumentException("No " + balanceType.getName() + " balance configured for " + year));
 
-        BigDecimal remaining = availableBalance(balance);
-        if (remaining.compareTo(totalDays) < 0) {
-            throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
-                    + " balance of " + formatDays(remaining) + " days.");
+            BigDecimal remaining = availableBalance(balance);
+            if (remaining.compareTo(totalDays) < 0) {
+                throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
+                        + " balance of " + formatDays(remaining) + " days.");
+            }
         }
 
         LeaveRequest request = LeaveRequest.builder()
@@ -338,21 +347,28 @@ public class LeaveService {
             throw new IllegalStateException("Leave request has already been decided");
         }
 
-        int year = request.getStartDate().getYear();
-        // Approving a Sick/Casual request consumes from the SAME Annual balance row it was
-        // validated/reserved against at submission — usedDays on that one row naturally becomes
-        // the combined Annual+Sick+Casual approved total, with no separate cross-type sum needed.
-        LeaveType balanceType = isAnnualBalanceLeaveType(request.getLeaveType())
-                ? annualLeaveType() : request.getLeaveType();
-        LeaveBalance balance = leaveBalanceRepository
-                .findByEmployeeUserIdAndLeaveTypeIdAndYear(request.getEmployeeUserId(), balanceType.getId(), year)
-                .orElseThrow(() -> new IllegalStateException("No leave balance configured for " + year));
-        BigDecimal remaining = balance.getTotalDays().subtract(balance.getUsedDays());
-        if (remaining.compareTo(request.getTotalDays()) < 0) {
-            throw new IllegalStateException("Employee no longer has sufficient balance to approve this request");
+        // Unpaid leave types (see LeaveType#isPaid) never deduct from a LeaveBalance — approving
+        // one leaves the employee's paid leave balance untouched, per the current classification
+        // at approval time (a type changed Paid<->Unpaid after submission is honored as of NOW,
+        // not as of when the request was originally submitted — there is no snapshot to fall back
+        // to, see LeaveRequest#getLeaveType()).
+        if (request.getLeaveType().isPaid()) {
+            int year = request.getStartDate().getYear();
+            // Approving a Sick/Casual request consumes from the SAME Annual balance row it was
+            // validated/reserved against at submission — usedDays on that one row naturally becomes
+            // the combined Annual+Sick+Casual approved total, with no separate cross-type sum needed.
+            LeaveType balanceType = isAnnualBalanceLeaveType(request.getLeaveType())
+                    ? annualLeaveType() : request.getLeaveType();
+            LeaveBalance balance = leaveBalanceRepository
+                    .findByEmployeeUserIdAndLeaveTypeIdAndYear(request.getEmployeeUserId(), balanceType.getId(), year)
+                    .orElseThrow(() -> new IllegalStateException("No leave balance configured for " + year));
+            BigDecimal remaining = balance.getTotalDays().subtract(balance.getUsedDays());
+            if (remaining.compareTo(request.getTotalDays()) < 0) {
+                throw new IllegalStateException("Employee no longer has sufficient balance to approve this request");
+            }
+            balance.setUsedDays(balance.getUsedDays().add(request.getTotalDays()));
+            leaveBalanceRepository.save(balance);
         }
-        balance.setUsedDays(balance.getUsedDays().add(request.getTotalDays()));
-        leaveBalanceRepository.save(balance);
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("APPROVED");
@@ -670,6 +686,7 @@ public class LeaveService {
                 .employeeCode(employeeCode(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
+                .leaveTypeClassification(r.getLeaveType().getClassification())
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
                 .halfDay(r.isHalfDay())
@@ -700,6 +717,7 @@ public class LeaveService {
                 .employeeCode(codesById.get(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
+                .leaveTypeClassification(r.getLeaveType().getClassification())
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
                 .halfDay(r.isHalfDay())

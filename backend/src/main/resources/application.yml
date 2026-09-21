@@ -52,6 +52,11 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5180,http://localhost:5173,http://localhost:3000}
   base-url: ${APP_BASE_URL:http://localhost:5180}
+  employee-creation:
+    # Temporary migration safety switch — see EmployeeCreationLockProperties. Off by default;
+    # set EMPLOYEE_CREATION_LOCKED=true only for the duration of a live Employee ID migration
+    # window, then unset it (or redeploy without it) once the migration is verified complete.
+    locked: ${EMPLOYEE_CREATION_LOCKED:false}
   attendance:
     # Business timezone — deploy-time default. Deliberately explicit, since the JVM default is
     # UTC on Railway. As of the Phase 2 timezone pass, the Attendance/Web-Clock-In/Regularization
@@ -60,12 +65,14 @@ app:
     # remains the source for every OTHER org-wide "what business day is it" consumer (Leave,
     # Penalization Policy, EmployeeAssignmentService, ExceptionService, AttendanceRequestService).
     zone: ${ATTENDANCE_ZONE:Asia/Kolkata}
-    # A fixed fallback shift-start was removed entirely (no replacement) — every employee is now
-    # a hard invariant to always have a real assigned Shift (see Shift.DEFAULT_SHIFT_NAME's
-    # server-side default on creation, ShiftSeedCorrector's startup backfill, and OrgService's
-    # refusal to rename/deactivate/delete the default shift itself). ShiftDayPolicy throws for a
-    # null-shift employee everywhere, including resolveShiftStart/shiftEndAt — there is no
-    # fixed-clock-time fallback anywhere in that class by design.
+    # A fixed fallback shift-start was removed entirely (no replacement). A brand-new employee
+    # with no Shift assigned (or one whose first Shift Assignment isn't effective yet) is a valid,
+    # permanent state — see AttendanceInterpretationService's NO_SHIFT_ASSIGNED handling, which
+    # skips Shift-dependent interpretation entirely rather than guessing. ShiftDayPolicy itself
+    # still throws for a null-shift employee reaching ITS methods directly (resolveShiftStart/
+    # shiftEndAt/etc.) — those are only ever called once an effective assignment is already known
+    # to exist, never speculatively — there is no fixed-clock-time fallback anywhere in that class
+    # by design.
     # late-grace-minutes previously lived here as the sole org-wide LATE/PRESENT status gate. As
     # of the Phase 3 grace pass, grace is no longer a single global value — every Shift Version
     # now has its own (shift_versions.late_grace_minutes, see V168), Admin-editable per Shift via
@@ -91,6 +98,36 @@ app:
       # (counts every submission regardless of eventual status). Super Admin is exempt. Same
       # future-Regularization-Policy note as employee-lookback-days above.
       monthly-limit: 3
+  ai:
+    # Off by default so OneHR starts normally in an environment with no Mistral credentials at all.
+    # A missing AI key must never stop the HR system booting.
+    enabled: ${AI_ASSISTANT_ENABLED:false}
+    provider: ${AI_PROVIDER:mistral}
+    mistral:
+      # No default, matching JWT_SECRET/RESEND_API_KEY: an unset key fails loudly rather than
+      # silently calling an unauthenticated API. Local dev supplies it via application-local.yml.
+      api-key: ${MISTRAL_API_KEY:}
+      # Defaults to ministral-8b because that is what the current subscription can actually
+      # serve: mistral-large-latest returns 403 tier_not_allowed, and small/medium return a
+      # persistent 429. Verified against the live API. It handles the grounded question-answering
+      # this assistant does perfectly well. Raise to mistral-small/medium/large via this env var
+      # once the subscription allows - no code change needed.
+      chat-model: ${MISTRAL_CHAT_MODEL:ministral-8b-latest}
+      # 1024 dimensions - must match the vector(1024) column in V185. Changing this model means
+      # changing that column width and fully re-indexing.
+      embed-model: ${MISTRAL_EMBED_MODEL:mistral-embed}
+      timeout-seconds: 30
+    retrieval:
+      top-k: 8
+      # 0.60, not 0.35. Calibrated against real mistral-embed output: unrelated text still scores
+      # about 0.59 against this knowledge base, so a lower floor filters nothing. See AiProperties.
+      min-score: 0.60
+      max-context-chars: 12000
+    limits:
+      max-message-chars: 1000
+      max-requests-per-user-per-hour: 60
+      max-history-turns: 6
+
 resend:
   api-key: ${RESEND_API_KEY}
   from: OneHR <onehr@nforceone.com>

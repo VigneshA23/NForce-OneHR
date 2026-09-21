@@ -141,7 +141,15 @@ public class PenalizationPolicyService {
             current.ifPresent(previous -> {
                 previous.setEffectiveTo(effectiveFrom.minusNanos(1));
                 previous.setUpdatedBy(actor.getId());
-                versionRepository.save(previous);
+                // saveAndFlush (not save): flush the UPDATE before the new version's INSERT below
+                // is enqueued — Hibernate's default flush ordering runs INSERTs before UPDATEs
+                // regardless of call order, so a plain save() here would let the new (open)
+                // version's INSERT hit the DB while this row's effective_to was still NULL,
+                // tripping V155's idx_penalization_policy_versions_current partial unique index
+                // ("at most one open version per policy") as a false self-conflict. Same fix
+                // already applied for the identical close-current/open-new shape in
+                // AssetService#reassignAsset.
+                versionRepository.saveAndFlush(previous);
             });
         }
 
@@ -259,15 +267,7 @@ public class PenalizationPolicyService {
      * informational heads-up, not a recalculation trigger.
      */
     private void notifyAffectedEmployeesOfPolicyChange(UUID policyId, PenalizationPolicyVersion newVersion) {
-        List<Employee> affected = new ArrayList<>(employeeRepository.findByPenalisationPolicy_Id(policyId));
-        try {
-            if (policyId.equals(resolveDefaultPolicyId())) {
-                affected.addAll(employeeRepository.findByPenalisationPolicyIsNull());
-            }
-        } catch (IllegalStateException e) {
-            // No PenalisationPolicy row exists at all (shouldn't happen given the V95 seed) — the
-            // explicitly-assigned recipients resolved above still get notified regardless.
-        }
+        List<Employee> affected = resolveAffectedEmployees(policyId);
         if (affected.isEmpty()) {
             return;
         }
@@ -279,6 +279,27 @@ public class PenalizationPolicyService {
                             + ". Attendance before that date continues to be evaluated under the previous configuration.",
                     "/attendance");
         }
+    }
+
+    /**
+     * Employees currently governed by {@code policyId} — explicitly assigned to it, or implicitly
+     * via the org-default fallback when {@code policyId} IS that default (see
+     * {@link #resolveDefaultPolicyId}). Shared by the change-notification path above and the
+     * audit trail's "Affected Users" list ({@link AuditTargetResolver#resolveAffectedUsers}), so
+     * both agree on a single definition of "who does this policy affect."
+     */
+    @Transactional(readOnly = true)
+    public List<Employee> resolveAffectedEmployees(UUID policyId) {
+        List<Employee> affected = new ArrayList<>(employeeRepository.findByPenalisationPolicy_Id(policyId));
+        try {
+            if (policyId.equals(resolveDefaultPolicyId())) {
+                affected.addAll(employeeRepository.findByPenalisationPolicyIsNull());
+            }
+        } catch (IllegalStateException e) {
+            // No PenalisationPolicy row exists at all (shouldn't happen given the V95 seed) — the
+            // explicitly-assigned employees resolved above are still returned regardless.
+        }
+        return affected;
     }
 
     private Map<String, Object> snapshotFields(PenalizationPolicyVersion v) {

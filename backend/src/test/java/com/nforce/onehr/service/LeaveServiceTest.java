@@ -8,6 +8,7 @@ import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
+import com.nforce.onehr.entity.LeaveTypeClassification;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -81,6 +82,7 @@ class LeaveServiceTest {
     private LeaveType annual;
     private LeaveType sick;
     private LeaveType casual;
+    private LeaveType lossOfPay;
 
     @BeforeEach
     void setUp() {
@@ -90,6 +92,8 @@ class LeaveServiceTest {
         annual = LeaveType.builder().id(UUID.randomUUID()).code("ANNUAL").name("Annual Leave").build();
         sick = LeaveType.builder().id(UUID.randomUUID()).code("SICK").name("Sick Leave").build();
         casual = LeaveType.builder().id(UUID.randomUUID()).code("CASUAL").name("Casual Leave").build();
+        lossOfPay = LeaveType.builder().id(UUID.randomUUID()).code("LOP").name("Loss of Pay")
+                .classification(LeaveTypeClassification.UNPAID).build();
 
         // employeeName() falls back to userRepository when there's no Employee row —
         // stub loosely (lenient) so tests that don't inspect names don't need it repeated.
@@ -227,6 +231,50 @@ class LeaveServiceTest {
                 () -> leaveService.submitRequest(request(start, start.plusDays(5), false, "Too long"), employeeEmail));
         assertEquals("Leave request exceeds your available Annual Leave balance of 2 days.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
+    }
+
+    // ── Leave Type Paid/Unpaid classification ───────────────────────────────────────────────
+
+    @Test
+    void submitRequest_unpaidLeaveType_neverChecksOrRequiresABalance() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // No leaveBalanceRepository stub configured at all — an Unpaid type must never look one up,
+        // so its 10-day Paid balance (from any other type) is left completely untouched.
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        assertEquals(new BigDecimal("3"), resp.getTotalDays());
+        assertEquals(LeaveTypeClassification.UNPAID, resp.getLeaveTypeClassification());
+        verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any());
+    }
+
+    @Test
+    void approve_unpaidLeaveType_doesNotDeductAnyBalance() {
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(lossOfPay).startDate(LocalDate.now()).endDate(LocalDate.now().plusDays(2))
+                .totalDays(new BigDecimal("3")).status("PENDING").employeeReason("Unpaid trip").build();
+
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Example from the spec: an employee's 10-day Paid balance must read exactly 10 after
+        // approving a 3-day Unpaid (Loss of Pay) request — proven here by never touching the
+        // balance repository at all, rather than a balance object whose usedDays we'd otherwise
+        // have to assert stayed at zero.
+        LeaveRequestResponse approved = leaveService.approve(pending.getId(), managerEmail);
+
+        assertEquals("APPROVED", approved.getStatus());
+        assertEquals(LeaveTypeClassification.UNPAID, approved.getLeaveTypeClassification());
+        verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any());
+        verify(leaveBalanceRepository, never()).save(any());
     }
 
     // ── Status-aware annual-leave-limit enforcement ─────────────────────────────────────────

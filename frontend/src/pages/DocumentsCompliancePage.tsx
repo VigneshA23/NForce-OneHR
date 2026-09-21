@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, XCircle, Eye, Search, Users } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
@@ -253,8 +254,9 @@ function MissingTab({ missing, searchEmpty }: { missing: MissingDocument[]; sear
 export default function DocumentsCompliancePage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
+  const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<'pending' | 'verified' | 'missing'>('pending');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
   const [kpis, setKpis] = useState<DocumentAdminKpi | null>(null);
   const [pending, setPending] = useState<EmployeeDocument[]>([]);
   const [verified, setVerified] = useState<EmployeeDocument[]>([]);

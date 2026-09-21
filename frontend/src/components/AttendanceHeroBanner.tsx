@@ -333,7 +333,11 @@ export function AttendanceHeroBanner() {
   }, [checkOutAt, webToday]);
 
   const shiftInfo = useMemo(() => {
-    if (!config || !serverNowBase) return null;
+    // config.shiftStart is null for an employee with no effective Shift assignment (ONEHR-355:
+    // a valid, permanent state — a brand-new employee, or one whose first assignment isn't
+    // effective yet) — there is no shift timing to show, so this must degrade to null rather
+    // than crash trying to parse it.
+    if (!config?.shiftStart || !serverNowBase) return null;
     const currentMs = serverNowBase.ms + (now.getTime() - serverNowBase.fetchedAtMs);
     const diffMin = shiftStartMinutes(config.shiftStart) - minutesOfDay(currentMs);
     const pad2 = (n: number) => String(n).padStart(2, '0');

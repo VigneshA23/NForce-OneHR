@@ -14,7 +14,7 @@ export function ComplianceBanner() {
   const [summary, setSummary] = useState<{ missing: number; rejected: number; pendingPolicies: number } | null>(null);
 
   const isHR = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
-  const onDocPage = location.pathname === '/documents' || location.pathname === '/policies';
+  const onDocPage = location.pathname === '/my-documents' || location.pathname === '/policies';
 
   useEffect(() => {
     if (!token || isHR || onDocPage) return;
@@ -43,7 +43,7 @@ export function ComplianceBanner() {
         <strong style={{ color: '#eab308' }}>Action needed:</strong>{' '}
         {parts.join(', ')}.{' '}
         <button
-          onClick={() => navigate('/documents')}
+          onClick={() => navigate('/my-documents')}
           style={{ background: 'none', border: 'none', color: '#eab308', cursor: 'pointer', textDecoration: 'underline', fontSize: 13, padding: 0 }}
         >
           Go to Documents & Policies
