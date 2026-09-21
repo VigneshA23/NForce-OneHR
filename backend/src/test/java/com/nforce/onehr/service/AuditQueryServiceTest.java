@@ -94,6 +94,20 @@ class AuditQueryServiceTest {
     }
 
     @Test
+    void resolveAllowedActions_hrAdmin_seesHelpdeskStatusChangedAndAssigned() {
+        // D17: these two were previously missing from AuditActionCategory entirely, making the
+        // audit rows HelpdeskService already writes for them permanently unqueryable.
+        Set<String> allowed = auditQueryService.resolveAllowedActions(null, null, false);
+
+        assertTrue(allowed.contains("HELPDESK_TICKET_STATUS_CHANGED"));
+        assertTrue(allowed.contains("HELPDESK_TICKET_ASSIGNED"));
+        // Ticket-created/replied are self-submitted/mixed-sender, same as the other *_SUBMITTED
+        // actions — deliberately still excluded, following the existing convention.
+        assertFalse(allowed.contains("HELPDESK_TICKET_CREATED"));
+        assertFalse(allowed.contains("HELPDESK_TICKET_REPLIED"));
+    }
+
+    @Test
     void resolveAllowedActions_superAdmin_seesBothCategories() {
         Set<String> allowed = auditQueryService.resolveAllowedActions(null, null, true);
 
