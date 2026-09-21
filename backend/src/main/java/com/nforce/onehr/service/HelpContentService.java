@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.helpcontent.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.AttachmentValidator;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -57,11 +58,9 @@ public class HelpContentService {
     private static final Set<String> VALID_AUDIENCES = Set.of("EMPLOYEE", "MANAGER", "HR", "ADMIN");
 
     // Multi-attachment upload limits — configurable constants, not hardcoded checks scattered
-    // through the mutation methods.
+    // through the mutation methods. Size/type limits themselves live in AttachmentValidator,
+    // shared with HelpdeskService's ticket-reply attachments.
     private static final int MAX_ATTACHMENTS_PER_CONTENT = 5;
-    private static final long MAX_ATTACHMENT_SIZE_BYTES = 10L * 1024 * 1024; // mirrors spring.servlet.multipart.max-file-size
-    private static final Set<String> ALLOWED_ATTACHMENT_EXTENSIONS =
-            Set.of("pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "png", "jpg", "jpeg", "gif", "txt", "csv");
 
     private final HelpContentRepository repo;
     private final HelpContentAttachmentRepository attachmentRepo;
@@ -382,24 +381,7 @@ public class HelpContentService {
     }
 
     private void validateAttachmentFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Attachment file is empty");
-        }
-        if (file.getSize() > MAX_ATTACHMENT_SIZE_BYTES) {
-            throw new IllegalArgumentException("\"" + file.getOriginalFilename() + "\" exceeds the "
-                    + (MAX_ATTACHMENT_SIZE_BYTES / (1024 * 1024)) + "MB attachment size limit");
-        }
-        String ext = extensionOf(file.getOriginalFilename());
-        if (!ALLOWED_ATTACHMENT_EXTENSIONS.contains(ext)) {
-            throw new IllegalArgumentException("Unsupported file type: ." + ext
-                    + " (allowed: " + String.join(", ", ALLOWED_ATTACHMENT_EXTENSIONS) + ")");
-        }
-    }
-
-    private static String extensionOf(String fileName) {
-        if (fileName == null) return "";
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase();
+        AttachmentValidator.validate(file);
     }
 
     @Transactional
@@ -679,7 +661,7 @@ public class HelpContentService {
         requireAdmin(actorEmail);
         HelpContent content = findOrThrow(id);
         if (!DELETABLE_STATUSES.contains(content.getStatus())) {
-            throw new AccessDeniedException("Only draft or archived content can be deleted");
+            throw new AccessDeniedException("Content pending approval cannot be deleted — withdraw the request first");
         }
         attachmentRepo.deleteByContentId(id);
         audienceRepo.deleteByContentId(id);

@@ -119,6 +119,16 @@ export function fullDayTargetMinutesFor(config: AttendanceConfig | null): number
   return endMin <= startMin ? endMin + 1440 - startMin : endMin - startMin;
 }
 
+/**
+ * Pending Approvals' date filter — empty/null `iso` means "no filter, show every date." ONEHR
+ * bug report: this used to only "jump" the page containing the nearest request on/before the
+ * picked date, without ever actually filtering `rows`, so a table visibly headed by a date
+ * picker still showed a mix of surrounding dates instead of exactly the one selected.
+ */
+export function filterByAttendanceDate<T extends { attendanceDate: string }>(rows: T[], iso: string): T[] {
+  return iso ? rows.filter(r => r.attendanceDate === iso) : rows;
+}
+
 /** Whether a day's worked minutes reached 100% of its required effective hours target. */
 function hasMetFullEffectiveHours(workedMinutes: number | null | undefined, config: AttendanceConfig | null): boolean {
   const target = fullDayTargetMinutesFor(config);
@@ -4260,20 +4270,21 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
     [myRequests],
   );
 
-  // Pending Approvals: date picker + pagination (replaces the old "one table per month,
-  // stacked forever" layout). Data stays a flat sortedPending list — the picker just jumps to
-  // whichever page contains the nearest request on or before the chosen date.
+  // Pending Approvals: date filter + pagination. Empty string = no date filter (every date,
+  // paginated 10 at a time, newest first). Picking a date restricts the table to exactly that
+  // date's records — ONEHR bug report: this used to only "jump" pagination to the nearest page
+  // on or before the picked date without actually filtering, so a table visibly headed by a
+  // date picker still showed a mix of surrounding dates.
   const APPROVALS_PAGE_SIZE = 10;
   const [approvalsPage, setApprovalsPage] = useState(0);
-  const [approvalsPickedIso, setApprovalsPickedIso] = useState(todayIsoDate());
-  useEffect(() => { setApprovalsPage(0); }, [sortedPending]);
-  function handleApprovalsDatePick(iso: string) {
-    setApprovalsPickedIso(iso);
-    const idx = sortedPending.findIndex((r) => r.attendanceDate <= iso);
-    setApprovalsPage(idx >= 0 ? Math.floor(idx / APPROVALS_PAGE_SIZE) : 0);
-  }
-  const approvalsTotalPages = Math.ceil(sortedPending.length / APPROVALS_PAGE_SIZE);
-  const approvalsPaged = sortedPending.slice(approvalsPage * APPROVALS_PAGE_SIZE, (approvalsPage + 1) * APPROVALS_PAGE_SIZE);
+  const [approvalsPickedIso, setApprovalsPickedIso] = useState('');
+  const datedFilteredPending = useMemo(
+    () => filterByAttendanceDate(sortedPending, approvalsPickedIso),
+    [sortedPending, approvalsPickedIso],
+  );
+  useEffect(() => { setApprovalsPage(0); }, [datedFilteredPending]);
+  const approvalsTotalPages = Math.ceil(datedFilteredPending.length / APPROVALS_PAGE_SIZE);
+  const approvalsPaged = datedFilteredPending.slice(approvalsPage * APPROVALS_PAGE_SIZE, (approvalsPage + 1) * APPROVALS_PAGE_SIZE);
 
   // Exposed to the page header's "Request Regularization" button — opens the exact same
   // create-mode modal the section's own flow uses.
@@ -4361,9 +4372,18 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                 <input
                   type="date"
                   value={approvalsPickedIso}
-                  onChange={(e) => e.target.value && handleApprovalsDatePick(e.target.value)}
+                  onChange={(e) => setApprovalsPickedIso(e.target.value)}
                   style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 9px', color: 'var(--txt)', fontSize: 12 }}
                 />
+                {approvalsPickedIso && (
+                  <button
+                    onClick={() => setApprovalsPickedIso('')}
+                    title="Clear date filter"
+                    style={{ background: 'none', border: 'none', color: 'var(--txt-dim)', cursor: 'pointer', padding: 0, fontSize: 12 }}
+                  >
+                    ✕
+                  </button>
+                )}
               </label>
               <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} />
             </div>
@@ -4381,6 +4401,10 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
           ) : filteredPending.length === 0 ? (
             <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>
               No {STATUS_FILTER_TABS.find((t) => t.value === approvalStatusFilter)?.label.toLowerCase()} requests.
+            </div>
+          ) : datedFilteredPending.length === 0 ? (
+            <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>
+              No {STATUS_FILTER_TABS.find((t) => t.value === approvalStatusFilter)?.label.toLowerCase()} requests for {approvalsPickedIso}.
             </div>
           ) : (() => {
             // Select-all is scoped to the current page, same as any other paginated table's

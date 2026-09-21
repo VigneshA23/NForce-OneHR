@@ -20,7 +20,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -92,7 +94,7 @@ class HelpdeskServiceTest {
         when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
         when(ticketRepo.nextTicketSequence()).thenReturn(1L);
-        when(userRepo.findAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
 
         CreateHelpdeskTicketRequest req = new CreateHelpdeskTicketRequest();
         req.setCategoryId(1);
@@ -165,6 +167,53 @@ class HelpdeskServiceTest {
     }
 
     @Test
+    void getReplyAttachment_onInternalNote_isDeniedForOwningEmployee() {
+        HelpdeskTicket ticket = openTicket();
+        HelpdeskReply internalNoteWithAttachment = HelpdeskReply.builder().id(UUID.randomUUID())
+                .ticketId(ticket.getId()).senderId(hrAdminId).senderRole("HR")
+                .message("Escalate to payroll").internal(true)
+                .attachmentName("payroll.pdf").attachmentData(new byte[]{1, 2, 3}).build();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(replyRepo.findById(internalNoteWithAttachment.getId())).thenReturn(Optional.of(internalNoteWithAttachment));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(AccessDeniedException.class,
+                () -> helpdeskService.getReplyAttachment(internalNoteWithAttachment.getId(), employeeEmail));
+    }
+
+    @Test
+    void getReplyAttachment_onInternalNote_isAllowedForHrAdmin() {
+        HelpdeskTicket ticket = openTicket();
+        HelpdeskReply internalNoteWithAttachment = HelpdeskReply.builder().id(UUID.randomUUID())
+                .ticketId(ticket.getId()).senderId(hrAdminId).senderRole("HR")
+                .message("Escalate to payroll").internal(true)
+                .attachmentName("payroll.pdf").attachmentData(new byte[]{1, 2, 3}).build();
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(replyRepo.findById(internalNoteWithAttachment.getId())).thenReturn(Optional.of(internalNoteWithAttachment));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        HelpdeskReply result = helpdeskService.getReplyAttachment(internalNoteWithAttachment.getId(), hrAdminEmail);
+
+        assertEquals("payroll.pdf", result.getAttachmentName());
+    }
+
+    @Test
+    void getReplyAttachment_onPublicReply_isAllowedForOwningEmployee() {
+        HelpdeskTicket ticket = openTicket();
+        HelpdeskReply publicReplyWithAttachment = HelpdeskReply.builder().id(UUID.randomUUID())
+                .ticketId(ticket.getId()).senderId(hrAdminId).senderRole("HR")
+                .message("Here's the form").internal(false)
+                .attachmentName("form.pdf").attachmentData(new byte[]{1, 2, 3}).build();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(replyRepo.findById(publicReplyWithAttachment.getId())).thenReturn(Optional.of(publicReplyWithAttachment));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        HelpdeskReply result = helpdeskService.getReplyAttachment(publicReplyWithAttachment.getId(), employeeEmail);
+
+        assertEquals("form.pdf", result.getAttachmentName());
+    }
+
+    @Test
     void addReply_toAnotherEmployeesTicket_isDeniedForEmployee() {
         HelpdeskTicket ticket = openTicket();
         User stranger = User.builder().id(otherEmployeeId).email(otherEmployeeEmail)
@@ -182,7 +231,7 @@ class HelpdeskServiceTest {
         HelpdeskTicket ticket = openTicket();
         when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        when(userRepo.findAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
 
         var reply = helpdeskService.addReply(ticket.getId(), "please help", true, null, employeeEmail);
 
@@ -199,6 +248,46 @@ class HelpdeskServiceTest {
         assertThrows(IllegalStateException.class,
                 () -> helpdeskService.addReply(closed.getId(), "still there?", false, null, employeeEmail));
         verify(replyRepo, never()).save(any());
+    }
+
+    @Test
+    void addReply_withUnsupportedAttachmentType_isRejected() {
+        HelpdeskTicket ticket = openTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        MultipartFile attachment = new MockMultipartFile("attachment", "malware.exe", "application/octet-stream", "x".getBytes());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> helpdeskService.addReply(ticket.getId(), "see attached", false, attachment, employeeEmail));
+        verify(replyRepo, never()).save(any());
+    }
+
+    @Test
+    void addReply_withOversizedAttachment_isRejected() throws Exception {
+        HelpdeskTicket ticket = openTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        MultipartFile attachment = mock(MultipartFile.class);
+        when(attachment.isEmpty()).thenReturn(false);
+        when(attachment.getSize()).thenReturn(11L * 1024 * 1024);
+        when(attachment.getOriginalFilename()).thenReturn("big.pdf");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> helpdeskService.addReply(ticket.getId(), "see attached", false, attachment, employeeEmail));
+        verify(replyRepo, never()).save(any());
+    }
+
+    @Test
+    void addReply_withValidAttachment_isSaved() throws Exception {
+        HelpdeskTicket ticket = openTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        MultipartFile attachment = new MockMultipartFile("attachment", "screenshot.png", "image/png", "x".getBytes());
+
+        var reply = helpdeskService.addReply(ticket.getId(), "see attached", false, attachment, employeeEmail);
+
+        assertTrue(reply.isHasAttachment());
+        assertEquals("screenshot.png", reply.getAttachmentName());
     }
 
     @Test
@@ -351,10 +440,27 @@ class HelpdeskServiceTest {
         HelpdeskTicket ticket = openTicket();
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        when(userRepo.findAdminUserIds()).thenReturn(Set.of(hrAdminId)); // does not include the target
+        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId)); // does not include the target
 
         AssignTicketRequest req = new AssignTicketRequest();
         req.setAssigneeUserId(otherEmployeeId);
+
+        assertThrows(IllegalArgumentException.class, () -> helpdeskService.assignTicket(ticket.getId(), req, hrAdminEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void assignTicket_toDeactivatedAdmin_isRejected() {
+        HelpdeskTicket ticket = openTicket();
+        UUID deactivatedAdminId = UUID.randomUUID();
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        // The deactivated admin still holds the HR_ADMIN role, but findActiveAdminUserIds()
+        // excludes them — proving the assignment check is active-only, not just role-only.
+        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
+
+        AssignTicketRequest req = new AssignTicketRequest();
+        req.setAssigneeUserId(deactivatedAdminId);
 
         assertThrows(IllegalArgumentException.class, () -> helpdeskService.assignTicket(ticket.getId(), req, hrAdminEmail));
         verify(ticketRepo, never()).save(any());
@@ -367,7 +473,7 @@ class HelpdeskServiceTest {
         HelpdeskTicket ticket = openTicket(); // OPEN
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        when(userRepo.findAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
 
         AssignTicketRequest req = new AssignTicketRequest();
         req.setAssigneeUserId(hrAdminId);
