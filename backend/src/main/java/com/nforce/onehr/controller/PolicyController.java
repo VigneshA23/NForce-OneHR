@@ -59,6 +59,19 @@ public class PolicyController {
         return service.editPolicy(principal.getName(), id, req);
     }
 
+    @PostMapping("/{id}/publish-version")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public PolicyResponse publishVersion(Principal principal, @PathVariable Long id,
+                                         @Valid @RequestBody PublishPolicyVersionRequest req) {
+        return service.publishNewVersion(principal.getName(), id, req);
+    }
+
+    @GetMapping("/{id}/versions")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public List<PolicyResponse> versionHistory(Principal principal, @PathVariable Long id) {
+        return service.getVersionHistory(principal.getName(), id);
+    }
+
     @PostMapping("/{id}/deactivate")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
     public PolicyResponse deactivate(Principal principal, @PathVariable Long id) {

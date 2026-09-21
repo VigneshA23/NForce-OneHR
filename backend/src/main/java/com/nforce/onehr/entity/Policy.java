@@ -42,4 +42,14 @@ public class Policy {
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private boolean active = true;
+
+    // Version chain, for the explicit "Publish New Version" action (distinct from the
+    // metadata-only edit) — every version is its own row; previousVersionId links to the row it
+    // superseded. Every existing/first-published policy is version 1 of its own chain.
+    @Column(name = "version_number", nullable = false)
+    @Builder.Default
+    private Integer versionNumber = 1;
+
+    @Column(name = "previous_version_id")
+    private Long previousVersionId;
 }
