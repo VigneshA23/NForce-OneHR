@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
 import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
@@ -99,13 +100,18 @@ public class EmployeeController {
     /**
      * Any employee's profile photo, raw bytes — no {@code @PreAuthorize}, so any authenticated
      * user can view it (same visibility as the directory/org chart/team views, which already
-     * show everyone's name and department). 404 when there's no photo, so the frontend's avatar
-     * component can fall back to initials without treating it as an error.
+     * show everyone's name and department). Falls back to a 302 redirect to the employee's chosen
+     * avatar URL (see ProfileService#setAvatar) when there's no uploaded photo — the caller's
+     * blob-fetch already follows redirects transparently, so this needs no frontend change. 404
+     * only when neither exists, so the frontend's avatar component can fall back to initials
+     * without treating it as an error.
      */
     @GetMapping("/{userId}/photo")
     public ResponseEntity<byte[]> photo(@PathVariable UUID userId) {
         byte[] photo = employeeService.getPhoto(userId);
-        if (photo == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(photo);
+        if (photo != null) return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(photo);
+        String avatarUrl = employeeService.getAvatarUrl(userId);
+        if (avatarUrl != null) return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(avatarUrl)).build();
+        return ResponseEntity.notFound().build();
     }
 }

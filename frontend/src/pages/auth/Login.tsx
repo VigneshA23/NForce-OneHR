@@ -115,45 +115,37 @@ interface ImageLoginProps {
   submitting: boolean; locked: boolean; onSubmit: (e: React.FormEvent) => void;
 }
 
-// Full-viewport (100vw x 100dvh, no scrollbar) rendering of login-reference.png
-// as a two-layer composition:
-//   Layer 1 — a cover-scaled, blurred/darkened copy of the same artwork,
-//     filling the entire viewport edge-to-edge purely to blend away any
-//     letterbox margin (never shown crisply, never the thing being measured
-//     against, so its own cover-crop doesn't matter).
-//   Layer 2 — the actual artwork, uniformly scaled (no independent X/Y
-//     stretch) at its true 1671:941 ratio and centered — this is what stays
-//     visually identical to the fullscreen case at every viewport size.
-// Interactive overlays are positioned as percentages of Layer 2's box only,
-// so they scale and move together with the real artwork, never with the
-// viewport directly. The account-lockout state from the parent is wired in
-// here (disabled fields, a locked banner in place of the generic error, the
-// Forgot Password link hidden) so the security behavior survives this
-// visual layer exactly as it works in the fallback card below.
+// Full-viewport (100vw x 100dvh, no scrollbar) rendering of login-reference.png. The frame is sized
+// with CSS max() rather than min()/max-width — i.e. "cover" instead of "contain" — so it always
+// scales up to fully cover BOTH viewport dimensions at once. Because aspectRatio stays fixed at
+// 1671/941, that scale-up is perfectly uniform (no stretching, no distortion): on a viewport
+// proportionally wider than the artwork, the frame overflows vertically instead of leaving empty
+// space on the sides, and the outer wrapper's overflow:hidden trims that overflow symmetrically
+// (top and bottom, centered) — the same amount off each edge, so it only ever eats into the
+// artwork's own outer/background margin, never shifting the vertically-centered card/hero/globe.
+// FIELD_RECT's percentages stay exactly correct because they're relative to this same box, which
+// is still the artwork's true, undistorted aspect ratio — just larger than the viewport, not
+// letterboxed to fit inside it.
+// Interactive overlays are positioned as percentages of that box only, so they scale and move
+// together with it, never with the viewport directly. The account-lockout state from the parent is
+// wired in here (disabled fields, a locked banner in place of the generic error, the Forgot
+// Password link hidden) so the security behavior survives this visual layer exactly as it works in
+// the fallback card below.
 function ImageLogin({
   lockedMessage, hasError, error, errorId, email, setEmail, emailId, emailRef,
   password, setPassword, passId, showPass, setShowPass, submitting, locked, onSubmit,
 }: ImageLoginProps) {
   const bannerMessage = lockedMessage ?? (hasError ? error : null);
+  // Shared by the password input and its show/hide toggle button so the two sit on one
+  // continuous background instead of the toggle's own fixed shade showing as a seam.
+  const passwordFieldBg = password ? 'rgb(16,28,38)' : 'transparent';
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100dvh', overflow: 'hidden', background: '#060608' }}>
-      <img
-        aria-hidden="true"
-        src={loginReference}
-        draggable={false}
-        style={{
-          position: 'absolute', inset: -40, width: 'calc(100% + 80px)', height: 'calc(100% + 80px)',
-          objectFit: 'cover', filter: 'blur(60px) brightness(0.5) saturate(1.15)',
-          userSelect: 'none', pointerEvents: 'none',
-        }}
-      />
-      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'rgba(6,7,10,.35)' }} />
-
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div
           className="nf-login-frame"
           style={{
-            position: 'relative', width: '100%', maxWidth: 'calc(100dvh * 1671 / 941)', aspectRatio: '1671 / 941',
+            position: 'relative', width: 'max(100%, calc(100dvh * 1671 / 941))', aspectRatio: '1671 / 941',
             boxShadow: '0 40px 120px rgba(0,0,0,.55)',
           }}
         >
@@ -196,7 +188,17 @@ function ImageLogin({
                 // baked-in placeholder so the two don't overlap/garble.
                 background: email ? 'rgb(16,28,38)' : 'transparent',
                 border: 'none', outline: 'none', boxSizing: 'border-box',
-                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 2% 0 8%',
+                // Percentage padding always resolves against the containing block's width (this
+                // element's positioning ancestor, i.e. roughly the full frame), never against the
+                // element's own computed width, so it has to be re-based as
+                // <fraction-of-FIELD_RECT.email.width> * FIELD_RECT.email.width to land at the
+                // right visual inset. That fraction (13.63%) is measured directly from the baked
+                // artwork itself: the mail icon plus its gap to the "Email address" placeholder's
+                // left edge spans pixels 0-59 of the field's 433px-wide row in login-reference.png
+                // (67.32%..93.23% of the 1671px-wide source at its placeholder's own vertical
+                // center) — 59/433 ≈ 13.63%. This still scales with the frame like every other
+                // FIELD_RECT-driven value.
+                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 0.52% 0 3.53%',
                 opacity: locked ? 0.55 : 1, cursor: locked ? 'not-allowed' : 'text',
               }}
             />
@@ -209,9 +211,11 @@ function ImageLogin({
               aria-invalid={hasError} aria-describedby={bannerMessage ? errorId : undefined}
               style={{
                 ...rectStyle(FIELD_RECT.password),
-                background: password ? 'rgb(16,28,38)' : 'transparent',
+                background: passwordFieldBg,
                 border: 'none', outline: 'none', boxSizing: 'border-box',
-                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 4% 0 8%',
+                // Same containing-block-vs-own-width padding fix as the email input above — the
+                // lock icon measures to the same 13.63% inset in the artwork.
+                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 1.04% 0 3.53%',
                 opacity: locked ? 0.55 : 1, cursor: locked ? 'not-allowed' : 'text',
               }}
             />
@@ -220,12 +224,21 @@ function ImageLogin({
               disabled={locked}
               style={{
                 ...rectStyle(FIELD_RECT.toggle),
-                background: '#12141a', border: 'none', cursor: locked ? 'not-allowed' : 'pointer', color: 'var(--txt-dim)',
+                // Matches the password input's own background exactly (rather than a fixed shade)
+                // so the two sit flush with no visible seam, in every state.
+                background: passwordFieldBg,
+                border: 'none', cursor: locked ? 'not-allowed' : 'pointer', color: 'var(--txt-dim)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
                 opacity: locked ? 0.55 : 1,
               }}
             >
-              {showPass ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+              {/* The reference artwork already bakes a static eye-off glyph into this exact spot,
+                  visible through this button while its background is transparent (empty field) —
+                  rendering our own icon there too is what doubled it up. Once the field has a
+                  value, this button's background turns opaque (see passwordFieldBg) and covers
+                  that baked glyph entirely, so only then do we render our own icon — keeping
+                  exactly one eye visible in both states, not two. */}
+              {password && (showPass ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />)}
             </button>
 
             {!locked && (

@@ -39,7 +39,8 @@ class DocumentSearchProviderTest {
 
     private EmployeeDocumentResponse doc(UUID id, String typeName, String employeeName, String status) {
         return new EmployeeDocumentResponse(id, UUID.randomUUID(), employeeName, 1, typeName, false, false,
-                "file.pdf", "/file.pdf", null, null, status, null, null, null, Instant.now(), Instant.now());
+                "file.pdf", "/file.pdf", null, null, status, null, null, null, Instant.now(), Instant.now(),
+                1, false, null);
     }
 
     @Test

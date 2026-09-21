@@ -26,6 +26,9 @@ public class EmployeeDocumentResponse {
     String rejectionReason;
     Instant uploadedAt;
     Instant updatedAt;
+    int versionNumber;
+    boolean superseded;
+    UUID previousVersionId;
 
     public static EmployeeDocumentResponse from(EmployeeDocument d) {
         return from(d, null);
@@ -39,6 +42,7 @@ public class EmployeeDocumentResponse {
                 d.getFileName(), d.getFileUrl(),
                 d.getIssueDate(), d.getExpiryDate(),
                 d.getStatus(), d.getVerifiedBy(), d.getVerifiedAt(),
-                d.getRejectionReason(), d.getUploadedAt(), d.getUpdatedAt());
+                d.getRejectionReason(), d.getUploadedAt(), d.getUpdatedAt(),
+                d.getVersionNumber(), d.isSuperseded(), d.getPreviousVersionId());
     }
 }

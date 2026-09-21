@@ -594,6 +594,15 @@ public class EmployeeService {
                 .orElse(null);
     }
 
+    /** Chosen-avatar counterpart to {@link #getPhoto} — checked only when getPhoto returns null,
+     * since an uploaded photo and a chosen avatar are mutually exclusive (see ProfileService). */
+    @Transactional(readOnly = true)
+    public String getAvatarUrl(UUID userId) {
+        return employeeRepository.findById(userId)
+                .map(Employee::getAvatarUrl)
+                .orElse(null);
+    }
+
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
         return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .flatMap(h -> userRepository.findById(h.getManagerUserId()))

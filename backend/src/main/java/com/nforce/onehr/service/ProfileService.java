@@ -1,6 +1,7 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.ProfileResponse;
+import com.nforce.onehr.dto.SetAvatarRequest;
 import com.nforce.onehr.dto.UpdateProfileRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.User;
@@ -72,6 +73,18 @@ public class ProfileService {
         Employee emp = employeeRepository.findById(user.getId())
                 .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
         emp.setProfilePhoto(file.getBytes());
+        emp.setAvatarUrl(null); // uploading a real photo replaces any previously chosen avatar
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
+    @Transactional
+    public ProfileResponse setAvatar(String email, SetAvatarRequest req) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setAvatarUrl(req.getAvatarUrl());
+        emp.setProfilePhoto(null); // mutually exclusive with an uploaded photo
         employeeRepository.save(emp);
         return toResponse(user, emp);
     }
@@ -82,6 +95,7 @@ public class ProfileService {
         Employee emp = employeeRepository.findById(user.getId())
                 .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
         emp.setProfilePhoto(null);
+        emp.setAvatarUrl(null);
         employeeRepository.save(emp);
         return toResponse(user, emp);
     }
@@ -119,6 +133,8 @@ public class ProfileService {
         if (emp.getProfilePhoto() != null && emp.getProfilePhoto().length > 0) {
             photoDataUrl = "data:image/jpeg;base64,"
                     + Base64.getEncoder().encodeToString(emp.getProfilePhoto());
+        } else if (emp.getAvatarUrl() != null) {
+            photoDataUrl = emp.getAvatarUrl();
         }
 
         return ProfileResponse.builder()

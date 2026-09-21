@@ -24,3 +24,24 @@ export function resolveInitialTheme(stored: Theme | null, prefersLight: boolean)
   if (stored) return stored;
   return prefersLight ? 'light' : 'dark';
 }
+
+// ── Display mode (adds a persisted "auto" choice on top of the explicit dark/light above) ──────
+
+export type ThemeMode = Theme | 'auto';
+
+/** Same storage slot as readStoredTheme, widened to also accept the "auto" mode. */
+export function readStoredThemeMode(storage: Pick<Storage, 'getItem'>): ThemeMode | null {
+  try {
+    const v = storage.getItem(THEME_STORAGE_KEY);
+    return v === 'dark' || v === 'light' || v === 'auto' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves a mode ('dark' | 'light' | 'auto') to the concrete theme actually painted —
+ * 'auto' tracks the OS/browser preference live, the other two are explicit overrides. */
+export function resolveAppliedTheme(mode: ThemeMode, prefersLight: boolean): Theme {
+  if (mode === 'auto') return prefersLight ? 'light' : 'dark';
+  return mode;
+}

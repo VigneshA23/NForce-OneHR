@@ -27,6 +27,8 @@ export interface Policy {
   active: boolean;
   acknowledged: boolean | null;
   acknowledgedAt: string | null;
+  versionNumber: number;
+  previousVersionId: number | null;
 }
 
 export interface PolicyAcknowledgment {
@@ -92,6 +94,16 @@ export async function editPolicy(token: string, id: number, body: {
   title?: string; description?: string; audience?: string;
 }): Promise<Policy> {
   return handle(await fetch(`${BASE_POLICIES}/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(body) }));
+}
+
+export async function publishPolicyVersion(token: string, id: number, body: {
+  title?: string; version?: string; description?: string; audience?: string; required?: boolean;
+}): Promise<Policy> {
+  return handle(await fetch(`${BASE_POLICIES}/${id}/publish-version`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(body) }));
+}
+
+export async function policyVersionHistory(token: string, id: number): Promise<Policy[]> {
+  return handle(await fetch(`${BASE_POLICIES}/${id}/versions`, { headers: authHeaders(token) }));
 }
 
 export async function deactivatePolicy(token: string, id: number): Promise<Policy> {
