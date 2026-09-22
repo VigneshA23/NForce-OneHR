@@ -132,9 +132,10 @@ export function bubbleStyle(isUser: boolean): React.CSSProperties {
     padding: '10px 12px',
     fontSize: 13,
     color: 'var(--txt)',
-    // Assistant prose is plain text: there is no markdown renderer anywhere in this codebase, and
-    // adding one would mean a new dependency and an XSS surface for model output. Structure comes
-    // from the `steps` array instead, which is rendered as a real list.
+    // Assistant prose gets a small, dependency-free treatment (see AssistantText/renderInlineBold
+    // in MessageList.tsx) for **bold** and "- " bullet lines only — never a real markdown parser
+    // and never dangerouslySetInnerHTML, so there is still no new XSS surface for model output.
+    // Structure beyond that still comes from the `steps` array, rendered as a real list.
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
   };
