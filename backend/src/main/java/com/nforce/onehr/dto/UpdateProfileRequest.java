@@ -25,4 +25,28 @@ public class UpdateProfileRequest {
     @Pattern(regexp = "^\\d{10}$", message = "Contact phone number must be exactly 10 digits")
     private String emergencyContactPhone;
     private String workMode;
+
+    // ESS "My Profile" redesign — additional self-service fields. No format validators beyond
+    // required-ness are applied here (no existing precedent in this codebase to match), consistent
+    // with the "plain columns, UI masking only" decision for the PII fields below.
+    @Pattern(regexp = "^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
+            message = "Name can only contain letters, spaces, hyphens, apostrophes, and periods")
+    private String firstName;
+    @Pattern(regexp = "^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
+            message = "Name can only contain letters, spaces, hyphens, apostrophes, and periods")
+    private String middleName;
+    @Pattern(regexp = "^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
+            message = "Name can only contain letters, spaces, hyphens, apostrophes, and periods")
+    private String lastName;
+    private String preferredName;
+    private String bio;
+    private String maritalStatus;
+    private String emergencyContactRelationship;
+    private String permanentAddress;
+    private String passportNumber;
+    private LocalDate passportExpiry;
+    private String bankAccountNumber;
+    private String bankName;
+    private String bankIfsc;
+    private String nationalId;
 }

@@ -1,0 +1,1856 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Enterprise HRMS — My Profile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --shell:        #0E0F12;
+    --panel:        #16181D;
+    --raised:       #1E2128;
+    --raised2:      #262A32;
+    --line:         #2A2E37;
+    --line2:        #353A45;
+
+    --brand:        #B11116;
+    --brand-bright: #E4373D;
+    --brand-deep:   #7A0C10;
+
+    --txt:          #E8EAED;
+    --txt-mut:      #9BA1AC;
+    --txt-dim:      #6B7280;
+
+    --ok:           #2FB67C;
+    --warn:         #E0A93B;
+    --risk:         #E4373D;
+    --info:         #4C8DD6;
+
+    --role-bg:      rgba(177,17,22,.18);
+    --role-txt:     #E4373D;
+    --status-bg:    rgba(47,182,124,.15);
+    --code-bg:      rgba(107,114,128,.15);
+
+    --radius-card:  10px;
+    --radius-btn:   6px;
+    --radius-pill:  20px;
+
+    --font: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--shell);
+    color: var(--txt);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  img, button, input, select, textarea { font-family: inherit; }
+  button { cursor: pointer; }
+
+  .profile-hero-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .hero-banner {
+    height: 160px;
+    background: 
+      linear-gradient(135deg, rgba(14, 15, 18, 0.72) 0%, rgba(30, 20, 45, 0.45) 45%, rgba(177, 17, 22, 0.35) 100%),
+      radial-gradient(circle at top right, rgba(228, 55, 61, 0.35), transparent 45%),
+      radial-gradient(circle at 10% 80%, rgba(76, 141, 214, 0.2), transparent 40%),
+      repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.015) 0, rgba(255, 255, 255, 0.015) 1px, transparent 0, transparent 16px),
+      linear-gradient(120deg, #11141a 0%, #1a1626 50%, #291118 100%);
+    position: relative;
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .banner-identity-group {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    position: relative;
+    z-index: 2;
+  }
+
+  .hero-avatar-btn {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    padding: 0;
+    border: none;
+    background: none;
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .hero-avatar-img {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: center 15%;
+    border: 3px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    display: block;
+  }
+
+  .banner-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .banner-name-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .banner-name {
+    font-size: 22px;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .status-indicator-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+  }
+  .banner-designation {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.85);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin: 0;
+  }
+
+  .hero-meta-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 14px 28px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+  }
+  .meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--txt-mut);
+  }
+  .meta-item svg {
+    color: var(--txt-dim);
+    flex-shrink: 0;
+  }
+
+  .profile-tabs-bar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 0 28px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+  }
+  .tab-item {
+    background: none;
+    border: none;
+    padding: 14px 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--txt-mut);
+    cursor: pointer;
+    position: relative;
+    white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+  .tab-item:hover { color: var(--txt); }
+  .tab-item.active { color: var(--brand-bright); }
+  .tab-item.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--brand-bright);
+    border-radius: 2px 2px 0 0;
+  }
+
+  .sub-tabs-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 4px;
+    overflow-x: auto;
+  }
+  .sub-tab-pill {
+    background: var(--raised);
+    border: 1px solid var(--line2);
+    color: var(--txt-mut);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .sub-tab-pill:hover {
+    color: var(--txt);
+    border-color: var(--txt-dim);
+  }
+  .sub-tab-pill.active {
+    background: rgba(177, 17, 22, 0.2);
+    border-color: var(--brand-bright);
+    color: var(--brand-bright);
+  }
+
+  .nf-main-content {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+  .page-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .tab-panel {
+    display: none;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .tab-panel.active { display: flex; }
+
+  .sub-tab-content {
+    display: none;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .sub-tab-content.active { display: flex; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    padding: 20px 24px;
+    position: relative;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0 0 16px;
+  }
+  .section-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--txt);
+    margin: 0;
+  }
+  .section-badge {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--txt-dim);
+    background: var(--code-bg);
+    border-radius: var(--radius-pill);
+    padding: 2px 8px;
+  }
+
+  .section-edit-btn {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--txt-mut);
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--radius-btn);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .section-edit-btn:hover {
+    color: var(--txt);
+    background: var(--raised);
+    border-color: var(--line2);
+  }
+
+  .field-grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 24px;
+  }
+  .field-grid-3col {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px 24px;
+  }
+  .field-full { grid-column: 1 / -1; }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--txt-mut);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin: 0 0 4px;
+    display: block;
+  }
+  .field-value {
+    font-size: 13.5px;
+    color: var(--txt);
+    margin: 0;
+    font-weight: 500;
+    word-break: break-word;
+  }
+
+  .table-responsive {
+    overflow-x: auto;
+    border-radius: var(--radius-btn);
+    border: 1px solid var(--line);
+  }
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 12.5px;
+    background: var(--panel);
+  }
+  .data-table th {
+    background: var(--raised);
+    color: var(--txt-mut);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    font-size: 11px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line2);
+    white-space: nowrap;
+  }
+  .data-table td {
+    padding: 14px;
+    border-bottom: 1px solid var(--line);
+    color: var(--txt);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: rgba(255,255,255,0.015); }
+
+  .cell-strong { font-weight: 600; color: var(--txt); }
+  .cell-sub { font-size: 11px; color: var(--txt-dim); margin-top: 2px; }
+
+  .badge-status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-status-pill.ok { background: rgba(47, 182, 124, 0.15); color: var(--ok); }
+  .badge-status-pill.warn { background: rgba(224, 169, 59, 0.15); color: var(--warn); }
+  .badge-status-pill.risk { background: rgba(228, 55, 61, 0.15); color: var(--risk); }
+  .badge-status-pill.info { background: rgba(76, 141, 214, 0.15); color: var(--info); }
+
+  .action-menu-wrap { position: relative; display: inline-block; }
+  .action-dots-btn {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--txt-mut);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .action-dots-btn:hover {
+    background: var(--raised);
+    color: var(--txt);
+    border-color: var(--line2);
+  }
+  .action-dropdown {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: var(--raised);
+    border: 1px solid var(--line2);
+    border-radius: var(--radius-btn);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.5);
+    min-width: 175px;
+    z-index: 100;
+    display: none;
+    padding: 4px;
+  }
+  .action-dropdown.show { display: block; }
+  .action-dropdown-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    color: var(--txt);
+    background: none;
+    border: none;
+    border-radius: 4px;
+    text-align: left;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .action-dropdown-item:hover { background: var(--raised2); color: var(--brand-bright); }
+  .action-dropdown-item.danger:hover { color: var(--risk); }
+
+  .btn {
+    border-radius: var(--radius-btn);
+    padding: 7px 16px;
+    font-size: 12.5px;
+    font-weight: 600;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background .15s ease, opacity .15s ease;
+  }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover { background: var(--brand-bright); }
+  .btn-secondary {
+    background: var(--raised);
+    border: 1px solid var(--line2);
+    color: var(--txt-mut);
+  }
+  .btn-secondary:hover { color: var(--txt); border-color: var(--txt-dim); }
+
+  /* =====================================================================
+     VERTICAL EVENT TIMELINE SYSTEM
+     ===================================================================== */
+  .timeline-container {
+    position: relative;
+    padding: 10px 0 20px 20px;
+  }
+  .timeline-container::before {
+    content: '';
+    position: absolute;
+    left: 43px;
+    top: 15px;
+    bottom: 25px;
+    width: 2px;
+    background: var(--line2);
+  }
+
+  .timeline-year-pill {
+    position: relative;
+    display: inline-block;
+    background: #3a4252;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin: 20px 0 16px 12px;
+    z-index: 2;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  .timeline-year-pill:first-child {
+    margin-top: 0;
+  }
+
+  .timeline-entry {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    margin-bottom: 26px;
+  }
+  .timeline-entry:last-child {
+    margin-bottom: 0;
+  }
+
+  .timeline-icon-wrap {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--raised);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    flex-shrink: 0;
+    z-index: 2;
+    box-shadow: 0 0 0 4px var(--panel);
+  }
+  .timeline-icon-wrap.bg-salary { background: #4C8DD6; }
+  .timeline-icon-wrap.bg-anniv  { background: #E0A93B; }
+  .timeline-icon-wrap.bg-title  { background: #8E65B9; }
+  .timeline-icon-wrap.bg-prob   { background: #8E65B9; }
+  .timeline-icon-wrap.bg-mgr    { background: #E0A93B; }
+  .timeline-icon-wrap.bg-join   { background: #2FB67C; }
+
+  .timeline-body {
+    flex: 1;
+    min-width: 0;
+    padding-top: 4px;
+  }
+  .timeline-title {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--txt);
+    margin: 0 0 4px;
+  }
+  .timeline-date {
+    font-size: 12px;
+    color: var(--txt-mut);
+    margin: 0 0 10px;
+  }
+
+  .timeline-diff-card {
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--txt);
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .timeline-arrow {
+    color: var(--txt-dim);
+    font-size: 15px;
+  }
+
+  .person-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .person-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  .person-avatar-initials {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #fff;
+    font-size: 10.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Modals */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 600;
+    padding: 24px;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.open { display: flex; }
+
+  .edit-modal-box {
+    background: var(--panel);
+    border: 1px solid var(--line2);
+    border-radius: var(--radius-card);
+    box-shadow: 0 24px 64px rgba(0,0,0,.65);
+    width: clamp(340px, 60vw, 760px);
+    max-width: 95vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .edit-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .edit-modal-title { font-size: 16px; font-weight: 700; color: var(--txt); margin: 0; }
+  .edit-modal-title span { color: var(--brand-bright); }
+  .modal-close-btn {
+    background: none;
+    border: none;
+    color: var(--txt-mut);
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .modal-close-btn:hover { background: var(--raised); color: var(--txt); }
+
+  .edit-modal-body { padding: 24px; overflow-y: auto; }
+  .modal-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 20px;
+  }
+  .modal-form-grid.grid-1col { grid-template-columns: 1fr; }
+  .modal-field { display: flex; flex-direction: column; }
+  .modal-field.field-full { grid-column: 1 / -1; }
+
+  .modal-input, .modal-select, textarea.modal-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--raised);
+    border: 1px solid var(--line2);
+    border-radius: var(--radius-btn);
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--txt);
+  }
+  .modal-input:focus, .modal-select:focus, textarea.modal-input:focus {
+    outline: none;
+    border-color: var(--brand);
+  }
+
+  .edit-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 24px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel);
+    border: 1px solid var(--line2);
+    color: var(--txt);
+    padding: 10px 18px;
+    border-radius: var(--radius-btn);
+    font-size: 13px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease;
+    z-index: 700;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast .ok-dot { color: var(--ok); font-weight: 700; margin-right: 6px; }
+
+  @media (max-width: 767px) {
+    .field-grid-2col, .field-grid-3col, .field-grid-4col, .modal-form-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="nf-main-content">
+  <div class="page-wrap">
+
+    <!-- ============ TOP HERO SECTION ============ -->
+    <div class="profile-hero-card">
+      <div class="hero-banner">
+        <div class="banner-identity-group">
+          <button class="hero-avatar-btn" id="avatarOpenBtn" title="View / Change photo">
+            <img class="hero-avatar-img" id="avatarImg" src="https://images.filmibeat.com/img/popcorn/movie_posters/mirchi-12502.jpg" alt="Profile photo">
+          </button>
+          <div class="banner-identity">
+            <div class="banner-name-row">
+              <h2 class="banner-name" id="heroDisplayName">Prabhas Raju</h2>
+              <span class="status-indicator-dot" title="Active"></span>
+            </div>
+            <p class="banner-designation" id="heroDesignation">Lead Consultant &middot; Operations</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero Sub-Meta Bar -->
+      <div class="hero-meta-bar">
+        <div class="meta-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          <span id="heroWorkEmail">prabhas.raju@nforceone.com</span>
+        </div>
+        <div class="meta-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <span id="heroMobile">+91 9876543210</span>
+        </div>
+        <div class="meta-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <span id="heroLocation">Hyderabad, India</span>
+        </div>
+        <div class="meta-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span id="heroEmpCode">NFO20240087</span>
+        </div>
+      </div>
+
+      <!-- Navigation Primary Tabs -->
+      <div class="profile-tabs-bar">
+        <button class="tab-item active" data-tab="about">About</button>
+        <button class="tab-item" data-tab="profile">Profile</button>
+        <button class="tab-item" data-tab="job">Job</button>
+        <button class="tab-item" data-tab="documents">Documents</button>
+        <button class="tab-item" data-tab="assets">Assets</button>
+      </div>
+    </div>
+
+    <!-- ============ TAB 1: ABOUT ============ -->
+    <div class="tab-panel active" id="tab-about">
+      <div class="sub-tabs-bar">
+        <button class="sub-tab-pill active" data-subtab="summary">Summary</button>
+        <button class="sub-tab-pill" data-subtab="timeline">Timeline</button>
+      </div>
+
+      <!-- Sub-Tab 1: Summary -->
+      <div class="sub-tab-content active" id="subtab-summary">
+        <div class="card" id="section-aboutSummary">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Personal Summary &amp; Bio</p>
+              <span class="section-badge">Direct Edit</span>
+            </div>
+            <button class="section-edit-btn" onclick="openEditModal('aboutSummary')">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+              Edit
+            </button>
+          </div>
+          <div class="field-grid-2col">
+            <div class="field">
+              <span class="field-label">Preferred Name</span>
+              <p class="field-value" data-val="preferredName">Prabhas</p>
+            </div>
+            <div class="field field-full">
+              <span class="field-label">About Me / Bio</span>
+              <p class="field-value" data-val="bio">Experienced technical program lead specializing in enterprise HRMS architectures, operational transformation, and cross-functional team delivery across high-throughput web systems.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Employment &amp; Organization Context</p>
+              <span class="section-badge">Read-Only</span>
+            </div>
+          </div>
+          <div class="field-grid-3col">
+            <div class="field">
+              <span class="field-label">Job Title</span>
+              <p class="field-value cell-strong">Lead Consultant</p>
+            </div>
+            <div class="field">
+              <span class="field-label">Department</span>
+              <p class="field-value">Strategic Operations</p>
+            </div>
+            <div class="field">
+              <span class="field-label">Work Email</span>
+              <p class="field-value">prabhas.raju@nforceone.com</p>
+            </div>
+            <div class="field">
+              <span class="field-label">Work Phone</span>
+              <p class="field-value">040-23456789</p>
+            </div>
+            <div class="field">
+              <span class="field-label">Reporting Manager</span>
+              <p class="field-value cell-strong">Rahul Verma</p>
+            </div>
+            <div class="field">
+              <span class="field-label">Location</span>
+              <p class="field-value">Hyderabad, India</p>
+            </div>
+            <div class="field field-full">
+              <span class="field-label">Date of Joining / Tenure</span>
+              <p class="field-value">17 Oct 2024 &middot; (1 yr 11 mos)</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-Tab 2: Timeline (Matches reference screenshot design: bottom is joining date) -->
+      <div class="sub-tab-content" id="subtab-timeline">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Employee Life Cycle &amp; Career History</p>
+              <span class="section-badge">System History</span>
+            </div>
+          </div>
+
+          <div class="timeline-container">
+
+            <!-- Event 1: Salary Revised (2026)[cite: 2] -->
+            <div class="timeline-entry">
+              <div class="timeline-icon-wrap bg-salary">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>
+              </div>
+              <div class="timeline-body">
+                <div class="timeline-title">Salary Revised</div>
+                <div class="timeline-date">01 Apr 2026</div>
+              </div>
+            </div>
+
+            <!-- Year Separator: 2025[cite: 2] -->
+            <div class="timeline-year-pill">2025</div>
+
+            <!-- Event 2: Work Anniversary[cite: 2] -->
+            <div class="timeline-entry">
+              <div class="timeline-icon-wrap bg-anniv">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              </div>
+              <div class="timeline-body">
+                <div class="timeline-title">Work Anniversary</div>
+                <div class="timeline-date">07 Oct 2025</div>
+                <div class="timeline-diff-card">1st Work Anniversary</div>
+              </div>
+            </div>
+
+            <!-- Event 3: Job Title Changed[cite: 2] -->
+            <div class="timeline-entry">
+              <div class="timeline-icon-wrap bg-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+              </div>
+              <div class="timeline-body">
+                <div class="timeline-title">Job Title Changed</div>
+                <div class="timeline-date">07 Apr 2025</div>
+                <div class="timeline-diff-card">
+                  <span>Associate Engineer Intern</span>
+                  <span class="timeline-arrow">&rarr;</span>
+                  <span class="cell-strong">QA ENGINEER I</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Event 4: Salary Revised[cite: 2] -->
+            <div class="timeline-entry">
+              <div class="timeline-icon-wrap bg-salary">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>
+              </div>
+              <div class="timeline-body">
+                <div class="timeline-title">Salary Revised</div>
+                <div class="timeline-date">07 Apr 2025</div>
+              </div>
+            </div>
+
+            <!-- Event 5: Probation Completed[cite: 2] -->
+            <div class="timeline-entry">
+              <div class="timeline-icon-wrap bg-prob">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="m9 16 2 2 4-4"/></svg>
+              </div>
+              <div class="timeline-body">
+                <div class="timeline-title">Probation Completed</div>
+                <div class="timeline-date">06 Apr 2025</div>
+              </div>
+            </div>
+
+            <!-- Event 6: Reporting Manager Changed[cite: 2] -->
+            <div class="timeline-entry">
+              <div class="timeline-icon-wrap bg-mgr">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </div>
+              <div class="timeline-body">
+                <div class="timeline-title">Reporting Manager Changed</div>
+                <div class="timeline-date">01 Apr 2025</div>
+                <div class="timeline-diff-card">
+                  <div class="person-badge">
+                    <img class="person-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=60&auto=format&fit=crop&q=60" alt="Ramesh Adepu">
+                    <span>RAMESH ADEPU</span>
+                  </div>
+                  <span class="timeline-arrow">&rarr;</span>
+                  <div class="person-badge">
+                    <div class="person-avatar-initials">VG</div>
+                    <span class="cell-strong">Venkatesh Gunda</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Year Separator: 2024 (Inception year)[cite: 2] -->
+            <div class="timeline-year-pill">2024</div>
+
+            <!-- Event 7: Joined Company (The starting anchor of employment)[cite: 2] -->
+            <div class="timeline-entry">
+              <div class="timeline-icon-wrap bg-join">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>
+              </div>
+              <div class="timeline-body">
+                <div class="timeline-title">Joined Nforce One Pvt. Ltd.</div>
+                <div class="timeline-date">17 Oct 2024</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ TAB 2: PROFILE ============ -->
+    <div class="tab-panel" id="tab-profile">
+
+      <!-- 1. Primary Details -->
+      <div class="card" id="section-primary">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Primary Details</p>
+          </div>
+          <button class="section-edit-btn" onclick="openEditModal('primary')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            Edit
+          </button>
+        </div>
+        <div class="field-grid-3col">
+          <div class="field">
+            <span class="field-label">Legal First Name</span>
+            <p class="field-value" data-val="firstName">Prabhas</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Legal Middle Name</span>
+            <p class="field-value" data-val="middleName">—</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Legal Last Name</span>
+            <p class="field-value" data-val="lastName">Raju</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Date of Birth</span>
+            <p class="field-value" data-val="dob">23 Oct 1979</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Gender</span>
+            <p class="field-value" data-val="gender">Male</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Marital Status</span>
+            <p class="field-value" data-val="maritalStatus">Single</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Emergency Contact Name</span>
+            <p class="field-value" data-val="emName">Siva Prasad</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Emergency Contact Relationship</span>
+            <p class="field-value" data-val="emRelation">Brother</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Emergency Contact Phone</span>
+            <p class="field-value" data-val="emPhone">+91 9123456780</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Contact Details -->
+      <div class="card" id="section-contact">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Contact Details</p>
+          </div>
+          <button class="section-edit-btn" onclick="openEditModal('contact')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            Edit
+          </button>
+        </div>
+        <div class="field-grid-3col">
+          <div class="field">
+            <span class="field-label">Work Email</span>
+            <p class="field-value">prabhas.raju@nforceone.com <span class="badge-status-pill ok" style="font-size:9.5px; padding:1px 5px;">Managed</span></p>
+          </div>
+          <div class="field">
+            <span class="field-label">Personal Email</span>
+            <p class="field-value" data-val="personalEmail">prabhas.official@gmail.com</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Mobile Number</span>
+            <p class="field-value" data-val="mobile">+91 9876543210</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Addresses -->
+      <div class="card" id="section-addresses">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Addresses</p>
+            <span class="section-badge">Direct Edit</span>
+          </div>
+          <button class="section-edit-btn" onclick="openEditModal('addresses')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            Edit
+          </button>
+        </div>
+        <div class="field-grid-2col">
+          <div class="field">
+            <span class="field-label">Current Address</span>
+            <p class="field-value" data-val="currentAddress">Flat 402, Jubilee Hills, Road No. 10, Hyderabad, Telangana 500033, India</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Permanent Address</span>
+            <p class="field-value" data-val="permanentAddress">Mogalthur, West Godavari District, Andhra Pradesh 534281, India</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Education -->
+      <div class="card" id="section-education">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Education</p>
+            <span class="section-badge">Approval Required</span>
+          </div>
+          <button class="section-edit-btn" onclick="openEditModal('education')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            Edit
+          </button>
+        </div>
+        <div class="field-grid-3col">
+          <div class="field">
+            <span class="field-label">Institution Name</span>
+            <p class="field-value" data-val="university">DNR College of Engineering &amp; Technology</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Degree / Qualification</span>
+            <p class="field-value" data-val="degree">Bachelor's Degree (B.Tech)</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Field of Study</span>
+            <p class="field-value" data-val="branch">Computer Science and Engineering</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Start Date</span>
+            <p class="field-value" data-val="eduStart">01 Aug 1997</p>
+          </div>
+          <div class="field">
+            <span class="field-label">End Date</span>
+            <p class="field-value" data-val="eduEnd">30 May 2001</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Certificate Verification</span>
+            <p class="field-value"><span class="badge-status-pill ok">&#10003; Document Verified</span></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Identity Information -->
+      <div class="card" id="section-identity">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Identity &amp; Statutory</p>
+            <span class="section-badge">PII Masked</span>
+          </div>
+          <button class="section-edit-btn" onclick="openEditModal('identity')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            Edit
+          </button>
+        </div>
+        <div class="field-grid-3col">
+          <div class="field">
+            <span class="field-label">National ID</span>
+            <p class="field-value">[Aadhaar Redacted]</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Passport Number</span>
+            <p class="field-value" data-val="passport">Z8920194</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Passport Expiry</span>
+            <p class="field-value" data-val="passportExp">14 Oct 2030</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Bank Account Number</span>
+            <p class="field-value" data-val="bankAccount">•••• •••• 5591</p>
+          </div>
+          <div class="field field-full">
+            <span class="field-label">Bank Name &amp; Routing / IFSC</span>
+            <p class="field-value" data-val="bankDetails">HDFC Bank &middot; Jubilee Hills Branch &middot; IFSC: HDFC0001234</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ TAB 3: JOB ============ -->
+    <div class="tab-panel" id="tab-job">
+
+      <!-- 1. Job Details -->
+      <div class="card">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Job Details</p>
+            <span class="section-badge">Read-Only</span>
+          </div>
+        </div>
+        <div class="field-grid-3col">
+          <div class="field">
+            <span class="field-label">Employee ID</span>
+            <p class="field-value cell-strong">NFO20240087</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Job Title / Job Code</span>
+            <p class="field-value cell-strong">Lead Consultant <span class="cell-sub">(ENG-PRG-L5)</span></p>
+          </div>
+          <div class="field">
+            <span class="field-label">Employment Type</span>
+            <p class="field-value">Full-time</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Employment Status</span>
+            <p class="field-value"><span class="badge-status-pill ok">Active</span></p>
+          </div>
+          <div class="field">
+            <span class="field-label">Date of Joining</span>
+            <p class="field-value">17 Oct 2024</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Probation End / Confirmation Date</span>
+            <p class="field-value">Confirmed &middot; 06 Apr 2025</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Reporting Manager</span>
+            <p class="field-value cell-strong">Rahul Verma</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Employee Time -->
+      <div class="card">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Employee Time</p>
+            <span class="section-badge">Read-Only</span>
+          </div>
+        </div>
+        <div class="field-grid-3col">
+          <div class="field">
+            <span class="field-label">Shift / Work Schedule</span>
+            <p class="field-value">General Shift (9:30 AM – 6:30 PM)</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Holiday Calendar</span>
+            <p class="field-value">Hyderabad Regional Holidays 2026</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Attendance Policy Group</span>
+            <p class="field-value">Standard Corporate Policy</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Attendance Time Tracking Policy</span>
+            <p class="field-value">Biometric + Geofenced Web Check-In</p>
+          </div>
+          <div class="field field-full">
+            <span class="field-label">Attendance Penalization Policy</span>
+            <p class="field-value">Grace Window 15 Minutes &middot; 3 Late Marks result in 0.5 Day Deduction</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Organization -->
+      <div class="card">
+        <div class="section-header">
+          <div class="section-header-left">
+            <p class="section-title">Organization</p>
+            <span class="section-badge">Read-Only</span>
+          </div>
+        </div>
+        <div class="field-grid-3col">
+          <div class="field">
+            <span class="field-label">Business Unit / Division</span>
+            <p class="field-value">Digital Solutions &amp; Enterprise</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Department / Sub-department</span>
+            <p class="field-value">Strategic Operations</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Location / Office</span>
+            <p class="field-value">Hyderabad, India</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Reports To</span>
+            <p class="field-value cell-strong">Rahul Verma (VP)</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Manager of Manager (L2 Manager)</span>
+            <p class="field-value cell-strong">Sunil Chawla (COO)</p>
+          </div>
+          <div class="field field-full">
+            <span class="field-label">Direct Reports</span>
+            <p class="field-value">Ananya Sharma (Senior Consultant), Karthik Reddy (Operations Associate)</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ TAB 4: DOCUMENTS ============ -->
+    <div class="tab-panel" id="tab-documents">
+      <div class="sub-tabs-bar">
+        <button class="sub-tab-pill active" data-subtab="docs-id">Identity &amp; Compliance Proofs</button>
+        <button class="sub-tab-pill" data-subtab="docs-edu">Educational Certificates</button>
+        <button class="sub-tab-pill" data-subtab="docs-prev">Previous Employment</button>
+        <button class="sub-tab-pill" data-subtab="docs-stat">Statutory Documents</button>
+        <button class="sub-tab-pill" data-subtab="docs-pay">Payslips &amp; Tax Documents</button>
+      </div>
+
+      <!-- 4.1 Identity Proofs -->
+      <div class="sub-tab-content active" id="subtab-docs-id">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Identity &amp; Compliance Proofs</p>
+            </div>
+            <button class="btn btn-primary" onclick="showToast('Upload dialog opened')">+ Upload Document</button>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Document Type</th>
+                  <th>Filename</th>
+                  <th>Uploaded Date</th>
+                  <th>Verification Status</th>
+                  <th style="text-align:right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cell-strong">Address Proof</span></td>
+                  <td>Utility_Bill_Aug2026.pdf</td>
+                  <td>12 Aug 2026</td>
+                  <td><span class="badge-status-pill ok">Verified</span></td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Downloading Document')">Download</button></td>
+                </tr>
+                <tr>
+                  <td><span class="cell-strong">Passport Scan</span></td>
+                  <td>Passport_Front_Back.pdf</td>
+                  <td>16 Mar 2023</td>
+                  <td><span class="badge-status-pill ok">Verified</span></td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Downloading Document')">Download</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4.2 Educational -->
+      <div class="sub-tab-content" id="subtab-docs-edu">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Educational Certificates</p>
+            </div>
+            <button class="btn btn-primary" onclick="showToast('Upload dialog opened')">+ Upload Certificate</button>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Degree / Cert</th>
+                  <th>Institution</th>
+                  <th>Uploaded Date</th>
+                  <th>Status</th>
+                  <th style="text-align:right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cell-strong">B.Tech Degree Certificate</span></td>
+                  <td>DNR College of Engineering</td>
+                  <td>18 Mar 2023</td>
+                  <td><span class="badge-status-pill ok">Verified</span></td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Downloading Certificate')">View</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4.3 Previous Employment -->
+      <div class="sub-tab-content" id="subtab-docs-prev">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Previous Employment Records</p>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Employer</th>
+                  <th>Document Type</th>
+                  <th>Uploaded Date</th>
+                  <th>Status</th>
+                  <th style="text-align:right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cell-strong">Vexus Technologies</span></td>
+                  <td>Relieving &amp; Service Letter</td>
+                  <td>15 Mar 2023</td>
+                  <td><span class="badge-status-pill ok">Verified</span></td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Viewing Certificate')">View</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4.4 Statutory Documents -->
+      <div class="sub-tab-content" id="subtab-docs-stat">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Statutory Documents</p>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Document Title</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th style="text-align:right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cell-strong">PF Nomination (Form 2)</span></td>
+                  <td>Provident Fund</td>
+                  <td><span class="badge-status-pill ok">HR Co-Signed</span></td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Downloading Document')">Download</button></td>
+                </tr>
+                <tr>
+                  <td><span class="cell-strong">Gratuity Declaration (Form F)</span></td>
+                  <td>Gratuity</td>
+                  <td><span class="badge-status-pill ok">HR Co-Signed</span></td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Downloading Document')">Download</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4.5 Payslips & Tax -->
+      <div class="sub-tab-content" id="subtab-docs-pay">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">Payslips &amp; Tax Documents</p>
+              <span class="section-badge">System Generated</span>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Title</th>
+                  <th>Generated Date</th>
+                  <th style="text-align:right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cell-strong">August 2026</span></td>
+                  <td>Salary Slip &middot; Aug 2026</td>
+                  <td>31 Aug 2026</td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Downloading Payslip')">Download PDF</button></td>
+                </tr>
+                <tr>
+                  <td><span class="cell-strong">FY 2025-26</span></td>
+                  <td>Form 16 / Annual Tax Certificate</td>
+                  <td>15 May 2026</td>
+                  <td style="text-align:right;"><button class="btn btn-secondary" style="padding:4px 10px;" onclick="showToast('Downloading Tax Statement')">Download</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ TAB 5: ASSETS ============ -->
+    <div class="tab-panel" id="tab-assets">
+      <div class="sub-tabs-bar">
+        <button class="sub-tab-pill active" data-subtab="my-assets">My Assets</button>
+        <button class="sub-tab-pill" data-subtab="my-asset-requests">My Asset Requests</button>
+      </div>
+
+      <!-- 5.1 My Assets Table -->
+      <div class="sub-tab-content active" id="subtab-my-assets">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">My Assets</p>
+              <span class="section-badge">2 Assigned</span>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Asset ID / Tag</th>
+                  <th>Asset Type</th>
+                  <th>Make / Model</th>
+                  <th>Allocated Date</th>
+                  <th>Condition (at allocation)</th>
+                  <th>Status</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cell-strong">NFO-LP-2024-0419</span></td>
+                  <td>Laptop</td>
+                  <td>
+                    <div class="cell-strong">MacBook Pro 16"</div>
+                    <div class="cell-sub">SN: C02G8419MD6R</div>
+                  </td>
+                  <td>16 Mar 2023</td>
+                  <td>New</td>
+                  <td><span class="badge-status-pill ok">Active</span></td>
+                  <td style="text-align:right;">
+                    <div class="action-menu-wrap">
+                      <button class="action-dots-btn" onclick="toggleActionMenu(event, 'asset-menu-1')" title="Actions">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                      </button>
+                      <div class="action-dropdown" id="asset-menu-1">
+                        <button class="action-dropdown-item" onclick="handleAssetAction('View Details', 'NFO-LP-2024-0419')">View Details</button>
+                        <button class="action-dropdown-item" onclick="handleAssetAction('Report Issue / Damage', 'NFO-LP-2024-0419')">Report Issue / Damage</button>
+                        <button class="action-dropdown-item" onclick="handleAssetReplacement('MacBook Pro 16\"')">Request Replacement</button>
+                        <button class="action-dropdown-item danger" onclick="handleAssetAction('Initiate Return', 'NFO-LP-2024-0419')">Initiate Return</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td><span class="cell-strong">NFO-MN-2024-1182</span></td>
+                  <td>Monitor</td>
+                  <td>
+                    <div class="cell-strong">Dell UltraSharp 27" 4K</div>
+                    <div class="cell-sub">SN: DL274K99210</div>
+                  </td>
+                  <td>20 Mar 2023</td>
+                  <td>Good</td>
+                  <td><span class="badge-status-pill ok">Active</span></td>
+                  <td style="text-align:right;">
+                    <div class="action-menu-wrap">
+                      <button class="action-dots-btn" onclick="toggleActionMenu(event, 'asset-menu-2')" title="Actions">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                      </button>
+                      <div class="action-dropdown" id="asset-menu-2">
+                        <button class="action-dropdown-item" onclick="handleAssetAction('View Details', 'NFO-MN-2024-1182')">View Details</button>
+                        <button class="action-dropdown-item" onclick="handleAssetAction('Report Issue / Damage', 'NFO-MN-2024-1182')">Report Issue / Damage</button>
+                        <button class="action-dropdown-item" onclick="handleAssetReplacement('Dell UltraSharp 27\"')">Request Replacement</button>
+                        <button class="action-dropdown-item danger" onclick="handleAssetAction('Initiate Return', 'NFO-MN-2024-1182')">Initiate Return</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5.2 My Asset Requests Table -->
+      <div class="sub-tab-content" id="subtab-my-asset-requests">
+        <div class="card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <p class="section-title">My Asset Requests</p>
+              <span class="section-badge">2 Requests</span>
+            </div>
+            <button class="btn btn-primary" onclick="showToast('New Asset Request triggered')">+ New Asset Request</button>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Request ID</th>
+                  <th>Asset Type Requested</th>
+                  <th>Requested Date</th>
+                  <th>Required By Date</th>
+                  <th>Status</th>
+                  <th>Approver</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cell-strong">REQ-AST-2026-081</span></td>
+                  <td>Keyboard (Magic Keyboard)</td>
+                  <td>14 Sep 2026</td>
+                  <td>25 Sep 2026</td>
+                  <td><span class="badge-status-pill warn">Pending</span></td>
+                  <td>Rahul Verma (Manager)</td>
+                  <td style="text-align:right;">
+                    <div class="action-menu-wrap">
+                      <button class="action-dots-btn" onclick="toggleActionMenu(event, 'req-menu-1')" title="Actions">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                      </button>
+                      <div class="action-dropdown" id="req-menu-1">
+                        <button class="action-dropdown-item" onclick="handleRequestAction('View', 'REQ-AST-2026-081')">View</button>
+                        <button class="action-dropdown-item" onclick="handleRequestAction('Track Fulfillment', 'REQ-AST-2026-081')">Track Fulfillment</button>
+                        <button class="action-dropdown-item danger" onclick="handleRequestAction('Withdraw', 'REQ-AST-2026-081')">Withdraw</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td><span class="cell-strong">REQ-AST-2026-044</span></td>
+                  <td>Wireless Mouse</td>
+                  <td>02 Jul 2026</td>
+                  <td>10 Jul 2026</td>
+                  <td><span class="badge-status-pill ok">Fulfilled</span></td>
+                  <td>IT Asset Admin</td>
+                  <td style="text-align:right;">
+                    <div class="action-menu-wrap">
+                      <button class="action-dots-btn" onclick="toggleActionMenu(event, 'req-menu-2')" title="Actions">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                      </button>
+                      <div class="action-dropdown" id="req-menu-2">
+                        <button class="action-dropdown-item" onclick="handleRequestAction('View', 'REQ-AST-2026-044')">View</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ DYNAMIC SECTION EDIT MODAL ============ -->
+<div class="modal-overlay" id="sectionEditModalOverlay">
+  <div class="edit-modal-box">
+    <div class="edit-modal-header">
+      <h3 class="edit-modal-title" id="editModalTitle">Edit Section</h3>
+      <button class="modal-close-btn" onclick="closeEditModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <form id="sectionEditForm" onsubmit="handleModalSave(event)">
+      <div class="edit-modal-body" id="editModalBody">
+        <!-- Injected dynamically -->
+      </div>
+      <div class="edit-modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span class="ok-dot">&#10003;</span>Changes saved successfully.</div>
+
+<script>
+function toggleActionMenu(e, menuId) {
+  e.stopPropagation();
+  var target = document.getElementById(menuId);
+  document.querySelectorAll('.action-dropdown').forEach(function(d) {
+    if (d !== target) d.classList.remove('show');
+  });
+  if (target) target.classList.toggle('show');
+}
+
+document.addEventListener('click', function() {
+  document.querySelectorAll('.action-dropdown').forEach(function(d) { d.classList.remove('show'); });
+});
+
+function handleAssetAction(action, tag) {
+  showToast(action + ' initiated for ' + tag);
+}
+
+function handleAssetReplacement(asset) {
+  showToast('Replacement requested for ' + asset);
+}
+
+function handleRequestAction(action, id) {
+  showToast(action + ' action executed on ' + id);
+}
+
+var currentEditingKey = null;
+
+var sectionConfigs = {
+  aboutSummary: {
+    title: 'Personal Summary & Bio',
+    gridClass: 'modal-form-grid',
+    fields: [
+      { key: 'preferredName', label: 'Preferred Name', type: 'text' },
+      { key: 'bio', label: 'About Me / Bio', type: 'textarea', rows: 3, fullWidth: true }
+    ]
+  },
+  primary: {
+    title: 'Primary Details',
+    gridClass: 'modal-form-grid',
+    fields: [
+      { key: 'firstName', label: 'Legal First Name', type: 'text' },
+      { key: 'middleName', label: 'Legal Middle Name', type: 'text' },
+      { key: 'lastName', label: 'Legal Last Name', type: 'text' },
+      { key: 'dob', label: 'Date of Birth', type: 'date' },
+      { key: 'gender', label: 'Gender', type: 'select', options: ['Male', 'Female', 'Non-binary', 'Prefer not to say'] },
+      { key: 'maritalStatus', label: 'Marital Status', type: 'select', options: ['Single', 'Married', 'Divorced', 'Widowed'] },
+      { key: 'emName', label: 'Emergency Contact Name', type: 'text' },
+      { key: 'emRelation', label: 'Emergency Contact Relationship', type: 'select', options: ['Spouse', 'Parent', 'Brother', 'Sister', 'Friend', 'Other'] },
+      { key: 'emPhone', label: 'Emergency Contact Phone', type: 'tel' }
+    ]
+  },
+  contact: {
+    title: 'Contact Details',
+    gridClass: 'modal-form-grid',
+    fields: [
+      { key: 'personalEmail', label: 'Personal Email', type: 'email' },
+      { key: 'mobile', label: 'Mobile Number', type: 'tel' }
+    ]
+  },
+  addresses: {
+    title: 'Addresses',
+    gridClass: 'modal-form-grid grid-1col',
+    fields: [
+      { key: 'currentAddress', label: 'Current Address', type: 'textarea', rows: 3 },
+      { key: 'permanentAddress', label: 'Permanent Address', type: 'textarea', rows: 3 }
+    ]
+  },
+  education: {
+    title: 'Education (Verification Required)',
+    gridClass: 'modal-form-grid',
+    fields: [
+      { key: 'university', label: 'Institution Name', type: 'text' },
+      { key: 'degree', label: 'Degree / Qualification', type: 'select', options: ["Bachelor's Degree (B.Tech)", "Master's Degree", "Diploma", "Doctorate"] },
+      { key: 'branch', label: 'Field of Study', type: 'text' },
+      { key: 'eduStart', label: 'Start Date', type: 'date' },
+      { key: 'eduEnd', label: 'End Date', type: 'date' }
+    ]
+  },
+  identity: {
+    title: 'Identity & Statutory',
+    gridClass: 'modal-form-grid',
+    fields: [
+      { key: 'passport', label: 'Passport Number', type: 'text' },
+      { key: 'passportExp', label: 'Passport Expiry Date', type: 'date' },
+      { key: 'bankAccount', label: 'Bank Account Number', type: 'text' },
+      { key: 'bankDetails', label: 'Bank Name & IFSC', type: 'text', fullWidth: true }
+    ]
+  }
+};
+
+function openEditModal(sectionKey) {
+  var config = sectionConfigs[sectionKey];
+  if (!config) return;
+  currentEditingKey = sectionKey;
+
+  document.getElementById('editModalTitle').innerHTML = 'Edit <span>' + config.title + '</span>';
+  var body = document.getElementById('editModalBody');
+  body.innerHTML = '';
+
+  var container = document.createElement('div');
+  container.className = config.gridClass;
+
+  config.fields.forEach(function (f) {
+    var fieldEl = document.createElement('div');
+    fieldEl.className = 'modal-field' + (f.fullWidth ? ' field-full' : '');
+
+    var label = document.createElement('label');
+    label.className = 'field-label';
+    label.textContent = f.label;
+    fieldEl.appendChild(label);
+
+    var readOnlyEl = document.querySelector('#section-' + sectionKey + ' [data-val="' + f.key + '"]');
+    var currentText = readOnlyEl ? readOnlyEl.textContent.trim() : '';
+
+    if (f.type === 'select') {
+      var sel = document.createElement('select');
+      sel.className = 'modal-select';
+      sel.name = f.key;
+      f.options.forEach(function (opt) {
+        var optEl = document.createElement('option');
+        optEl.value = opt;
+        optEl.textContent = opt;
+        if (opt.toLowerCase() === currentText.toLowerCase()) optEl.selected = true;
+        sel.appendChild(optEl);
+      });
+      fieldEl.appendChild(sel);
+    } else if (f.type === 'textarea') {
+      var ta = document.createElement('textarea');
+      ta.className = 'modal-input';
+      ta.name = f.key;
+      ta.rows = f.rows || 3;
+      ta.value = currentText === '—' ? '' : currentText;
+      fieldEl.appendChild(ta);
+    } else if (f.type === 'date') {
+      var dateInp = document.createElement('input');
+      dateInp.className = 'modal-input';
+      dateInp.type = 'date';
+      dateInp.name = f.key;
+      dateInp.value = parseDateToIso(currentText);
+      fieldEl.appendChild(dateInp);
+    } else {
+      var inp = document.createElement('input');
+      inp.className = 'modal-input';
+      inp.type = f.type || 'text';
+      inp.name = f.key;
+      if (f.maxlength) inp.maxLength = f.maxlength;
+      inp.value = currentText === '—' ? '' : currentText;
+      fieldEl.appendChild(inp);
+    }
+    container.appendChild(fieldEl);
+  });
+
+  body.appendChild(container);
+  document.getElementById('sectionEditModalOverlay').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('sectionEditModalOverlay').classList.remove('open');
+  currentEditingKey = null;
+}
+
+function handleModalSave(e) {
+  e.preventDefault();
+  if (!currentEditingKey) return;
+
+  var form = document.getElementById('sectionEditForm');
+  var formData = new FormData(form);
+  var config = sectionConfigs[currentEditingKey];
+
+  config.fields.forEach(function (f) {
+    var newVal = formData.get(f.key);
+    var formattedVal = newVal ? newVal.trim() : '—';
+
+    if (f.type === 'date') formattedVal = formatDate(formattedVal);
+
+    var readOnlyEl = document.querySelector('#section-' + currentEditingKey + ' [data-val="' + f.key + '"]');
+    if (readOnlyEl) readOnlyEl.textContent = formattedVal;
+
+    if (f.key === 'preferredName' && formattedVal !== '—') {
+      document.getElementById('heroDisplayName').textContent = formattedVal;
+    }
+    if (f.key === 'mobile' && formattedVal !== '—') {
+      document.getElementById('heroMobile').textContent = formattedVal;
+    }
+  });
+
+  closeEditModal();
+  showToast('Section updated successfully.');
+}
+
+function showToast(msg) {
+  var toast = document.getElementById('toast');
+  toast.innerHTML = '<span class="ok-dot">&#10003;</span>' + (msg || 'Updated successfully.');
+  toast.classList.add('show');
+  setTimeout(function () { toast.classList.remove('show'); }, 2200);
+}
+
+function formatDate(iso) {
+  if (!iso || iso === '—') return '—';
+  var parts = iso.split('-');
+  if (parts.length < 3) return iso;
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return parseInt(parts[2], 10) + ' ' + months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+}
+
+function parseDateToIso(dateStr) {
+  if (!dateStr || dateStr === '—') return '';
+  var parts = dateStr.split(' ');
+  if (parts.length !== 3) return '';
+  var months = {'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06','Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'};
+  return parts[2] + '-' + (months[parts[1]] || '01') + '-' + parts[0].padStart(2, '0');
+}
+
+document.querySelectorAll('.tab-item').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var targetTab = btn.getAttribute('data-tab');
+    document.querySelectorAll('.tab-item').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    var activePanel = document.getElementById('tab-' + targetTab);
+    if (activePanel) activePanel.classList.add('active');
+  });
+});
+
+document.querySelectorAll('.sub-tabs-bar').forEach(function (bar) {
+  var pills = bar.querySelectorAll('.sub-tab-pill');
+  pills.forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var parentPanel = bar.closest('.tab-panel');
+      var targetSubTab = pill.getAttribute('data-subtab');
+      pills.forEach(function (p) { p.classList.remove('active'); });
+      parentPanel.querySelectorAll('.sub-tab-content').forEach(function (c) { c.classList.remove('active'); });
+      pill.classList.add('active');
+      var targetContent = document.getElementById('subtab-' + targetSubTab);
+      if (targetContent) targetContent.classList.add('active');
+    });
+  });
+});
+
+document.getElementById('sectionEditModalOverlay').addEventListener('click', function (e) {
+  if (e.target === this) closeEditModal();
+});
+</script>
+
+</body>
+</html>
