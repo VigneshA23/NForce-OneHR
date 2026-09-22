@@ -338,6 +338,27 @@ input[type="date"] {
   }
 }
 
+/* Leave & Holidays header -> stack title above the Request Leave button on mobile,
+   button goes full width, matching the Policies & Announcements header pattern. */
+@media (max-width: 767px) {
+  .nf-leave-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .nf-leave-header button {
+    width: 100%;
+    justify-content: center;
+  }
+  .nf-leave-filter-bar { width: 100%; }
+  .nf-leave-filter-bar > * { flex: 1 1 auto; }
+}
+
+/* Leave & Holidays — balance ring cards (hover lift) and request-table rows (hover tint) */
+.nf-leave-balance-card { transition: border-color .15s, transform .15s; }
+.nf-leave-balance-card:hover { border-color: var(--line2); transform: translateY(-1px); }
+.nf-leave-row { transition: background-color .12s; }
+.nf-leave-row:hover { background: var(--raised); }
+
 /* Assets & Expenses HR section selector (Asset Inventory / Asset Requests /
    Expense Categories / Payroll-Ready Claims) -> horizontally scrollable on
    mobile instead of squeezing/wrapping four tabs into the narrow viewport.
