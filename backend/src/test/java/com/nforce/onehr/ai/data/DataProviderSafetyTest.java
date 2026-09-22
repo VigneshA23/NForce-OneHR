@@ -65,7 +65,7 @@ class DataProviderSafetyTest {
         // forever while proving nothing at all.
         assertThat(providerClasses())
                 .as("classpath scan of %s found no providers", SCAN_ROOT)
-                .hasSizeGreaterThanOrEqualTo(5);
+                .hasSizeGreaterThanOrEqualTo(15);
     }
 
     @Test
@@ -80,7 +80,12 @@ class DataProviderSafetyTest {
         assertThat(found).containsExactlyInAnyOrder(
                 "Balances", "MyRequests", "PendingApprovals",
                 "MyClaims", "PendingForManager",
-                "Today", "MyExceptions");
+                "Today", "MyExceptions",
+                "MyRegularizations", "PendingRegularizations",
+                "MyWfhAndPartialDay", "PendingWfhAndPartialDay",
+                "MyOvertime", "PendingOvertime",
+                "MyAssetRequests", "PendingAssetRequests",
+                "ApprovalSummaryProvider");
     }
 
     @Test

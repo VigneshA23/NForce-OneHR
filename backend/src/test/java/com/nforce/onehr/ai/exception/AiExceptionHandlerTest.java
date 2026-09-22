@@ -75,6 +75,22 @@ class AiExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("an exhausted budget is a 429 with Retry-After and a body, not an in-band decline")
+    void rateLimitExceededIsTooManyRequests() {
+        ResponseEntity<ApiError> response = handler.handleRateLimitExceeded(
+                new AiRateLimitExceededException(42));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("42");
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getMessage()).isNotBlank();
+        assertThat(response.getBody().getCode()).isEqualTo("AI_ASSISTANT_RATE_LIMIT_EXCEEDED");
+        // Reuses the same absolute-instant shape LoginLockedError/Login.tsx already render a
+        // countdown from, rather than inventing a second one.
+        assertThat(response.getBody().getLockedUntil()).isAfter(java.time.Instant.now());
+    }
+
+    @Test
     @DisplayName("an unexpected fault is a 500 with a body")
     void unexpectedFailureStillHasABody() {
         ResponseEntity<ApiError> response = handler.handleUnexpected(

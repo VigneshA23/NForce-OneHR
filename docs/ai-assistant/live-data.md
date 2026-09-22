@@ -5,7 +5,8 @@ to a page. This is how, and what bounds it.
 
 ## What it can read
 
-Seven providers in `ai/data/`, each calling exactly one existing service method:
+Sixteen providers in `ai/data/`. Fifteen each call exactly one existing service method; one,
+`approvals.summary`, is a documented exception — see below.
 
 | Provider | Reads | Who |
 |---|---|---|
@@ -16,6 +17,22 @@ Seven providers in `ai/data/`, each calling exactly one existing service method:
 | `expense.pending-approvals` | `ExpenseService.pendingForManager` | Manager, HR, Admin |
 | `attendance.today` | `AttendanceService.getToday` | everyone |
 | `attendance.my-exceptions` | `AttendanceService.getMyExceptions` | everyone |
+| `regularization.my-requests` | `RegularizationService.listMine` | everyone |
+| `regularization.pending-approvals` | `RegularizationService.listPendingForApprover` | Manager, HR, Admin |
+| `attendance-request.my-requests` | `AttendanceRequestService.listMine` (WFH + Partial Day) | everyone |
+| `attendance-request.pending-approvals` | `AttendanceRequestService.listPendingForApprover` | Manager, HR, Admin |
+| `overtime.my-requests` | `OvertimeRequestService.listMine` | everyone |
+| `overtime.pending-approvals` | `OvertimeRequestService.listPendingForApprover` | Manager, HR, Admin |
+| `asset.my-requests` | `AssetService.myRequests` | everyone |
+| `asset.pending-approvals` | `AssetService.listPendingForApprover` | Manager, HR, Admin |
+| `approvals.summary` | six of the methods above, counts only | Manager, HR, Admin |
+
+Work From Home and Partial Day share one provider pair, not two, because they share one underlying
+model — `AttendanceRequestService`/`AttendanceRequestResponse`, distinguished only by a
+`requestType` field. `regularization`, `attendance-request` and `overtime` all declare `attendance`
+among their knowledge modules alongside `attendance.today`/`attendance.my-exceptions`, because that
+is genuinely the module their content lives under — see "Diversity across record types" below for
+why sharing a module no longer means competing for the same slot.
 
 ## Why this is safe to have built
 
@@ -44,6 +61,34 @@ which is both a worse answer and three needless reads.
 
 **3. A provider returning nothing contributes nothing.** No claims means no section, not a section
 saying "no claims". Most of what the assistant sees is absence.
+
+**4. Diversity across record types, not just score.** A second, subtler crowding bug: on the
+Approval Center page, Leave's three own providers (which also score via the ordinary `leave`
+knowledge module, on top of the `approvals` boost every approval-type provider shares) filled all
+three slots before Expense's single provider was ever considered — even though the page, and the
+question, were about neither type specifically. `AssistantDataService.selectDiverse` groups
+providers by record-type "family" (their id up to the first `.`) and fills the three slots
+round-robin across families in relevance order, so a family only gets a second slot once every
+other relevant family already has its first. The cap is unchanged at three; this changes *which*
+three, not *how many*. Any current or future page that aggregates several record types under one
+knowledge module — `requests` (My Requests), `assets` (Assets & Expenses), and eventually `people`
+(My Team/Directory/Hierarchy) or `dashboard` once providers exist for them — is protected by this
+same mechanism without needing a page-specific fix.
+
+## The total-count exception: `approvals.summary`
+
+A question like "how many things need my approval" is not really about any one of the six
+approval-type record types — it is about their total — and no combination of the per-type detail
+providers above can guarantee a complete one, since the per-turn cap means at most three of six can
+ever run together. Without a dedicated answer, the assistant reported whichever type's providers
+happened to win the cap as if it were the whole total — the production bug this section documents.
+
+`ApprovalSummaryProvider` (`approvals.summary`) is the fix, and a deliberate, narrow exception to
+"one provider, one service method": it calls all six `listPendingForApprover`-shaped methods and
+returns **counts only** — never a request row, never anyone's name — so it does not duplicate what
+the six detail providers already expose, and does not spend extra PII budget doing it. Tagged only
+`approvals`, so it competes fairly in its own family the same as everything else, and reliably wins
+a slot whenever the page or the question is genuinely about the aggregate.
 
 ## What is deliberately excluded
 
@@ -79,7 +124,9 @@ markers inside it are neutralised, and the standing policy declares both `<knowl
 
 ## Adding a provider
 
-1. Implement `AssistantDataProvider` in `ai/data/`, calling **one** actor-scoped read method.
+1. Implement `AssistantDataProvider` in `ai/data/`, calling **one** actor-scoped read method — the
+   only standing exception is a counts-only aggregate in the shape of `approvals.summary`, and that
+   shape needs its own explicit justification, not just a second use of the precedent.
 2. Declare `audiences()` and `modules()` — an empty set in either would run it for everyone, or on
    every question.
 3. Add its class name to `DataProviderSafetyTest.noProviderAppearsWithoutReview`. That edit is the

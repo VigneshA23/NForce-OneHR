@@ -9,6 +9,7 @@ import { AssistantEmptyState, MessageList } from './MessageList';
 import {
   assistantReducer,
   canSend,
+  describeSendFailure,
   initialAssistantState,
   MAX_MESSAGE_CHARS,
 } from './assistantState';
@@ -134,12 +135,10 @@ export function AssistantPanel({ hidden, openToken, onClose, currentPageId }: As
       dispatch({ type: 'ANSWER', pendingId, response });
     } catch (e) {
       // Deliberately not a toast. The failure belongs next to the question that caused it, and a
-      // toast over a panel the user is already looking at is noise.
-      dispatch({
-        type: 'FAIL',
-        pendingId,
-        message: e instanceof Error ? e.message : 'The assistant could not be reached.',
-      });
+      // toast over a panel the user is already looking at is noise. describeSendFailure gives the
+      // rate-limited case its specific usage-limit wording with a countdown; every other failure
+      // keeps its existing generic message. No automatic retry is scheduled either way.
+      dispatch({ type: 'FAIL', pendingId, message: describeSendFailure(e) });
     }
   }, [token, state.sending, state.conversationId, currentPageId]);
 

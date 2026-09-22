@@ -13,6 +13,7 @@ import com.nforce.onehr.ai.contract.RetrievalQuery;
 import com.nforce.onehr.ai.contract.RetrievalResult;
 import com.nforce.onehr.ai.entity.AiConversation;
 import com.nforce.onehr.ai.exception.AiProviderException;
+import com.nforce.onehr.ai.exception.AiRateLimitExceededException;
 import com.nforce.onehr.ai.data.AssistantDataService;
 import com.nforce.onehr.ai.navigation.NavigationValidator;
 import com.nforce.onehr.ai.observability.AiInteractionLogger;
@@ -60,6 +61,7 @@ class AiAssistantServiceTest {
     @Mock private LlmProvider llmProvider;
     @Mock private ConversationService conversationService;
     @Mock private AiInteractionLogger interactionLogger;
+    @Mock private AiRateLimitSettingsService rateLimitSettingsService;
 
     private AiProperties properties;
     private AiAssistantService service;
@@ -78,12 +80,17 @@ class AiAssistantServiceTest {
         properties = new AiProperties();
         properties.setEnabled(true);
 
+        // A generous default budget so the rest of these tests are never accidentally rate
+        // limited; rateLimitIsEnforced overrides this to exercise the limiter itself.
+        when(rateLimitSettingsService.currentForEnforcement())
+                .thenReturn(new AiRateLimitSettingsService.Snapshot(true, 1000, 60));
+
         service = new AiAssistantService(
                 userRepository, retriever, llmProvider,
                 new PromptBuilder(registry),
                 new ResponseValidator(navigationValidator, unknownResponses),
                 navigationValidator, unknownResponses, conversationService,
-                new AiRateLimiter(properties),
+                new AiRateLimiter(rateLimitSettingsService),
                 // A real service with no providers: these tests cover the static-knowledge path,
                 // and an empty provider list is the honest way to say "no live data this turn"
                 // rather than mocking away a collaborator that would otherwise run real queries.
@@ -235,16 +242,33 @@ class AiAssistantServiceTest {
     @Test
     @DisplayName("the per-user budget stops runaway cost")
     void rateLimitIsEnforced() {
-        properties.getLimits().setMaxRequestsPerUserPerHour(2);
+        when(rateLimitSettingsService.currentForEnforcement())
+                .thenReturn(new AiRateLimitSettingsService.Snapshot(true, 2, 60));
         when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
         modelReturns("{\"type\":\"HOW_TO\",\"answer\":\"Steps.\",\"confidence\":\"HIGH\"}");
 
         assertThat(service.chat("q1", null, null, EMAIL).getType()).isEqualTo(AssistantResponseType.HOW_TO);
         assertThat(service.chat("q2", null, null, EMAIL).getType()).isEqualTo(AssistantResponseType.HOW_TO);
 
-        AssistantResponse third = service.chat("q3", null, null, EMAIL);
-        assertThat(third.getType()).isEqualTo(AssistantResponseType.UNKNOWN);
+        // The third request over budget is a real 429, not an in-band UNKNOWN - see
+        // AiExceptionHandler.handleRateLimitExceeded for why this decline alone differs from every
+        // other one.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.chat("q3", null, null, EMAIL))
+                .isInstanceOf(AiRateLimitExceededException.class);
         verify(llmProvider, org.mockito.Mockito.times(2)).complete(any());
+    }
+
+    @Test
+    @DisplayName("disabling the budget lets every request through")
+    void disabledRateLimitAllowsEverything() {
+        when(rateLimitSettingsService.currentForEnforcement())
+                .thenReturn(new AiRateLimitSettingsService.Snapshot(false, 1, 60));
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        modelReturns("{\"type\":\"HOW_TO\",\"answer\":\"Steps.\",\"confidence\":\"HIGH\"}");
+
+        assertThat(service.chat("q1", null, null, EMAIL).getType()).isEqualTo(AssistantResponseType.HOW_TO);
+        assertThat(service.chat("q2", null, null, EMAIL).getType()).isEqualTo(AssistantResponseType.HOW_TO);
+        assertThat(service.chat("q3", null, null, EMAIL).getType()).isEqualTo(AssistantResponseType.HOW_TO);
     }
 
     @Test

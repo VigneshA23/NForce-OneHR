@@ -316,6 +316,19 @@ public class AssetService {
         User actor = requireActor(actorEmail);
         Asset asset = requireAsset(assetId);
         String before = auditSnapshot.toJson(Map.of("status", asset.getStatus()));
+
+        // ONEHR bug report: retiring a currently-ASSIGNED asset left its AssetAssignment row open
+        // (effectiveTo still null) forever, so hrTileSummary's "Assets Assigned" count
+        // (assignmentRepo.countByEffectiveToIsNull()) kept counting a retired asset the inventory
+        // list itself no longer shows as ASSIGNED — the two numbers silently diverged. Mirrors
+        // markReturned's own close-the-open-assignment step; retiring an asset must end its
+        // custody the same way returning it does, since it can't still be anyone's responsibility
+        // going forward.
+        assignmentRepo.findByAssetIdAndEffectiveToIsNull(assetId).ifPresent(current -> {
+            current.setEffectiveTo(Instant.now());
+            assignmentRepo.save(current);
+        });
+
         asset.setStatus("RETIRED");
         assetRepo.save(asset);
         String after = auditSnapshot.toJson(Map.of("status", "RETIRED"));
