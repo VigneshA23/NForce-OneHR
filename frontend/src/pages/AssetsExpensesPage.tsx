@@ -355,7 +355,7 @@ function EmployeeView({ token }: { token: string }) {
 
 // ── Submit Expense Modal ──────────────────────────────────
 
-function SubmitExpenseModal({ categories: propCategories, token, onClose, onCreated }: { categories: ExpenseCategory[]; token: string; onClose: () => void; onCreated: (c: ExpenseClaimResponse) => void }) {
+export function SubmitExpenseModal({ categories: propCategories, token, onClose, onCreated }: { categories: ExpenseCategory[]; token: string; onClose: () => void; onCreated: (c: ExpenseClaimResponse) => void }) {
   const [categoryId, setCategoryId] = useState('');
   const [amount, setAmount] = useState('');
   const [expenseDate, setExpenseDate] = useState('');
@@ -460,7 +460,7 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
 // MANAGER VIEW (read-only)
 // ══════════════════════════════════════════════════════════
 
-function ManagerView({ token }: { token: string }) {
+export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: boolean }) {
   const navigate = useNavigate();
   const [tiles, setTiles] = useState<AssetTileManager | null>(null);
   const [expTiles, setExpTiles] = useState<ExpenseTileManager | null>(null);
@@ -512,13 +512,15 @@ function ManagerView({ token }: { token: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '—'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
-        <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '—'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
-        <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '—'} clickable onClick={() => setActiveTab('assets')} />
-        <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '—'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
-        <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
-      </div>
+      {!hideTiles && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '—'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '—'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
+          <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '—'} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '—'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
+          <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
+        </div>
+      )}
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
@@ -671,7 +673,7 @@ function ManagerView({ token }: { token: string }) {
 // HR / SUPER ADMIN VIEW
 // ══════════════════════════════════════════════════════════
 
-function HRView({ token }: { token: string }) {
+export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolean }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const assetRequestsRef = useRef<HTMLDivElement>(null);
@@ -742,18 +744,20 @@ function HRView({ token }: { token: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
-        <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
-        {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
-            model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
-            see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
-            predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
-            filter rather than silently showing "assigned" assets under an "overdue" label. */}
-        <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
-        <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
-        <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
-      </div>
+      {!hideTiles && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
+          <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
+          {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
+              model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
+              see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
+              predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
+              filter rather than silently showing "assigned" assets under an "overdue" label. */}
+          <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
+          <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
+          <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="nf-tab-scroll" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>

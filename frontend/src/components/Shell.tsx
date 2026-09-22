@@ -191,7 +191,13 @@ export function Shell() {
   const name     = storeUser?.fullName || email || 'User';
 
   const navItems = NAV[role];
-  const current  = navItems.find((n) => location.pathname.startsWith(n.path)) ?? navItems[0];
+  // My Profile is reached via the avatar dropdown (below), not a sidebar module, so it has no
+  // entry in NAV — without this, the lookup below would silently fall back to navItems[0] and
+  // both the topbar title and the sidebar's active-item highlight would show "Home" instead.
+  const current: NavItem = navItems.find((n) => location.pathname.startsWith(n.path))
+    ?? (location.pathname.startsWith('/profile')
+      ? { key: 'profile', label: 'My Profile', icon: User, phase: 1, path: '/profile' }
+      : navItems[0]);
 
   type FlatResult =
     | { kind: 'nav'; item: NavItem }

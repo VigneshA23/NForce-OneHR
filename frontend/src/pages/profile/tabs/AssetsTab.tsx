@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Paperclip, Plus } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { assetsApi, type AssetAssignmentResponse, type AssetRequestResponse } from '../../../api/assets';
+import { expensesApi, type ExpenseCategory, type ExpenseClaimResponse } from '../../../api/expenses';
 import { KebabMenu } from '../../../components/KebabMenu';
-import { panelStyle, thStyle, tdStyle, StatusBadge, fmtDate, EmptyRow } from '../../assets/shared';
+import { ReceiptViewerModal } from '../../../components/expenses/ReceiptViewerModal';
+import { useAuthStore } from '../../../store/authStore';
+import { toShellRole } from '../../../lib/nav.config';
+import { panelStyle, thStyle, tdStyle, StatusBadge, fmtDate, fmtCurrency, EmptyRow } from '../../assets/shared';
 import { useEmployeeAssetsData } from '../../assets/useEmployeeAssetsData';
 import { RequestAssetModal } from '../../assets/RequestAssetModal';
+import { ManagerView, HRView, SubmitExpenseModal } from '../../AssetsExpensesPage';
 import { SectionHeader } from '../shared';
 
 function AssetDetailsModal({ asset, onClose }: { asset: AssetAssignmentResponse; onClose: () => void }) {
@@ -54,15 +60,54 @@ function RequestTrackingModal({ request, onClose }: { request: AssetRequestRespo
   );
 }
 
+/**
+ * Role-aware entry point: mirrors the standalone Assets & Expenses page's own role branch
+ * (AssetsExpensesPage.tsx), reusing its exported Manager/HR views as-is so My Profile always
+ * shows the same sections a role is entitled to see there. The Employee case keeps this tab's
+ * own layout/actions (Withdraw, View Details, Track Fulfillment, Request Replacement) since the
+ * standalone EmployeeView doesn't offer them — only the missing "My Expense Claims" section is
+ * added below, reusing the same expensesApi + SubmitExpenseModal used by that view.
+ */
 export function AssetsTab({ token }: { token: string }) {
+  const user = useAuthStore(s => s.user);
+  const role = toShellRole(user?.role);
+
+  if (role === 'Manager') return <ManagerView token={token} hideTiles />;
+  if (role === 'HR Admin' || role === 'Super Admin') return <HRView token={token} hideTiles />;
+  return <EmployeeAssetsTab token={token} />;
+}
+
+function EmployeeAssetsTab({ token }: { token: string }) {
   const { showToast } = useToast();
   const { assignments, requests, categories, reload, setRequests } = useEmployeeAssetsData(token);
-  const [subTab, setSubTab] = useState<'assets' | 'requests'>('assets');
+  const [subTab, setSubTab] = useState<'assets' | 'requests' | 'claims'>('assets');
   const [viewingAsset, setViewingAsset] = useState<AssetAssignmentResponse | null>(null);
   const [trackingRequest, setTrackingRequest] = useState<AssetRequestResponse | null>(null);
   const [replacementFor, setReplacementFor] = useState<AssetAssignmentResponse | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [withdrawing, setWithdrawing] = useState<number | null>(null);
+
+  const [claims, setClaims] = useState<ExpenseClaimResponse[]>([]);
+  const [expCategories, setExpCategories] = useState<ExpenseCategory[]>([]);
+  const [claimStatusFilter, setClaimStatusFilter] = useState('');
+  const [claimCatFilter, setClaimCatFilter] = useState('');
+  const [showExpModal, setShowExpModal] = useState(false);
+  const [viewingReceiptClaimId, setViewingReceiptClaimId] = useState<string | null>(null);
+
+  function reloadClaims() {
+    expensesApi.myClaims(token).then(setClaims).catch(() => {});
+  }
+
+  useEffect(() => {
+    reloadClaims();
+    expensesApi.categories(token).then(setExpCategories).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const filteredClaims = claims
+    .filter(c => !claimStatusFilter || c.status === claimStatusFilter)
+    .filter(c => !claimCatFilter || String(c.categoryId) === claimCatFilter);
+  const claimStatusOptions = Array.from(new Set(claims.map(c => c.status)));
 
   async function handleWithdraw(id: number) {
     setWithdrawing(id);
@@ -89,9 +134,10 @@ export function AssetsTab({ token }: { token: string }) {
       <div style={{ display: 'flex', gap: 8 }}>
         <button style={subTabStyle('assets')} onClick={() => setSubTab('assets')}>My Assets</button>
         <button style={subTabStyle('requests')} onClick={() => setSubTab('requests')}>My Asset Requests</button>
+        <button style={subTabStyle('claims')} onClick={() => setSubTab('claims')}>My Expense Claims</button>
       </div>
 
-      {subTab === 'assets' ? (
+      {subTab === 'assets' && (
         <div style={panelStyle}>
           <div style={{ padding: '14px 18px 0' }}><SectionHeader title={`My Assets (${assignments.length})`} /></div>
           <div style={{ overflowX: 'auto' }}>
@@ -120,7 +166,9 @@ export function AssetsTab({ token }: { token: string }) {
             </table>
           </div>
         </div>
-      ) : (
+      )}
+
+      {subTab === 'requests' && (
         <div style={panelStyle}>
           <div style={{ padding: '14px 18px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <SectionHeader title={`My Asset Requests (${requests.length})`} />
@@ -166,6 +214,59 @@ export function AssetsTab({ token }: { token: string }) {
         </div>
       )}
 
+      {subTab === 'claims' && (
+        <div style={panelStyle}>
+          <div style={{ padding: '14px 18px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <SectionHeader title={`My Expense Claims (${claims.length})`} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <select value={claimStatusFilter} onChange={e => setClaimStatusFilter(e.target.value)} style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--txt)' }}>
+                <option value="">All Statuses</option>
+                {claimStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+              </select>
+              <select value={claimCatFilter} onChange={e => setClaimCatFilter(e.target.value)} style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--txt)' }}>
+                <option value="">All Categories</option>
+                {expCategories.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+              </select>
+              <button onClick={() => setShowExpModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                <Plus size={13} /> Submit Expense
+              </button>
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>{['Category', 'Amount', 'Expense Date', 'Purpose', 'Status', 'Submitted', 'Receipt'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {filteredClaims.length === 0 ? <EmptyRow cols={7} msg="No expense claims yet." /> : filteredClaims.map(c => (
+                  <tr key={c.id}>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.categoryName}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
+                    <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
+                    <td style={{ ...tdStyle, maxWidth: 180 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }} title={c.businessPurpose}>{c.businessPurpose}</div></td>
+                    <td style={tdStyle}>
+                      <StatusBadge status={c.status} />
+                      {(c.managerRejectionReason || c.finalRejectionReason) && (
+                        <div style={{ fontSize: 10, color: '#E4373D', marginTop: 2 }}>Reason: {c.managerRejectionReason ?? c.finalRejectionReason}</div>
+                      )}
+                    </td>
+                    <td style={tdStyle}>{fmtDate(c.createdAt)}</td>
+                    <td style={tdStyle}>
+                      <button
+                        onClick={() => setViewingReceiptClaimId(c.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', fontSize: 11.5, color: 'var(--brand)', cursor: 'pointer' }}
+                      >
+                        <Paperclip size={12} /> View Receipt
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {viewingAsset && <AssetDetailsModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
       {trackingRequest && <RequestTrackingModal request={trackingRequest} onClose={() => setTrackingRequest(null)} />}
       {replacementFor && (
@@ -184,6 +285,21 @@ export function AssetsTab({ token }: { token: string }) {
           token={token}
           onClose={() => setShowRequestModal(false)}
           onCreated={() => { reload(); showToast('success', 'Asset request submitted — pending manager approval'); }}
+        />
+      )}
+      {showExpModal && (
+        <SubmitExpenseModal
+          categories={expCategories}
+          token={token}
+          onClose={() => setShowExpModal(false)}
+          onCreated={c => { setClaims(prev => [c, ...prev]); showToast('success', 'Expense claim submitted'); }}
+        />
+      )}
+      {viewingReceiptClaimId && (
+        <ReceiptViewerModal
+          claimId={viewingReceiptClaimId}
+          token={token}
+          onClose={() => setViewingReceiptClaimId(null)}
         />
       )}
     </div>
