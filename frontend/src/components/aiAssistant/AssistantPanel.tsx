@@ -116,6 +116,10 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
   }, []);
 
   useEffect(() => {
+    // Nothing to catch up to before the first question — scrolling here would push the welcome
+    // screen's own greeting up out of view, landing the panel on its Quick Actions/For You/Popular
+    // Questions section instead of the top the moment it opens.
+    if (state.messages.length === 0) return;
     const node = transcriptRef.current;
     if (!node) return;
     node.scrollTo({ top: node.scrollHeight, behavior: reduceAnimations ? 'auto' : 'smooth' });
@@ -209,13 +213,6 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
     inputRef.current?.focus();
   }, [token, state.conversationId]);
 
-  const rate = useCallback((messageId: string, rating: 'UP' | 'DOWN') => {
-    dispatch({ type: 'RATE', id: messageId, rating });
-    if (token && state.conversationId) {
-      void assistantApi.sendFeedback(token, state.conversationId, rating);
-    }
-  }, [token, state.conversationId]);
-
   const goTo = useCallback((pageId: string) => {
     const target = resolvePageTarget(pageId, role);
     if (!target) return;
@@ -301,9 +298,7 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
           : (
             <MessageList
               messages={state.messages}
-              ratings={state.ratings}
               onNavigate={goTo}
-              onRate={rate}
               resolveLabel={resolveLabel}
               onAsk={(question) => void send(question)}
               sending={state.sending}
@@ -349,8 +344,8 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
           onFocus={(event) => {
             if (tooLong) return;
             const el = event.currentTarget;
-            el.style.borderColor = 'rgba(177,17,22,.45)';
-            el.style.boxShadow = '0 0 0 3px rgba(177,17,22,.14)';
+            el.style.borderColor = 'color-mix(in srgb, var(--brand) 45%, transparent)';
+            el.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent)';
           }}
           onBlur={(event) => {
             const el = event.currentTarget;

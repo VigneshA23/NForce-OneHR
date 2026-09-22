@@ -26,7 +26,7 @@ export const launcherStyle: React.CSSProperties = {
   width: 50,
   height: 50,
   borderRadius: '50%',
-  border: '1px solid rgba(177,17,22,.35)',
+  border: '1px solid color-mix(in srgb, var(--brand-bright) 40%, transparent)',
   background: 'var(--brand)',
   color: '#fff',
   display: 'flex',
@@ -237,7 +237,7 @@ export const sendButtonStyle: React.CSSProperties = {
   width: 36,
   height: 36,
   borderRadius: 8,
-  border: '1px solid rgba(177,17,22,.3)',
+  border: '1px solid color-mix(in srgb, var(--brand) 30%, transparent)',
   background: 'var(--brand)',
   color: '#fff',
   display: 'flex',
@@ -275,8 +275,8 @@ export const iconButtonStyle: React.CSSProperties = {
 export function bubbleStyle(isUser: boolean): React.CSSProperties {
   return {
     maxWidth: '88%',
-    background: isUser ? 'rgba(177,17,22,.08)' : 'var(--raised)',
-    border: `1px solid ${isUser ? 'rgba(177,17,22,.25)' : 'var(--line)'}`,
+    background: isUser ? 'color-mix(in srgb, var(--brand) 9%, var(--panel))' : 'var(--raised)',
+    border: `1px solid ${isUser ? 'color-mix(in srgb, var(--brand) 25%, transparent)' : 'var(--line)'}`,
     borderRadius: 10,
     padding: '10px 12px',
     fontSize: 13,
@@ -300,8 +300,8 @@ export const metaTextStyle: React.CSSProperties = {
  *  MessageList, split out so both stay visually identical. */
 export function rateButtonStyle(active: boolean): React.CSSProperties {
   return {
-    background: active ? 'rgba(177,17,22,.12)' : 'none',
-    border: `1px solid ${active ? 'rgba(177,17,22,.30)' : 'transparent'}`,
+    background: active ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'none',
+    border: `1px solid ${active ? 'color-mix(in srgb, var(--brand) 30%, transparent)' : 'transparent'}`,
     borderRadius: 5,
     padding: '3px 5px',
     color: active ? 'var(--txt)' : 'var(--txt-dim)',
@@ -316,8 +316,8 @@ export const navActionStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  background: 'rgba(177,17,22,.10)',
-  border: '1px solid rgba(177,17,22,.30)',
+  background: 'color-mix(in srgb, var(--brand) 10%, transparent)',
+  border: '1px solid color-mix(in srgb, var(--brand) 30%, transparent)',
   borderRadius: 7,
   padding: '6px 11px',
   fontSize: 12,
