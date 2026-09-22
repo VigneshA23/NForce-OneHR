@@ -90,6 +90,7 @@ public class AssetService {
                 .employeeUserId(actor.getId())
                 .categoryId(req.getCategoryId())
                 .reason(req.getReason().trim())
+                .requiredByDate(req.getRequiredByDate())
                 .status("PENDING")
                 .build();
         entity = requestRepo.save(entity);
@@ -102,6 +103,19 @@ public class AssetService {
                         requesterName + " requested " + category.getName() + ". Reason: " + req.getReason().trim(),
                         "/approvals?type=ASSET_REQUEST"));
         return toRequestResponse(entity, category.getName());
+    }
+
+    @Transactional
+    public AssetRequestResponse withdrawRequest(Long requestId, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        AssetRequest req = requireOwnedPendingRequest(requestId, actor.getId());
+
+        String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
+        req.setStatus("WITHDRAWN");
+        requestRepo.save(req);
+        String after = auditSnapshot.toJson(Map.of("status", "WITHDRAWN"));
+        auditService.log(actor.getId(), "ASSET_REQUEST_WITHDRAWN", req.getEmployeeUserId(), before, after);
+        return toRequestResponse(req, categoryName(req.getCategoryId()));
     }
 
     @Transactional(readOnly = true)
@@ -399,7 +413,7 @@ public class AssetService {
         User actor = requireActor(actorEmail);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
-        List<String> statuses = List.of("PENDING", "APPROVED", "FULFILLED", "REJECTED");
+        List<String> statuses = List.of("PENDING", "APPROVED", "FULFILLED", "REJECTED", "WITHDRAWN");
         return requestRepo.findByStatusInAndEmployeeUserIdIn(statuses, reportIds).stream()
                 .map(r -> toRequestResponse(r, categoryName(r.getCategoryId())))
                 .collect(Collectors.toList());
@@ -512,6 +526,22 @@ public class AssetService {
                 .orElseThrow(() -> new IllegalArgumentException("Asset request not found"));
         if (!"PENDING".equals(req.getStatus())) {
             throw new IllegalStateException("Request is not in PENDING state");
+        }
+        return req;
+    }
+
+    // Ownership + status check for self-service withdrawal — {id} in the URL is client-supplied,
+    // so unlike requirePendingRequest (used only by approver actions, which separately verify
+    // approval authority via assertCanDecideRequest), this must verify the caller IS the
+    // requester, not just that the request exists and is PENDING.
+    private AssetRequest requireOwnedPendingRequest(Long requestId, UUID actorId) {
+        AssetRequest req = requestRepo.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Asset request not found"));
+        if (!req.getEmployeeUserId().equals(actorId)) {
+            throw new AccessDeniedException("You can only withdraw your own requests");
+        }
+        if (!"PENDING".equals(req.getStatus())) {
+            throw new IllegalStateException("Only pending requests can be withdrawn");
         }
         return req;
     }
@@ -641,6 +671,7 @@ public class AssetService {
                 .categoryId(r.getCategoryId())
                 .categoryName(catName)
                 .reason(r.getReason())
+                .requiredByDate(r.getRequiredByDate())
                 .status(r.getStatus())
                 .managerDecidedByName(r.getManagerDecidedBy() != null ? employeeName(r.getManagerDecidedBy()) : null)
                 .managerDecidedAt(r.getManagerDecidedAt())

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -24,7 +25,10 @@ public class AssetRequest {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String reason;
 
-    // PENDING | APPROVED | REJECTED | FULFILLED
+    @Column(name = "required_by_date")
+    private LocalDate requiredByDate;
+
+    // PENDING | APPROVED | REJECTED | FULFILLED | WITHDRAWN
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = "PENDING";
