@@ -132,7 +132,7 @@ function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, onAs
           ? { ...bubbleStyle(false), borderColor: 'rgba(239,68,68,.35)', color: 'var(--risk)' }
           : bubbleStyle(isUser)}
         className={!message.failed && isUser ? 'nf-ai-bubble-user' : undefined}
-        onMouseEnter={(e) => { if (!message.failed) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(177,17,22,.10)'; }}
+        onMouseEnter={(e) => { if (!message.failed) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px color-mix(in srgb, var(--brand) 10%, transparent)'; }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; }}
       >
         {isUser || message.failed ? message.content : <AssistantText text={message.content} />}
@@ -405,10 +405,15 @@ export function AssistantEmptyState({ onPick, onNavigate, resolveLabel, userName
         style={{ animation: 'nf-assistant-invite-in 320ms ease-out, glow-pulse 2.4s ease-in-out 320ms infinite' }}
       />
       <div style={{
-        fontSize: 17, fontWeight: 700, color: 'var(--txt)', margin: '12px 0 3px',
-        animation: 'nf-assistant-msg-in 320ms ease-out 90ms backwards',
+        fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: '12px 0 3px',
+        // A slightly bouncier pop-in (fade + gentle scale) than the plain slide-up used
+        // elsewhere, since this is the one line that gets top billing on the welcome screen.
+        animation: 'nf-assistant-invite-in 360ms cubic-bezier(.2,.9,.3,1.3) 90ms backwards',
       }}>
-        Hi{firstName ? ` ${firstName}` : ''}, I'm NORA
+        Hi{firstName ? ` ${firstName}` : ''}, I'm{' '}
+        <span style={{ color: 'var(--brand-bright)', animation: 'glow-pulse 2.6s ease-in-out 450ms infinite' }}>
+          NORA
+        </span>
       </div>
       <div style={{
         fontSize: 12, color: 'var(--txt-dim)', lineHeight: 1.5, marginBottom: 18,
@@ -436,7 +441,7 @@ export function AssistantEmptyState({ onPick, onNavigate, resolveLabel, userName
                 }}
                 onMouseEnter={(e) => {
                   const el = e.currentTarget as HTMLButtonElement;
-                  el.style.borderColor = 'rgba(177,17,22,.40)';
+                  el.style.borderColor = 'color-mix(in srgb, var(--brand) 40%, transparent)';
                   el.style.color = 'var(--txt)';
                   el.style.transform = 'translateY(-1px)';
                 }}
@@ -450,7 +455,7 @@ export function AssistantEmptyState({ onPick, onNavigate, resolveLabel, userName
                 <span style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   width: 20, height: 20, borderRadius: '50%',
-                  background: 'rgba(177,17,22,.16)', color: 'var(--brand)', flexShrink: 0,
+                  background: 'color-mix(in srgb, var(--brand) 16%, transparent)', color: 'var(--brand)', flexShrink: 0,
                 }}>
                   <Icon size={11} aria-hidden="true" />
                 </span>
@@ -478,7 +483,7 @@ export function AssistantEmptyState({ onPick, onNavigate, resolveLabel, userName
                 }}
                 onMouseEnter={(e) => {
                   const el = e.currentTarget as HTMLButtonElement;
-                  el.style.borderColor = 'rgba(177,17,22,.40)';
+                  el.style.borderColor = 'color-mix(in srgb, var(--brand) 40%, transparent)';
                   el.style.transform = 'translateY(-1px)';
                 }}
                 onMouseLeave={(e) => {
