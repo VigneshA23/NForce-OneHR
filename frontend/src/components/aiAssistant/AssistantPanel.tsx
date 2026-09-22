@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RotateCcw, Send, X } from 'lucide-react';
+import { Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import * as assistantApi from '../../api/aiAssistant';
+import { myCompliance } from '../../api/documents';
 import { useAuthStore } from '../../store/authStore';
+import { useAccessibilityPrefs } from '../../lib/accessibilityPrefs';
 import { resolvePageTarget } from '../../lib/ai/pageTargets';
 import { AssistantEmptyState, MessageList } from './MessageList';
 import {
@@ -15,11 +17,16 @@ import {
 import {
   composerStyle,
   errorBannerStyle,
+  headerBadgeGlowStyle,
+  headerBadgeRingStyle,
+  headerBadgeStyle,
+  headerBadgeWrapStyle,
   headerStyle,
   iconButtonStyle,
   panelStyle,
   sendButtonStyle,
   textareaStyle,
+  transcriptGlowStyle,
   transcriptStyle,
 } from './assistantStyles';
 
@@ -34,12 +41,20 @@ import {
  * So: `role="dialog"` with `aria-modal="false"`, focus moved to the input on open and restored to
  * whatever opened it on close, Escape to close, and the transcript as a polite live region so an
  * answer is announced rather than arriving silently. Tab leaves the panel normally, as it should.
+ *
+ * The panel fully mounts on open and unmounts on close (rather than staying mounted and toggling a
+ * `hidden` prop) — its `useReducer` state, and the conversation it holds, therefore does not
+ * survive closing the panel. `panelStyle`'s entrance animation plays on every mount for free.
  */
 
 interface AssistantPanelProps {
   onClose: () => void;
   /** The nav key of the page behind the panel. A ranking hint, re-validated server-side. */
   currentPageId?: string;
+  /** Unread notification count, already polled by Shell for the topbar bell — threaded through
+   *  rather than polled again here, so the welcome screen's "For You" line and the topbar badge
+   *  never disagree. */
+  unreadCount?: number;
 }
 
 interface Position {
@@ -58,14 +73,25 @@ function clampPanelPosition(position: Position, size: { width: number; height: n
   };
 }
 
-export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) {
+export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: AssistantPanelProps) {
   const token = useAuthStore((s) => s.token);
   const role = useAuthStore((s) => s.user?.role);
   const userName = useAuthStore((s) => s.user?.fullName);
   const navigate = useNavigate();
+  const { reduceAnimations } = useAccessibilityPrefs();
 
   const [state, dispatch] = useReducer(assistantReducer, initialAssistantState);
   const [draft, setDraft] = useState('');
+  // Fetched once per mount purely to surface on the welcome screen; failures are silent since
+  // "For You" is a nice-to-have summary, not something worth an error banner over.
+  const [pendingPolicies, setPendingPolicies] = useState(0);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    myCompliance(token).then((s) => { if (!cancelled) setPendingPolicies(s.pendingPolicies); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
 
   // Undragged by default - the panel opens at its usual bottom-right spot (panelStyle) and only
   // moves once the user actually drags the header. Session-only, matching the rest of this
@@ -91,8 +117,9 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
 
   useEffect(() => {
     const node = transcriptRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [state.messages]);
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: reduceAnimations ? 'auto' : 'smooth' });
+  }, [state.messages, reduceAnimations]);
 
   // A dragged position can end up off-screen after the window resizes or the phone rotates -
   // re-clamp rather than let the panel become unreachable.
@@ -151,6 +178,9 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
     const pendingId = `a-${Date.now()}`;
     dispatch({ type: 'ASK', id, pendingId, text: trimmed });
     setDraft('');
+    // The textarea auto-grows via inline height (see onChange below); clearing the draft alone
+    // doesn't shrink it back, since that's a DOM-level style this component set imperatively.
+    if (inputRef.current) inputRef.current.style.height = 'auto';
 
     try {
       const response = await assistantApi.sendMessage(token, {
@@ -175,6 +205,7 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
       // is not something the user can act on.
       try { await assistantApi.clearConversation(token, state.conversationId); } catch { /* ignore */ }
     }
+    if (inputRef.current) inputRef.current.style.height = 'auto';
     inputRef.current?.focus();
   }, [token, state.conversationId]);
 
@@ -223,10 +254,20 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
         onPointerUp={onHeaderPointerUp}
         onPointerCancel={onHeaderPointerUp}
         style={{ ...headerStyle, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+        className="nf-ai-header"
       >
-        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>
-          NORA
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <div style={headerBadgeWrapStyle} aria-hidden="true">
+            <div style={headerBadgeGlowStyle} className="nf-ai-badge-glow" />
+            {/* Speeds way up while a question is in flight — the ring goes from calm ambient
+                motion to visibly "working," the same idea as a browser tab's loading spinner. */}
+            <div style={{ ...headerBadgeRingStyle, animationDuration: state.sending ? '1.1s' : '7s' }} />
+            <div style={headerBadgeStyle} className="nf-ai-badge"><Sparkles size={13} /></div>
+          </div>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>
+            NORA
+          </span>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {state.messages.length > 0 && (
             <button type="button" onClick={clear} aria-label="Start over" style={iconButtonStyle}>
@@ -245,8 +286,18 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
         aria-live="polite"
         aria-busy={state.sending}
       >
+        <div style={transcriptGlowStyle} className="nf-ai-bg" aria-hidden="true" />
         {state.messages.length === 0
-          ? <AssistantEmptyState onPick={(question) => void send(question)} userName={userName} />
+          ? (
+            <AssistantEmptyState
+              onPick={(question) => void send(question)}
+              onNavigate={goTo}
+              resolveLabel={resolveLabel}
+              userName={userName}
+              unreadCount={unreadCount}
+              pendingPolicies={pendingPolicies}
+            />
+          )
           : (
             <MessageList
               messages={state.messages}
@@ -271,7 +322,15 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
         <textarea
           ref={inputRef}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            // Auto-grow: reset to the CSS-defined single-row height first, then measure — without
+            // the reset, scrollHeight only ever grows, since a taller textarea never shrinks back
+            // for itself when text is deleted.
+            const el = event.target;
+            el.style.height = 'auto';
+            el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+          }}
           onKeyDown={(event) => {
             // Enter sends, Shift+Enter breaks the line - the convention every chat surface uses,
             // and the reason this is a textarea rather than an input.
@@ -287,6 +346,17 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
             ...textareaStyle,
             borderColor: tooLong ? 'rgba(239,68,68,.5)' : 'var(--line2)',
           }}
+          onFocus={(event) => {
+            if (tooLong) return;
+            const el = event.currentTarget;
+            el.style.borderColor = 'rgba(177,17,22,.45)';
+            el.style.boxShadow = '0 0 0 3px rgba(177,17,22,.14)';
+          }}
+          onBlur={(event) => {
+            const el = event.currentTarget;
+            el.style.borderColor = tooLong ? 'rgba(239,68,68,.5)' : 'var(--line2)';
+            el.style.boxShadow = 'none';
+          }}
         />
         <button
           type="submit"
@@ -297,8 +367,14 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
             opacity: canSend(draft, state.sending) ? 1 : 0.45,
             cursor: canSend(draft, state.sending) ? 'pointer' : 'default',
           }}
+          onMouseEnter={(e) => { if (canSend(draft, state.sending)) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.06)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'none'; }}
+          onMouseDown={(e) => { if (canSend(draft, state.sending)) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.92)'; }}
+          onMouseUp={(e) => { if (canSend(draft, state.sending)) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.06)'; }}
         >
-          <Send size={15} />
+          {state.sending
+            ? <Loader2 size={15} style={{ animation: 'nf-assistant-ring-spin 0.8s linear infinite' }} />
+            : <Send size={15} />}
         </button>
       </form>
 

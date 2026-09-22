@@ -3,7 +3,9 @@ import { MessageCircleQuestion } from 'lucide-react';
 import { fetchHealth } from '../../api/aiAssistant';
 import { useAuthStore } from '../../store/authStore';
 import { AssistantPanel } from './AssistantPanel';
-import { launcherStyle } from './assistantStyles';
+import { inviteBubbleStyle, launcherGlowStyle, launcherStyle, launcherTooltipStyle } from './assistantStyles';
+
+const INVITE_SEEN_KEY = 'onehr.assistant.inviteSeen';
 
 /** Matches launcherStyle's width/height — needed to keep the button on-screen while dragging. */
 const LAUNCHER_SIZE = 50;
@@ -65,12 +67,20 @@ function storePosition(position: Position) {
  * a resize/rotation) and remembered per browser via `localStorage` — reload keeps it, another
  * device does not, exactly the "per-viewer convenience" this app already uses `localStorage` for
  * elsewhere (theme preference, recent searches).
+ *
+ * The ambient glow always tracks the button's current position (dragged or not — it is simply the
+ * same rect, one layer behind). The one-time invite bubble and the hover tooltip are deliberately
+ * NOT position-aware beyond that: they are anchored to the default bottom-right corner and are
+ * suppressed once the button has been dragged elsewhere, rather than attempting to chase a
+ * relocated button around the screen with hand-tuned offsets.
  */
-export function AssistantLauncher({ currentPageId }: { currentPageId?: string }) {
+export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentPageId?: string; unreadCount?: number }) {
   const token = useAuthStore((s) => s.token);
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<Position | null>(() => loadStoredPosition());
+  const [showInvite, setShowInvite] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
 
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
@@ -89,6 +99,21 @@ export function AssistantLauncher({ currentPageId }: { currentPageId?: string })
       .catch(() => { /* stay hidden */ });
     return () => { cancelled = true; };
   }, [token]);
+
+  // Invites the assistant once per browser session (sessionStorage, not localStorage — it's
+  // welcome to nudge again next time someone signs in), and only after a short delay so it never
+  // competes with everything else settling in on page load. Purely a discoverability nudge, so
+  // any storage failure (private window, blocked storage) just means it invites every time
+  // instead of once — never something worth guarding harder than a try/catch.
+  useEffect(() => {
+    if (!available) return;
+    let alreadySeen = false;
+    try { alreadySeen = sessionStorage.getItem(INVITE_SEEN_KEY) === '1'; } catch { /* assume not seen */ }
+    if (alreadySeen) return;
+    const showTimer = setTimeout(() => setShowInvite(true), 1400);
+    const hideTimer = setTimeout(() => setShowInvite(false), 8000);
+    return () => { clearTimeout(showTimer); clearTimeout(hideTimer); };
+  }, [available]);
 
   // A dropped position can end up off-screen after the window resizes or the phone rotates -
   // re-clamp rather than let the button become unreachable.
@@ -141,6 +166,9 @@ export function AssistantLauncher({ currentPageId }: { currentPageId?: string })
       movedRef.current = false;
       return;
     }
+    setShowInvite(false);
+    try { sessionStorage.setItem(INVITE_SEEN_KEY, '1'); } catch { /* best effort */ }
+    setShowTooltip(false);
     setOpen((wasOpen) => !wasOpen);
   }
 
@@ -149,10 +177,24 @@ export function AssistantLauncher({ currentPageId }: { currentPageId?: string })
   const style = position
     ? { ...launcherStyle, left: position.x, top: position.y, right: 'auto', bottom: 'auto' }
     : launcherStyle;
+  const glowStyle = position
+    ? { ...launcherGlowStyle, left: position.x, top: position.y, right: 'auto', bottom: 'auto' }
+    : launcherGlowStyle;
 
   return (
     <>
-      {open && <AssistantPanel onClose={() => setOpen(false)} currentPageId={currentPageId} />}
+      {open && <AssistantPanel onClose={() => setOpen(false)} currentPageId={currentPageId} unreadCount={unreadCount} />}
+      {showInvite && !open && !position && (
+        <div style={inviteBubbleStyle} role="status">
+          New here: ask me anything about OneHR — leave, attendance, expenses, and more.
+        </div>
+      )}
+      {/* Plain hover/focus label — distinct from the one-time invite bubble above, which only ever
+          shows once per session. Suppressed while that invite is up so the two never stack. */}
+      {showTooltip && !open && !position && !showInvite && (
+        <div style={launcherTooltipStyle} role="tooltip">Ask NORA</div>
+      )}
+      <div aria-hidden="true" className="nf-ai-launcher-glow" style={glowStyle} />
       {/* Hidden entirely while the panel is open, not just swapped to an X - the panel has its own
           close button, and a second, redundant close control floating over an open panel that may
           itself have been dragged elsewhere on screen is more confusing than helpful. */}
@@ -164,6 +206,10 @@ export function AssistantLauncher({ currentPageId }: { currentPageId?: string })
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          onFocus={() => setShowTooltip(true)}
+          onBlur={() => setShowTooltip(false)}
           aria-label="Open NORA (draggable — press and drag to move it)"
           aria-expanded={false}
           className="nf-assistant-launcher"

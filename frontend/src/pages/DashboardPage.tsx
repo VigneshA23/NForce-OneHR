@@ -609,8 +609,6 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
 
       <QuickActions actions={isHr ? HR_ADMIN_QUICK_ACTIONS : MANAGER_QUICK_ACTIONS} />
 
-      <BirthdayWidget />
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -753,6 +751,9 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           emptyMessage={isHr ? 'No one joined the organization in the last 12 months.' : 'No one joined your team in the last 12 months.'}
         />
       </div>
+
+      {/* Kept lower for both Manager and HR — not directly relevant to their top-of-page stats. */}
+      <BirthdayWidget />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1804,8 +1805,6 @@ function SuperAdminDashboardView() {
 
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
 
-      <BirthdayWidget />
-
       {/* Row 2 — Stat tiles, each clickable through to its detail view */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         {statTiles.map(({ icon, label, value, sub, accent, onClick }) => (
@@ -2043,6 +2042,10 @@ function SuperAdminDashboardView() {
           )}
         </div>
       </div>
+
+      {/* Not top of page for Super Admin — same reasoning as Manager, kept lower and out of the
+          way of the org-wide admin stats up front. */}
+      <BirthdayWidget />
 
       {/* Recent Audit Events — UNCHANGED */}
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
