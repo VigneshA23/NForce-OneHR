@@ -1,6 +1,7 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.dto.BirthdayEntryDto;
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
@@ -18,7 +19,9 @@ import java.security.SecureRandom;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -406,6 +409,80 @@ public class EmployeeService {
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Org-wide birthdays today or in the next 7 days — same "all authenticated users, work-info
+     * only" visibility tier as {@link #listDirectory}. Excludes employees with no {@code
+     * dateOfBirth} on file, deactivated users, and anyone already past their {@code
+     * lastWorkingDay} — mirrors {@code ExceptionService#isPastEmploymentTermination}'s reasoning
+     * for preferring lastWorkingDay over {@code User#active} alone: active=false covers other
+     * deactivation reasons too, but a set lastWorkingDay in the past is an unambiguous "no longer
+     * employed" signal. Birth year is never read past {@code getMonthValue}/{@code
+     * getDayOfMonth()} — {@link BirthdayEntryDto} has no field for it.
+     */
+    @Transactional(readOnly = true)
+    public List<BirthdayEntryDto> listUpcomingBirthdays() {
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        return employeeRepository.findAllWithDetails().stream()
+                .filter(e -> e.getDateOfBirth() != null)
+                .filter(e -> e.getUser() != null && e.getUser().isActive())
+                .filter(e -> e.getLastWorkingDay() == null || !today.isAfter(e.getLastWorkingDay()))
+                .map(e -> toBirthdayEntry(e, today))
+                .filter(entry -> entry.getDaysUntil() <= 7)
+                .sorted(Comparator.comparingInt(BirthdayEntryDto::getDaysUntil)
+                        .thenComparing(BirthdayEntryDto::getFullName))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Whether {@code userId}'s birthday falls on today (org-wide zone) — reuses this class's own
+     * leap-day-aware {@link #nextBirthdayOccurrence} rather than duplicating that math. Used by
+     * {@code BirthdayWishService} to keep "send a wish" restricted to someone's actual birthday;
+     * false (not an exception) for anyone with no {@code dateOfBirth} on file or no Employee row,
+     * matching {@link #listUpcomingBirthdays}'s own "just exclude them" handling of that case.
+     */
+    @Transactional(readOnly = true)
+    public boolean isBirthdayToday(UUID userId) {
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        return employeeRepository.findById(userId)
+                .map(Employee::getDateOfBirth)
+                .map(dob -> nextBirthdayOccurrence(dob.getMonthValue(), dob.getDayOfMonth(), today).equals(today))
+                .orElse(false);
+    }
+
+    private BirthdayEntryDto toBirthdayEntry(Employee e, LocalDate today) {
+        LocalDate dob = e.getDateOfBirth();
+        int month = dob.getMonthValue();
+        int day = dob.getDayOfMonth();
+        LocalDate next = nextBirthdayOccurrence(month, day, today);
+        int daysUntil = (int) ChronoUnit.DAYS.between(today, next);
+        return BirthdayEntryDto.builder()
+                .userId(e.getUserId().toString())
+                .fullName(e.getFullName())
+                .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
+                .designationName(e.getDesignation() != null ? e.getDesignation().getTitle() : null)
+                .birthdayMonth(month)
+                .birthdayDay(day)
+                .daysUntil(daysUntil)
+                .today(daysUntil == 0)
+                .build();
+    }
+
+    /**
+     * Next calendar occurrence of month/day on or after today — this year unless that date has
+     * already passed, in which case next year. A Feb 29 birthday lands on Feb 28 in a non-leap
+     * target year (via {@link #clampedDate}) rather than being skipped, mirroring
+     * frontend/src/lib/workAnniversary.ts's own leap-day handling for the same reason.
+     */
+    private LocalDate nextBirthdayOccurrence(int month, int day, LocalDate today) {
+        LocalDate candidate = clampedDate(today.getYear(), month, day);
+        return candidate.isBefore(today) ? clampedDate(today.getYear() + 1, month, day) : candidate;
+    }
+
+    private LocalDate clampedDate(int year, int month, int day) {
+        int lastDayOfMonth = YearMonth.of(year, month).lengthOfMonth();
+        return LocalDate.of(year, month, Math.min(day, lastDayOfMonth));
     }
 
     /**

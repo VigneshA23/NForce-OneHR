@@ -743,7 +743,7 @@ function HRView({ token }: { token: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
+        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
         <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
         {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
             model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
