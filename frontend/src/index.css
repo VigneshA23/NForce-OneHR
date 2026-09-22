@@ -880,27 +880,32 @@ input[type="date"] {
    Two rules only; everything else about the assistant is inline styles over the
    same CSS custom properties every other page uses (see assistantStyles.ts).
 
-   The panel is a floating card on desktop and a full-screen sheet on phones —
-   a 396px card at 360px viewport width would either overflow or leave no room
-   to read an answer. Height uses var(--app-height) rather than bare 100dvh, for
-   the same iOS Safari reason the rest of this file does: the browser chrome
-   changes 100dvh mid-scroll and the composer ends up under the address bar.
+   The panel stays the same floating card at every viewport width, phones
+   included — it only shrinks to fit, via width/max-height min()s against the
+   viewport, rather than switching to an edge-to-edge full-screen sheet. Height
+   uses var(--app-height) rather than bare 100dvh, for the same iOS Safari
+   reason the rest of this file does: the browser chrome changes 100dvh
+   mid-scroll and the composer would otherwise end up under the address bar.
 
    The launcher sits at z-index 80, below the mobile nav scrim at 90, so the
    off-canvas menu covers it instead of leaving a button floating over the
-   overlay. It also shifts up on phones to clear the thumb zone. */
+   overlay. Both the launcher's and the panel's right/bottom here are only the
+   *default* position — once dragged (AssistantLauncher.tsx/AssistantPanel.tsx
+   both drag via an inline left/top), that takes over. `left` is deliberately
+   left unset by this rule, not forced to `auto !important`: an `!important`
+   on `left` would beat the inline drag position outright, in the cascade,
+   before layout even gets to CSS's own over-constraint resolution (which is
+   what lets an inline left quietly win over a merely-cascade-winning right).
+   Leaving `left` alone here keeps it exactly what panelStyle/launcherStyle
+   already make it undragged (unset, i.e. auto) while still letting a drag's
+   inline left apply. */
 @media (max-width: 767px) {
   .nf-assistant-panel {
-    right: 0 !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    max-height: var(--app-height, 100dvh) !important;
-    height: var(--app-height, 100dvh) !important;
-    border-radius: 0 !important;
-    border-left: none !important;
-    border-right: none !important;
-    border-bottom: none !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    width: min(360px, calc(100vw - 24px)) !important;
+    max-height: min(72vh, calc(var(--app-height, 100dvh) - 88px)) !important;
+    height: auto !important;
   }
   .nf-assistant-launcher {
     right: 16px !important;

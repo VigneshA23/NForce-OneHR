@@ -42,16 +42,43 @@ interface AssistantPanelProps {
   currentPageId?: string;
 }
 
+interface Position {
+  x: number;
+  y: number;
+}
+
+/** Keeps a dragged panel fully on screen, including after a resize or a phone rotation. */
+function clampPanelPosition(position: Position, size: { width: number; height: number }): Position {
+  const margin = 8;
+  const maxX = Math.max(margin, window.innerWidth - size.width - margin);
+  const maxY = Math.max(margin, window.innerHeight - size.height - margin);
+  return {
+    x: Math.min(Math.max(position.x, margin), maxX),
+    y: Math.min(Math.max(position.y, margin), maxY),
+  };
+}
+
 export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) {
   const token = useAuthStore((s) => s.token);
   const role = useAuthStore((s) => s.user?.role);
+  const userName = useAuthStore((s) => s.user?.fullName);
   const navigate = useNavigate();
 
   const [state, dispatch] = useReducer(assistantReducer, initialAssistantState);
   const [draft, setDraft] = useState('');
 
+  // Undragged by default - the panel opens at its usual bottom-right spot (panelStyle) and only
+  // moves once the user actually drags the header. Session-only, matching the rest of this
+  // component's state: the panel unmounts on close, so there is nothing to persist across reopens.
+  const [position, setPosition] = useState<Position | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
   const transcriptRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const pointerOffsetRef = useRef<Position>({ x: 0, y: 0 });
+  const sizeRef = useRef({ width: 396, height: 600 });
   // Captured on mount so focus goes back to whatever opened the panel, which is the launcher in
   // practice but should not be assumed.
   const opener = useRef<HTMLElement | null>(null);
@@ -66,6 +93,44 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
     const node = transcriptRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [state.messages]);
+
+  // A dragged position can end up off-screen after the window resizes or the phone rotates -
+  // re-clamp rather than let the panel become unreachable.
+  useEffect(() => {
+    if (!position) return;
+    function onResize() {
+      const rect = panelRef.current?.getBoundingClientRect();
+      const size = rect ? { width: rect.width, height: rect.height } : sizeRef.current;
+      setPosition((current) => (current ? clampPanelPosition(current, size) : current));
+    }
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [position]);
+
+  const onHeaderPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    // Let Start Over / Close keep working normally rather than starting a drag underneath them.
+    if ((event.target as HTMLElement).closest('button')) return;
+    const rect = panelRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    pointerOffsetRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    sizeRef.current = { width: rect.width, height: rect.height };
+    draggingRef.current = true;
+    setIsDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, []);
+
+  const onHeaderPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    setPosition(clampPanelPosition(
+      { x: event.clientX - pointerOffsetRef.current.x, y: event.clientY - pointerOffsetRef.current.y },
+      sizeRef.current,
+    ));
+  }, []);
+
+  const onHeaderPointerUp = useCallback(() => {
+    draggingRef.current = false;
+    setIsDragging(false);
+  }, []);
 
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== 'Escape') return;
@@ -134,18 +199,33 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
 
   const tooLong = draft.trim().length > MAX_MESSAGE_CHARS;
 
+  // Undragged: the usual fixed bottom-right spot from panelStyle. Dragged: left/top take over -
+  // the browser's own over-constraint resolution (left+width both present) drops the CSS right/
+  // bottom even where a stylesheet rule marks them !important, the same mechanism the launcher's
+  // own drag already relies on.
+  const style = position
+    ? { ...panelStyle, left: position.x, top: position.y, right: 'auto', bottom: 'auto' }
+    : panelStyle;
+
   return (
     <div
+      ref={panelRef}
       role="dialog"
       aria-modal="false"
-      aria-label="OneHR assistant"
+      aria-label="NORA"
       onKeyDown={onKeyDown}
       className="nf-assistant-panel"
-      style={panelStyle}
+      style={style}
     >
-      <div style={headerStyle}>
+      <div
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={onHeaderPointerUp}
+        onPointerCancel={onHeaderPointerUp}
+        style={{ ...headerStyle, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+      >
         <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>
-          OneHR Assistant
+          NORA
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {state.messages.length > 0 && (
@@ -166,7 +246,7 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
         aria-busy={state.sending}
       >
         {state.messages.length === 0
-          ? <AssistantEmptyState onPick={(question) => void send(question)} />
+          ? <AssistantEmptyState onPick={(question) => void send(question)} userName={userName} />
           : (
             <MessageList
               messages={state.messages}
@@ -174,6 +254,8 @@ export function AssistantPanel({ onClose, currentPageId }: AssistantPanelProps) 
               onNavigate={goTo}
               onRate={rate}
               resolveLabel={resolveLabel}
+              onAsk={(question) => void send(question)}
+              sending={state.sending}
             />
           )}
       </div>
