@@ -62,6 +62,7 @@ public class ProfileService {
             events.add(ProfileTimelineEvent.builder()
                     .type("JOINED_COMPANY")
                     .date(emp.getJoiningDate())
+                    .timestamp(emp.getJoiningDate().atStartOfDay())
                     .description("Joined the company")
                     .build());
         }
@@ -78,11 +79,14 @@ public class ProfileService {
             events.add(ProfileTimelineEvent.builder()
                     .type("MANAGER_CHANGED")
                     .date(h.getEffectiveFrom().toLocalDate())
+                    .timestamp(h.getEffectiveFrom())
                     .description("Reporting manager changed to " + managerName)
                     .build());
         }
 
-        events.sort(Comparator.comparing(ProfileTimelineEvent::getDate));
+        // Sort by the full timestamp, not just the date, so multiple changes on the same
+        // calendar day still order correctly relative to each other.
+        events.sort(Comparator.comparing(ProfileTimelineEvent::getTimestamp));
         return events;
     }
 

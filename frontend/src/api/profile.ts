@@ -103,6 +103,9 @@ export interface EducationPayload {
 export interface ProfileTimelineEvent {
   type: string;
   date: string;
+  // Full-precision moment behind `date` — use this (not `date`) when ordering events, so
+  // same-day changes still sort correctly relative to each other.
+  timestamp: string;
   description: string;
 }
 

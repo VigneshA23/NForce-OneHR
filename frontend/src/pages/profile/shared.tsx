@@ -1,4 +1,5 @@
 import { X, Sparkles, Check } from 'lucide-react';
+import type { ProfileData } from '../../api/profile';
 
 export const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 export const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -42,6 +43,13 @@ export function validatePhone(v: string, label: string): string | null {
 export function validateName(v: string, label: string): string | null {
   if (!v) return null;
   return NAME_RE.test(v) ? null : `${label} can only contain letters, spaces, hyphens, apostrophes, and periods.`;
+}
+
+// Display Name is derived, not a separately stored/edited field — First/Middle/Last Name
+// (edited via Primary Details) are the single source of truth. Falls back to fullName for the
+// rare account with no employee record / no name parts set yet.
+export function computeDisplayName(profile: Pick<ProfileData, 'firstName' | 'middleName' | 'lastName' | 'fullName'>): string {
+  return [profile.firstName, profile.middleName, profile.lastName].filter(Boolean).join(' ').trim() || profile.fullName;
 }
 
 export const ROLE_LABELS: Record<string, string> = {

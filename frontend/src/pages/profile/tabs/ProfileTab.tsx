@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Lock, Shield, Trash2, Pencil, Plus } from 'lucide-react';
+import { Trash2, Pencil, Plus } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { profileEducationApi, type ProfileData, type EducationEntry } from '../../../api/profile';
-import { SectionHeader, ReadField, ROLE_LABELS } from '../shared';
+import { SectionHeader, ReadField } from '../shared';
 import { PrimaryDetailsModal } from './PrimaryDetailsModal';
 import { ContactDetailsModal } from './ContactDetailsModal';
 import { AddressesModal } from './AddressesModal';
@@ -108,7 +107,6 @@ function EducationCard({ token }: { token: string }) {
 }
 
 export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; token: string; onSaved: (p: ProfileData) => void }) {
-  const navigate = useNavigate();
   const [modal, setModal] = useState<'primary' | 'contact' | 'addresses' | 'identity' | null>(null);
 
   return (
@@ -155,32 +153,6 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
           </div>
         </div>
       </SectionCard>
-
-      {/* Security — carried over from the previous flat profile page; not part of the prototype's
-          5-tab scope, but has no other home in the new layout. */}
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-        <SectionHeader title="Security" />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 500, marginBottom: 3 }}>Password</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Change your account password at any time.</div>
-          </div>
-          <button
-            onClick={() => navigate('/change-password')}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt)', cursor: 'pointer' }}
-          >
-            <Lock size={13} aria-hidden />
-            Change Password
-          </button>
-        </div>
-        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Shield size={14} color="var(--txt-dim)" aria-hidden />
-          <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-            Role: <strong style={{ color: 'var(--txt)' }}>{ROLE_LABELS[profile.role] ?? profile.role}</strong>
-            {' · '}Account status: <strong style={{ color: profile.active ? 'var(--ok)' : 'var(--risk)' }}>{profile.active ? 'Active' : 'Inactive'}</strong>
-          </span>
-        </div>
-      </div>
 
       {modal === 'primary' && <PrimaryDetailsModal profile={profile} token={token} onClose={() => setModal(null)} onSaved={onSaved} />}
       {modal === 'contact' && <ContactDetailsModal profile={profile} token={token} onClose={() => setModal(null)} onSaved={onSaved} />}

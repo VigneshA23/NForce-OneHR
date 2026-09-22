@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, Upload, AlertTriangle, Search } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
-import { type EmployeeDocument, type DocumentType, type RequiredDocument } from '../api/documents';
 import { myPolicies, acknowledgePolicy, publishedAnnouncements, type Policy, type Announcement } from '../api/policies';
-import { card, thS, tdS, StatusBadge, UploadModal, ViewButton } from './documents/shared';
+import { card } from './documents/shared';
 import { useMyDocumentsData } from './documents/useMyDocumentsData';
+import { MyDocumentsSection } from './documents/MyDocumentsSection';
 
 // ── Policy Read-First Modal ───────────────────────────────
 
@@ -63,12 +63,10 @@ export default function DocumentsPage() {
     const t = searchParams.get('tab');
     return t === 'policies' || t === 'announcements' ? t : 'docs';
   });
-  const [section, setSection] = useState<'verified' | 'pending' | 'missing'>('pending');
   const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
   const { required, myDocs, docTypes, loading: docsLoading, setRequired, setMyDocs } = useMyDocumentsData(token);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [uploadTarget, setUploadTarget] = useState<{ type: RequiredDocument | DocumentType; existing: EmployeeDocument | null } | null>(null);
   const [ackTarget, setAckTarget] = useState<Policy | null>(null);
   const [policiesLoading, setPoliciesLoading] = useState(true);
   const loading = docsLoading || policiesLoading;
@@ -93,10 +91,6 @@ export default function DocumentsPage() {
     setAckTarget(null);
   }
 
-  function docForType(typeId: number): EmployeeDocument | null {
-    return myDocs.find(d => d.documentTypeId === typeId) ?? null;
-  }
-
   // KPI data
   const verified = required.filter(r => r.status === 'VERIFIED');
   const pending = required.filter(r => r.status === 'PENDING_VERIFICATION' || r.status === 'REJECTED');
@@ -108,17 +102,7 @@ export default function DocumentsPage() {
     background: tab === t ? '#A01418' : 'transparent', color: tab === t ? '#fff' : 'var(--txt-dim)',
   });
 
-  const secStyle = (s: typeof section): React.CSSProperties => ({
-    padding: '6px 16px', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 12,
-    background: section === s ? 'var(--txt)' : 'var(--shell)',
-    color: section === s ? 'var(--panel)' : 'var(--txt-dim)',
-    border: '1px solid var(--line)',
-  });
-
-  // Filtered docs for current section
-  const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : missing;
   const q = search.trim().toLowerCase();
-  const filteredDocs = q ? sectionDocs.filter(r => r.documentTypeName.toLowerCase().includes(q)) : sectionDocs;
   const filteredAnnouncements = q
     ? announcements.filter(a => a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
     : announcements;
@@ -166,100 +150,11 @@ export default function DocumentsPage() {
 
       {/* ── My Documents Tab ── */}
       {tab === 'docs' && (
-        <>
-          <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-            <button className="nf-doc-tab-btn" style={secStyle('pending')} onClick={() => setSection('pending')}>
-              <span className="nf-doc-tab-label">Pending Review</span> {pending.length > 0 && <span style={{ marginLeft: 4, background: '#eab308', color: '#000', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{pending.length}</span>}
-            </button>
-            <button className="nf-doc-tab-btn" style={secStyle('verified')} onClick={() => setSection('verified')}>
-              <span className="nf-doc-tab-label">Verified</span> {verified.length > 0 && <span style={{ marginLeft: 4, background: '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{verified.length}</span>}
-            </button>
-            <button className="nf-doc-tab-btn" style={secStyle('missing')} onClick={() => setSection('missing')}>
-              <span className="nf-doc-tab-label">Not Submitted</span> {missing.length > 0 && <span style={{ marginLeft: 4, background: '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{missing.length}</span>}
-            </button>
-          </div>
-
-          <div className="nf-search-full-mobile" style={{ position: 'relative', marginBottom: 14 }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents…"
-              className="nf-search-full-mobile-input"
-              style={{ paddingLeft: 28, padding: '6px 10px 6px 28px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 12, width: 200, outline: 'none' }} />
-          </div>
-
-          <div style={card}>
-            <div className="nf-doc-table-scroll">
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={thS}>Document</th>
-                    <th style={thS}>Status</th>
-                    <th style={thS}>Expiry</th>
-                    <th style={thS}>Rejection Reason</th>
-                    <th style={thS}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDocs.length === 0 ? (
-                    <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                      {q ? 'No results.' : section === 'verified' ? 'No verified documents yet.' : section === 'pending' ? 'No documents pending review.' : 'All required documents submitted!'}
-                    </td></tr>
-                  ) : filteredDocs.map(r => {
-                    const doc = docForType(r.documentTypeId);
-                    return (
-                      <tr key={r.documentTypeId}>
-                        <td style={tdS}>
-                          <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{r.documentTypeName}</div>
-                          {r.requiresVerification && <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requires HR verification</div>}
-                        </td>
-                        <td style={tdS}><StatusBadge status={r.status} /></td>
-                        <td style={tdS}>
-                          {doc?.expiryDate ? (
-                            <span style={{ color: r.expiringSoon ? '#eab308' : 'var(--txt-mut)', fontSize: 13 }}>
-                              {r.expiringSoon && <AlertTriangle size={12} style={{ marginRight: 4 }} />}
-                              {new Date(doc.expiryDate).toLocaleDateString()}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td style={tdS}>
-                          {doc?.rejectionReason
-                            ? <span style={{ color: '#ef4444', fontSize: 12 }}>{doc.rejectionReason}</span>
-                            : '—'}
-                        </td>
-                        <td style={tdS}>
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button onClick={() => setUploadTarget({ type: r, existing: doc })}
-                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A01418', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                              <Upload size={12} /> {doc ? 'Re-upload' : 'Upload'}
-                            </button>
-                            {doc && <ViewButton docId={doc.id} />}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Upload from docTypes for any not in required list */}
-          {docTypes.length > required.length && (
-            <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Upload additional document:</span>
-              <select onChange={e => {
-                const dt = docTypes.find(d => d.id === Number(e.target.value));
-                if (dt) setUploadTarget({ type: dt, existing: myDocs.find(d => d.documentTypeId === dt.id) ?? null });
-                e.target.value = '';
-              }} defaultValue=""
-                style={{ padding: '6px 10px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', fontSize: 12, cursor: 'pointer' }}>
-                <option value="" disabled>Select document type…</option>
-                {docTypes.filter(dt => !required.find(r => r.documentTypeId === dt.id)).map(dt => (
-                  <option key={dt.id} value={dt.id}>{dt.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-        </>
+        <MyDocumentsSection
+          required={required} myDocs={myDocs} docTypes={docTypes}
+          setRequired={setRequired} setMyDocs={setMyDocs}
+          search={search} onSearchChange={setSearch}
+        />
       )}
 
       {/* ── Policies Tab ── */}
@@ -329,23 +224,6 @@ export default function DocumentsPage() {
             </div>
           ))}
         </div>
-      )}
-
-      {uploadTarget && (
-        <UploadModal
-          key={`${(uploadTarget.type as any).id ?? (uploadTarget.type as any).documentTypeId}-${Date.now()}`}
-          docType={uploadTarget.type}
-          existing={uploadTarget.existing}
-          onClose={() => setUploadTarget(null)}
-          onUploaded={doc => {
-            setMyDocs(prev => {
-              const idx = prev.findIndex(d => d.documentTypeId === doc.documentTypeId);
-              return idx >= 0 ? prev.map((d, i) => i === idx ? doc : d) : [doc, ...prev];
-            });
-            setRequired(prev => prev.map(r => r.documentTypeId === doc.documentTypeId
-              ? { ...r, uploaded: true, status: doc.status } : r));
-          }}
-        />
       )}
 
       {ackTarget && (

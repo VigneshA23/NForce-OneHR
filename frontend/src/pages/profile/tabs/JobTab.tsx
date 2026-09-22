@@ -43,30 +43,28 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Card title="Job Details" badge="Read-Only">
+      <Card title="Job Details">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Employee ID" value={profile.employeeCode} />
           <ReadField label="Job Title / Job Code" value={profile.designationName ? `${profile.designationName}${profile.jobCode ? ` (${profile.jobCode})` : ''}` : profile.jobCode} />
           <ReadField label="Employment Type" value={profile.employmentType?.replace('_', ' ')} />
           <ReadField label="Employment Status" value={profile.active ? 'Active' : 'Inactive'} />
           <ReadField label="Date of Joining" value={profile.joiningDate} />
-          <ReadField label="Probation End / Confirmation Date" value={profile.confirmationDate ? `Confirmed · ${profile.confirmationDate}` : profile.probationEndDate} />
+          <ReadField label="Confirmation Date" value={profile.confirmationDate} />
           <ReadField label="Reporting Manager" value={profile.managerName} />
           <ReadField label="Work Mode" value={profile.workMode} />
         </div>
       </Card>
 
-      <Card title="Employee Time" badge="Read-Only">
+      <Card title="Employee Time">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Shift / Work Schedule" value={profile.shiftName} />
-          <ReadField label="Holiday Calendar" value={null} />
-          <ReadField label="Attendance Policy Group" value={null} />
           <ReadField label="Attendance Time Tracking Policy" value={null} />
           <ReadField label="Attendance Penalization Policy" value={profile.attendancePenalizationPolicyName} />
         </div>
       </Card>
 
-      <Card title="Organization" badge="Read-Only">
+      <Card title="Organization">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Business Unit / Division" value={profile.businessUnitName} />
           <ReadField label="Department" value={profile.departmentName} />

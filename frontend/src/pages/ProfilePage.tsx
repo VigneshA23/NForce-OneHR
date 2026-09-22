@@ -10,7 +10,7 @@ import profileBannerBlue from '../assets/profile-banner-blue.png';
 import profileBannerPink from '../assets/profile-banner-pink.png';
 import profileBannerGreen from '../assets/profile-banner-green.png';
 import profileBannerPurple from '../assets/profile-banner-purple.png';
-import { PhotoModal, AvatarPickerModal, dicebearUrl, ROLE_LABELS } from './profile/shared';
+import { PhotoModal, AvatarPickerModal, dicebearUrl, ROLE_LABELS, computeDisplayName } from './profile/shared';
 import { AboutTab } from './profile/tabs/AboutTab';
 import { ProfileTab } from './profile/tabs/ProfileTab';
 import { JobTab } from './profile/tabs/JobTab';
@@ -125,8 +125,7 @@ export default function ProfilePage() {
 
   if (!profile) return null;
 
-  const displayName = [profile.firstName, profile.middleName, profile.lastName]
-    .filter(Boolean).join(' ').trim() || profile.fullName;
+  const displayName = computeDisplayName(profile);
   const initials = displayName ? displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : profile.email.slice(0, 2).toUpperCase();
 
   // Every Theme color now has a real banner image (orange has none — it was dropped from the

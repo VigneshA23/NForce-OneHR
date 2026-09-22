@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Calendar, RefreshCw, UserRound } from 'lucide-react';
 import { profileApi, type ProfileData, type ProfileTimelineEvent } from '../../../api/profile';
-import { SectionHeader, ReadField } from '../shared';
+import { SectionHeader, ReadField, computeDisplayName } from '../shared';
 import { PreferredNameBioModal } from './PreferredNameBioModal';
 
 function SummaryCard({ profile, token, onSaved }: { profile: ProfileData; token: string; onSaved: (p: ProfileData) => void }) {
@@ -16,7 +16,7 @@ function SummaryCard({ profile, token, onSaved }: { profile: ProfileData; token:
         </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
-        <ReadField label="Preferred Name" value={profile.preferredName} />
+        <ReadField label="Display Name" value={computeDisplayName(profile)} />
         <div style={{ gridColumn: '1/-1' }}>
           <ReadField label="About Me / Bio" value={profile.bio} />
         </div>
@@ -46,7 +46,7 @@ function EmploymentContextCard({ profile }: { profile: ProfileData }) {
 
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <SectionHeader title="Employment & Organization Context" badge="Read-Only" />
+      <SectionHeader title="Employment & Organization Context" />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
         <ReadField label="Job Title" value={profile.designationName} />
         <ReadField label="Department" value={profile.departmentName} />
@@ -70,8 +70,9 @@ function TimelineSubTab({ entries, loading }: { entries: ProfileTimelineEvent[];
     return <div style={{ padding: 24, color: 'var(--txt-dim)', fontSize: 13 }}>No lifecycle events yet.</div>;
   }
   // Oldest first in the API response (see backend ProfileService#getTimeline); display newest
-  // at top to match the prototype's "bottom is joining date" layout.
-  const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
+  // at top to match the prototype's "bottom is joining date" layout. Sorts by the full
+  // timestamp, not just the date, so same-day changes still order correctly.
+  const sorted = [...entries].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <SectionHeader title="Employee Life Cycle & Career History" badge="System History" />
