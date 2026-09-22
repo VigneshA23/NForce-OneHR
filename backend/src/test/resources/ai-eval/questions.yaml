@@ -261,6 +261,25 @@ questions:
       navigation: approvals
       knowledge: [workflow.approval-center]
 
+  - id: mgr.approvals.total-count
+    role: MANAGER
+    question: "How many requests need my approval right now, across everything?"
+    category: module
+    expect:
+      type: [EXPLANATION, HOW_TO, NAVIGATION]
+      navigation: approvals
+      knowledge: [workflow.approval-center]
+    why: >
+      Regression guard for a real production bug: retrieval-driven live-data provider
+      selection let Leave's three own providers crowd out Expense's single one on this
+      exact page, so a manager asking for a total across the Approval Center's eight
+      request types was told only about Leave. Fixed by ApprovalSummaryProvider (a
+      precise, counts-only total across all six approval-type services) plus
+      family-diverse provider selection in AssistantDataService. This question does not
+      assert a specific figure - the live count is environment-dependent - only that the
+      assistant still grounds the answer in the real Approval Center workflow and offers
+      to open it.
+
   - id: emp.helpdesk.raise
     role: EMPLOYEE
     question: "How do I raise a ticket with HR?"

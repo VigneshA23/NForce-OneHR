@@ -218,6 +218,55 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("one record type's own providers cannot crowd out an equally relevant, different type")
+    void diversityAcrossFamiliesBeatsRawScore() {
+        // Reproduces the real bug: on the Approval Center page, three Leave providers (which also
+        // score via the "leave" module from ordinary retrieval) filled every slot before Expense's
+        // single "approvals"-tagged provider was even considered, even though the question was about
+        // neither type specifically - it was about the page as a whole.
+        List<AssistantDataProvider> providers = List.of(
+                new SpyProvider("leave.balances", Set.of(AudienceBucket.values()), Set.of("leave"), "a"),
+                new SpyProvider("leave.my-requests", Set.of(AudienceBucket.values()), Set.of("leave", "requests"), "b"),
+                new SpyProvider("leave.pending-approvals",
+                        Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                        Set.of("leave", "approvals"), "3 awaiting your decision."),
+                new SpyProvider("expense.pending-approvals",
+                        Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                        Set.of("assets", "approvals"), "14 awaiting your decision."));
+        AssistantDataService service = new AssistantDataService(providers);
+
+        AssistantRequestContext onApprovalCenter = AssistantRequestContext.builder()
+                .userId(UUID.randomUUID()).actorEmail("m@nforceone.com")
+                .primaryRoleCode("MANAGER").shellRole(ShellRole.MANAGER)
+                .audiences(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER))
+                .currentPageId("approvals").currentModule("approvals")
+                .build();
+
+        // "leave" scores higher than the shared "approvals" page boost, exactly as it did in
+        // production - the fix is that this no longer costs Expense its only slot.
+        AssistantDataService.LiveData data = service.fetch(onApprovalCenter,
+                List.of(knowledgeFrom("leave", 0.85)));
+
+        assertThat(data.providerIds()).contains("expense.pending-approvals");
+    }
+
+    @Test
+    @DisplayName("a family only gets a second slot once every other relevant family already has its first")
+    void secondSlotRequiresEveryFamilyToHaveOne() {
+        List<AssistantDataProvider> providers = List.of(
+                new SpyProvider("leave.balances", Set.of(AudienceBucket.values()), Set.of("leave"), "a"),
+                new SpyProvider("leave.my-requests", Set.of(AudienceBucket.values()), Set.of("leave", "requests"), "b"),
+                new SpyProvider("expense.my-claims", Set.of(AudienceBucket.values()), Set.of("assets"), "c"));
+        AssistantDataService service = new AssistantDataService(providers);
+
+        // "leave" alone is relevant (no page/assets boost at all), so Expense's own score is 0 and
+        // it correctly gets no slot - diversity only protects a family that is itself relevant.
+        AssistantDataService.LiveData data = service.fetch(employee(), List.of(knowledgeFrom("leave", 0.9)));
+
+        assertThat(data.providerIds()).containsExactlyInAnyOrder("leave.balances", "leave.my-requests");
+    }
+
+    @Test
     @DisplayName("the current page can make a provider relevant on its own")
     void currentPageContributesToSelection() {
         SpyProvider expenses = new SpyProvider("expense.my-claims",

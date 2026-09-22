@@ -125,8 +125,11 @@ app:
       max-context-chars: 12000
     limits:
       max-message-chars: 1000
-      max-requests-per-user-per-hour: 60
       max-history-turns: 6
+      # The per-user request budget (enabled / requests-per-window / window length) used to be
+      # configured here as max-requests-per-user-per-hour. It is now Super-Admin-editable from
+      # Organization Masters > AI Assistant, persisted in ai_rate_limit_settings (V192), so it no
+      # longer lives in static config.
 
 resend:
   api-key: ${RESEND_API_KEY}

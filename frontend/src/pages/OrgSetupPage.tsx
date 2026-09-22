@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock, CalendarDays } from 'lucide-react';
+import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock, CalendarDays, Bot } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -15,6 +15,7 @@ import {
   type DocumentType,
 } from '../api/documents';
 import { leaveApi, type LeaveType, type LeaveTypeClassification } from '../api/leave';
+import * as aiAssistantApi from '../api/aiAssistant';
 import PolicyListSection from './penalization/PolicyListSection';
 import PenalizationPolicyAllocationSection from './penalization/PenalizationPolicyAllocationSection';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
@@ -22,7 +23,7 @@ import { inactiveDimStyle } from '../components/EmployeeStatus';
 // 'shiftweeklyoff' is ONE top-level Organization Masters tab — Shifts/Weekly Offs/Shift and
 // Weekly Off Rules live as nested sub-tabs inside it (see shiftWeeklyOffSubTab below), matching
 // the approved reference design. They must never become separate top-level entries here again.
-type OrgTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shiftweeklyoff' | 'doctypes' | 'leavetypes' | 'penalization' | 'attendance';
+type OrgTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shiftweeklyoff' | 'doctypes' | 'leavetypes' | 'penalization' | 'attendance' | 'ai-assistant';
 
 interface TabDef {
   label: string;
@@ -94,6 +95,15 @@ const TABS: Record<OrgTab, TabDef> = {
   // emptyLine are unused for this tab (see the search/add-button and table-vs-section guards below).
   attendance: {
     label: 'Attendance Rules', icon: Clock,
+    columns: [], addLabel: '', emptyLine: '',
+  },
+  // A single-setting form (AiRateLimitSettingsSection), same shape as Attendance Rules above. Read
+  // AND write of this one are Super-Admin-only server-side (unlike every other tab here, which HR
+  // Admin can at least view via /organization) - see the tab-bar filter below, which hides this
+  // entry entirely rather than showing a tab that would 403 on load. columns/addLabel/emptyLine
+  // are unused, same reason as attendance.
+  'ai-assistant': {
+    label: 'AI Assistant', icon: Bot,
     columns: [], addLabel: '', emptyLine: '',
   },
 };
@@ -1604,7 +1614,12 @@ export default function OrgSetupPage() {
               tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
               squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
           <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
-            {(Object.keys(TABS) as OrgTab[]).map(key => {
+            {(Object.keys(TABS) as OrgTab[])
+              // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
+              // load: unlike every other tab here (at least viewable via /organization by HR
+              // Admin), the AI Assistant rate-limit configuration is Super-Admin-only end to end.
+              .filter(key => key !== 'ai-assistant' || role === 'SUPER_ADMIN')
+              .map(key => {
               const T = TABS[key];
               const TabIcon = T.icon;
               const isActive = activeTab === key;
@@ -1624,7 +1639,8 @@ export default function OrgSetupPage() {
               );
             })}
           </div>
-          {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance' && (
+          {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
+            && activeTab !== 'ai-assistant' && (
             // 8px vertical padding (was 0) gives this block breathing room from the tabs above
             // it on the narrow widths where flexWrap drops it to its own line; harmless on the
             // shared line, where alignItems: center still governs its vertical position.
@@ -1745,6 +1761,8 @@ export default function OrgSetupPage() {
           </div>
         ) : activeTab === 'attendance' ? (
           <AttendanceRulesSection token={token} />
+        ) : activeTab === 'ai-assistant' ? (
+          <AiRateLimitSettingsSection token={token} />
         ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -2320,6 +2338,131 @@ function AttendanceRulesSection({ token }: { token: string }) {
         )}
       </div>
       {tzError && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginTop: 12 }}>{tzError}</div>}
+    </div>
+  );
+}
+
+// ── AI Assistant — per-user rate limit ─────────────────────────────────────────
+// Persisted singleton (ai_rate_limit_settings, V192), same shape as AttendanceRulesSection above.
+// Unlike every other tab on this page, read is Super-Admin-only too, not just write — the
+// tab-bar filter above hides this entry entirely for anyone else, so canManage here is a second,
+// defensive layer rather than the only gate, matching how canManageShifts is used elsewhere on
+// this page.
+function AiRateLimitSettingsSection({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const role = useAuthStore(s => s.user?.role);
+  const canManage = role === 'SUPER_ADMIN';
+
+  const [enabled, setEnabled] = useState(true);
+  const [requests, setRequests] = useState('');
+  const [windowMinutes, setWindowMinutes] = useState('');
+  const [saved, setSaved] = useState<aiAssistantApi.AiRateLimitSettings | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!token || !canManage) return;
+    aiAssistantApi.fetchRateLimitSettings(token)
+      .then(s => {
+        setSaved(s);
+        setEnabled(s.enabled);
+        setRequests(String(s.requestsPerWindow));
+        setWindowMinutes(String(s.windowMinutes));
+      })
+      .catch(err => setLoadError(err instanceof Error ? err.message : "Couldn't load the AI Assistant usage limit"));
+  }, [token, canManage]);
+
+  const dirty = saved != null && (
+    enabled !== saved.enabled
+    || Number(requests) !== saved.requestsPerWindow
+    || Number(windowMinutes) !== saved.windowMinutes
+  );
+
+  async function save() {
+    setError('');
+    const requestsN = Number(requests);
+    const windowN = Number(windowMinutes);
+    // Bounds mirror UpdateAiRateLimitSettingsRequest's bean validation and V192's DB CHECKs.
+    if (requests.trim() === '' || !Number.isInteger(requestsN) || requestsN < 1 || requestsN > 1000) {
+      setError('Requests must be a whole number between 1 and 1000');
+      return;
+    }
+    if (windowMinutes.trim() === '' || !Number.isInteger(windowN) || windowN < 1 || windowN > 1440) {
+      setError('Time window must be a whole number of minutes between 1 and 1440 (24 hours)');
+      return;
+    }
+    setLoading(true);
+    try {
+      const updated = await aiAssistantApi.updateRateLimitSettings(token, {
+        enabled, requestsPerWindow: requestsN, windowMinutes: windowN,
+      });
+      setSaved(updated);
+      setEnabled(updated.enabled);
+      setRequests(String(updated.requestsPerWindow));
+      setWindowMinutes(String(updated.windowMinutes));
+      showToast('success', 'AI Assistant usage limit updated');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: 100, boxSizing: 'border-box' };
+
+  if (!canManage) {
+    // Defensive only — the tab itself is hidden for this role, so reaching here means a direct
+    // navigation rather than the normal flow.
+    return (
+      <div style={{ padding: 18, maxWidth: 560 }}>
+        <p style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Only a Super Admin can view or change this setting.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 18, maxWidth: 560 }}>
+      <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>AI Assistant Usage Limit</h2>
+      <p style={{ margin: '0 0 18px', fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
+        Each assistant message costs a real embedding call and a real completion call against a
+        metered API. This limits how many messages one employee can send in a given time window,
+        to keep usage predictable.
+      </p>
+      {loadError && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12.5, marginBottom: 12 }}>{loadError}</div>}
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 18, cursor: saved == null ? 'default' : 'pointer' }}>
+        <input type="checkbox" checked={enabled} disabled={saved == null}
+          onChange={e => setEnabled(e.target.checked)} />
+        Rate limiting enabled
+      </label>
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Requests</label>
+          <input type="number" min={1} max={1000} step={1} style={inputS}
+            value={requests} onChange={e => setRequests(e.target.value)}
+            disabled={saved == null} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Time window (minutes)</label>
+          <input type="number" min={1} max={1440} step={1} style={inputS}
+            value={windowMinutes} onChange={e => setWindowMinutes(e.target.value)}
+            disabled={saved == null} />
+        </div>
+        <button onClick={save} disabled={loading || !dirty} style={{
+          padding: '8px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+          fontSize: 12.5, fontWeight: 600, cursor: loading || !dirty ? 'not-allowed' : 'pointer', opacity: loading || !dirty ? 0.6 : 1,
+        }}>
+          {loading ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {requests.trim() !== '' && windowMinutes.trim() !== '' && (
+        <p style={{ margin: '14px 0 0', fontSize: 11.5, color: 'var(--txt-dim)' }}>
+          Each employee can send up to {requests || '—'} assistant {Number(requests) === 1 ? 'message' : 'messages'} every {windowMinutes || '—'} {Number(windowMinutes) === 1 ? 'minute' : 'minutes'}.
+        </p>
+      )}
+      {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginTop: 12 }}>{error}</div>}
     </div>
   );
 }
