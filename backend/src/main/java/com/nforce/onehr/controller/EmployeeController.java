@@ -1,5 +1,6 @@
 package com.nforce.onehr.controller;
 
+import com.nforce.onehr.dto.BirthdayEntryDto;
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeCodePreviewResponse;
@@ -70,6 +71,12 @@ public class EmployeeController {
     @GetMapping("/directory")
     public List<DirectoryEntryDto> directory() {
         return employeeService.listDirectory();
+    }
+
+    /** Org-wide birthdays today or in the next 7 days — same visibility as {@link #directory()}. */
+    @GetMapping("/birthdays")
+    public List<BirthdayEntryDto> birthdays() {
+        return employeeService.listUpcomingBirthdays();
     }
 
     /** Manager dashboard — direct reports for the caller. */

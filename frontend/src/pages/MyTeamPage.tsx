@@ -2654,6 +2654,7 @@ export default function MyTeamPage() {
     return (['all', 'IN', 'OUT', 'NOT_IN_YET', 'LEAVE'] as string[]).includes(s ?? '') ? (s as any) : 'all';
   });
   const [viewing, setViewing] = useState<RosterRow | null>(null);
+  const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'teamSize' | 'onTime' | 'late' | 'wfh' | 'remote' | 'attention'>(null);
   // Separate from `viewing`/EmployeeDetailModal (the main roster's "View" button, unchanged) —
@@ -3127,7 +3128,10 @@ export default function MyTeamPage() {
                     ))}
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                  {row.dr.active && (
+                    <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.dr.userId, name: row.dr.fullName })} />
+                  )}
                   <button onClick={() => setViewing(row)} style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>View</button>
                 </div>
               </div>
@@ -3188,6 +3192,7 @@ export default function MyTeamPage() {
       </div>
 
       {viewing && <EmployeeDetailModal row={viewing} onClose={() => setViewing(null)} />}
+      <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
       {viewingEmployeeDetails && <EmployeeDetailsModal entry={viewingEmployeeDetails} onClose={() => setViewingEmployeeDetails(null)} />}
       {showAllNotIn && (
         <NotInYetListModal
