@@ -75,6 +75,27 @@ export const inviteBubbleStyle: React.CSSProperties = {
   animation: 'nf-assistant-invite-in 260ms ease-out',
 };
 
+/** "Ask OneHR" — the small, plain hover label (distinct from the one-time invite bubble above,
+ *  which only ever appears once per session). Reuses the same entrance keyframe since both are
+ *  the same shape of thing: a small label settling in beside the launcher. */
+export const launcherTooltipStyle: React.CSSProperties = {
+  position: 'fixed',
+  right: 78,
+  bottom: 36,
+  zIndex: Z_LAUNCHER,
+  background: 'var(--panel)',
+  border: '1px solid var(--line)',
+  borderRadius: 7,
+  padding: '5px 10px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--txt)',
+  whiteSpace: 'nowrap',
+  boxShadow: '0 6px 18px rgba(0,0,0,.3)',
+  pointerEvents: 'none',
+  animation: 'nf-assistant-invite-in 160ms ease-out',
+};
+
 export const panelStyle: React.CSSProperties = {
   position: 'fixed',
   right: 22,
@@ -231,6 +252,7 @@ export const textareaStyle: React.CSSProperties = {
   outline: 'none',
   boxSizing: 'border-box',
   maxHeight: 120,
+  transition: 'border-color 180ms ease, box-shadow 180ms ease',
 };
 
 export const sendButtonStyle: React.CSSProperties = {
@@ -245,6 +267,7 @@ export const sendButtonStyle: React.CSSProperties = {
   justifyContent: 'center',
   cursor: 'pointer',
   flexShrink: 0,
+  transition: 'transform 120ms ease, opacity 160ms ease',
 };
 
 /** One dot of the "thinking" indicator (see TypingIndicator in MessageList). `delay` offsets each

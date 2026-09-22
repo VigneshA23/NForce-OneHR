@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, Copy, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { ArrowRight, Bell, Calendar, Check, ClipboardCheck, Clock, Copy, FileText, Package, Sparkles, ThumbsDown, ThumbsUp, User } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { AssistantMessageView } from './assistantState';
 import { useAccessibilityPrefs } from '../../lib/accessibilityPrefs';
 import { bubbleStyle, messageEnterStyle, metaTextStyle, navActionStyle, rateButtonStyle, typingDotStyle } from './assistantStyles';
@@ -18,16 +19,9 @@ interface MessageListProps {
   onRate: (messageId: string, rating: 'UP' | 'DOWN') => void;
   /** Resolves a pageId to the label this user's sidebar uses, or null if unreachable. */
   resolveLabel: (pageId: string) => string | null;
-  /** Ids of assistant messages that have already played their type-on reveal once. Owned by
-   *  AssistantPanel (which outlives this component across opens — see its own doc comment), so a
-   *  message you've already seen renders in full immediately on reopen instead of replaying. */
-  revealedIds: React.MutableRefObject<Set<string>>;
-  /** Called on every character tick of a reveal in progress, so the transcript can keep following
-   *  a growing bubble — see AssistantPanel's `followReveal`. */
-  onReveal: () => void;
 }
 
-export function MessageList({ messages, ratings, onNavigate, onRate, resolveLabel, revealedIds, onReveal }: MessageListProps) {
+export function MessageList({ messages, ratings, onNavigate, onRate, resolveLabel }: MessageListProps) {
   return (
     <>
       {messages.map((message) => (
@@ -38,80 +32,69 @@ export function MessageList({ messages, ratings, onNavigate, onRate, resolveLabe
           onNavigate={onNavigate}
           onRate={onRate}
           resolveLabel={resolveLabel}
-          revealedIds={revealedIds}
-          onReveal={onReveal}
         />
       ))}
     </>
   );
 }
 
-/** Reveals `text` character-by-character the first time, then instantly for every render after —
- *  the "an answer is materializing" moment that makes the assistant feel alive rather than a
- *  static FAQ lookup. Total duration is capped regardless of answer length, so a long
- *  troubleshooting answer doesn't make anyone wait. Skips straight to the full text when the
- *  viewer has Reduce Animations on, or once this message id is already in `revealedIds`. */
-function useTypewriter(
-  text: string,
-  id: string,
-  active: boolean,
-  revealedIds: React.MutableRefObject<Set<string>>,
-  reduceMotion: boolean,
-  onTick: () => void,
-) {
-  const skip = !active || revealedIds.current.has(id) || reduceMotion;
-  const [displayed, setDisplayed] = useState(skip ? text : '');
-  const [done, setDone] = useState(skip);
-
-  useEffect(() => {
-    if (skip) { setDisplayed(text); setDone(true); return; }
-    const totalMs = Math.min(900, Math.max(250, text.length * 10));
-    const stepMs = Math.max(6, totalMs / Math.max(text.length, 1));
-    let i = 0;
-    const timer = setInterval(() => {
-      i += 1;
-      setDisplayed(text.slice(0, i));
-      onTick();
-      if (i >= text.length) {
-        clearInterval(timer);
-        revealedIds.current.add(id);
-        setDone(true);
-      }
-    }, stepMs);
-    return () => clearInterval(timer);
-    // `active` flipping true (the pending placeholder receiving its real answer, same message id)
-    // is exactly what should (re)start this — an already-mounted MessageBubble goes from a pending
-    // stub to real content without remounting. Re-running per keystroke elsewhere is what `skip`
-    // (checked above, not in these deps) prevents without needing text/reduceMotion/onTick listed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, active]);
-
-  return { displayed, done };
+/** Turns `**bold**` runs into real `<strong>` nodes — a plain string split, not a markdown parser
+ *  or `dangerouslySetInnerHTML`, so there is no new XSS surface: every piece the model produced
+ *  still passes through React's own text-node escaping exactly as `message.content` always did. */
+function renderInlineBold(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') && part.length > 4
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : part,
+  );
 }
 
-function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, revealedIds, onReveal }: {
+/** Answer prose, lightly structured: a run of consecutive `- `/`• ` lines becomes a real `<ul>`,
+ *  everything else stays one `pre-wrap` text block (so blank lines and paragraph breaks inside it
+ *  still render exactly as the plain-string version always did). Deliberately not a markdown
+ *  renderer — no headings, links or nested lists — just the two patterns the model's answers
+ *  actually use, each one a safe React-node transform rather than an HTML string. */
+function FormattedAnswer({ text }: { text: string }) {
+  const lines = text.split('\n');
+  const blocks: Array<{ type: 'text'; content: string } | { type: 'bullets'; items: string[] }> = [];
+  let textBuffer: string[] = [];
+  let bulletBuffer: string[] = [];
+
+  const flushText = () => { if (textBuffer.length) { blocks.push({ type: 'text', content: textBuffer.join('\n') }); textBuffer = []; } };
+  const flushBullets = () => { if (bulletBuffer.length) { blocks.push({ type: 'bullets', items: bulletBuffer }); bulletBuffer = []; } };
+
+  for (const line of lines) {
+    const bulletMatch = /^[-•]\s+(.*)/.exec(line.trim());
+    if (bulletMatch) { flushText(); bulletBuffer.push(bulletMatch[1]); }
+    else { flushBullets(); textBuffer.push(line); }
+  }
+  flushText();
+  flushBullets();
+
+  return (
+    <>
+      {blocks.map((block, i) => block.type === 'bullets' ? (
+        <ul key={i} style={{ margin: '6px 0', paddingLeft: 18, display: 'grid', gap: 3 }}>
+          {block.items.map((item, j) => <li key={j} style={{ lineHeight: 1.5 }}>{renderInlineBold(item)}</li>)}
+        </ul>
+      ) : (
+        <span key={i}>{renderInlineBold(block.content)}</span>
+      ))}
+    </>
+  );
+}
+
+function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel }: {
   message: AssistantMessageView;
   rating?: 'UP' | 'DOWN';
   onNavigate: (pageId: string) => void;
   onRate: (messageId: string, rating: 'UP' | 'DOWN') => void;
   resolveLabel: (pageId: string) => string | null;
-  revealedIds: React.MutableRefObject<Set<string>>;
-  onReveal: () => void;
 }) {
   const isUser = message.sender === 'USER';
   const { reduceAnimations } = useAccessibilityPrefs();
-
-  // Hooks must run unconditionally, so this always calls useTypewriter — `active` is false for a
-  // user message or a still-pending one, and its result is simply unused below in that case.
-  const isRevealableAnswer = !isUser && !message.pending && !message.failed;
-  const { displayed, done: revealDone } = useTypewriter(
-    message.content,
-    message.id,
-    isRevealableAnswer,
-    revealedIds,
-    reduceAnimations,
-    onReveal,
-  );
 
   if (message.pending) {
     return (
@@ -136,12 +119,7 @@ function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, reve
   // shows — only the button is dropped.
   const targetLabel = message.navigation ? resolveLabel(message.navigation.pageId) : null;
 
-  // Steps/navigation/related/rate-row wait for the type-on reveal to finish, then fade in as one
-  // group — the answer "finishes arriving" instead of the extras popping in mid-sentence.
-  const extrasVisible = isUser || message.failed || revealDone;
-  const extrasStyle: React.CSSProperties = extrasVisible
-    ? { animation: 'nf-assistant-msg-in 260ms ease-out' }
-    : { opacity: 0, height: 0, overflow: 'hidden' };
+  const extrasStyle: React.CSSProperties = { animation: 'nf-assistant-msg-in 260ms ease-out' };
 
   // Assistant replies get a small avatar to their left, same visual weight as a real chat product
   // — user messages don't, since they already read as "mine" by sitting flush right.
@@ -155,12 +133,7 @@ function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, reve
         onMouseEnter={(e) => { if (!message.failed) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px color-mix(in srgb, var(--brand) 10%, transparent)'; }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; }}
       >
-        {isUser || message.failed ? message.content : displayed}
-        {!isUser && !message.failed && !revealDone && (
-          // The blinking caret at the writing edge — the one cue that makes clear this is "typing"
-          // rather than a slow network render.
-          <span aria-hidden="true" style={{ display: 'inline-block', width: 2, height: 13, marginLeft: 1, verticalAlign: 'text-bottom', background: 'var(--brand-bright)', animation: 'nf-assistant-typing-bounce 0.9s ease-in-out infinite' }} />
-        )}
+        {isUser || message.failed ? message.content : <FormattedAnswer text={message.content} />}
 
         {message.steps && message.steps.length > 0 && (
           <ol style={{ margin: '10px 0 0', paddingLeft: 18, display: 'grid', gap: 5, ...extrasStyle }}>
@@ -229,15 +202,15 @@ function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, reve
     <div style={{ ...messageEnterStyle, display: 'flex', gap: 8, marginBottom: 12, position: 'relative' }}>
       <AssistantAvatar />
       {bubbleColumn}
-      {revealDone && !message.failed && <SparkleBurst triggerKey={message.id} reduceMotion={reduceAnimations} />}
+      {!message.failed && <SparkleBurst triggerKey={message.id} reduceMotion={reduceAnimations} />}
     </div>
   );
 }
 
 /** A one-shot, four-dot flourish that plays once near the assistant avatar right as an answer
- *  finishes typing itself out, then removes itself — small enough for a professional HR tool,
- *  not a confetti cannon. `triggerKey` re-arms it: a fresh id means a fresh answer, so the effect
- *  plays again; the same id (a re-render from rating/copy clicks) does not replay it. */
+ *  arrives, then removes itself — small enough for a professional HR tool, not a confetti
+ *  cannon. `triggerKey` re-arms it: a fresh id means a fresh answer, so the effect plays again;
+ *  the same id (a re-render from rating/copy clicks) does not replay it. */
 function SparkleBurst({ triggerKey, reduceMotion }: { triggerKey: string; reduceMotion: boolean }) {
   const [visible, setVisible] = useState(true);
   const playedFor = useRef<string | null>(null);
@@ -335,16 +308,67 @@ function AssistantAvatar() {
   );
 }
 
+function greetingPrefix(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)',
+  textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8, textAlign: 'left',
+};
+
+/** Direct shortcuts to other modules — distinct from the "popular questions" below, which stay
+ *  inside the conversation. Each lists its candidate pageId(s) in preference order (a couple of
+ *  roles reach the same idea through a differently-keyed nav item, e.g. HR's "policies" vs an
+ *  Employee's "my-documents"); the chip only renders once one of them actually resolves for this
+ *  user's role, so nobody sees a shortcut to a page they cannot open. There is deliberately no
+ *  Payslip or Benefits chip — OneHR has no such module yet, and a shortcut to nothing is worse
+ *  than no shortcut. */
+const QUICK_ACTIONS: Array<{ pageIds: string[]; label: string; icon: LucideIcon }> = [
+  { pageIds: ['leave'], label: 'Leave', icon: Calendar },
+  { pageIds: ['attendance'], label: 'Attendance', icon: Clock },
+  { pageIds: ['assets'], label: 'Assets & Expenses', icon: Package },
+  { pageIds: ['policies', 'my-documents'], label: 'Policies', icon: FileText },
+  { pageIds: ['profile'], label: 'My Profile', icon: User },
+];
+
 /** Shown before the first question. Suggestions are static, so they cost nothing to display. */
-export function AssistantEmptyState({ onPick }: { onPick: (question: string) => void }) {
+export function AssistantEmptyState({ onPick, onNavigate, resolveLabel, userName, unreadCount = 0, pendingPolicies = 0 }: {
+  onPick: (question: string) => void;
+  onNavigate: (pageId: string) => void;
+  resolveLabel: (pageId: string) => string | null;
+  userName?: string | null;
+  /** Both already tracked elsewhere in the app (the topbar bell, the compliance banner) — surfaced
+   *  here rather than re-derived, and the row for either is simply omitted at zero rather than
+   *  shown empty, per "only show information that actually exists". */
+  unreadCount?: number;
+  pendingPolicies?: number;
+}) {
   const suggestions = [
     'How do I apply for leave?',
     'How do I fix a missed punch?',
     'What happens after I submit a request?',
   ];
+  const firstName = userName?.trim().split(/\s+/)[0];
+
+  const resolvedActions = QUICK_ACTIONS
+    .map(action => ({ ...action, pageId: action.pageIds.find(id => resolveLabel(id)) }))
+    .filter((action): action is typeof action & { pageId: string } => !!action.pageId);
+
+  const forYouItems = [
+    unreadCount > 0 && { pageId: 'notifications', icon: Bell, text: `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}` },
+    pendingPolicies > 0 && {
+      pageId: resolveLabel('policies') ? 'policies' : 'my-documents',
+      icon: ClipboardCheck,
+      text: `${pendingPolicies} polic${pendingPolicies === 1 ? 'y' : 'ies'} awaiting acknowledgement`,
+    },
+  ].filter((item): item is { pageId: string; icon: LucideIcon; text: string } => !!item);
 
   return (
-    <div style={{ padding: '18px 4px', textAlign: 'center' }}>
+    <div style={{ padding: '18px 4px 4px', textAlign: 'center' }}>
       <div aria-hidden="true" style={{ position: 'relative', width: 40, height: 40, margin: '0 auto' }}>
         <div
           className="nf-ai-badge-glow"
@@ -366,47 +390,127 @@ export function AssistantEmptyState({ onPick }: { onPick: (question: string) => 
           <Sparkles size={19} color="var(--brand-bright)" />
         </div>
       </div>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', margin: '10px 0 4px' }}>
-        Ask about OneHR
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--txt)', margin: '12px 0 2px' }}>
+        {greetingPrefix()}{firstName ? `, ${firstName}` : ''} 👋
       </div>
-      <div style={{ fontSize: 12, color: 'var(--txt-dim)', lineHeight: 1.5, marginBottom: 14 }}>
-        I can explain how things work and show you where to go. I cannot make changes or act on
-        your behalf.
+      <div style={{ fontSize: 12, color: 'var(--txt-dim)', lineHeight: 1.5, marginBottom: 18 }}>
+        How can I help you today?
       </div>
-      <div style={{ display: 'grid', gap: 7 }}>
-        {suggestions.map((question, index) => (
-          <button
-            key={question}
-            type="button"
-            onClick={() => onPick(question)}
-            style={{
-              background: 'var(--raised)',
-              border: '1px solid var(--line)',
-              borderRadius: 999,
-              padding: '9px 14px',
-              fontSize: 12.5,
-              color: 'var(--txt-mut)',
-              cursor: 'pointer',
-              textAlign: 'left',
-              transition: 'border-color 120ms, color 120ms, transform 120ms',
-              animation: `nf-assistant-msg-in 260ms ease-out ${index * 70}ms backwards`,
-            }}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.borderColor = 'color-mix(in srgb, var(--brand) 40%, transparent)';
-              el.style.color = 'var(--txt)';
-              el.style.transform = 'translateY(-1px)';
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.borderColor = 'var(--line)';
-              el.style.color = 'var(--txt-mut)';
-              el.style.transform = 'none';
-            }}
-          >
-            {question}
-          </button>
-        ))}
+
+      {resolvedActions.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={sectionLabelStyle}>Quick Actions</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {resolvedActions.map(({ pageId, label, icon: Icon }, index) => (
+              <button
+                key={pageId}
+                type="button"
+                onClick={() => onNavigate(pageId)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 999,
+                  padding: '7px 12px 7px 8px', fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)',
+                  cursor: 'pointer', transition: 'border-color 120ms, color 120ms, transform 120ms',
+                  animation: `nf-assistant-msg-in 260ms ease-out ${index * 50}ms backwards`,
+                }}
+                onMouseEnter={(e) => {
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.borderColor = 'color-mix(in srgb, var(--brand) 40%, transparent)';
+                  el.style.color = 'var(--txt)';
+                  el.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.borderColor = 'var(--line)';
+                  el.style.color = 'var(--txt-mut)';
+                  el.style.transform = 'none';
+                }}
+              >
+                <span style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: 'color-mix(in srgb, var(--brand) 16%, transparent)', color: 'var(--brand)', flexShrink: 0,
+                }}>
+                  <Icon size={11} aria-hidden="true" />
+                </span>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {forYouItems.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={sectionLabelStyle}>For You</div>
+          <div style={{ display: 'grid', gap: 5 }}>
+            {forYouItems.map(({ pageId, icon: Icon, text }) => (
+              <button
+                key={pageId}
+                type="button"
+                onClick={() => onNavigate(pageId)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8,
+                  padding: '8px 10px', fontSize: 12, fontWeight: 600, color: 'var(--txt)',
+                  cursor: 'pointer', textAlign: 'left', transition: 'border-color 120ms, transform 120ms',
+                }}
+                onMouseEnter={(e) => {
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.borderColor = 'color-mix(in srgb, var(--brand) 40%, transparent)';
+                  el.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.borderColor = 'var(--line)';
+                  el.style.transform = 'none';
+                }}
+              >
+                <Icon size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} aria-hidden="true" />
+                {text}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div style={sectionLabelStyle}>Popular questions</div>
+        <div style={{ display: 'grid', gap: 7 }}>
+          {suggestions.map((question, index) => (
+            <button
+              key={question}
+              type="button"
+              onClick={() => onPick(question)}
+              style={{
+                background: 'var(--raised)',
+                border: '1px solid var(--line)',
+                borderRadius: 999,
+                padding: '9px 14px',
+                fontSize: 12.5,
+                color: 'var(--txt-mut)',
+                cursor: 'pointer',
+                textAlign: 'left',
+                transition: 'border-color 120ms, color 120ms, transform 120ms',
+                animation: `nf-assistant-msg-in 260ms ease-out ${index * 70}ms backwards`,
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLButtonElement;
+                el.style.borderColor = 'color-mix(in srgb, var(--brand) 40%, transparent)';
+                el.style.color = 'var(--txt)';
+                el.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLButtonElement;
+                el.style.borderColor = 'var(--line)';
+                el.style.color = 'var(--txt-mut)';
+                el.style.transform = 'none';
+              }}
+            >
+              {question}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

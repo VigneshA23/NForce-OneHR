@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import * as assistantApi from '../../api/aiAssistant';
+import { myCompliance } from '../../api/documents';
 import { useAuthStore } from '../../store/authStore';
 import { useAccessibilityPrefs } from '../../lib/accessibilityPrefs';
 import { resolvePageTarget } from '../../lib/ai/pageTargets';
@@ -57,27 +58,38 @@ interface AssistantPanelProps {
   onClose: () => void;
   /** The nav key of the page behind the panel. A ranking hint, re-validated server-side. */
   currentPageId?: string;
+  /** Unread notification count, already polled by Shell for the topbar bell — threaded through
+   *  rather than polled again here, so the welcome screen's "For You" line and the topbar badge
+   *  never disagree. */
+  unreadCount?: number;
 }
 
-export function AssistantPanel({ hidden, openToken, onClose, currentPageId }: AssistantPanelProps) {
+export function AssistantPanel({ hidden, openToken, onClose, currentPageId, unreadCount = 0 }: AssistantPanelProps) {
   const token = useAuthStore((s) => s.token);
   const role = useAuthStore((s) => s.user?.role);
+  const fullName = useAuthStore((s) => s.user?.fullName);
   const navigate = useNavigate();
   const { reduceAnimations } = useAccessibilityPrefs();
 
   const [state, dispatch] = useReducer(assistantReducer, initialAssistantState);
   const [draft, setDraft] = useState('');
+  // Fetched once per mount (the panel itself is lazily mounted on first open and then stays
+  // mounted — see the doc comment above) purely to surface on the welcome screen; failures are
+  // silent since "For You" is a nice-to-have summary, not something worth an error banner over.
+  const [pendingPolicies, setPendingPolicies] = useState(0);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    myCompliance(token).then((s) => { if (!cancelled) setPendingPolicies(s.pendingPolicies); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Captured whenever the panel is shown so focus goes back to whatever opened it, which is the
   // launcher in practice but should not be assumed.
   const opener = useRef<HTMLElement | null>(null);
-  // Which assistant messages have already played their type-on reveal (MessageList's
-  // useTypewriter) — lives here, not inside the openToken-keyed body wrapper below, specifically
-  // so it survives that wrapper remounting on every open. Otherwise every past answer would
-  // replay its reveal animation each time you reopened the panel.
-  const revealedIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (hidden) {
@@ -93,15 +105,6 @@ export function AssistantPanel({ hidden, openToken, onClose, currentPageId }: As
     if (!node) return;
     node.scrollTo({ top: node.scrollHeight, behavior: reduceAnimations ? 'auto' : 'smooth' });
   }, [state.messages, reduceAnimations]);
-
-  // Called on every character tick of a reply's type-on reveal (see MessageList's useTypewriter),
-  // so a longer answer keeps pace with the transcript's bottom edge as it grows instead of typing
-  // itself out below the fold. Instant, not smooth — a `smooth` scroll re-triggered many times a
-  // second fights itself and looks jittery; that's reserved for the message-arrived jump above.
-  const followReveal = useCallback(() => {
-    const node = transcriptRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, []);
 
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== 'Escape') return;
@@ -220,7 +223,16 @@ export function AssistantPanel({ hidden, openToken, onClose, currentPageId }: As
       >
         <div style={transcriptGlowStyle} className="nf-ai-bg" aria-hidden="true" />
         {state.messages.length === 0
-          ? <AssistantEmptyState onPick={(question) => void send(question)} />
+          ? (
+            <AssistantEmptyState
+              onPick={(question) => void send(question)}
+              onNavigate={goTo}
+              resolveLabel={resolveLabel}
+              userName={fullName}
+              unreadCount={unreadCount}
+              pendingPolicies={pendingPolicies}
+            />
+          )
           : (
             <MessageList
               messages={state.messages}
@@ -228,8 +240,6 @@ export function AssistantPanel({ hidden, openToken, onClose, currentPageId }: As
               onNavigate={goTo}
               onRate={rate}
               resolveLabel={resolveLabel}
-              revealedIds={revealedIds}
-              onReveal={followReveal}
             />
           )}
       </div>
@@ -290,6 +300,10 @@ export function AssistantPanel({ hidden, openToken, onClose, currentPageId }: As
             opacity: canSend(draft, state.sending) ? 1 : 0.45,
             cursor: canSend(draft, state.sending) ? 'pointer' : 'default',
           }}
+          onMouseEnter={(e) => { if (canSend(draft, state.sending)) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.06)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'none'; }}
+          onMouseDown={(e) => { if (canSend(draft, state.sending)) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.92)'; }}
+          onMouseUp={(e) => { if (canSend(draft, state.sending)) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.06)'; }}
         >
           {state.sending
             ? <Loader2 size={15} style={{ animation: 'nf-assistant-ring-spin 0.8s linear infinite' }} />

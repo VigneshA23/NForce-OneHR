@@ -3,7 +3,7 @@ import { MessageCircleQuestion, X } from 'lucide-react';
 import { fetchHealth } from '../../api/aiAssistant';
 import { useAuthStore } from '../../store/authStore';
 import { AssistantPanel } from './AssistantPanel';
-import { inviteBubbleStyle, launcherGlowStyle, launcherStyle } from './assistantStyles';
+import { inviteBubbleStyle, launcherGlowStyle, launcherStyle, launcherTooltipStyle } from './assistantStyles';
 
 const INVITE_SEEN_KEY = 'onehr.assistant.inviteSeen';
 
@@ -26,13 +26,14 @@ const INVITE_SEEN_KEY = 'onehr.assistant.inviteSeen';
  * as long as it does. `openToken` bumps on every open so the panel can replay its entrance
  * animation each time, not just once.
  */
-export function AssistantLauncher({ currentPageId }: { currentPageId?: string }) {
+export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentPageId?: string; unreadCount?: number }) {
   const token = useAuthStore((s) => s.token);
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
   const [hasOpenedOnce, setHasOpenedOnce] = useState(false);
   const [openToken, setOpenToken] = useState(0);
   const [showInvite, setShowInvite] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -76,19 +77,26 @@ export function AssistantLauncher({ currentPageId }: { currentPageId?: string })
   return (
     <>
       {hasOpenedOnce && (
-        <AssistantPanel hidden={!open} openToken={openToken} onClose={() => setOpen(false)} currentPageId={currentPageId} />
+        <AssistantPanel hidden={!open} openToken={openToken} onClose={() => setOpen(false)} currentPageId={currentPageId} unreadCount={unreadCount} />
       )}
       {showInvite && !open && (
         <div style={inviteBubbleStyle} role="status">
           New here: ask me anything about OneHR — leave, attendance, expenses, and more.
         </div>
       )}
+      {/* Plain hover/focus label — distinct from the one-time invite bubble above, which only ever
+          shows once per session. Suppressed while that invite is up so the two never stack. */}
+      {showTooltip && !open && !showInvite && (
+        <div style={launcherTooltipStyle} role="tooltip">Ask OneHR</div>
+      )}
       <div aria-hidden="true" className="nf-ai-launcher-glow" style={launcherGlowStyle} />
       <button
         type="button"
         onClick={toggle}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.06)'; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'none'; }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.06)'; setShowTooltip(true); }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'none'; setShowTooltip(false); }}
+        onFocus={() => setShowTooltip(true)}
+        onBlur={() => setShowTooltip(false)}
         aria-label={open ? 'Close the OneHR assistant' : 'Open the OneHR assistant'}
         aria-expanded={open}
         className="nf-assistant-launcher"
