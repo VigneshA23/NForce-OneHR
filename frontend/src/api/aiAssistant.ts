@@ -6,11 +6,55 @@ function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+interface ApiErrorBody {
+  message?: string;
+  code?: string;
+  lockedUntil?: string;
+}
+
+/**
+ * Thrown instead of a plain Error when the assistant responds 429 with
+ * `code: "AI_ASSISTANT_RATE_LIMIT_EXCEEDED"` (see AiExceptionHandler#handleRateLimitExceeded), so
+ * the panel can show the specific usage-limit message rather than a generic failure.
+ *
+ * Modelled directly on `api/auth.ts`'s `LoginLockedError` (423 + `code: 'ACCOUNT_LOCKED'` +
+ * `lockedUntil`) - same shape, same reason for existing: an absolute instant a countdown can be
+ * rendered from, reused rather than inventing a second one.
+ */
+export class AssistantRateLimitedError extends Error {
+  retryAt: string | null;
+
+  constructor(message: string, retryAt: string | null) {
+    super(message);
+    this.name = 'AssistantRateLimitedError';
+    this.retryAt = retryAt;
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
-  let body: { message?: string } = {};
+  let body: ApiErrorBody = {};
   try { body = await res.json(); } catch { /* non-json */ }
-  if (!res.ok) throw new Error((body as any).message ?? `Request failed (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 429 && body.code === 'AI_ASSISTANT_RATE_LIMIT_EXCEEDED') {
+      throw new AssistantRateLimitedError(
+        body.message ?? 'You have reached the AI Assistant usage limit.', body.lockedUntil ?? null);
+    }
+    throw new Error(body.message ?? `Request failed (${res.status})`);
+  }
   return body as T;
+}
+
+/**
+ * "Please try again in about N minutes", from an absolute instant - the same rounding-up-to-whole-
+ * units idea as `Login.tsx`'s `formatRemainingLockTime`, just in minutes instead of hours since this
+ * window is usually much shorter than an account lockout.
+ */
+export function formatRetryEstimate(retryAtIso: string | null): string {
+  if (!retryAtIso) return 'Please try again shortly.';
+  const msRemaining = new Date(retryAtIso).getTime() - Date.now();
+  if (msRemaining <= 0) return 'Please try again now.';
+  const minutes = Math.max(1, Math.ceil(msRemaining / (1000 * 60)));
+  return `Please try again in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
 }
 
 // Mirrors AssistantResponseType. The assistant always returns one of these — a failure on the
@@ -136,4 +180,36 @@ export async function sendFeedback(
 export async function fetchHealth(token: string): Promise<AssistantHealth> {
   const res = await fetch(`${BASE}/health`, { headers: authHeaders(token) });
   return handle<AssistantHealth>(res);
+}
+
+/** The Super-Admin-editable per-user request budget. Read is Super-Admin-only too, not just write. */
+export interface AiRateLimitSettings {
+  id: string;
+  enabled: boolean;
+  requestsPerWindow: number;
+  windowMinutes: number;
+  updatedAt: string;
+}
+
+export interface UpdateAiRateLimitSettingsRequest {
+  enabled: boolean;
+  requestsPerWindow: number;
+  windowMinutes: number;
+}
+
+export async function fetchRateLimitSettings(token: string): Promise<AiRateLimitSettings> {
+  const res = await fetch(`${BASE}/admin/rate-limit-settings`, { headers: authHeaders(token) });
+  return handle<AiRateLimitSettings>(res);
+}
+
+export async function updateRateLimitSettings(
+  token: string,
+  request: UpdateAiRateLimitSettingsRequest,
+): Promise<AiRateLimitSettings> {
+  const res = await fetch(`${BASE}/admin/rate-limit-settings`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return handle<AiRateLimitSettings>(res);
 }

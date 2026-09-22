@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Decides which of the caller's own records are relevant to a question, and fetches them.
@@ -27,6 +28,17 @@ import java.util.Optional;
  * <p>The current page contributes too, because "what's the status of this?" asked while sitting on
  * Assets &amp; Expenses is about expenses. That hint is validated against the page registry before
  * it reaches here, so it cannot widen anything.
+ *
+ * <p><strong>Selection is diverse across record types, not just ranked by score.</strong> Several
+ * distinct record types can legitimately share one knowledge module - Regularization, Work From
+ * Home/Partial Day and Overtime all match {@code attendance}, the way Leave and Expense both match
+ * {@code approvals} on the Approval Center page. A flat top-N-by-score selection let whichever type
+ * happened to have the most providers, or the strongest incidental retrieval match, fill every slot
+ * before a second, equally relevant type ever got considered - concretely, three Leave providers
+ * crowding out Expense's on a question that was about neither in particular. Providers are grouped
+ * by record-type "family" (their id up to the first '.') and selected round-robin across families in
+ * relevance order, so no single family can claim a second slot before every other relevant family has
+ * had its first.
  */
 @Service
 @RequiredArgsConstructor
@@ -61,19 +73,12 @@ public class AssistantDataService {
         Map<String, Double> moduleRelevance = moduleRelevance(context, knowledge);
         if (moduleRelevance.isEmpty()) return LiveData.empty();
 
-        // Ranked before the cap is applied, not after. Spring hands this list over in whatever
-        // order it discovered the beans, so capping in iteration order once let three loosely
-        // related providers crowd out the one the question was actually about.
-        List<AssistantDataProvider> candidates = providers.stream()
+        List<AssistantDataProvider> eligible = providers.stream()
                 .filter(provider -> mayRun(provider, context))
                 .filter(provider -> relevance(provider, moduleRelevance) > 0)
-                .sorted(Comparator.comparingDouble((AssistantDataProvider p) -> relevance(p, moduleRelevance))
-                        .reversed()
-                        // Ties broken by id so the same question selects the same providers twice
-                        // running, which matters when explaining an answer after the fact.
-                        .thenComparing(AssistantDataProvider::id))
-                .limit(MAX_PROVIDERS_PER_TURN)
                 .toList();
+
+        List<AssistantDataProvider> candidates = selectDiverse(eligible, moduleRelevance);
 
         List<Section> sections = new ArrayList<>();
         for (AssistantDataProvider provider : candidates) {
@@ -87,6 +92,67 @@ public class AssistantDataService {
                     sections.stream().map(Section::providerId).toList());
         }
         return new LiveData(List.copyOf(sections));
+    }
+
+    /**
+     * Orders providers so that record-type diversity wins over raw score once every relevant
+     * family has had a turn.
+     *
+     * <p>Round-robin: each family's own candidates are ranked internally by relevance (ties by id,
+     * same rule as before), and families are visited in order of their own best candidate's score.
+     * One candidate is taken from each family per pass; a family only contributes a second candidate
+     * once every other relevant family has contributed its first. The cap still applies to the total
+     * — this changes which providers fill it, not how many.
+     */
+    private List<AssistantDataProvider> selectDiverse(
+            List<AssistantDataProvider> eligible, Map<String, Double> moduleRelevance) {
+        if (eligible.isEmpty()) return List.of();
+
+        Map<String, List<AssistantDataProvider>> byFamily = eligible.stream()
+                .collect(Collectors.groupingBy(AssistantDataService::family));
+        for (List<AssistantDataProvider> members : byFamily.values()) {
+            members.sort(Comparator.comparingDouble((AssistantDataProvider p) -> relevance(p, moduleRelevance))
+                    .reversed()
+                    .thenComparing(AssistantDataProvider::id));
+        }
+
+        List<String> familyOrder = byFamily.keySet().stream()
+                .sorted(Comparator.comparingDouble(
+                                (String family) -> relevance(byFamily.get(family).get(0), moduleRelevance))
+                        .reversed()
+                        .thenComparing(Comparator.naturalOrder()))
+                .toList();
+
+        List<AssistantDataProvider> selected = new ArrayList<>();
+        Map<String, Integer> nextIndex = new HashMap<>();
+        boolean progressed = true;
+        while (selected.size() < MAX_PROVIDERS_PER_TURN && progressed) {
+            progressed = false;
+            for (String family : familyOrder) {
+                if (selected.size() >= MAX_PROVIDERS_PER_TURN) break;
+                List<AssistantDataProvider> members = byFamily.get(family);
+                int index = nextIndex.getOrDefault(family, 0);
+                if (index < members.size()) {
+                    selected.add(members.get(index));
+                    nextIndex.put(family, index + 1);
+                    progressed = true;
+                }
+            }
+        }
+        return selected;
+    }
+
+    /**
+     * A provider's record-type family: its id up to (not including) the first '.'.
+     *
+     * <p>Deliberately coarser than the knowledge module. Regularization, Work From Home/Partial Day
+     * and Overtime providers all declare {@code attendance} among their modules, but they are three
+     * distinct record types that each deserve a fair turn — grouping by module instead of by family
+     * would let them crowd each other out exactly the way Leave once crowded out Expense.
+     */
+    private static String family(AssistantDataProvider provider) {
+        int dot = provider.id().indexOf('.');
+        return dot < 0 ? provider.id() : provider.id().substring(0, dot);
     }
 
     /** Both gates must pass before a provider is even considered for the budget. */

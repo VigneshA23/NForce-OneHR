@@ -79,8 +79,12 @@ public class AiProperties {
     @Data
     public static class Limits {
         private int maxMessageChars = 1000;
-        private int maxRequestsPerUserPerHour = 60;
         /** Prior exchanges replayed to the model. Bounded to keep token growth predictable. */
         private int maxHistoryTurns = 6;
+
+        // Per-user request budget (enabled/requests-per-window/window length) used to live here as
+        // a static maxRequestsPerUserPerHour value. It is now Super-Admin-editable and persisted in
+        // ai_rate_limit_settings (V192) via AiRateLimitSettingsService/AiRateLimiter, so it stays
+        // in effect across restarts and doesn't need a redeploy to change.
     }
 }

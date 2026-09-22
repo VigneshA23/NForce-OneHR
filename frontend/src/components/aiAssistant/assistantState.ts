@@ -1,3 +1,4 @@
+import { AssistantRateLimitedError, formatRetryEstimate } from '../../api/aiAssistant';
 import type {
   AssistantMessage,
   AssistantResponse,
@@ -161,6 +162,21 @@ export function assistantReducer(state: AssistantState, action: AssistantAction)
 export function canSend(draft: string, sending: boolean, maxChars = MAX_MESSAGE_CHARS): boolean {
   const trimmed = draft.trim();
   return !sending && trimmed.length > 0 && trimmed.length <= maxChars;
+}
+
+/**
+ * The message shown for a failed send, given whatever `sendMessage` rejected with.
+ *
+ * A pure function of the caught value, so this - and specifically the rate-limited wording - is
+ * testable here rather than only inside `AssistantPanel.tsx`, which `vitest.config.ts` cannot
+ * render at all (node environment, `*.test.ts` only). No automatic retry is scheduled anywhere
+ * near this: it only ever produces text, never a timer.
+ */
+export function describeSendFailure(e: unknown): string {
+  if (e instanceof AssistantRateLimitedError) {
+    return `${e.message} ${formatRetryEstimate(e.retryAt)}`;
+  }
+  return e instanceof Error ? e.message : 'The assistant could not be reached.';
 }
 
 /** The last assistant message, which is the one feedback applies to. */

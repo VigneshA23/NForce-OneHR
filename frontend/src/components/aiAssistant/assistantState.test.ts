@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   assistantReducer,
   canSend,
+  describeSendFailure,
   initialAssistantState,
   lastAssistantMessage,
   MAX_MESSAGE_CHARS,
 } from './assistantState';
+import { AssistantRateLimitedError } from '../../api/aiAssistant';
 import type { AssistantResponse } from '../../api/aiAssistant';
 
 function answer(overrides: Partial<AssistantResponse> = {}): AssistantResponse {
@@ -164,5 +166,47 @@ describe('lastAssistantMessage', () => {
     expect(lastAssistantMessage(afterAsking())).toBeNull();
     const failed = assistantReducer(afterAsking(), { type: 'FAIL', pendingId: 'a1', message: 'nope' });
     expect(lastAssistantMessage(failed)).toBeNull();
+  });
+});
+
+describe('describeSendFailure', () => {
+  it('appends a retry estimate to a rate-limited error', () => {
+    const retryAt = new Date(Date.now() + 2 * 60_000).toISOString();
+    const message = describeSendFailure(new AssistantRateLimitedError('Usage limit reached.', retryAt));
+
+    expect(message).toContain('Usage limit reached.');
+    expect(message).toMatch(/about 2 minutes\.$/);
+  });
+
+  it('falls back to a generic estimate when no retryAt is given', () => {
+    const message = describeSendFailure(new AssistantRateLimitedError('Usage limit reached.', null));
+    expect(message).toBe('Usage limit reached. Please try again shortly.');
+  });
+
+  it('passes through a plain Error unchanged', () => {
+    expect(describeSendFailure(new Error('Network error'))).toBe('Network error');
+  });
+
+  it('has a generic fallback for a non-Error rejection', () => {
+    expect(describeSendFailure('not an Error instance')).toBe('The assistant could not be reached.');
+  });
+});
+
+describe('a rate-limited failure in the reducer', () => {
+  it('leaves an earlier successful turn in the transcript untouched', () => {
+    const answered = assistantReducer(afterAsking(), { type: 'ANSWER', pendingId: 'a1', response: answer() });
+    const second = assistantReducer(answered, { type: 'ASK', id: 'q2', pendingId: 'a2', text: 'another one' });
+
+    const retryAt = new Date(Date.now() + 60_000).toISOString();
+    const message = describeSendFailure(new AssistantRateLimitedError('Usage limit reached.', retryAt));
+    const failed = assistantReducer(second, { type: 'FAIL', pendingId: 'a2', message });
+
+    // The first question and its real answer are untouched - only the second turn's placeholder
+    // becomes the failure, and no automatic retry is scheduled by this transition.
+    expect(failed.messages[0]).toMatchObject({ sender: 'USER', content: 'how do I apply for leave?' });
+    expect(failed.messages[1]).toMatchObject({ sender: 'ASSISTANT', responseType: 'HOW_TO' });
+    expect(failed.messages[1].failed).toBeFalsy();
+    expect(failed.messages[3]).toMatchObject({ failed: true, content: message });
+    expect(failed.sending).toBe(false);
   });
 });
