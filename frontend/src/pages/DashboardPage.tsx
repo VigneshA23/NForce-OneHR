@@ -26,6 +26,7 @@ import { leaveApi, type LeaveBalance, type LeaveRequestRecord } from '../api/lea
 import { myRequestsApi, type MyRequestItem } from '../api/myRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
+import { BirthdayWidget } from '../components/BirthdayWidget';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
@@ -607,6 +608,8 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
       <AttendanceHeroBanner />
 
       <QuickActions actions={isHr ? HR_ADMIN_QUICK_ACTIONS : MANAGER_QUICK_ACTIONS} />
+
+      <BirthdayWidget />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
@@ -1568,6 +1571,7 @@ function EmployeeDashboardView() {
         <div className="nf-dash-right-col" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <LeaveBalancePanel balances={balances} />
           <UpcomingHolidays holidays={holidays} />
+          <BirthdayWidget />
         </div>
       </div>
 
@@ -1799,6 +1803,8 @@ function SuperAdminDashboardView() {
       <AttendanceHeroBanner />
 
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
+
+      <BirthdayWidget />
 
       {/* Row 2 — Stat tiles, each clickable through to its detail view */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
