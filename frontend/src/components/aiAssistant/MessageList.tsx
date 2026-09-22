@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Bell, Calendar, Check, ClipboardCheck, Clock, Copy, FileText, Package, Sparkles, ThumbsDown, ThumbsUp, User } from 'lucide-react';
+import { ArrowRight, Bell, Calendar, Check, ClipboardCheck, Clock, Copy, FileText, Package, Sparkles, User } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AssistantMessageView } from './assistantState';
 import { useAccessibilityPrefs } from '../../lib/accessibilityPrefs';
@@ -56,9 +56,7 @@ function AssistantText({ text }: { text: string }) {
 
 interface MessageListProps {
   messages: AssistantMessageView[];
-  ratings: Record<string, 'UP' | 'DOWN'>;
   onNavigate: (pageId: string) => void;
-  onRate: (messageId: string, rating: 'UP' | 'DOWN') => void;
   /** Resolves a pageId to the label this user's sidebar uses, or null if unreachable. */
   resolveLabel: (pageId: string) => string | null;
   /** Sends a related question exactly as if the user had typed and submitted it. */
@@ -67,16 +65,14 @@ interface MessageListProps {
   sending: boolean;
 }
 
-export function MessageList({ messages, ratings, onNavigate, onRate, resolveLabel, onAsk, sending }: MessageListProps) {
+export function MessageList({ messages, onNavigate, resolveLabel, onAsk, sending }: MessageListProps) {
   return (
     <>
       {messages.map((message) => (
         <MessageBubble
           key={message.id}
           message={message}
-          rating={ratings[message.id]}
           onNavigate={onNavigate}
-          onRate={onRate}
           resolveLabel={resolveLabel}
           onAsk={onAsk}
           sending={sending}
@@ -86,11 +82,9 @@ export function MessageList({ messages, ratings, onNavigate, onRate, resolveLabe
   );
 }
 
-function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, onAsk, sending }: {
+function MessageBubble({ message, onNavigate, resolveLabel, onAsk, sending }: {
   message: AssistantMessageView;
-  rating?: 'UP' | 'DOWN';
   onNavigate: (pageId: string) => void;
-  onRate: (messageId: string, rating: 'UP' | 'DOWN') => void;
   resolveLabel: (pageId: string) => string | null;
   onAsk: (question: string) => void;
   sending: boolean;
@@ -122,6 +116,12 @@ function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, onAs
   const targetLabel = message.navigation ? resolveLabel(message.navigation.pageId) : null;
 
   const extrasStyle: React.CSSProperties = { animation: 'nf-assistant-msg-in 260ms ease-out' };
+
+  // Copy should reproduce the whole visible answer, not just the prose — a message with steps
+  // renders both, so `message.content` alone silently dropped the steps from what got copied.
+  const fullText = message.steps && message.steps.length > 0
+    ? `${message.content}\n\n${message.steps.map((step, i) => `${i + 1}. ${step}`).join('\n')}`
+    : message.content;
 
   // Assistant replies get a small avatar to their left, same visual weight as a real chat product
   // — user messages don't, since they already read as "mine" by sitting flush right.
@@ -195,21 +195,7 @@ function MessageBubble({ message, rating, onNavigate, onRate, resolveLabel, onAs
 
       {!isUser && !message.failed && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, ...extrasStyle }}>
-          <RateButton
-            active={rating === 'UP'}
-            label="This answer helped"
-            onClick={() => onRate(message.id, 'UP')}
-          >
-            <ThumbsUp size={12} />
-          </RateButton>
-          <RateButton
-            active={rating === 'DOWN'}
-            label="This answer did not help"
-            onClick={() => onRate(message.id, 'DOWN')}
-          >
-            <ThumbsDown size={12} />
-          </RateButton>
-          <CopyButton text={message.content} />
+          <CopyButton text={fullText} />
           {message.confidence === 'LOW' && message.responseType !== 'UNKNOWN' && (
             // Surfaced only when it is low. A confidence badge on every answer trains people to
             // ignore it; one that appears rarely is read.
@@ -273,19 +259,6 @@ function SparkleBurst({ triggerKey, reduceMotion }: { triggerKey: string; reduce
         />
       ))}
     </span>
-  );
-}
-
-function RateButton({ active, label, onClick, children }: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button type="button" onClick={onClick} aria-label={label} aria-pressed={active} style={rateButtonStyle(active)} className="nf-ai-chip">
-      {children}
-    </button>
   );
 }
 
