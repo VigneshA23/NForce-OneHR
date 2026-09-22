@@ -396,11 +396,24 @@ export function AssistantEmptyState({ onPick, onNavigate, resolveLabel, userName
 
   return (
     <div style={{ padding: '18px 4px 4px', textAlign: 'center' }}>
-      <Sparkles size={22} color="var(--brand-bright)" aria-hidden="true" />
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', margin: '10px 0 2px' }}>
+      <Sparkles
+        size={26}
+        color="var(--brand-bright)"
+        aria-hidden="true"
+        // A one-shot "pop in" on arrival, settling into a slow, continuous ambient breathe once it
+        // lands — the same idea as the header badge's glow, just on the welcome screen's own icon.
+        style={{ animation: 'nf-assistant-invite-in 320ms ease-out, glow-pulse 2.4s ease-in-out 320ms infinite' }}
+      />
+      <div style={{
+        fontSize: 17, fontWeight: 700, color: 'var(--txt)', margin: '12px 0 3px',
+        animation: 'nf-assistant-msg-in 320ms ease-out 90ms backwards',
+      }}>
         Hi{firstName ? ` ${firstName}` : ''}, I'm NORA
       </div>
-      <div style={{ fontSize: 12, color: 'var(--txt-dim)', lineHeight: 1.5, marginBottom: 18 }}>
+      <div style={{
+        fontSize: 12, color: 'var(--txt-dim)', lineHeight: 1.5, marginBottom: 18,
+        animation: 'nf-assistant-msg-in 320ms ease-out 170ms backwards',
+      }}>
         I can explain how things work and show you where to go. I cannot make changes or act on
         your behalf.
       </div>
