@@ -246,4 +246,74 @@ class DocumentServiceTest {
     void documentsForEmployee_nonAdminCaller_isDenied() {
         assertThrows(AccessDeniedException.class, () -> documentService.documentsForEmployee(EMPLOYEE_EMAIL, employeeId));
     }
+
+    // ── Bug: "HR Admin: unable to verify or reject uploaded employee documents" ─────────────────
+    //
+    // Root cause: listPending/listAll/getAdminKpis used to exclude every document belonging to
+    // ANY HR_ADMIN/SUPER_ADMIN-role employee from EVERY admin's view (via userRepo.findAdminUserIds()),
+    // not just from that document owner's OWN view. A document uploaded by one HR Admin (e.g.
+    // before they were promoted from Employee) was therefore invisible in every admin list and
+    // permanently stuck PENDING_VERIFICATION — nobody could ever discover its id to verify/reject
+    // it, even though verifyDocument() itself only ever blocked the OWNER from self-reviewing.
+    // Fix: scope the exclusion to the CALLER's own id instead of every admin-role employee.
+
+    @Test
+    void listPending_anotherAdminsDocument_isStillVisibleToTheCaller() {
+        String hrAdminEmail = "hr.admin@test.com";
+        User hrAdmin = User.builder().id(UUID.randomUUID()).email(hrAdminEmail)
+                .roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build();
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdmin));
+
+        // The document owner (employeeId) is itself an HR Admin — a different admin from the
+        // caller — and must still show up for the caller to act on.
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).documentType(docType)
+                .fileName("passport.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findByStatusOrderByUploadedAtDesc("PENDING_VERIFICATION")).thenReturn(List.of(doc));
+
+        List<EmployeeDocumentResponse> pending = documentService.listPending(hrAdminEmail);
+
+        assertEquals(1, pending.size());
+        assertEquals(employeeId, pending.get(0).getEmployeeUserId());
+        verify(userRepo, never()).findAdminUserIds();
+    }
+
+    @Test
+    void listPending_excludesTheCallersOwnDocument() {
+        String hrAdminEmail = "hr.admin@test.com";
+        UUID hrAdminId = UUID.randomUUID();
+        User hrAdmin = User.builder().id(hrAdminId).email(hrAdminEmail)
+                .roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build();
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdmin));
+
+        EmployeeDocument ownDoc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(hrAdminId).documentType(docType)
+                .fileName("own.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findByStatusOrderByUploadedAtDesc("PENDING_VERIFICATION")).thenReturn(List.of(ownDoc));
+
+        List<EmployeeDocumentResponse> pending = documentService.listPending(hrAdminEmail);
+
+        assertTrue(pending.isEmpty(), "an admin must never see their own document in the review queue");
+    }
+
+    @Test
+    void listAll_anotherAdminsDocument_isStillVisibleToTheCaller() {
+        String superAdminEmail = "super.admin@test.com";
+        User superAdmin = User.builder().id(UUID.randomUUID()).email(superAdminEmail)
+                .roles(new HashSet<>(Set.of(role("SUPER_ADMIN")))).build();
+        when(userRepo.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdmin));
+
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).documentType(docType)
+                .fileName("passport.pdf").fileUrl("x").fileData(new byte[0])
+                .status("VERIFIED").versionNumber(1).superseded(false).build();
+        when(docRepo.findAllWithActiveEmployee()).thenReturn(List.of(doc));
+
+        List<EmployeeDocumentResponse> all = documentService.listAll(superAdminEmail);
+
+        assertEquals(1, all.size());
+        verify(userRepo, never()).findAdminUserIds();
+    }
 }
