@@ -48,6 +48,11 @@ public class AiBillingSettings {
     @Column(name = "completion_cost_per_million_usd", nullable = false)
     private BigDecimal completionCostPerMillionUsd;
 
+    /** Priced separately from prompt/completion — mistral-embed is typically the cheapest of the
+     *  three, and was previously not billed for at all since its tokens weren't tracked (see V199). */
+    @Column(name = "embedding_cost_per_million_usd", nullable = false)
+    private BigDecimal embeddingCostPerMillionUsd;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 

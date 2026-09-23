@@ -53,17 +53,20 @@ public class AiBillingSettingsService {
         String before = auditSnapshot.toJson(Map.of(
                 "monthlyBudgetUsd", settings.getMonthlyBudgetUsd(),
                 "promptCostPerMillionUsd", settings.getPromptCostPerMillionUsd(),
-                "completionCostPerMillionUsd", settings.getCompletionCostPerMillionUsd()));
+                "completionCostPerMillionUsd", settings.getCompletionCostPerMillionUsd(),
+                "embeddingCostPerMillionUsd", settings.getEmbeddingCostPerMillionUsd()));
 
         settings.setMonthlyBudgetUsd(req.getMonthlyBudgetUsd());
         settings.setPromptCostPerMillionUsd(req.getPromptCostPerMillionUsd());
         settings.setCompletionCostPerMillionUsd(req.getCompletionCostPerMillionUsd());
+        settings.setEmbeddingCostPerMillionUsd(req.getEmbeddingCostPerMillionUsd());
         settings = repository.save(settings);
 
         String after = auditSnapshot.toJson(Map.of(
                 "monthlyBudgetUsd", settings.getMonthlyBudgetUsd(),
                 "promptCostPerMillionUsd", settings.getPromptCostPerMillionUsd(),
-                "completionCostPerMillionUsd", settings.getCompletionCostPerMillionUsd()));
+                "completionCostPerMillionUsd", settings.getCompletionCostPerMillionUsd(),
+                "embeddingCostPerMillionUsd", settings.getEmbeddingCostPerMillionUsd()));
         auditService.log(actorId, "AI_BILLING_SETTINGS_UPDATED", settings.getId(), before, after);
 
         return AiBillingSettingsResponse.from(settings);
@@ -83,19 +86,17 @@ public class AiBillingSettingsService {
         Instant monthStartInstant = monthStart.atStartOfDay(ZoneOffset.UTC).toInstant();
 
         List<AiInteractionLog> logs = interactionLogRepository.findByCreatedAtBetweenOrderByCreatedAtAsc(monthStartInstant, now);
-        long promptTokens = 0, completionTokens = 0;
+        long promptTokens = 0, completionTokens = 0, embeddingTokens = 0;
         for (AiInteractionLog log : logs) {
             promptTokens += log.getPromptTokens() == null ? 0 : log.getPromptTokens();
             completionTokens += log.getCompletionTokens() == null ? 0 : log.getCompletionTokens();
+            embeddingTokens += log.getEmbeddingPromptTokens() == null ? 0 : log.getEmbeddingPromptTokens();
         }
 
-        BigDecimal promptCost = BigDecimal.valueOf(promptTokens)
-                .divide(ONE_MILLION, 6, RoundingMode.HALF_UP)
-                .multiply(settings.getPromptCostPerMillionUsd());
-        BigDecimal completionCost = BigDecimal.valueOf(completionTokens)
-                .divide(ONE_MILLION, 6, RoundingMode.HALF_UP)
-                .multiply(settings.getCompletionCostPerMillionUsd());
-        BigDecimal estimatedCost = promptCost.add(completionCost).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal promptCost = costOf(promptTokens, settings.getPromptCostPerMillionUsd());
+        BigDecimal completionCost = costOf(completionTokens, settings.getCompletionCostPerMillionUsd());
+        BigDecimal embeddingCost = costOf(embeddingTokens, settings.getEmbeddingCostPerMillionUsd());
+        BigDecimal estimatedCost = promptCost.add(completionCost).add(embeddingCost).setScale(2, RoundingMode.HALF_UP);
 
         double usedPercent = settings.getMonthlyBudgetUsd().signum() == 0
                 ? 0.0
@@ -106,10 +107,15 @@ public class AiBillingSettingsService {
                 .today(today)
                 .promptTokens(promptTokens)
                 .completionTokens(completionTokens)
+                .embeddingTokens(embeddingTokens)
                 .monthlyBudgetUsd(settings.getMonthlyBudgetUsd())
                 .estimatedCostUsd(estimatedCost)
                 .usedPercent(usedPercent)
                 .build();
+    }
+
+    private static BigDecimal costOf(long tokens, BigDecimal costPerMillionUsd) {
+        return BigDecimal.valueOf(tokens).divide(ONE_MILLION, 6, RoundingMode.HALF_UP).multiply(costPerMillionUsd);
     }
 
     private AiBillingSettings loadSingleton() {

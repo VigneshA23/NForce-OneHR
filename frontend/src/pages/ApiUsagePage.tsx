@@ -99,6 +99,7 @@ function BillingCard({ token }: { token: string }) {
   const [budget, setBudget] = useState('');
   const [promptCost, setPromptCost] = useState('');
   const [completionCost, setCompletionCost] = useState('');
+  const [embeddingCost, setEmbeddingCost] = useState('');
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -122,6 +123,7 @@ function BillingCard({ token }: { token: string }) {
       setBudget(String(s.monthlyBudgetUsd));
       setPromptCost(String(s.promptCostPerMillionUsd));
       setCompletionCost(String(s.completionCostPerMillionUsd));
+      setEmbeddingCost(String(s.embeddingCostPerMillionUsd));
     }).catch(err => setSaveError(err instanceof Error ? err.message : "Couldn't load billing settings"));
   }
 
@@ -129,6 +131,7 @@ function BillingCard({ token }: { token: string }) {
     Number(budget) !== settings.monthlyBudgetUsd
     || Number(promptCost) !== settings.promptCostPerMillionUsd
     || Number(completionCost) !== settings.completionCostPerMillionUsd
+    || Number(embeddingCost) !== settings.embeddingCostPerMillionUsd
   );
 
   async function save() {
@@ -136,6 +139,7 @@ function BillingCard({ token }: { token: string }) {
     const budgetN = Number(budget);
     const promptN = Number(promptCost);
     const completionN = Number(completionCost);
+    const embeddingN = Number(embeddingCost);
     if (budget.trim() === '' || !Number.isFinite(budgetN) || budgetN < 0) {
       setSaveError('Monthly budget must be a number that is 0 or more'); return;
     }
@@ -145,15 +149,20 @@ function BillingCard({ token }: { token: string }) {
     if (completionCost.trim() === '' || !Number.isFinite(completionN) || completionN < 0) {
       setSaveError('Completion cost must be a number that is 0 or more'); return;
     }
+    if (embeddingCost.trim() === '' || !Number.isFinite(embeddingN) || embeddingN < 0) {
+      setSaveError('Embedding cost must be a number that is 0 or more'); return;
+    }
     setSaving(true);
     try {
       const updated = await updateBillingSettings(token, {
         monthlyBudgetUsd: budgetN, promptCostPerMillionUsd: promptN, completionCostPerMillionUsd: completionN,
+        embeddingCostPerMillionUsd: embeddingN,
       });
       setSettings(updated);
       setBudget(String(updated.monthlyBudgetUsd));
       setPromptCost(String(updated.promptCostPerMillionUsd));
       setCompletionCost(String(updated.completionCostPerMillionUsd));
+      setEmbeddingCost(String(updated.embeddingCostPerMillionUsd));
       showToast('success', 'Billing settings updated');
       setEditing(false);
       load(); // refresh the progress bar against the new budget/pricing
@@ -210,7 +219,7 @@ function BillingCard({ token }: { token: string }) {
             </div>
           )}
           <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 8 }}>
-            {billing.promptTokens.toLocaleString()} prompt + {billing.completionTokens.toLocaleString()} completion tokens so far this month
+            {billing.promptTokens.toLocaleString()} prompt + {billing.completionTokens.toLocaleString()} completion + {billing.embeddingTokens.toLocaleString()} embedding tokens so far this month
           </div>
         </>
       )}
@@ -237,6 +246,10 @@ function BillingCard({ token }: { token: string }) {
                 <div>
                   <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Completion $/1M tokens</label>
                   <input type="number" min={0} step="0.0001" style={inputS} value={completionCost} onChange={e => setCompletionCost(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Embedding $/1M tokens</label>
+                  <input type="number" min={0} step="0.0001" style={inputS} value={embeddingCost} onChange={e => setEmbeddingCost(e.target.value)} />
                 </div>
                 <button onClick={save} disabled={saving || !dirty} style={{
                   padding: '8px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
@@ -279,15 +292,18 @@ export default function ApiUsagePage() {
   if (!authorized) return <AccessDenied />;
 
   const requestsChartData = (stats?.daily ?? []).map(d => ({
-    date: shortDate(d.date), Successful: d.successCount, Errors: d.errorCount,
+    date: shortDate(d.date), Requests: d.requestCount,
   }));
   const tokensChartData = (stats?.daily ?? []).map(d => ({
-    date: shortDate(d.date), Prompt: d.promptTokens, Completion: d.completionTokens,
+    date: shortDate(d.date), Prompt: d.promptTokens, Completion: d.completionTokens, Embedding: d.embeddingTokens,
   }));
   const responseTypeData = (stats?.byResponseType ?? []).map(b => ({ name: humanizeCode(b.key), value: b.count, key: b.key }));
 
-  const successRate = stats && stats.totalRequests > 0
-    ? `${Math.round((stats.successCount / stats.totalRequests) * 100)}%`
+  // Success/error rate is a per-turn concept (did the question get answered), so it's computed
+  // against totalTurns, not totalRequests (real API-call attempts) - a turn retried twice by the
+  // transport before succeeding is still one successful turn, not two-thirds of one.
+  const successRate = stats && stats.totalTurns > 0
+    ? `${Math.round((stats.successCount / stats.totalTurns) * 100)}%`
     : '—';
 
   return (
@@ -342,15 +358,15 @@ export default function ApiUsagePage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<MessageSquareText size={14} />} label="Total Requests" value={stats.totalRequests} note={`over the last ${days} days`} />
-            <KpiCard icon={<Zap size={14} />} label="Total Tokens" value={stats.totalTokens.toLocaleString()} note={`${stats.totalPromptTokens.toLocaleString()} prompt · ${stats.totalCompletionTokens.toLocaleString()} completion`} />
-            <KpiCard icon={<Activity size={14} />} label="Success Rate" value={successRate} note={`${stats.errorCount} failed request${stats.errorCount === 1 ? '' : 's'}`} danger={stats.totalRequests > 0 && stats.errorCount / stats.totalRequests > 0.1} />
+            <KpiCard icon={<MessageSquareText size={14} />} label="Total Requests" value={stats.totalRequests} note={`real Mistral calls · ${stats.totalTurns} question${stats.totalTurns === 1 ? '' : 's'} asked`} />
+            <KpiCard icon={<Zap size={14} />} label="Total Tokens" value={stats.totalTokens.toLocaleString()} note={`${stats.totalPromptTokens.toLocaleString()} prompt · ${stats.totalCompletionTokens.toLocaleString()} completion · ${stats.totalEmbeddingTokens.toLocaleString()} embedding`} />
+            <KpiCard icon={<Activity size={14} />} label="Success Rate" value={successRate} note={`${stats.errorCount} failed question${stats.errorCount === 1 ? '' : 's'}`} danger={stats.totalTurns > 0 && stats.errorCount / stats.totalTurns > 0.1} />
             <KpiCard icon={<Gauge size={14} />} label="Avg Latency" value={`${Math.round(stats.avgLatencyMs)}ms`} note="per completed request" />
           </div>
 
           {/* Charts */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 12, marginBottom: 12 }} className="nf-grid-side-collapse">
-            <ChartCard title="Request volume" subtitle="Successful vs. failed requests per day">
+            <ChartCard title="Request volume" subtitle="Real Mistral API requests per day (embedding + completion calls, including retries)">
               {requestsChartData.length === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No requests in this period.</div>
               ) : (
@@ -360,14 +376,13 @@ export default function ApiUsagePage() {
                     <XAxis dataKey="date" tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={{ stroke: 'var(--line2)' }} tickLine={false} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} />
-                    <Bar dataKey="Successful" stackId="req" fill={COLOR_SUCCESS} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="Errors" stackId="req" fill={COLOR_ERROR} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="Requests" fill={COLOR_SUCCESS} radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </ChartCard>
 
-            <ChartCard title="Token usage" subtitle="Prompt vs. completion tokens per day">
+            <ChartCard title="Token usage" subtitle="Prompt, completion, and embedding tokens per day">
               {tokensChartData.length === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No token usage in this period.</div>
               ) : (
@@ -378,7 +393,8 @@ export default function ApiUsagePage() {
                     <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} />
                     <Bar dataKey="Prompt" stackId="tok" fill={COLOR_PROMPT} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="Completion" stackId="tok" fill={COLOR_COMPLETION} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="Completion" stackId="tok" fill={COLOR_COMPLETION} radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="Embedding" stackId="tok" fill={COLOR_SUCCESS} radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -433,8 +449,11 @@ export default function ApiUsagePage() {
 
           <div style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--txt-dim)' }}>
             <Zap size={14} style={{ flexShrink: 0 }} />
-            Token counts come from OneHR's own request logs, not from Mistral's billing — for the
-            actual dollar cost and rate-limit/quota details, use the{' '}
+            Counts come from OneHR's own request logs (every embedding and completion call a
+            question costs, including retries), not from Mistral's billing — so this figure may
+            still run a little under Mistral's own count, since rebuilding the knowledge index also
+            calls Mistral directly and isn't tied to a question. For the actual dollar cost and
+            rate-limit/quota details, use the{' '}
             <a href={MISTRAL_ADMIN_URL} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--info)' }}>Mistral Admin Console</a>.
           </div>
         </>

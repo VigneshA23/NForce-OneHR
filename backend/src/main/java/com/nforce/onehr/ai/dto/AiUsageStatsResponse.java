@@ -13,10 +13,18 @@ import java.util.List;
  * in {@code RATE_LIMITED} or {@code PROVIDER_UNAVAILABLE} tells a different story than a jump next
  * to a flat error line.
  *
- * <p>No cost/$ figure is included — {@code ai_interaction_log} tracks prompt/completion token
- * counts, never a dollar amount (Mistral's own console is the source of truth for pricing, which is
- * exactly why this page also links out to it rather than trying to re-derive a cost figure that
- * could drift from what's actually billed).
+ * <p><strong>{@link #totalRequests} counts real Mistral HTTP requests, not assistant turns.</strong>
+ * One turn (one question) costs at least two real requests — an embedding call for retrieval, then
+ * a chat completion call — plus any transport-level retries; see {@link
+ * com.nforce.onehr.ai.entity.AiInteractionLog#getApiCallAttempts()}. {@link #totalTurns} is the
+ * older, simpler "how many questions were asked" figure, kept alongside it since both are useful.
+ * Knowledge reindexing calls Mistral directly too but isn't tied to a turn, so it's still outside
+ * both figures — the page's own footer note says so.
+ *
+ * <p>No cost/$ figure is included here — {@code ai_interaction_log} tracks token counts, never a
+ * dollar amount (Mistral's own console is the source of truth for pricing). See {@code
+ * AiBillingResponse} for the separate, admin-configured estimate that does turn these tokens into a
+ * dollar figure.
  */
 @Value
 @Builder
@@ -25,13 +33,18 @@ public class AiUsageStatsResponse {
     Instant from;
     Instant to;
 
-    int totalRequests;
+    /** Real Mistral HTTP requests (embedding + completion attempts, including retries) — see class javadoc. */
+    long totalRequests;
+    /** Assistant turns (questions asked) — the older, coarser figure {@link #totalRequests} replaces as the headline. */
+    int totalTurns;
     int successCount;
     int errorCount;
     long totalPromptTokens;
     long totalCompletionTokens;
+    /** The embedding call's own token usage — previously not captured at all. */
+    long totalEmbeddingTokens;
     long totalTokens;
-    /** 0 when {@code totalRequests} is 0 — never NaN. */
+    /** 0 when {@code totalTurns} is 0 — never NaN. */
     double avgLatencyMs;
 
     List<AiUsageDailyPoint> daily;

@@ -90,6 +90,14 @@ public class DocumentService {
         UUID actorId = requireUser(actorEmail).getId();
         DocumentType dt = docTypeRepo.findById(documentTypeId)
                 .orElseThrow(() -> new NoSuchElementException("Document type not found: " + documentTypeId));
+        // A deactivated type no longer accepts new submissions; documents already uploaded under
+        // it are left exactly as they are.
+        if (!dt.isActive()) {
+            throw new IllegalStateException("\"" + dt.getName() + "\" is no longer accepting uploads");
+        }
+        if (dt.isRequiresExpiryDate() && expiryDate == null) {
+            throw new IllegalArgumentException("Expiry date is required for " + dt.getName());
+        }
 
         // Retain document history on re-upload (AC1): the current version, if any, is never
         // mutated — it's flagged superseded and a brand-new row becomes current. Flushing the
@@ -144,24 +152,23 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
-    // ── HR/SA: list pending documents (excludes HR/SA employees) ──
+    // ── HR/SA: list pending documents (excludes the CALLER's own — see adminVisibleDocuments) ──
 
     @Transactional(readOnly = true)
     public List<EmployeeDocumentResponse> listPending(String actorEmail) {
+        UUID actorId = requireUser(actorEmail).getId();
         requireAdminRole(actorEmail);
-        Set<UUID> adminIds = userRepo.findAdminUserIds();
         List<EmployeeDocument> docs = docRepo.findByStatusOrderByUploadedAtDesc("PENDING_VERIFICATION")
-                .stream().filter(d -> !adminIds.contains(d.getEmployeeUserId())).collect(Collectors.toList());
+                .stream().filter(d -> !d.getEmployeeUserId().equals(actorId)).collect(Collectors.toList());
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<EmployeeDocumentResponse> listAll(String actorEmail) {
+        UUID actorId = requireUser(actorEmail).getId();
         requireAdminRole(actorEmail);
-        Set<UUID> adminIds = userRepo.findAdminUserIds();
-        List<EmployeeDocument> docs = docRepo.findAllWithActiveEmployee()
-                .stream().filter(d -> !adminIds.contains(d.getEmployeeUserId())).collect(Collectors.toList());
+        List<EmployeeDocument> docs = adminVisibleDocuments(actorId);
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());
     }
@@ -194,6 +201,14 @@ public class DocumentService {
         if (doc.getEmployeeUserId().equals(actor.getId())) {
             throw new AccessDeniedException("Cannot verify your own document");
         }
+        // Only the current, still-pending version can be actioned — guards against a stale screen
+        // (another admin already decided, or the employee re-uploaded in the meantime).
+        if (doc.isSuperseded()) {
+            throw new IllegalStateException("This document has been replaced by a newer upload. Please refresh.");
+        }
+        if (!"PENDING_VERIFICATION".equals(doc.getStatus())) {
+            throw new IllegalStateException("This document has already been reviewed. Please refresh.");
+        }
         if ("VERIFY".equalsIgnoreCase(req.getAction())) {
             doc.setStatus("VERIFIED");
             doc.setVerifiedBy(actor.getId());
@@ -204,16 +219,17 @@ public class DocumentService {
                     "Your " + doc.getDocumentType().getName() + " has been verified.",
                     "/documents");
         } else if ("REJECT".equalsIgnoreCase(req.getAction())) {
-            if (req.getRejectionReason() == null || req.getRejectionReason().isBlank()) {
+            String reason = req.getRejectionReason() == null ? "" : req.getRejectionReason().trim();
+            if (reason.isEmpty()) {
                 throw new IllegalArgumentException("Rejection reason is required");
             }
             doc.setStatus("REJECTED");
             doc.setVerifiedBy(actor.getId());
             doc.setVerifiedAt(Instant.now());
-            doc.setRejectionReason(req.getRejectionReason());
+            doc.setRejectionReason(reason);
             notificationService.send(doc.getEmployeeUserId(), "DOCUMENT_REJECTED",
                     "Document Rejected",
-                    "Your " + doc.getDocumentType().getName() + " was rejected: " + req.getRejectionReason(),
+                    "Your " + doc.getDocumentType().getName() + " was rejected: " + reason,
                     "/documents");
         } else {
             throw new IllegalArgumentException("Invalid action: " + req.getAction());
@@ -266,6 +282,21 @@ public class DocumentService {
         requireAdminRole(actorEmail);
         DocumentType dt = docTypeRepo.findById(documentTypeId)
                 .orElseThrow(() -> new NoSuchElementException("Document type not found: " + documentTypeId));
+        // Same eligibility as listMissing: only an active, non-admin employee who genuinely hasn't
+        // submitted an active, applicable document type can be reminded about it.
+        Employee emp = employeeRepo.findById(employeeUserId)
+                .orElseThrow(() -> new NoSuchElementException("Employee not found: " + employeeUserId));
+        User empUser = emp.getUser();
+        if (empUser == null || empUser.getDeletedAt() != null || !empUser.isActive()
+                || userRepo.findAdminUserIds().contains(employeeUserId)) {
+            throw new IllegalArgumentException("Reminders can only be sent to active employees");
+        }
+        if (!dt.isActive() || !isApplicable(dt, emp)) {
+            throw new IllegalArgumentException("\"" + dt.getName() + "\" is not required for this employee");
+        }
+        if (docRepo.findByEmployeeUserIdAndDocumentTypeIdAndSupersededFalse(employeeUserId, documentTypeId).isPresent()) {
+            throw new IllegalStateException("This employee has already submitted their " + dt.getName());
+        }
         notificationService.send(employeeUserId, "DOCUMENT_REMINDER",
                 "Document Required: " + dt.getName(),
                 "Please upload your " + dt.getName() + " document to complete your compliance profile.",
@@ -276,12 +307,26 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public DocumentAdminKpiDto getAdminKpis(String actorEmail) {
+        UUID actorId = requireUser(actorEmail).getId();
         requireAdminRole(actorEmail);
+        // Computed from exactly the rows the admin lists show (current version, non-deleted,
+        // excluding the caller's own documents) so every KPI card matches its tab. Previously
+        // totalDocuments was docRepo.count() — every row including superseded versions, deleted
+        // employees and the caller's own documents.
+        List<EmployeeDocument> docs = adminVisibleDocuments(actorId);
+        LocalDate today = LocalDate.now();
+        LocalDate horizon = today.plusDays(30);
+        List<EmployeeDocument> pending = docs.stream()
+                .filter(d -> "PENDING_VERIFICATION".equals(d.getStatus())).collect(Collectors.toList());
+        long expiring = docs.stream()
+                .filter(d -> "VERIFIED".equals(d.getStatus()) && d.getExpiryDate() != null
+                        && !d.getExpiryDate().isBefore(today) && !d.getExpiryDate().isAfter(horizon))
+                .count();
         return new DocumentAdminKpiDto(
-                docRepo.countPendingDocuments(),
-                docRepo.countEmployeesWithPendingDocs(),
-                docRepo.countExpiringWithin30Days(),
-                docRepo.count());
+                pending.size(),
+                pending.stream().map(EmployeeDocument::getEmployeeUserId).distinct().count(),
+                expiring,
+                docs.size());
     }
 
     // ── Employee compliance summary ──
@@ -323,6 +368,26 @@ public class DocumentService {
     }
 
     // ── Helpers ──
+
+    // The row set behind the admin "All" list and the KPIs: current versions of non-deleted
+    // employees, excluding the CALLING admin's own documents.
+    //
+    // Bug fix (ONEHR: "HR Admin: unable to verify or reject uploaded employee documents"): this
+    // used to exclude every document belonging to ANY HR_ADMIN/SUPER_ADMIN-role employee, from
+    // EVERY admin's view — not just from that document owner's own view. A document uploaded by
+    // one HR Admin (e.g. before they were promoted from Employee, or an HR Admin who is also a
+    // new joiner) was therefore invisible in every admin list and permanently stuck in
+    // PENDING_VERIFICATION: verifyDocument() itself only blocks the OWNER from actioning their own
+    // document, but there was no way for a DIFFERENT admin to ever discover its id to act on it,
+    // since it never appeared in listPending/listAll/getAdminKpis for anyone. Scoping the
+    // exclusion to the CALLER's own id (mirrors verifyDocument's own self-review block) fixes
+    // that: any other admin can still see and act on it, while a caller still never sees — or is
+    // invited to self-review — their own upload in this admin queue.
+    private List<EmployeeDocument> adminVisibleDocuments(UUID actorId) {
+        return docRepo.findAllWithActiveEmployee().stream()
+                .filter(d -> !d.getEmployeeUserId().equals(actorId))
+                .collect(Collectors.toList());
+    }
 
     private boolean isApplicable(DocumentType dt, Employee emp) {
         if (emp == null) return true;

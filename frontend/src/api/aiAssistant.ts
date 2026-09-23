@@ -196,11 +196,13 @@ export async function updateRateLimitSettings(
 
 export interface AiUsageDailyPoint {
   date: string;
+  /** Real Mistral API-call attempts (embedding + completion, including retries), not a turn count. */
   requestCount: number;
   successCount: number;
   errorCount: number;
   promptTokens: number;
   completionTokens: number;
+  embeddingTokens: number;
 }
 
 export interface AiUsageBreakdownPoint {
@@ -211,11 +213,15 @@ export interface AiUsageBreakdownPoint {
 export interface AiUsageStats {
   from: string;
   to: string;
+  /** Real Mistral HTTP requests (embedding + completion attempts, including retries) — see
+   *  totalTurns for the older, coarser "how many questions were asked" figure. */
   totalRequests: number;
+  totalTurns: number;
   successCount: number;
   errorCount: number;
   totalPromptTokens: number;
   totalCompletionTokens: number;
+  totalEmbeddingTokens: number;
   totalTokens: number;
   avgLatencyMs: number;
   daily: AiUsageDailyPoint[];
@@ -241,6 +247,7 @@ export interface AiBilling {
   today: string;
   promptTokens: number;
   completionTokens: number;
+  embeddingTokens: number;
   monthlyBudgetUsd: number;
   estimatedCostUsd: number;
   /** 0-100+, uncapped so the caller can distinguish "at budget" from "over budget". */
@@ -252,6 +259,7 @@ export interface AiBillingSettings {
   monthlyBudgetUsd: number;
   promptCostPerMillionUsd: number;
   completionCostPerMillionUsd: number;
+  embeddingCostPerMillionUsd: number;
   updatedAt: string;
 }
 
@@ -259,6 +267,7 @@ export interface UpdateAiBillingSettingsRequest {
   monthlyBudgetUsd: number;
   promptCostPerMillionUsd: number;
   completionCostPerMillionUsd: number;
+  embeddingCostPerMillionUsd: number;
 }
 
 export async function fetchBilling(token: string): Promise<AiBilling> {

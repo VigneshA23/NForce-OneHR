@@ -16,6 +16,7 @@ public class AiBillingSettingsResponse {
     BigDecimal monthlyBudgetUsd;
     BigDecimal promptCostPerMillionUsd;
     BigDecimal completionCostPerMillionUsd;
+    BigDecimal embeddingCostPerMillionUsd;
     Instant updatedAt;
 
     public static AiBillingSettingsResponse from(AiBillingSettings settings) {
@@ -24,6 +25,7 @@ public class AiBillingSettingsResponse {
                 .monthlyBudgetUsd(settings.getMonthlyBudgetUsd())
                 .promptCostPerMillionUsd(settings.getPromptCostPerMillionUsd())
                 .completionCostPerMillionUsd(settings.getCompletionCostPerMillionUsd())
+                .embeddingCostPerMillionUsd(settings.getEmbeddingCostPerMillionUsd())
                 .updatedAt(settings.getUpdatedAt())
                 .build();
     }

@@ -11,6 +11,27 @@ export const card: React.CSSProperties = { background: 'var(--panel)', border: '
 export const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)' };
 export const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
+export interface RequiredDocumentBuckets {
+  verified: RequiredDocument[];
+  pending: RequiredDocument[];
+  rejected: RequiredDocument[];
+  missing: RequiredDocument[];
+}
+
+// Single source of truth for the Pending Review / Verified / Rejected / Not Submitted buckets
+// shared by MyDocumentsSection's tabs and DocumentsPage's KPI tiles. REJECTED is its own bucket,
+// never folded into `pending` — a rejected document must never be counted or displayed as
+// "awaiting HR review", but must stay visible (with its rejection reason) so the employee still
+// knows it needs a re-upload, instead of silently vanishing.
+export function bucketRequiredDocuments(required: RequiredDocument[]): RequiredDocumentBuckets {
+  return {
+    verified: required.filter(r => r.status === 'VERIFIED'),
+    pending: required.filter(r => r.status === 'PENDING_VERIFICATION'),
+    rejected: required.filter(r => r.status === 'REJECTED'),
+    missing: required.filter(r => !r.uploaded),
+  };
+}
+
 export function StatusBadge({ status }: { status: string | null }) {
   if (!status) return <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Not uploaded</span>;
   const map: Record<string, { label: string; color: string }> = {

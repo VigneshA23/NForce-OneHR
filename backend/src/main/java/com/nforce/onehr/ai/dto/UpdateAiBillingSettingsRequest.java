@@ -24,4 +24,8 @@ public class UpdateAiBillingSettingsRequest {
     @NotNull(message = "completionCostPerMillionUsd is required")
     @DecimalMin(value = "0", message = "completionCostPerMillionUsd cannot be negative")
     private BigDecimal completionCostPerMillionUsd;
+
+    @NotNull(message = "embeddingCostPerMillionUsd is required")
+    @DecimalMin(value = "0", message = "embeddingCostPerMillionUsd cannot be negative")
+    private BigDecimal embeddingCostPerMillionUsd;
 }

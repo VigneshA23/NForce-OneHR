@@ -40,12 +40,16 @@ public class AiUsageStatsService {
      *  which makes it the wrong shape for something accumulated into row by row. */
     private static final class DayBucket {
         final LocalDate date;
+        // requestCount is real Mistral API-call attempts (embedding + completion, including
+        // retries) summed across the day's turns, not a row count — see AiInteractionLog#
+        // getApiCallAttempts()'s own javadoc for why a turn and a request are not the same thing.
         int requestCount, successCount, errorCount;
-        long promptTokens, completionTokens;
+        long promptTokens, completionTokens, embeddingTokens;
         DayBucket(LocalDate date) { this.date = date; }
         AiUsageDailyPoint toPoint() {
             return AiUsageDailyPoint.builder().date(date).requestCount(requestCount).successCount(successCount)
-                    .errorCount(errorCount).promptTokens(promptTokens).completionTokens(completionTokens).build();
+                    .errorCount(errorCount).promptTokens(promptTokens).completionTokens(completionTokens)
+                    .embeddingTokens(embeddingTokens).build();
         }
     }
 
@@ -71,7 +75,8 @@ public class AiUsageStatsService {
 
         Map<String, Long> byErrorCode = new LinkedHashMap<>();
         Map<String, Long> byResponseType = new LinkedHashMap<>();
-        long totalPromptTokens = 0, totalCompletionTokens = 0, totalLatencyMs = 0;
+        long totalPromptTokens = 0, totalCompletionTokens = 0, totalEmbeddingTokens = 0, totalLatencyMs = 0;
+        long totalApiCallAttempts = 0;
         int successCount = 0, errorCount = 0;
 
         for (AiInteractionLog log : logs) {
@@ -80,8 +85,11 @@ public class AiUsageStatsService {
 
             int prompt = log.getPromptTokens() == null ? 0 : log.getPromptTokens();
             int completion = log.getCompletionTokens() == null ? 0 : log.getCompletionTokens();
+            int embedding = log.getEmbeddingPromptTokens() == null ? 0 : log.getEmbeddingPromptTokens();
             totalPromptTokens += prompt;
             totalCompletionTokens += completion;
+            totalEmbeddingTokens += embedding;
+            totalApiCallAttempts += log.getApiCallAttempts();
             totalLatencyMs += log.getLatencyMs();
 
             if (log.isSuccess()) {
@@ -96,9 +104,10 @@ public class AiUsageStatsService {
             byResponseType.merge(log.getResponseType(), 1L, Long::sum);
 
             if (bucket != null) {
-                bucket.requestCount++;
+                bucket.requestCount += log.getApiCallAttempts();
                 bucket.promptTokens += prompt;
                 bucket.completionTokens += completion;
+                bucket.embeddingTokens += embedding;
             }
         }
 
@@ -107,12 +116,14 @@ public class AiUsageStatsService {
         return AiUsageStatsResponse.builder()
                 .from(from)
                 .to(to)
-                .totalRequests(logs.size())
+                .totalRequests(totalApiCallAttempts)
+                .totalTurns(logs.size())
                 .successCount(successCount)
                 .errorCount(errorCount)
                 .totalPromptTokens(totalPromptTokens)
                 .totalCompletionTokens(totalCompletionTokens)
-                .totalTokens(totalPromptTokens + totalCompletionTokens)
+                .totalEmbeddingTokens(totalEmbeddingTokens)
+                .totalTokens(totalPromptTokens + totalCompletionTokens + totalEmbeddingTokens)
                 .avgLatencyMs(logs.isEmpty() ? 0.0 : (double) totalLatencyMs / logs.size())
                 .daily(daily)
                 .byErrorCode(toSortedBreakdown(byErrorCode))

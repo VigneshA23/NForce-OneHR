@@ -21,6 +21,7 @@ public class AiBillingResponse {
 
     long promptTokens;
     long completionTokens;
+    long embeddingTokens;
 
     BigDecimal monthlyBudgetUsd;
     BigDecimal estimatedCostUsd;

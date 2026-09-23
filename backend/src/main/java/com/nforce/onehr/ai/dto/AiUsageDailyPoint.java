@@ -11,9 +11,11 @@ import java.time.LocalDate;
 public class AiUsageDailyPoint {
 
     LocalDate date;
+    /** Real Mistral API-call attempts (embedding + completion, including retries), not a turn count. */
     int requestCount;
     int successCount;
     int errorCount;
     long promptTokens;
     long completionTokens;
+    long embeddingTokens;
 }

@@ -5,6 +5,8 @@ import com.nforce.onehr.entity.AttendanceRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.OvertimeRequest;
 import com.nforce.onehr.entity.RegularizationRequest;
+import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.entity.User;
 import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -22,8 +24,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -250,5 +254,80 @@ class ReportsServiceTest {
         assertEquals(new BigDecimal("1.00"), row.getHours());
         verify(attendanceRequestRepository).findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(
                 List.of(emp1Id), "WFH", from, to);
+    }
+
+    // ── Bug: "HR Admin: Overtime/WFH/Partial request records are not fetched under Reports" ─────
+    //
+    // Root cause: this service scoped every caller — Manager AND HR_ADMIN/SUPER_ADMIN alike — to
+    // their own current direct reports. An HR Admin typically has few or no direct reports of
+    // their own, so this endpoint (opened up to HR_ADMIN/SUPER_ADMIN at the controller) always
+    // returned an empty report for them, even though Approval Center (correctly org-scoped for
+    // HR/SA) showed the same requests fine. Fix: HR_ADMIN/SUPER_ADMIN get every employee org-wide
+    // instead of their own direct-report set.
+
+    private static Role role(String code) {
+        return Role.builder().id(code.hashCode()).code(code).displayName(code).build();
+    }
+
+    @Test
+    void hrAdminCaller_getsOrgWideEmployees_notJustTheirOwnDirectReports() {
+        String hrAdminEmail = "hr.admin@test.com";
+        UUID hrAdminId = UUID.randomUUID();
+        Employee hrAdmin = Employee.builder().userId(hrAdminId).fullName("HR Admin")
+                .user(User.builder().id(hrAdminId).roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build())
+                .build();
+        when(employeeRepository.findByUser_Email(hrAdminEmail)).thenReturn(Optional.of(hrAdmin));
+        // The HR Admin has NO direct reports of their own — this must not matter for their scope.
+        when(employeeRepository.findAllWithDetails()).thenReturn(List.of(emp1, emp2));
+        when(overtimeRequestRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(emp1Id, emp2Id), from, to))
+                .thenReturn(List.of(OvertimeRequest.builder()
+                        .employeeUserId(emp2Id).workDate(LocalDate.of(2026, 9, 10))
+                        .requestedStart(LocalDateTime.of(2026, 9, 10, 19, 0))
+                        .requestedEnd(LocalDateTime.of(2026, 9, 10, 20, 0))
+                        .status("PENDING").build()));
+
+        List<AttendanceRequestReportRow> rows =
+                reportsService.getAttendanceRequestReport(hrAdminEmail, ReportsService.ReportType.OVERTIME, from, to);
+
+        assertEquals(1, rows.size());
+        assertEquals(emp2Id, rows.get(0).getEmployeeUserId());
+        verify(managerHistoryRepository, never()).findCurrentDirectReportIds(any());
+    }
+
+    @Test
+    void superAdminCaller_getsOrgWideEmployees_forWfhAndPartialDayToo() {
+        String superAdminEmail = "super.admin@test.com";
+        UUID superAdminId = UUID.randomUUID();
+        Employee superAdmin = Employee.builder().userId(superAdminId).fullName("Super Admin")
+                .user(User.builder().id(superAdminId).roles(new HashSet<>(Set.of(role("SUPER_ADMIN")))).build())
+                .build();
+        when(employeeRepository.findByUser_Email(superAdminEmail)).thenReturn(Optional.of(superAdmin));
+        when(employeeRepository.findAllWithDetails()).thenReturn(List.of(emp1, emp2));
+        when(attendanceRequestRepository.findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(
+                List.of(emp1Id, emp2Id), "WFH", from, to)).thenReturn(List.of(
+                AttendanceRequest.builder().employeeUserId(emp1Id).requestType("WFH")
+                        .requestDate(LocalDate.of(2026, 9, 13)).partialDayMode("FULL_DAY")
+                        .wfhDayFraction(new BigDecimal("1.00")).status("APPROVED").build()));
+
+        List<AttendanceRequestReportRow> rows =
+                reportsService.getAttendanceRequestReport(superAdminEmail, ReportsService.ReportType.WFH_OD, from, to);
+
+        assertEquals(1, rows.size());
+        assertEquals(emp1Id, rows.get(0).getEmployeeUserId());
+        verify(managerHistoryRepository, never()).findCurrentDirectReportIds(any());
+    }
+
+    @Test
+    void managerWhoIsAlsoNotAdmin_stillOnlySeesTheirOwnDirectReports() {
+        // manager (set up in @BeforeEach) has no User at all attached — mirrors every pre-existing
+        // test in this class, and must keep behaving as a plain, team-scoped Manager.
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(emp1Id));
+        when(employeeRepository.findAllById(List.of(emp1Id))).thenReturn(List.of(emp1));
+        when(overtimeRequestRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(emp1Id), from, to))
+                .thenReturn(List.of());
+
+        reportsService.getAttendanceRequestReport(managerEmail, ReportsService.ReportType.OVERTIME, from, to);
+
+        verify(employeeRepository, never()).findAllWithDetails();
     }
 }
