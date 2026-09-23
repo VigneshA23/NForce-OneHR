@@ -70,6 +70,7 @@ export interface OnboardingDetail {
   archived: boolean;
   status: OnboardingStatus;
   completedAt: string | null;
+  readyToComplete: boolean;
   totalItems: number;
   doneItems: number;
   preBoarding: OnboardingItem[];
@@ -98,4 +99,7 @@ export const onboardingApi = {
 
   toggleItem: (checklistId: string, itemId: string, token: string) =>
     fetch(`${BASE}/${checklistId}/items/${itemId}`, { method: 'PATCH', headers: authHeaders(token) }).then(r => handle<OnboardingDetail>(r)),
+
+  complete: (checklistId: string, token: string) =>
+    fetch(`${BASE}/${checklistId}/complete`, { method: 'POST', headers: authHeaders(token) }).then(r => handle<OnboardingDetail>(r)),
 };

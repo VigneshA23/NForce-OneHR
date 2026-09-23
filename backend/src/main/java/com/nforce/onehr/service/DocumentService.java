@@ -166,6 +166,21 @@ public class DocumentService {
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());
     }
 
+    /**
+     * HR/SA: current (non-superseded) documents for one specific employee — e.g. the
+     * "View Documents" action from within Onboarding. Scoped strictly to employeeUserId
+     * so one employee's documents are never visible while viewing another's.
+     */
+    @Transactional(readOnly = true)
+    public List<EmployeeDocumentResponse> documentsForEmployee(String actorEmail, UUID employeeUserId) {
+        requireAdminRole(actorEmail);
+        Employee emp = employeeRepo.findById(employeeUserId)
+                .orElseThrow(() -> new NoSuchElementException("Employee not found: " + employeeUserId));
+        return docRepo.findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeUserId).stream()
+                .map(d -> EmployeeDocumentResponse.from(d, emp.getFullName()))
+                .collect(Collectors.toList());
+    }
+
     // ── HR/SA: verify or reject ──
 
     @Transactional
