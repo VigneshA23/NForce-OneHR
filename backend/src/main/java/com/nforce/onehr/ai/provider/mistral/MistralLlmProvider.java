@@ -84,4 +84,9 @@ public class MistralLlmProvider implements LlmProvider {
                 .latencyMs(latency)
                 .build();
     }
+
+    @Override
+    public int lastAttemptCount() {
+        return httpClient.lastAttemptCount();
+    }
 }

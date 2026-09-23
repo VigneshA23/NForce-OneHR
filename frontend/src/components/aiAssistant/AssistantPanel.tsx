@@ -216,9 +216,12 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
   const goTo = useCallback((pageId: string) => {
     const target = resolvePageTarget(pageId, role);
     if (!target) return;
-    onClose();
+    // Deliberately does not close the panel - Shell (and the panel, once open) already survives
+    // ordinary navigation untouched, so the conversation should too. Only the X button and the
+    // reset button end the session; navigating away and back should find the chat exactly as it
+    // was left.
     navigate(target.route);
-  }, [role, navigate, onClose]);
+  }, [role, navigate]);
 
   const resolveLabel = useCallback(
     (pageId: string) => resolvePageTarget(pageId, role)?.label ?? null,

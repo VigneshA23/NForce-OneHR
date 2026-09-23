@@ -19,11 +19,17 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+
+import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -356,5 +362,36 @@ class ExpenseServiceTest {
         assertEquals("application/pdf", receipt.contentType());
         assertTrue(receipt.fileName().endsWith(".pdf"));
         assertEquals("%PDF-1.4 fake pdf bytes", new String(receipt.data()));
+    }
+
+    // ── "Approved This Month" tile: windowed by expenseDate, not the clearance/payment date ──
+
+    @Test
+    void employeeTileSummary_windowsApprovedThisMonthByExpenseDate_notFinalDecidedAt() {
+        when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(employeeUser));
+        when(claimRepo.findByEmployeeUserIdInAndStatus(List.of(employeeUser.getId()), "SUBMITTED"))
+                .thenReturn(new ArrayList<>());
+        when(claimRepo.findByEmployeeUserIdInAndStatus(List.of(employeeUser.getId()), "MANAGER_APPROVED"))
+                .thenReturn(new ArrayList<>());
+        // A claim incurred this month but only cleared next month (or vice versa) must still be
+        // windowed on when it was spent - the repository query itself is the actual fix (this test
+        // only pins down the LocalDate window ExpenseService hands it, since sumApprovedThisMonth/
+        // countApprovedThisMonth are mocked here, not exercised against real JPA date semantics).
+        when(claimRepo.sumApprovedThisMonth(eq(employeeUser.getId()), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(new BigDecimal("12300.00"));
+        when(claimRepo.countApprovedThisMonth(eq(employeeUser.getId()), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(4L);
+
+        Map<String, Object> result = expenseService.employeeTileSummary(actorEmail);
+
+        assertEquals(new BigDecimal("12300.00"), result.get("approvedThisMonthAmount"));
+        assertEquals(4L, result.get("approvedThisMonthCount"));
+
+        ArgumentCaptor<LocalDate> fromCap = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> toCap = ArgumentCaptor.forClass(LocalDate.class);
+        verify(claimRepo).sumApprovedThisMonth(eq(employeeUser.getId()), fromCap.capture(), toCap.capture());
+        YearMonth thisMonth = YearMonth.now(ZoneId.of("UTC"));
+        assertEquals(thisMonth.atDay(1), fromCap.getValue());
+        assertEquals(thisMonth.atEndOfMonth().plusDays(1), toCap.getValue());
     }
 }
