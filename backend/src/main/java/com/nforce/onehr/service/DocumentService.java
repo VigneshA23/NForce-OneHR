@@ -152,22 +152,23 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
-    // ── HR/SA: list pending documents (excludes HR/SA employees) ──
+    // ── HR/SA: list pending documents (excludes the CALLER's own — see adminVisibleDocuments) ──
 
     @Transactional(readOnly = true)
     public List<EmployeeDocumentResponse> listPending(String actorEmail) {
+        UUID actorId = requireUser(actorEmail).getId();
         requireAdminRole(actorEmail);
-        Set<UUID> adminIds = userRepo.findAdminUserIds();
         List<EmployeeDocument> docs = docRepo.findByStatusOrderByUploadedAtDesc("PENDING_VERIFICATION")
-                .stream().filter(d -> !adminIds.contains(d.getEmployeeUserId())).collect(Collectors.toList());
+                .stream().filter(d -> !d.getEmployeeUserId().equals(actorId)).collect(Collectors.toList());
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<EmployeeDocumentResponse> listAll(String actorEmail) {
+        UUID actorId = requireUser(actorEmail).getId();
         requireAdminRole(actorEmail);
-        List<EmployeeDocument> docs = adminVisibleDocuments();
+        List<EmployeeDocument> docs = adminVisibleDocuments(actorId);
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());
     }
@@ -306,12 +307,13 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public DocumentAdminKpiDto getAdminKpis(String actorEmail) {
+        UUID actorId = requireUser(actorEmail).getId();
         requireAdminRole(actorEmail);
         // Computed from exactly the rows the admin lists show (current version, non-deleted,
-        // non-admin employees) so every KPI card matches its tab. Previously totalDocuments was
-        // docRepo.count() — every row including superseded versions, deleted employees and
-        // admins' own documents.
-        List<EmployeeDocument> docs = adminVisibleDocuments();
+        // excluding the caller's own documents) so every KPI card matches its tab. Previously
+        // totalDocuments was docRepo.count() — every row including superseded versions, deleted
+        // employees and the caller's own documents.
+        List<EmployeeDocument> docs = adminVisibleDocuments(actorId);
         LocalDate today = LocalDate.now();
         LocalDate horizon = today.plusDays(30);
         List<EmployeeDocument> pending = docs.stream()
@@ -368,11 +370,22 @@ public class DocumentService {
     // ── Helpers ──
 
     // The row set behind the admin "All" list and the KPIs: current versions of non-deleted
-    // employees, excluding HR/SA users' own documents.
-    private List<EmployeeDocument> adminVisibleDocuments() {
-        Set<UUID> adminIds = userRepo.findAdminUserIds();
+    // employees, excluding the CALLING admin's own documents.
+    //
+    // Bug fix (ONEHR: "HR Admin: unable to verify or reject uploaded employee documents"): this
+    // used to exclude every document belonging to ANY HR_ADMIN/SUPER_ADMIN-role employee, from
+    // EVERY admin's view — not just from that document owner's own view. A document uploaded by
+    // one HR Admin (e.g. before they were promoted from Employee, or an HR Admin who is also a
+    // new joiner) was therefore invisible in every admin list and permanently stuck in
+    // PENDING_VERIFICATION: verifyDocument() itself only blocks the OWNER from actioning their own
+    // document, but there was no way for a DIFFERENT admin to ever discover its id to act on it,
+    // since it never appeared in listPending/listAll/getAdminKpis for anyone. Scoping the
+    // exclusion to the CALLER's own id (mirrors verifyDocument's own self-review block) fixes
+    // that: any other admin can still see and act on it, while a caller still never sees — or is
+    // invited to self-review — their own upload in this admin queue.
+    private List<EmployeeDocument> adminVisibleDocuments(UUID actorId) {
         return docRepo.findAllWithActiveEmployee().stream()
-                .filter(d -> !adminIds.contains(d.getEmployeeUserId()))
+                .filter(d -> !d.getEmployeeUserId().equals(actorId))
                 .collect(Collectors.toList());
     }
 
