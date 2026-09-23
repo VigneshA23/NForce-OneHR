@@ -30,6 +30,7 @@ import { BirthdayWidget } from '../components/BirthdayWidget';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import { roundDays } from '../utils/leaveDays';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -898,9 +899,11 @@ const SUPER_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
 // numbers can never diverge: entries with no configured quota (totalDays <= 0) are
 // excluded, and any negative remainingDays is clamped to 0 before summing.
 function usableRemaining(balances: LeaveBalance[]): number {
-  return balances
+  // roundDays strips the IEEE-754 noise summing several BigDecimal-derived values can reintroduce
+  // (e.g. 13.75 + 0.5 + 0 rendering as 14.249999999999998) - see utils/leaveDays.ts.
+  return roundDays(balances
     .filter(b => b.totalDays > 0)
-    .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0);
+    .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0));
 }
 
 function EmployeeStatTiles({
@@ -1143,8 +1146,8 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
   const configured = useMemo(() => balances.filter(b => b.totalDays > 0), [balances]);
 
   const totalRemaining = usableRemaining(balances);
-  const totalQuota = configured.reduce((s, b) => s + Number(b.totalDays), 0);
-  const totalConsumed = Math.max(0, totalQuota - totalRemaining);
+  const totalQuota = roundDays(configured.reduce((s, b) => s + Number(b.totalDays), 0));
+  const totalConsumed = roundDays(Math.max(0, totalQuota - totalRemaining));
   const data = [
     { name: 'Available', value: totalRemaining },
     { name: 'Consumed/Reserved', value: totalConsumed },

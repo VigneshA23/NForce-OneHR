@@ -34,6 +34,7 @@ import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
 import WorkflowStudioPage from './pages/WorkflowStudioPage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import ReportsPage from './pages/ReportsPage';
+import ApiUsagePage from './pages/ApiUsagePage';
 // Mock/visual-preview page only — not part of the real Leave Management module.
 // See the file header in LeaveManagementPreviewPage.tsx for details.
 import LeaveManagementPreviewPage from './pages/preview/LeaveManagementPreviewPage';
@@ -159,6 +160,7 @@ export default function App() {
           <Route path="/audit"          element={<AuditRouter />} />
           <Route path="/search"         element={<SearchResultsPage />} />
           <Route path="/reports"        element={<ReportsPage />} />
+          <Route path="/api-usage"      element={<ApiUsagePage />} />
         </Route>
 
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />

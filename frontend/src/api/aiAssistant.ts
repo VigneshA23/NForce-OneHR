@@ -191,3 +191,94 @@ export async function updateRateLimitSettings(
   });
   return handle<AiRateLimitSettings>(res);
 }
+
+// ── API Usage (Super Admin) ─────────────────────────────────────────────────
+
+export interface AiUsageDailyPoint {
+  date: string;
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export interface AiUsageBreakdownPoint {
+  key: string;
+  count: number;
+}
+
+export interface AiUsageStats {
+  from: string;
+  to: string;
+  totalRequests: number;
+  successCount: number;
+  errorCount: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  avgLatencyMs: number;
+  daily: AiUsageDailyPoint[];
+  byErrorCode: AiUsageBreakdownPoint[];
+  byResponseType: AiUsageBreakdownPoint[];
+}
+
+/** Super-Admin-only. `days` matches the server's own clamp (1-90, default 30). */
+export async function fetchUsageStats(token: string, days?: number): Promise<AiUsageStats> {
+  const qs = days ? `?days=${days}` : '';
+  const res = await fetch(`${BASE}/admin/usage-stats${qs}`, { headers: authHeaders(token) });
+  return handle<AiUsageStats>(res);
+}
+
+// ── Billing estimate (Super Admin) ──────────────────────────────────────────
+//
+// An estimate computed from OneHR's own token logs × an admin-configured price, never real
+// Mistral billing (OneHR has no billing API to read that from) — the Mistral Admin Console
+// remains the source of truth for the actual invoiced cost.
+
+export interface AiBilling {
+  monthStart: string;
+  today: string;
+  promptTokens: number;
+  completionTokens: number;
+  monthlyBudgetUsd: number;
+  estimatedCostUsd: number;
+  /** 0-100+, uncapped so the caller can distinguish "at budget" from "over budget". */
+  usedPercent: number;
+}
+
+export interface AiBillingSettings {
+  id: string;
+  monthlyBudgetUsd: number;
+  promptCostPerMillionUsd: number;
+  completionCostPerMillionUsd: number;
+  updatedAt: string;
+}
+
+export interface UpdateAiBillingSettingsRequest {
+  monthlyBudgetUsd: number;
+  promptCostPerMillionUsd: number;
+  completionCostPerMillionUsd: number;
+}
+
+export async function fetchBilling(token: string): Promise<AiBilling> {
+  const res = await fetch(`${BASE}/admin/billing`, { headers: authHeaders(token) });
+  return handle<AiBilling>(res);
+}
+
+export async function fetchBillingSettings(token: string): Promise<AiBillingSettings> {
+  const res = await fetch(`${BASE}/admin/billing-settings`, { headers: authHeaders(token) });
+  return handle<AiBillingSettings>(res);
+}
+
+export async function updateBillingSettings(
+  token: string,
+  request: UpdateAiBillingSettingsRequest,
+): Promise<AiBillingSettings> {
+  const res = await fetch(`${BASE}/admin/billing-settings`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return handle<AiBillingSettings>(res);
+}

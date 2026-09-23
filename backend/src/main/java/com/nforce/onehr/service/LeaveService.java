@@ -194,6 +194,23 @@ public class LeaveService {
                 throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
                         + " balance of " + formatDays(remaining) + " days.");
             }
+        } else {
+            // Unpaid Leave/Loss of Pay must never be a way to skip past an available paid leave
+            // balance — the employee is expected to exhaust Annual/Sick/Casual (and any standalone
+            // paid type) first. Summed across every distinct, non-vestigial paid balance row
+            // (same row set #listMyBalances already surfaces), not just the requested amount, so
+            // even a request smaller than the paid balance is still blocked.
+            int year = req.getStartDate().getYear();
+            BigDecimal availablePaidDays = leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
+                    .filter(b -> b.getLeaveType().isPaid())
+                    .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
+                            || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
+                    .map(this::availableBalance)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (availablePaidDays.signum() > 0) {
+                throw new IllegalArgumentException("You have " + formatDays(availablePaidDays)
+                        + " day(s) of paid leave available — use that before applying for " + type.getName() + ".");
+            }
         }
 
         LeaveRequest request = LeaveRequest.builder()

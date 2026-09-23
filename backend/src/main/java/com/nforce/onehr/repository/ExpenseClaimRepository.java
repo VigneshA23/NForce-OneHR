@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -52,16 +53,20 @@ public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID
            "AND c.managerDecidedAt >= :from AND c.managerDecidedAt < :to")
     List<ExpenseClaim> findManagerApprovedInWindow(UUID managerId, Instant from, Instant to);
 
-    // Employee "approved this month" tile: CLEARED_FOR_PAYROLL or PAID, final_decided_at in current month
+    // Employee "approved this month" tile: CLEARED_FOR_PAYROLL or PAID, EXPENSE_DATE (not the
+    // decision/clearance date) falling in the current month - the card is meant to answer "how much
+    // of what I spent this month has been cleared/paid", not "how much got cleared this month
+    // regardless of when it was spent". A claim submitted in one month and cleared the next must
+    // still count toward the month it was actually incurred.
     @Query("SELECT COALESCE(SUM(c.amount), 0) FROM ExpenseClaim c " +
            "WHERE c.employeeUserId = :userId " +
            "AND c.status IN ('CLEARED_FOR_PAYROLL', 'PAID') " +
-           "AND c.finalDecidedAt >= :from AND c.finalDecidedAt < :to")
-    BigDecimal sumApprovedThisMonth(UUID userId, Instant from, Instant to);
+           "AND c.expenseDate >= :from AND c.expenseDate < :to")
+    BigDecimal sumApprovedThisMonth(UUID userId, LocalDate from, LocalDate to);
 
     @Query("SELECT COUNT(c) FROM ExpenseClaim c " +
            "WHERE c.employeeUserId = :userId " +
            "AND c.status IN ('CLEARED_FOR_PAYROLL', 'PAID') " +
-           "AND c.finalDecidedAt >= :from AND c.finalDecidedAt < :to")
-    long countApprovedThisMonth(UUID userId, Instant from, Instant to);
+           "AND c.expenseDate >= :from AND c.expenseDate < :to")
+    long countApprovedThisMonth(UUID userId, LocalDate from, LocalDate to);
 }
