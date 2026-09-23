@@ -1,6 +1,8 @@
 package com.nforce.onehr.repository;
 
 import com.nforce.onehr.entity.Employee;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
@@ -199,4 +201,27 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     @Modifying
     @Query("UPDATE Employee e SET e.weeklyOffPolicy = NULL WHERE e.weeklyOffPolicy.id = :id")
     void clearWeeklyOffPolicyReferences(@Param("id") UUID id);
+
+    // Backs OnboardingService#eligibleEmployeesPaged — the Onboarding page's Pending tab
+    // (ONEHR-488/489), server-side search + pagination instead of loading every EMPLOYEE-role
+    // staff member into the browser to filter/paginate client-side. Same EMPLOYEE-role and
+    // not-deleted scoping as EmployeeService#listEmployees, plus excluding anyone who already
+    // has an onboarding checklist (any status) — same exclusion listEmployees' caller
+    // (OnboardingService#eligibleEmployees) applies today. `pattern` is a pre-lowercased
+    // "%term%" wrapper built by the service, or "%" (matches every row) when there's no search —
+    // never null. See OnboardingChecklistRepository#searchByStatus's comment: a bare
+    // "? IS NULL" parameter use breaks once Postgres promotes this query to a server-side
+    // prepared statement, so the service always binds a concrete String here instead.
+    @Query(
+            value = "SELECT e FROM Employee e JOIN e.user u "
+                    + "WHERE u.deletedAt IS NULL "
+                    + "AND u.id IN (SELECT u2.id FROM User u2 JOIN u2.roles r WHERE r.code = 'EMPLOYEE') "
+                    + "AND e.userId NOT IN (SELECT c.employeeUserId FROM OnboardingChecklist c) "
+                    + "AND (LOWER(e.fullName) LIKE :pattern OR LOWER(e.employeeCode) LIKE :pattern)",
+            countQuery = "SELECT COUNT(e) FROM Employee e JOIN e.user u "
+                    + "WHERE u.deletedAt IS NULL "
+                    + "AND u.id IN (SELECT u2.id FROM User u2 JOIN u2.roles r WHERE r.code = 'EMPLOYEE') "
+                    + "AND e.userId NOT IN (SELECT c.employeeUserId FROM OnboardingChecklist c) "
+                    + "AND (LOWER(e.fullName) LIKE :pattern OR LOWER(e.employeeCode) LIKE :pattern)")
+    Page<Employee> findEligibleForOnboarding(@Param("pattern") String pattern, Pageable pageable);
 }

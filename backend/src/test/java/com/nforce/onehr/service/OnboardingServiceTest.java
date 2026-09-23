@@ -5,6 +5,7 @@ import com.nforce.onehr.dto.asset.AssetAssignmentResponse;
 import com.nforce.onehr.dto.doc.RequiredDocumentDto;
 import com.nforce.onehr.dto.onboarding.OnboardingChecklistDetailDto;
 import com.nforce.onehr.dto.onboarding.OnboardingChecklistSummaryDto;
+import com.nforce.onehr.dto.onboarding.OnboardingStatsDto;
 import com.nforce.onehr.dto.onboarding.StartOnboardingRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.OnboardingChecklist;
@@ -17,6 +18,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -149,6 +155,12 @@ class OnboardingServiceTest {
                 .label(key).done(false).build();
     }
 
+    /** Undone with a due date already in the past — the one shape that trips compute()'s OVERDUE label. */
+    private OnboardingChecklistItem overdueItem(String category, String key) {
+        return OnboardingChecklistItem.builder().checklistId(checklistId).category(category).itemKey(key)
+                .label(key).done(false).dueDate(LocalDate.now().minusDays(5)).build();
+    }
+
     private AssetAssignmentResponse assignment(String categoryName) {
         return AssetAssignmentResponse.builder().id(1L).assetId(1L).assetTag("TAG-1")
                 .categoryName(categoryName).employeeUserId(employeeId).effectiveFrom(Instant.now()).build();
@@ -257,6 +269,137 @@ class OnboardingServiceTest {
         assertEquals(1, queue.size());
         assertFalse(queue.get(0).isArchived());
         verify(checklistRepo, never()).save(any());
+    }
+
+    // ── searchQueue: server-side status/search/pagination (ONEHR-488/489) ──────────────────
+
+    @Test
+    void searchQueue_invalidStatus_throws() {
+        assertThrows(IllegalArgumentException.class,
+                () -> onboardingService.searchQueue(ADMIN_EMAIL, "BOGUS", null, 0, 20));
+    }
+
+    @Test
+    void searchQueue_lowercasesAndWrapsSearchIntoLikePattern() {
+        OnboardingChecklist checklist = inProgressChecklist();
+        Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "startedAt"));
+        when(checklistRepo.searchByStatus(eq("IN_PROGRESS"), eq("%jane%"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(checklist), pageable, 1));
+        stubAllItemsDone();
+
+        Page<OnboardingChecklistSummaryDto> result =
+                onboardingService.searchQueue(ADMIN_EMAIL, "IN_PROGRESS", "Jane", 0, 20);
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals("Jane Doe", result.getContent().get(0).getEmployeeName());
+        assertFalse(result.getContent().get(0).isArchived());
+        verify(checklistRepo).searchByStatus(eq("IN_PROGRESS"), eq("%jane%"), any(Pageable.class));
+    }
+
+    @Test
+    void searchQueue_byEmployeeCode_wrapsIntoLikePatternSameAsName() {
+        OnboardingChecklist checklist = inProgressChecklist();
+        when(checklistRepo.searchByStatus(eq("IN_PROGRESS"), eq("%e100%"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(checklist), PageRequest.of(0, 20), 1));
+        stubAllItemsDone();
+
+        Page<OnboardingChecklistSummaryDto> result =
+                onboardingService.searchQueue(ADMIN_EMAIL, "IN_PROGRESS", "E100", 0, 20);
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals("E100", result.getContent().get(0).getEmployeeCode());
+        verify(checklistRepo).searchByStatus(eq("IN_PROGRESS"), eq("%e100%"), any(Pageable.class));
+    }
+
+    @Test
+    void searchQueue_searchAndPaginationCombineIntoOneRequest() {
+        when(checklistRepo.searchByStatus(eq("COMPLETED"), eq("%doe%"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(2, 5), 11));
+
+        Page<OnboardingChecklistSummaryDto> result =
+                onboardingService.searchQueue(ADMIN_EMAIL, "COMPLETED", "Doe", 2, 5);
+
+        assertEquals(11, result.getTotalElements());
+        verify(checklistRepo).searchByStatus(eq("COMPLETED"), eq("%doe%"),
+                argThat(p -> p.getPageNumber() == 2 && p.getPageSize() == 5));
+    }
+
+    // A blank search must bind a concrete "%" pattern, never null — a bare "? IS NULL" parameter
+    // breaks once Postgres promotes this query to a server-side prepared statement (see
+    // OnboardingChecklistRepository#searchByStatus's comment); confirmed against the real dev DB.
+    @Test
+    void searchQueue_blankSearch_passesMatchAllPatternNeverNull() {
+        when(checklistRepo.searchByStatus(eq("COMPLETED"), eq("%"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        Page<OnboardingChecklistSummaryDto> result =
+                onboardingService.searchQueue(ADMIN_EMAIL, "COMPLETED", "   ", 0, 20);
+
+        assertEquals(0, result.getTotalElements());
+        verify(checklistRepo).searchByStatus(eq("COMPLETED"), eq("%"), any(Pageable.class));
+    }
+
+    // ── eligibleEmployeesPaged: server-side search/pagination (ONEHR-488/489) ──────────────
+
+    @Test
+    void eligibleEmployeesPaged_delegatesToEmployeeServiceWithSearchAndPaging() {
+        // Page 1 (0-indexed), size 10, one row on it — page 0 held the other 10 of 11 total.
+        EmployeeResponse resp = EmployeeResponse.builder().userId(UUID.randomUUID()).fullName("Alex New").build();
+        Page<EmployeeResponse> page = new PageImpl<>(List.of(resp), PageRequest.of(1, 10), 11);
+        when(employeeService.listEligibleForOnboarding(eq("Alex"), any(Pageable.class))).thenReturn(page);
+
+        Page<EmployeeResponse> result = onboardingService.eligibleEmployeesPaged(ADMIN_EMAIL, "Alex", 1, 10);
+
+        assertEquals(11, result.getTotalElements());
+        assertEquals("Alex New", result.getContent().get(0).getFullName());
+        verify(employeeService).listEligibleForOnboarding(
+                eq("Alex"), argThat(p -> p.getPageNumber() == 1 && p.getPageSize() == 10));
+    }
+
+    // ── stats: aggregate KPI cards across the full corpus, independent of pagination ───────
+
+    @Test
+    void stats_aggregatesCountsAcrossFullCorpus() {
+        UUID pendingEmployeeId = UUID.randomUUID();
+        UUID completedEmployeeId = UUID.randomUUID();
+        Employee completedEmployee = Employee.builder()
+                .userId(completedEmployeeId).employeeCode("E200").fullName("Completed Person")
+                .joiningDate(LocalDate.now().minusDays(30)).build();
+        when(employeeRepo.findById(completedEmployeeId)).thenReturn(Optional.of(completedEmployee));
+
+        OnboardingChecklist inProgress = inProgressChecklist();
+        OnboardingChecklist completedChecklist = OnboardingChecklist.builder()
+                .id(UUID.randomUUID()).employeeUserId(completedEmployeeId).startedBy(adminId)
+                .status("COMPLETED").startedAt(Instant.now().minus(20, java.time.temporal.ChronoUnit.DAYS))
+                .completedAt(Instant.now()).build();
+
+        // eligibleEmployees(): employeeId already has a checklist (excluded); pendingEmployeeId doesn't.
+        when(checklistRepo.findAll()).thenReturn(List.of(inProgress, completedChecklist));
+        when(employeeService.listEmployees()).thenReturn(List.of(
+                EmployeeResponse.builder().userId(pendingEmployeeId).fullName("Pending Person").build(),
+                EmployeeResponse.builder().userId(employeeId).fullName("Jane Doe").build(),
+                EmployeeResponse.builder().userId(completedEmployeeId).fullName("Completed Person").build()
+        ));
+
+        // listQueue(): both checklists, full computation.
+        when(checklistRepo.findAllWithActiveEmployee()).thenReturn(List.of(inProgress, completedChecklist));
+        when(itemRepo.findByChecklistIdOrderByDueDateAsc(checklistId)).thenReturn(List.of(
+                overdueItem("PRE_BOARDING", "OFFER_LETTER_COUNTERSIGNED")
+        ));
+        when(assetService.currentAssignmentsForEmployee(employeeId)).thenReturn(List.of());
+        when(documentService.requiredDocumentsFor(employeeId)).thenReturn(List.of());
+        when(itemRepo.findByChecklistIdOrderByDueDateAsc(completedChecklist.getId())).thenReturn(List.of());
+        when(assetService.currentAssignmentsForEmployee(completedEmployeeId)).thenReturn(List.of());
+        when(documentService.requiredDocumentsFor(completedEmployeeId)).thenReturn(List.of());
+
+        OnboardingStatsDto stats = onboardingService.stats(ADMIN_EMAIL);
+
+        assertEquals(1, stats.getPendingCount());
+        assertEquals(1, stats.getStartedCount());
+        assertEquals(1, stats.getCompletedCount());
+        assertEquals(1, stats.getOverdueCount());
+        assertEquals(1, stats.getCompletedThisMonthCount());
+        assertEquals(30, stats.getAvgCompletionDays());
     }
 
     // ── Explicit completion ──────────────────────────────────────────────────
