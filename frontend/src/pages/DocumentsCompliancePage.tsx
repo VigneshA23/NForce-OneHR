@@ -131,11 +131,15 @@ function DetailModal({
   const isPdf = ext === 'pdf';
 
   useEffect(() => {
+    // Track the URL locally: the cleanup closure would otherwise only ever see the initial
+    // null blobUrl state and never revoke the object URL.
+    let url: string | null = null;
+    let cancelled = false;
     fetchDocumentFile(token, doc.id)
-      .then(url => setBlobUrl(url))
-      .catch(() => setFileError(true))
-      .finally(() => setFileLoading(false));
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+      .then(u => { url = u; if (cancelled) URL.revokeObjectURL(u); else setBlobUrl(u); })
+      .catch(() => { if (!cancelled) setFileError(true); })
+      .finally(() => { if (!cancelled) setFileLoading(false); });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [doc.id, token]);
 
   async function handleVerify() {
@@ -294,7 +298,7 @@ function MissingTab({ missing, searchEmpty }: { missing: MissingDocument[]; sear
           <tbody>
             {missing.length === 0 ? (
               <tr><td colSpan={3} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                {searchEmpty ? 'No results match your search.' : (
+                {searchEmpty ? 'No results match your search or filter.' : (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                     <Users size={28} color="var(--txt-dim)" />
                     <span>All employees have submitted their required documents.</span>
@@ -338,23 +342,32 @@ export default function DocumentsCompliancePage() {
   const [verified, setVerified] = useState<EmployeeDocument[]>([]);
   const [missing, setMissing] = useState<MissingDocument[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [detailDoc, setDetailDoc] = useState<EmployeeDocument | null>(null);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      getAdminKpis(token),
-      listPendingDocuments(token),
-      listAllDocuments(token),
-      listMissingDocuments(token),
-    ]).then(([k, p, all, m]) => {
+  async function load(showSpinner: boolean) {
+    if (showSpinner) setLoading(true);
+    try {
+      const [k, p, all, m] = await Promise.all([
+        getAdminKpis(token),
+        listPendingDocuments(token),
+        listAllDocuments(token),
+        listMissingDocuments(token),
+      ]);
       setKpis(k);
       setPending(p);
       setVerified(all.filter(d => d.status === 'VERIFIED'));
       setMissing(m);
-    }).catch(e => showToast('error', e instanceof Error ? e.message : 'Load failed'))
-      .finally(() => setLoading(false));
-  }, [token]);
+      setLoadError(null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Load failed';
+      if (showSpinner) setLoadError(msg); else showToast('error', msg);
+    } finally {
+      if (showSpinner) setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(true); }, [token]);
 
   async function doVerify(doc: EmployeeDocument) {
     try {
@@ -362,22 +375,27 @@ export default function DocumentsCompliancePage() {
       setPending(p => p.filter(d => d.id !== doc.id));
       setVerified(v => [updated, ...v]);
       setDetailDoc(null);
-      showToast('success', 'Document verified');
+      showToast('success', 'Document verified — the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Verify failed');
+      // e.g. another admin already reviewed it, or the employee re-uploaded — resync.
+      setDetailDoc(null);
+      load(false);
     }
   }
 
   async function doReject(doc: EmployeeDocument, reason: string) {
     try {
-      await verifyDocument(token, doc.id, 'REJECT', reason);
+      await verifyDocument(token, doc.id, 'REJECT', reason.trim());
       setPending(p => p.filter(d => d.id !== doc.id));
       setDetailDoc(null);
-      showToast('success', 'Document rejected');
+      showToast('success', 'Document rejected — the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
+      setDetailDoc(null);
+      load(false);
     }
   }
 
@@ -412,7 +430,22 @@ export default function DocumentsCompliancePage() {
     return !q || m.employeeName.toLowerCase().includes(q) || m.documentTypeName.toLowerCase().includes(q);
   });
 
+  const filtering = q.length > 0 || docTypeFilter !== '';
+
   if (loading) return <p style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</p>;
+
+  if (loadError) {
+    return (
+      <div style={{ ...card, padding: 28, textAlign: 'center' }}>
+        <p style={{ color: 'var(--txt)', fontSize: 14, fontWeight: 600, margin: '0 0 6px' }}>Couldn't load documents</p>
+        <p style={{ color: 'var(--txt-dim)', fontSize: 13, margin: '0 0 14px' }}>{loadError}</p>
+        <button onClick={() => load(true)}
+          style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -488,7 +521,7 @@ export default function DocumentsCompliancePage() {
               <tbody>
                 {filteredPending.length === 0 ? (
                   <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                    {q ? 'No results match your search.' : 'No documents pending verification.'}
+                    {filtering ? 'No results match your search or filter.' : 'No documents pending verification.'}
                   </td></tr>
                 ) : filteredPending.map(d => (
                   <tr key={d.id}>
@@ -534,7 +567,7 @@ export default function DocumentsCompliancePage() {
               <tbody>
                 {filteredVerified.length === 0 ? (
                   <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                    {q ? 'No results match your search.' : 'No verified documents yet.'}
+                    {filtering ? 'No results match your search or filter.' : 'No verified documents yet.'}
                   </td></tr>
                 ) : filteredVerified.map(d => (
                   <tr key={d.id}>
@@ -562,7 +595,7 @@ export default function DocumentsCompliancePage() {
 
       {/* ── Not Submitted tab ── */}
       {tab === 'missing' && (
-        <MissingTab missing={filteredMissing} searchEmpty={q.length > 0} />
+        <MissingTab missing={filteredMissing} searchEmpty={filtering} />
       )}
 
       {detailDoc && (

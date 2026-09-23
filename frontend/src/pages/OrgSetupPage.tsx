@@ -515,15 +515,31 @@ interface ConfirmState {
 }
 
 // ── DocTypeModal ───────────────────────────────────────────────────────────────
+// Create/edit is HR Admin/Super Admin — enforced by DocumentTypeController (@PreAuthorize).
+// Applicability fields are comma-separated and matched case-insensitively by the backend;
+// blank means the type applies to everyone.
+
+const DOC_EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
+
+function parseCsv(v: string): string[] {
+  return v.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function toggleCsv(v: string, item: string): string {
+  const parts = parseCsv(v);
+  const has = parts.some(p => p.toLowerCase() === item.toLowerCase());
+  return (has ? parts.filter(p => p.toLowerCase() !== item.toLowerCase()) : [...parts, item]).join(', ');
+}
 
 interface DocTypeModalProps {
   editRow?: DocumentType;
   token: string;
+  locationNames: string[];
   onClose(): void;
   onSaved(): void;
 }
 
-function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
+function DocTypeModal({ editRow, token, locationNames, onClose, onSaved }: DocTypeModalProps) {
   const isEdit = !!editRow;
   const [name, setName] = useState(editRow?.name ?? '');
   const [reqVerify, setReqVerify] = useState(editRow?.requiresVerification ?? true);
@@ -535,25 +551,31 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) { setError('Name is required'); return; }
+    const trimmed = name.trim();
+    if (!trimmed) { setError('Name is required'); return; }
+    if (trimmed.length > 80) { setError('Name must be at most 80 characters'); return; }
+    const empCsv = parseCsv(empTypes).join(',');
+    const locCsv = parseCsv(locs).join(',');
+    if (empCsv.length > 200 || locCsv.length > 200) { setError('Applicability lists must be at most 200 characters'); return; }
     setError('');
     setLoading(true);
     try {
       if (isEdit && editRow) {
+        // PATCH: null means "unchanged", so send '' (not null) to clear a list back to "All".
         await updateDocType(token, editRow.id, {
-          name: name.trim(),
+          name: trimmed,
           requiresVerification: reqVerify,
           requiresExpiryDate: reqExpiry,
-          applicableEmploymentTypes: empTypes.trim() || null,
-          applicableLocations: locs.trim() || null,
+          applicableEmploymentTypes: empCsv,
+          applicableLocations: locCsv,
         });
       } else {
         await createDocType(token, {
-          name: name.trim(),
+          name: trimmed,
           requiresVerification: reqVerify,
           requiresExpiryDate: reqExpiry,
-          applicableEmploymentTypes: empTypes.trim() || null,
-          applicableLocations: locs.trim() || null,
+          applicableEmploymentTypes: empCsv || null,
+          applicableLocations: locCsv || null,
         });
       }
       onSaved();
@@ -568,16 +590,34 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
   const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
   const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
+  function Chips({ value, options, onChange }: { value: string; options: string[]; onChange(v: string): void }) {
+    if (options.length === 0) return null;
+    const selected = new Set(parseCsv(value).map(s => s.toLowerCase()));
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+        {options.map(o => {
+          const on = selected.has(o.toLowerCase());
+          return (
+            <button key={o} type="button" onClick={() => onChange(toggleCsv(value, o))} aria-pressed={on}
+              style={{ padding: '3px 9px', borderRadius: 999, fontSize: 11, cursor: 'pointer', border: `1px solid ${on ? 'var(--brand)' : 'var(--line2)'}`, background: on ? 'var(--brand)' : 'var(--raised)', color: on ? '#fff' : 'var(--txt-mut)' }}>
+              {o}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 460, maxWidth: '94vw' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto' }}>
         <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Document Type' : 'Add Document Type'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Name *</label>
-            <input style={inputS} value={name} onChange={e => setName(e.target.value)} required autoFocus />
+            <input style={inputS} value={name} onChange={e => setName(e.target.value)} required maxLength={80} autoFocus />
           </div>
-          <div style={{ display: 'flex', gap: 20, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 6, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={reqVerify} onChange={e => setReqVerify(e.target.checked)} style={{ width: 15, height: 15 }} />
               Requires HR verification
@@ -587,15 +627,20 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
               Requires expiry date
             </label>
           </div>
+          <p style={{ margin: '0 0 14px', fontSize: 11.5, color: 'var(--txt-dim)' }}>
+            {reqVerify ? 'New uploads start as Pending Review until HR verifies them.' : 'New uploads are accepted as Verified without HR review.'}
+          </p>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Applicable Employment Types <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(comma-separated, blank = all)</span></label>
-            <input style={inputS} value={empTypes} onChange={e => setEmpTypes(e.target.value)} placeholder="e.g. FULL_TIME,CONTRACT" />
+            <input style={inputS} value={empTypes} onChange={e => setEmpTypes(e.target.value)} placeholder="All employment types" />
+            <Chips value={empTypes} options={DOC_EMPLOYMENT_TYPES} onChange={setEmpTypes} />
           </div>
           <div style={{ marginBottom: 20 }}>
             <label style={labelS}>Applicable Locations <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(comma-separated, blank = all)</span></label>
-            <input style={inputS} value={locs} onChange={e => setLocs(e.target.value)} placeholder="e.g. Chennai HQ,Bangalore Office" />
+            <input style={inputS} value={locs} onChange={e => setLocs(e.target.value)} placeholder="All locations" />
+            <Chips value={locs} options={locationNames} onChange={setLocs} />
           </div>
-          {error && <div style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+          {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} disabled={loading} style={{ padding: '7px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={loading} style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
@@ -1428,7 +1473,9 @@ export default function OrgSetupPage() {
     const wasActive = dt.active;
     setConfirmState({
       title: wasActive ? `Deactivate "${dt.name}"` : `Reactivate "${dt.name}"`,
-      body: wasActive ? `"${dt.name}" will no longer appear for employees to upload.` : `"${dt.name}" will become available again.`,
+      body: wasActive
+        ? `"${dt.name}" will stop appearing in required-document and compliance checks, and employees can no longer upload it. The ${dt.usageCount} document(s) already uploaded are kept unchanged.`
+        : `"${dt.name}" will be required again for applicable employees.`,
       confirmLabel: wasActive ? 'Deactivate' : 'Reactivate',
       danger: wasActive,
       onConfirm: async () => {
@@ -1443,7 +1490,7 @@ export default function OrgSetupPage() {
     if (dt.usageCount > 0) {
       setConfirmState({
         title: `Cannot Delete "${dt.name}"`,
-        body: `${dt.usageCount} employee document(s) use this type. Deactivate it instead.`,
+        body: `"${dt.name}" is used by ${dt.usageCount} employee document(s), so it can't be deleted. Deactivate it instead to stop new uploads while keeping existing documents.`,
         confirmLabel: 'Got it',
         danger: false,
         onConfirm: async () => {},
@@ -1543,6 +1590,7 @@ export default function OrgSetupPage() {
           key={docTypeModal.key}
           editRow={docTypeModal.row}
           token={token}
+          locationNames={locations.filter(l => l.active).map(l => l.name)}
           onClose={() => setDocTypeModal(s => ({ ...s, open: false }))}
           onSaved={() => {
             fetchAll();
@@ -1866,8 +1914,8 @@ export default function OrgSetupPage() {
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{dt.name}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes ?? 'All'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations ?? 'All'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes || 'All'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations || 'All'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={dt.usageCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={dt.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>

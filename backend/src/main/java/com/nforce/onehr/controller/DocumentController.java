@@ -134,8 +134,12 @@ public class DocumentController {
         ContentDisposition cd = (mediaType == MediaType.APPLICATION_OCTET_STREAM)
                 ? ContentDisposition.attachment().filename(doc.getFileName()).build()
                 : ContentDisposition.inline().filename(doc.getFileName()).build();
+        // Employee documents are sensitive: never cache them, and stop the browser from
+        // content-sniffing an upload into something other than its declared type.
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("X-Content-Type-Options", "nosniff")
                 .contentType(mediaType)
                 .body(doc.getFileData());
     }
