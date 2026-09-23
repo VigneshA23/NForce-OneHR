@@ -196,5 +196,9 @@ export async function listMissingDocuments(token: string): Promise<MissingDocume
 
 export async function remindMissingDocument(token: string, employeeUserId: string, documentTypeId: number): Promise<void> {
   const res = await fetch(`${BASE_DOCS}/remind/${employeeUserId}/${documentTypeId}`, { method: 'POST', headers: authOnly(token) });
-  if (!res.ok) throw new Error(`Remind failed (${res.status})`);
+  if (!res.ok) {
+    let body: { message?: string } = {};
+    try { body = await res.json(); } catch { /* non-json */ }
+    throw new Error(body.message ?? `Remind failed (${res.status})`);
+  }
 }
