@@ -34,9 +34,9 @@ import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
 import WorkflowStudioPage from './pages/WorkflowStudioPage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import ReportsPage from './pages/ReportsPage';
-// Mock/visual-preview page only — not part of the real Leave Management module.
-// See the file header in LeaveManagementPreviewPage.tsx for details.
-import LeaveManagementPreviewPage from './pages/preview/LeaveManagementPreviewPage';
+// Role-specific mock/visual-preview page only — not part of the real Leave Management module.
+// See the file header in LeavePreviewPage.tsx for details.
+import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -103,9 +103,13 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-        {/* Design-review mock only — self-contained, mock data, no auth, not linked from
-            the app nav. Not the real Leave Management screen (that's still /leave below). */}
-        <Route path="/leave-management-preview" element={<LeaveManagementPreviewPage />} />
+        {/* Design-review mock only — self-contained, mock data, no auth, not linked from the
+            app nav. Not the real Leave Management screen (that's still /leave below). One
+            reusable component, parameterized by role. */}
+        <Route path="/leave-preview/employee" element={<LeavePreviewPage role="employee" />} />
+        <Route path="/leave-preview/manager" element={<LeavePreviewPage role="manager" />} />
+        <Route path="/leave-preview/hr" element={<LeavePreviewPage role="hr" />} />
+        <Route path="/leave-preview/super-admin" element={<LeavePreviewPage role="superAdmin" />} />
 
         {/* Auth required, password-change gate */}
         <Route
