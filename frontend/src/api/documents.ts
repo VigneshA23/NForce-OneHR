@@ -190,6 +190,12 @@ export async function fetchDocumentFile(token: string, id: string): Promise<stri
   return URL.createObjectURL(blob);
 }
 
+// HR/SA only, scoped to one employee — e.g. the Onboarding workflow's "View Documents" action.
+// Never returns another employee's documents.
+export async function documentsForEmployee(token: string, employeeUserId: string): Promise<EmployeeDocument[]> {
+  return handle(await fetch(`${BASE_DOCS}/employee/${employeeUserId}`, { headers: authHeaders(token) }));
+}
+
 export async function listMissingDocuments(token: string): Promise<MissingDocument[]> {
   return handle(await fetch(`${BASE_DOCS}/missing`, { headers: authHeaders(token) }));
 }

@@ -2,6 +2,7 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.doc.EmployeeDocumentResponse;
 import com.nforce.onehr.entity.DocumentType;
+import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeDocument;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
@@ -212,5 +213,37 @@ class DocumentServiceTest {
 
         verify(docRepo, atLeastOnce()).findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeId);
         verify(docRepo, never()).findByEmployeeUserIdOrderByUploadedAtDesc(any());
+    }
+
+    // ── documentsForEmployee (Onboarding "View Documents") ──────────────────
+
+    @Test
+    void documentsForEmployee_adminCaller_returnsOnlyThatEmployeesCurrentDocuments() {
+        String adminEmail = "admin@test.com";
+        User admin = User.builder().id(UUID.randomUUID()).email(adminEmail)
+                .roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build();
+        when(userRepo.findByEmail(adminEmail)).thenReturn(Optional.of(admin));
+        when(employeeRepo.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).fullName("Jane Doe").employeeCode("E1").build()));
+
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).documentType(docType)
+                .fileName("passport.pdf").fileUrl("x").fileData(new byte[0])
+                .status("VERIFIED").versionNumber(1).superseded(false).build();
+        when(docRepo.findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeId)).thenReturn(List.of(doc));
+
+        List<EmployeeDocumentResponse> docs = documentService.documentsForEmployee(adminEmail, employeeId);
+
+        assertEquals(1, docs.size());
+        assertEquals(employeeId, docs.get(0).getEmployeeUserId());
+        assertEquals("Jane Doe", docs.get(0).getEmployeeName());
+        verify(docRepo).findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeId);
+        // Scoped strictly to this employeeId — never a global/other-employee query.
+        verify(docRepo, never()).findAllWithActiveEmployee();
+    }
+
+    @Test
+    void documentsForEmployee_nonAdminCaller_isDenied() {
+        assertThrows(AccessDeniedException.class, () -> documentService.documentsForEmployee(EMPLOYEE_EMAIL, employeeId));
     }
 }

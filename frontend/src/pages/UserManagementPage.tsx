@@ -263,6 +263,8 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   const [fetchingNewId, setFetchingNewId] = useState(false);
   const [created, setCreated] = useState<EmployeeRecord | null>(null);
   const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [retryingOnboarding, setRetryingOnboarding] = useState(false);
   // Auto-populated suggestion only (see employeesApi.previewNextCode) — fetched once on open
   // and dropped straight into the (editable) Employee ID field below as a starting value. The
   // admin can freely overwrite it; this fetch never reserves/consumes the ID. Whatever ends up
@@ -288,6 +290,27 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   // Fetches a fresh suggestion via the same non-consuming preview endpoint used on open, and
   // drops it straight into the Employee ID field — nothing else in the form is touched, and the
   // modal stays open. Backs the "Click here" action in the conflict banner below.
+  // Onboarding is started via a separate call from user creation — the account is safe either
+  // way, so a failure here is a soft failure, not a blocker. It's surfaced with a toast and an
+  // explicit error message (rather than only a generic banner) and can be retried in place
+  // without HR having to leave this screen or navigate to the Onboarding page.
+  async function startOnboardingFor(employeeUserId: string, name: string) {
+    setRetryingOnboarding(true);
+    setOnboardingOutcome(null);
+    try {
+      await onboardingApi.start({ employeeUserId }, token);
+      setOnboardingOutcome('started');
+      setOnboardingError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not start onboarding';
+      setOnboardingOutcome('failed');
+      setOnboardingError(msg);
+      showToast('error', `Onboarding didn't start for ${name}: ${msg}`);
+    } finally {
+      setRetryingOnboarding(false);
+    }
+  }
+
   async function handleGetNewId() {
     setFetchingNewId(true);
     try {
@@ -337,11 +360,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
       // in the background and just updates the outcome banner in place once it settles.
       setCreated(emp);
       if (startOnboarding) {
-        onboardingApi.start({ employeeUserId: emp.userId }, token)
-          .then(() => setOnboardingOutcome('started'))
-          // Account is already created and safe either way — onboarding can always be started
-          // later from the Onboarding page, so this is a soft failure, not a blocker.
-          .catch(() => setOnboardingOutcome('failed'));
+        startOnboardingFor(emp.userId, emp.fullName);
       } else {
         setOnboardingOutcome('skipped');
       }
@@ -382,12 +401,20 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             )}
             {onboardingOutcome === 'started' && (
               <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#4C8DD6' }}>
-                Onboarding checklist started — find it under Onboarding → Active.
+                Onboarding checklist started — find it under Onboarding → Onboarding Started.
               </div>
             )}
             {onboardingOutcome === 'failed' && (
               <div style={{ background: 'rgba(224,169,59,.1)', border: '1px solid rgba(224,169,59,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#E0A93B' }}>
-                Account created, but starting onboarding didn't go through. Start it manually from the Onboarding page.
+                <div>Account created, but starting onboarding didn't go through{onboardingError ? ` (${onboardingError})` : ''}.</div>
+                <button
+                  onClick={() => startOnboardingFor(created.userId, created.fullName)}
+                  disabled={retryingOnboarding}
+                  style={{ marginTop: 8, background: 'none', border: '1px solid #E0A93B', color: '#E0A93B', borderRadius: 6, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: retryingOnboarding ? 'default' : 'pointer' }}
+                >
+                  {retryingOnboarding ? 'Retrying…' : 'Retry now'}
+                </button>
+                <span style={{ marginLeft: 8 }}>or start it manually from the Onboarding page later.</span>
               </div>
             )}
             {created.tempPassword && (

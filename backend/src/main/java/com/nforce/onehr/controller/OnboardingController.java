@@ -48,4 +48,9 @@ public class OnboardingController {
     public OnboardingChecklistDetailDto toggleItem(@PathVariable UUID id, @PathVariable UUID itemId, Principal principal) {
         return service.toggleItem(id, itemId, principal.getName());
     }
+
+    @PostMapping("/{id}/complete")
+    public OnboardingChecklistDetailDto complete(@PathVariable UUID id, Principal principal) {
+        return service.completeOnboarding(id, principal.getName());
+    }
 }
