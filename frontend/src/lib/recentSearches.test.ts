@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addRecentSearch, clearRecentSearches, readRecentSearches } from './recentSearches';
+import { addRecentSearch, clearRecentSearches, readRecentSearches, type RecentDestination } from './recentSearches';
 
 function fakeStore() {
   const map = new Map<string, string>();
@@ -10,53 +10,61 @@ function fakeStore() {
   };
 }
 
+const john: RecentDestination = { label: 'John Doe', path: '/employees/123' };
+const leave: RecentDestination = { label: 'Leave & Holidays', path: '/leave' };
+
 describe('recentSearches', () => {
   it('starts empty for a user with no history', () => {
     expect(readRecentSearches('alice@test.com', fakeStore())).toEqual([]);
   });
 
-  it('adds a search to the front of the list', () => {
+  it('adds a destination to the front of the list', () => {
     const store = fakeStore();
-    addRecentSearch('alice@test.com', 'john', store);
-    addRecentSearch('alice@test.com', 'leave policy', store);
-    expect(readRecentSearches('alice@test.com', store)).toEqual(['leave policy', 'john']);
+    addRecentSearch('alice@test.com', john, store);
+    addRecentSearch('alice@test.com', leave, store);
+    expect(readRecentSearches('alice@test.com', store)).toEqual([leave, john]);
   });
 
-  it('deduplicates case-insensitively, promoting the repeated entry back to the front', () => {
+  it('deduplicates by path, promoting the repeated destination back to the front even if its label changed', () => {
     const store = fakeStore();
-    addRecentSearch('alice@test.com', 'john', store);
-    addRecentSearch('alice@test.com', 'leave', store);
-    addRecentSearch('alice@test.com', 'JOHN', store);
-    expect(readRecentSearches('alice@test.com', store)).toEqual(['JOHN', 'leave']);
+    addRecentSearch('alice@test.com', john, store);
+    addRecentSearch('alice@test.com', leave, store);
+    // Same path as `john`, e.g. the employee's display name changed since the last visit.
+    addRecentSearch('alice@test.com', { label: 'John A. Doe', path: '/employees/123' }, store);
+    expect(readRecentSearches('alice@test.com', store)).toEqual([
+      { label: 'John A. Doe', path: '/employees/123' }, leave,
+    ]);
   });
 
   it('caps history at 5 entries, dropping the oldest', () => {
     const store = fakeStore();
-    ['a', 'b', 'c', 'd', 'e', 'f'].forEach(q => addRecentSearch('alice@test.com', q, store));
-    expect(readRecentSearches('alice@test.com', store)).toEqual(['f', 'e', 'd', 'c', 'b']);
+    ['a', 'b', 'c', 'd', 'e', 'f'].forEach(id =>
+      addRecentSearch('alice@test.com', { label: id, path: `/x/${id}` }, store));
+    expect(readRecentSearches('alice@test.com', store).map(d => d.label)).toEqual(['f', 'e', 'd', 'c', 'b']);
   });
 
-  it('ignores blank/whitespace-only queries', () => {
+  it('ignores a destination with a blank label or path', () => {
     const store = fakeStore();
-    addRecentSearch('alice@test.com', '   ', store);
+    addRecentSearch('alice@test.com', { label: '   ', path: '/leave' }, store);
+    addRecentSearch('alice@test.com', { label: 'Leave', path: '  ' }, store);
     expect(readRecentSearches('alice@test.com', store)).toEqual([]);
   });
 
-  it('scopes history per user — one user never sees another user\'s searches', () => {
+  it('scopes history per user — one user never sees another user\'s destinations', () => {
     const store = fakeStore();
-    addRecentSearch('alice@test.com', 'alice-search', store);
-    addRecentSearch('bob@test.com', 'bob-search', store);
-    expect(readRecentSearches('alice@test.com', store)).toEqual(['alice-search']);
-    expect(readRecentSearches('bob@test.com', store)).toEqual(['bob-search']);
+    addRecentSearch('alice@test.com', john, store);
+    addRecentSearch('bob@test.com', leave, store);
+    expect(readRecentSearches('alice@test.com', store)).toEqual([john]);
+    expect(readRecentSearches('bob@test.com', store)).toEqual([leave]);
   });
 
   it('clearRecentSearches removes only that user\'s history', () => {
     const store = fakeStore();
-    addRecentSearch('alice@test.com', 'alice-search', store);
-    addRecentSearch('bob@test.com', 'bob-search', store);
+    addRecentSearch('alice@test.com', john, store);
+    addRecentSearch('bob@test.com', leave, store);
     clearRecentSearches('alice@test.com', store);
     expect(readRecentSearches('alice@test.com', store)).toEqual([]);
-    expect(readRecentSearches('bob@test.com', store)).toEqual(['bob-search']);
+    expect(readRecentSearches('bob@test.com', store)).toEqual([leave]);
   });
 
   it('survives a store that throws (private-mode localStorage) by returning empty', () => {
@@ -66,6 +74,12 @@ describe('recentSearches', () => {
       removeItem: () => { throw new Error('blocked'); },
     };
     expect(readRecentSearches('alice@test.com', throwing)).toEqual([]);
-    expect(() => addRecentSearch('alice@test.com', 'x', throwing)).not.toThrow();
+    expect(() => addRecentSearch('alice@test.com', john, throwing)).not.toThrow();
+  });
+
+  it('a pre-existing plain string[] from before destinations were tracked reads back as empty rather than crashing', () => {
+    const store = fakeStore();
+    store.setItem('onehr.search.recent:alice@test.com', JSON.stringify(['old typed query']));
+    expect(readRecentSearches('alice@test.com', store)).toEqual([]);
   });
 });

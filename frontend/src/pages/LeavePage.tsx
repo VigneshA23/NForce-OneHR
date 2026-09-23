@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
+import { roundDays } from '../utils/leaveDays';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
 // mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
@@ -97,7 +98,9 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; accent: string }) {
   const total = Number(balance.totalDays);
   const available = Math.max(0, Number(balance.remainingDays));
-  const consumed = Math.max(0, total - available);
+  // roundDays strips the IEEE-754 noise this subtraction can reintroduce even on two already-exact
+  // BigDecimal-derived values (e.g. 15 - 13.7 rendering as 1.3000000000000007) - see utils/leaveDays.ts.
+  const consumed = roundDays(Math.max(0, total - available));
   const isEmptyQuota = total <= 0;
   const availablePct = isEmptyQuota ? 0 : Math.min(100, Math.round((available / total) * 100));
   const ringOffset = RING_CIRCUMFERENCE * (1 - availablePct / 100);

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
-import { readRecentSearches, addRecentSearch, clearRecentSearches } from '../lib/recentSearches';
+import { readRecentSearches, addRecentSearch, clearRecentSearches, type RecentDestination } from '../lib/recentSearches';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
@@ -176,7 +176,7 @@ export function Shell() {
   const [searchGroups, setSearchGroups] = useState<SearchGroup[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
-  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [recentSearches, setRecentSearches] = useState<RecentDestination[]>([]);
   const [searchIdx, setSearchIdx] = useState(-1);
   // Mobile-only: the collapsed magnifying-glass icon (≤767px, where the full bar doesn't fit —
   // see .nf-topbar-search-icon) expands into this full-width search row instead of doing nothing.
@@ -268,24 +268,30 @@ export function Shell() {
   }
 
   function goToResultsPage(q: string) {
-    if (email) setRecentSearches(addRecentSearch(email, q));
+    // Not recorded as a recent destination: the search-results page isn't itself a specific place
+    // to jump back to the way a nav item or an individual result is — see handleResultSelect and
+    // recentSearches.ts's own note on why this tracks destinations, not typed text.
     navigate(`/search?q=${encodeURIComponent(q)}`);
     closeSearch();
   }
 
   function handleResultSelect(result: FlatResult) {
     if (result.kind === 'nav') {
+      if (email) setRecentSearches(addRecentSearch(email, { label: result.item.label, path: result.item.path }));
       navigate(result.item.path);
     } else {
-      if (email) setRecentSearches(addRecentSearch(email, trimmedQuery));
+      if (email) setRecentSearches(addRecentSearch(email, { label: result.result.title, path: result.result.detailUrl }));
       navigate(result.result.detailUrl);
     }
     closeSearch();
   }
 
-  function handleRecentSearchClick(q: string) {
-    setSearchQuery(q);
-    setSearchIdx(-1);
+  function handleRecentSearchClick(destination: RecentDestination) {
+    // Reaching a destination again from history is itself "accessing it from the search bar", so
+    // it's bumped back to the front the same as a fresh result click would be.
+    if (email) setRecentSearches(addRecentSearch(email, destination));
+    navigate(destination.path);
+    closeSearch();
   }
 
   function handleClearRecentSearches() {
@@ -577,12 +583,12 @@ export function Shell() {
               Clear
             </button>
           </div>
-          {recentSearches.map(q => (
-            <button key={q} onMouseDown={() => handleRecentSearchClick(q)} style={dropdownRowStyle(false)}
+          {recentSearches.map(destination => (
+            <button key={destination.path} onMouseDown={() => handleRecentSearchClick(destination)} style={dropdownRowStyle(false)}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
               <ClockIcon size={13} style={{ color: '#6B7280', flexShrink: 0 }} aria-hidden="true" />
-              {q}
+              {destination.label}
             </button>
           ))}
         </div>

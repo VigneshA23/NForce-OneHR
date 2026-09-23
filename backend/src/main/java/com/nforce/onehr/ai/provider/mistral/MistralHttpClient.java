@@ -38,6 +38,21 @@ public class MistralHttpClient {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
+    /**
+     * Real HTTP attempts used by the most recent {@link #postJson} call on this thread, success or
+     * failure — read by callers right after their call returns/throws (see
+     * {@code MistralLlmProvider#lastAttemptCount()}, {@code MistralEmbeddingProvider}) so the API
+     * Usage dashboard can count actual Mistral requests instead of one per logged turn. Safe as a
+     * thread-local despite this bean being a shared singleton: every reader reads it synchronously,
+     * immediately after the call it cares about, before anything else on that same thread could
+     * overwrite it.
+     */
+    private final ThreadLocal<Integer> lastAttempts = ThreadLocal.withInitial(() -> 0);
+
+    public int lastAttemptCount() {
+        return lastAttempts.get();
+    }
+
     public MistralHttpClient(AiProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -53,6 +68,7 @@ public class MistralHttpClient {
      * @throws AiProviderException on any transport error, non-2xx, or unparseable payload
      */
     public JsonNode postJson(String path, Object body) {
+        lastAttempts.set(0);
         AiProperties.Mistral cfg = properties.getMistral();
         if (cfg.getApiKey() == null || cfg.getApiKey().isBlank()) {
             throw new AiProviderException("mistral", "No Mistral API key is configured", false);
@@ -76,6 +92,7 @@ public class MistralHttpClient {
 
         AiProviderException last = null;
         for (int attempt = 1; attempt <= Math.max(1, cfg.getMaxAttempts()); attempt++) {
+            lastAttempts.set(attempt);
             try {
                 HttpResponse<String> response =
                         httpClient.send(request, HttpResponse.BodyHandlers.ofString());
