@@ -22,44 +22,37 @@ export interface MockRequest {
 }
 export interface MockHoliday { id: string; holidayName: string; holidayDate: string; locationName: string; active: boolean; }
 
+// NOTE: Approve/Reject and Team/Organization "Pending Approvals"/"On Leave Today" KPIs are
+// intentionally NOT modeled here. In production those live in ApprovalsPage.tsx ("Approval
+// Center") and DashboardPage.tsx respectively — the Leave page itself (LeavePage.tsx, ported
+// unmodified in logic into this preview's Leave tab) is self-service only, for every role. This
+// preview must not imply otherwise. Only Holiday administration (Add/Edit/Delete) is role-gated,
+// matching HolidaysPage.tsx's own `isAdmin` check.
 export interface RoleConfig {
   role: PreviewRole;
-  /** Mirrors lib/nav.config.ts's toShellRole() output — same 4 strings production branches on. */
+  /** Mirrors lib/nav.config.ts's toShellRole() output — same 4 strings the app already uses. */
   shellRoleLabel: 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
-  isAdmin: boolean;     // matches HolidayController / leaveApi.organization() gate (HR_ADMIN, SUPER_ADMIN)
-  isManager: boolean;   // matches "current reporting manager" gate
-  canApprove: boolean;  // isAdmin || isManager
+  isAdmin: boolean; // matches HolidaysPage.tsx's own `role === 'HR_ADMIN' || role === 'SUPER_ADMIN'` gate
   mockUserName: string;
   mockUserInitials: string;
-  approvalsScopeLabel: string;   // e.g. "Team", "Organization"
-  onLeaveScopeLabel: string;     // e.g. "Team", "Organization"
-  contextDescription: string;
 }
 
 export const ROLE_CONFIGS: Record<PreviewRole, RoleConfig> = {
   employee: {
-    role: 'employee', shellRoleLabel: 'Employee', isAdmin: false, isManager: false, canApprove: false,
+    role: 'employee', shellRoleLabel: 'Employee', isAdmin: false,
     mockUserName: 'Divya Shenoy', mockUserInitials: 'DS',
-    approvalsScopeLabel: '', onLeaveScopeLabel: '',
-    contextDescription: 'View your leave balance, request leave, and track approvals.',
   },
   manager: {
-    role: 'manager', shellRoleLabel: 'Manager', isAdmin: false, isManager: true, canApprove: true,
+    role: 'manager', shellRoleLabel: 'Manager', isAdmin: false,
     mockUserName: 'Arjun Mehta', mockUserInitials: 'AM',
-    approvalsScopeLabel: 'Team', onLeaveScopeLabel: 'Team',
-    contextDescription: 'View your leave balance, request leave, and review your team\'s pending requests.',
   },
   hr: {
-    role: 'hr', shellRoleLabel: 'HR Admin', isAdmin: true, isManager: false, canApprove: true,
+    role: 'hr', shellRoleLabel: 'HR Admin', isAdmin: true,
     mockUserName: 'Priya Raghunathan', mockUserInitials: 'PR',
-    approvalsScopeLabel: 'Organization', onLeaveScopeLabel: 'Organization',
-    contextDescription: 'View your leave balance, manage organization-wide requests, and administer company holidays.',
   },
   superAdmin: {
-    role: 'superAdmin', shellRoleLabel: 'Super Admin', isAdmin: true, isManager: false, canApprove: true,
+    role: 'superAdmin', shellRoleLabel: 'Super Admin', isAdmin: true,
     mockUserName: 'Rohit Shrivastava', mockUserInitials: 'RS',
-    approvalsScopeLabel: 'Organization', onLeaveScopeLabel: 'Organization',
-    contextDescription: 'View your leave balance, manage organization-wide requests, and administer company holidays.',
   },
 };
 
@@ -93,27 +86,6 @@ export function ownRequestsFor(role: RoleConfig): MockRequest[] {
   return ownRequests('me', role.mockUserName, role.role === 'employee' ? 'Customer Success' : 'Leadership');
 }
 
-// ── Team roster (Manager's direct reports) — used for the Manager's approvals panel and
-// "on leave today" count. Deliberately spans multiple statuses/leave types/edge cases. ──
-export const TEAM_ROSTER: MockRequest[] = [
-  { id: 't1', employeeUserId: 'emp-101', employeeName: 'Kavya Nair', departmentName: 'Customer Success', leaveTypeCode: 'ANNUAL', leaveTypeName: 'Annual Leave', startDate: '2026-09-28', endDate: '2026-10-02', halfDay: false, totalDays: 4, status: 'PENDING', employeeReason: 'Sister\'s wedding, travelling to Kerala', decisionReason: null, decidedByName: null, decidedAt: null },
-  { id: 't2', employeeUserId: 'emp-102', employeeName: 'Rahul Verma', departmentName: 'Customer Success', leaveTypeCode: 'SICK', leaveTypeName: 'Sick Leave', startDate: '2026-09-22', endDate: '2026-09-23', halfDay: false, totalDays: 2, status: 'PENDING', employeeReason: 'Flu, doctor advised bed rest', decisionReason: null, decidedByName: null, decidedAt: null },
-  { id: 't3', employeeUserId: 'emp-103', employeeName: 'Sneha Iyer', departmentName: 'Customer Success', leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', startDate: '2026-09-22', endDate: '2026-09-22', halfDay: true, totalDays: 0.5, status: 'PENDING', employeeReason: 'Bank work, half day needed', decisionReason: null, decidedByName: null, decidedAt: null },
-  { id: 't4', employeeUserId: 'emp-104', employeeName: 'Farhan Sheikh', departmentName: 'Customer Success', leaveTypeCode: 'ANNUAL', leaveTypeName: 'Annual Leave', startDate: '2026-09-18', endDate: '2026-09-24', halfDay: false, totalDays: 7, status: 'APPROVED', employeeReason: 'Pre-planned vacation', decisionReason: null, decidedByName: 'Arjun Mehta', decidedAt: '2026-09-01T10:00:00' },
-  { id: 't5', employeeUserId: 'emp-105', employeeName: 'Meera Pillai', departmentName: 'Customer Success', leaveTypeCode: 'SICK', leaveTypeName: 'Sick Leave', startDate: '2026-08-20', endDate: '2026-08-20', halfDay: false, totalDays: 1, status: 'REJECTED', employeeReason: 'Not feeling well', decisionReason: 'Missing supporting note — please resubmit with details', decidedByName: 'Arjun Mehta', decidedAt: '2026-08-20T15:00:00' },
-];
-
-// ── Organization roster (HR Admin / Super Admin scope) — several departments/locations,
-// larger than the team roster to demonstrate the org-wide view distinctly. ──
-export const ORG_ROSTER: MockRequest[] = [
-  ...TEAM_ROSTER,
-  { id: 'o1', employeeUserId: 'emp-201', employeeName: 'Aditya Kulkarni', departmentName: 'Engineering', leaveTypeCode: 'ANNUAL', leaveTypeName: 'Annual Leave', startDate: '2026-10-05', endDate: '2026-10-09', halfDay: false, totalDays: 5, status: 'PENDING', employeeReason: 'Diwali travel to hometown', decisionReason: null, decidedByName: null, decidedAt: null },
-  { id: 'o2', employeeUserId: 'emp-202', employeeName: 'Lakshmi Venkatesh', departmentName: 'Finance', leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', startDate: '2026-09-23', endDate: '2026-09-23', halfDay: false, totalDays: 1, status: 'PENDING', employeeReason: 'Property registration appointment', decisionReason: null, decidedByName: null, decidedAt: null },
-  { id: 'o3', employeeUserId: 'emp-203', employeeName: 'Vikram Choudhary', departmentName: 'Engineering', leaveTypeCode: 'SICK', leaveTypeName: 'Sick Leave', startDate: '2026-09-22', endDate: '2026-09-24', halfDay: false, totalDays: 3, status: 'PENDING', employeeReason: 'Recovering from minor surgery', decisionReason: null, decidedByName: null, decidedAt: null },
-  { id: 'o4', employeeUserId: 'emp-204', employeeName: 'Neha Kapoor', departmentName: 'Marketing', leaveTypeCode: 'ANNUAL', leaveTypeName: 'Annual Leave', startDate: '2026-09-15', endDate: '2026-09-19', halfDay: false, totalDays: 5, status: 'APPROVED', employeeReason: 'Family function', decisionReason: null, decidedByName: 'Priya Raghunathan', decidedAt: '2026-09-05T09:00:00' },
-  { id: 'o5', employeeUserId: 'emp-205', employeeName: 'Suresh Babu', departmentName: 'Finance', leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', startDate: '2026-08-11', endDate: '2026-08-11', halfDay: false, totalDays: 1, status: 'REJECTED', employeeReason: 'Personal errands', decisionReason: 'Month-end close in progress, please reschedule', decidedByName: 'Priya Raghunathan', decidedAt: '2026-08-10T17:00:00' },
-];
-
 export const MOCK_HOLIDAYS: MockHoliday[] = [
   { id: 'h1', holidayName: 'Gandhi Jayanti', holidayDate: '2026-10-02', locationName: 'Bengaluru HQ', active: true },
   { id: 'h2', holidayName: 'Dussehra', holidayDate: '2026-10-20', locationName: 'Bengaluru HQ', active: true },
@@ -126,21 +98,3 @@ export const MOCK_HOLIDAYS: MockHoliday[] = [
   { id: 'h9', holidayName: 'Republic Day', holidayDate: '2027-01-26', locationName: 'Bengaluru HQ', active: true },
   { id: 'h10', holidayName: 'Independence Day', holidayDate: '2026-08-15', locationName: 'Bengaluru HQ', active: false },
 ];
-
-export function approvalsFor(role: RoleConfig): MockRequest[] {
-  if (role.role === 'manager') return TEAM_ROSTER.filter(r => r.status === 'PENDING');
-  if (role.role === 'hr' || role.role === 'superAdmin') return ORG_ROSTER.filter(r => r.status === 'PENDING');
-  return [];
-}
-
-export function onLeaveTodayCountFor(role: RoleConfig): number | null {
-  const todayIso = '2026-09-22';
-  const roster = role.role === 'manager' ? TEAM_ROSTER : role.role === 'hr' || role.role === 'superAdmin' ? ORG_ROSTER : null;
-  if (!roster) return null;
-  const ids = new Set(
-    roster
-      .filter(r => r.status === 'APPROVED' && r.startDate <= todayIso && r.endDate >= todayIso)
-      .map(r => r.employeeUserId)
-  );
-  return ids.size;
-}

@@ -2,21 +2,28 @@
  * ============================================================================
  *  MOCK / VISUAL PREVIEW — NOT CONNECTED TO ANY BACKEND
  * ============================================================================
- *  Role-specific visual preview of the production Leave & Holidays UI
- *  (pages/LeavePage.tsx). One reusable component, parameterized by `role`,
- *  rendering realistic mock data through the SAME role → view mapping the
- *  real page uses (isAdmin / isManager / canApprove) — see
- *  leavePreviewData.ts's ROLE_CONFIGS for the exact mapping, mirrored from
- *  LeavePage.tsx's own toShellRole()-based branching.
+ *  Role-specific visual preview of the production Leave & Holidays UI —
+ *  LeaveHolidaysPage.tsx (tab switcher) rendering LeavePage.tsx (Leave tab)
+ *  and HolidaysPage.tsx (Holidays tab). One reusable component, parameterized
+ *  by `role`, rendering realistic mock data.
+ *
+ *  IMPORTANT: LeavePage.tsx is self-service ONLY for every role — Approve/
+ *  Reject and Team/Organization "Pending Approvals"/"On Leave Today" KPIs
+ *  live elsewhere in the real app (ApprovalsPage.tsx "Approval Center" and
+ *  DashboardPage.tsx respectively), not on the Leave page itself. This
+ *  preview deliberately does NOT show those here, so it doesn't imply
+ *  functionality the real Leave page doesn't have. The only thing that
+ *  varies by role on this page is Holiday administration (Add/Edit/Delete),
+ *  matching HolidaysPage.tsx's own `isAdmin` gate.
  *
  *  - No network requests, no auth/session state, no import of the real
- *    LeavePage.tsx, api/leave.ts, api/holidays.ts, or Shell.tsx.
+ *    LeavePage.tsx, HolidaysPage.tsx, api/leave.ts, api/holidays.ts, or Shell.tsx.
  *  - The sidebar/topbar below is a static, non-functional VISUAL REPLICA of
  *    the real <Shell> so each route can be reviewed "in place" without
  *    logging in. Nothing here edits Shell.tsx, SidebarNav.tsx, nav.config.ts,
- *    or the real LeavePage.tsx.
- *  - "Approve"/"Reject"/"Request Leave"/"Add Holiday" all mutate local
- *    component state only — never a real API.
+ *    or the real Leave/Holidays pages.
+ *  - "Request Leave"/"Add Holiday" mutate local component state only — never
+ *    a real API.
  * ============================================================================
  */
 import { useMemo, useState } from 'react';
@@ -27,8 +34,7 @@ import {
 } from 'lucide-react';
 import logoUrl from '../../assets/nforce-logo.png';
 import {
-  MOCK_HOLIDAYS, MOCK_TYPES, OWN_BALANCES, ROLE_CONFIGS,
-  approvalsFor, onLeaveTodayCountFor, ownRequestsFor,
+  MOCK_HOLIDAYS, MOCK_TYPES, OWN_BALANCES, ROLE_CONFIGS, ownRequestsFor,
   type MockHoliday, type MockRequest, type MockStatus, type PreviewRole, type RoleConfig,
 } from './leavePreviewData';
 
@@ -117,7 +123,9 @@ function MockShellChrome({ role, children }: { role: RoleConfig; children: React
             <MockSidebarLeaf icon={Clock} label={navLabels.attendance} indent />
             <MockSidebarLeaf icon={CalendarDays} label={navLabels.leave} indent active />
           </MockSidebarGroup>
-          {role.canApprove && <MockSidebarLeaf icon={FileText} label="Approval Center" />}
+          {/* Real nav item for Manager/HR Admin/Super Admin (see lib/nav.config.ts) — unrelated
+              to the Leave page itself; approvals live on this separate Approval Center page. */}
+          {role.role !== 'employee' && <MockSidebarLeaf icon={FileText} label="Approval Center" />}
           <MockSidebarLeaf icon={HelpCircle} label={role.isAdmin ? 'HR Service Requests' : 'My Requests'} />
           {showEmployeeMaster && <MockSidebarLeaf icon={Users} label="Employee Master" />}
           <MockSidebarGroup icon={Package} label="Employee Services" />
@@ -338,36 +346,6 @@ function RequestLeaveMockModal({ onClose, onCreated }: { onClose: () => void; on
   );
 }
 
-function ApprovalRow({ request, onDecided }: { request: MockRequest; onDecided: (id: string) => void }) {
-  const [rejecting, setRejecting] = useState(false);
-  const [reason, setReason] = useState('');
-
-  return (
-    <tr className="pv-row">
-      <td style={{ ...tdStyle, color: 'var(--pv-txt)', fontWeight: 600 }}>{request.employeeName}</td>
-      <td style={tdStyle}>{request.departmentName}</td>
-      <td style={{ ...tdStyle, color: 'var(--pv-txt)' }}>{request.leaveTypeName}</td>
-      <td style={tdStyle}>{request.startDate}{request.startDate !== request.endDate ? ` → ${request.endDate}` : ''}{request.halfDay ? ' (half day)' : ''}</td>
-      <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace' }}>{request.totalDays}</td>
-      <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={request.employeeReason}>{request.employeeReason}</td>
-      <td style={tdStyle}>
-        {rejecting ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason for rejection" style={{ ...inputStyle, width: 150, padding: '6px 9px', fontSize: 12 }} />
-            <button onClick={() => reason.trim() && onDecided(request.id)} disabled={!reason.trim()} style={{ background: 'var(--pv-risk)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: reason.trim() ? 'pointer' : 'not-allowed', opacity: reason.trim() ? 1 : 0.6 }}>Confirm</button>
-            <button onClick={() => { setRejecting(false); setReason(''); }} style={{ background: 'var(--pv-raised2)', color: 'var(--pv-txt-mut)', border: '1px solid var(--pv-line2)', borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button onClick={() => onDecided(request.id)} style={{ background: 'var(--pv-ok)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Approve</button>
-            <button onClick={() => setRejecting(true)} style={{ background: 'var(--pv-raised)', color: 'var(--pv-risk)', border: '1px solid var(--pv-line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Reject</button>
-          </div>
-        )}
-      </td>
-    </tr>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Holidays
 // ─────────────────────────────────────────────────────────────────────────
@@ -518,7 +496,6 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
   const [tab, setTab] = useState<TabKey>('leave');
   const [showRequest, setShowRequest] = useState(false);
   const [myRequests, setMyRequests] = useState<MockRequest[]>(() => ownRequestsFor(role));
-  const [approvals, setApprovals] = useState<MockRequest[]>(() => approvalsFor(role));
   const [holidays, setHolidays] = useState<MockHoliday[]>(MOCK_HOLIDAYS);
   const [showAddHoliday, setShowAddHoliday] = useState(false);
   const [editingHoliday, setEditingHoliday] = useState<MockHoliday | null>(null);
@@ -527,9 +504,6 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [approvalSearch, setApprovalSearch] = useState('');
-
-  const onLeaveToday = useMemo(() => onLeaveTodayCountFor(role), [role]);
 
   const totalAvailable = useMemo(() => OWN_BALANCES.reduce((s, b) => s + Math.max(0, b.remainingDays), 0), []);
   const totalUsed = useMemo(() => OWN_BALANCES.reduce((s, b) => s + Math.max(0, b.usedDays), 0), []);
@@ -539,12 +513,6 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
     () => myRequests.filter(r => r.status === 'APPROVED' && r.startDate >= todayIso).sort((a, b) => a.startDate.localeCompare(b.startDate))[0],
     [myRequests]
   );
-
-  const filteredApprovals = useMemo(() => {
-    if (!approvalSearch.trim()) return approvals;
-    const q = approvalSearch.trim().toLowerCase();
-    return approvals.filter(r => r.employeeName.toLowerCase().includes(q) || r.leaveTypeName.toLowerCase().includes(q));
-  }, [approvals, approvalSearch]);
 
   const filteredRequests = useMemo(() => myRequests.filter(r => {
     if (typeFilter && r.leaveTypeCode !== typeFilter) return false;
@@ -558,7 +526,6 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
   const pageRows = filteredRequests.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
   function updateFilterAndResetPage(setter: (v: string) => void, value: string) { setter(value); setPage(1); }
-  function handleApprovalDecided(id: string) { setApprovals(prev => prev.filter(r => r.id !== id)); }
   function handleDeleteHoliday(h: MockHoliday) { setHolidays(prev => prev.filter(x => x.id !== h.id)); }
   function handleSavedHoliday(h: MockHoliday) {
     setHolidays(prev => (prev.some(x => x.id === h.id) ? prev.map(x => x.id === h.id ? h : x) : [h, ...prev]));
@@ -590,7 +557,7 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
             </div>
             <div style={{ minWidth: 0 }}>
               <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--pv-txt)', margin: 0 }}>Leave &amp; Holidays</h1>
-              <p style={{ fontSize: 12.5, color: 'var(--pv-txt-mut)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{role.contextDescription}</p>
+              <p style={{ fontSize: 12.5, color: 'var(--pv-txt-mut)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>View your balance, request leave, and track approvals.</p>
             </div>
           </div>
           <button onClick={() => setShowRequest(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0, background: 'var(--pv-brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 10px rgba(177,17,22,.25)' }}>
@@ -623,55 +590,12 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
               />
             </div>
 
-            {role.canApprove && (
-              // Its own grid, not `pv-kpi-2x2` — that class's `repeat(auto-fit, minmax(...))`
-              // track sizing stretches to fill the row when only 2 tiles are present, which is
-              // what made these long-label tiles balloon wider than the 4-tile KPI row above.
-              // `repeat(4, minmax(0, 1fr))` keeps each column the same fractional width as that
-              // row regardless of how many tiles actually render (unused tracks stay blank).
-              <div className="pv-kpi-role-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 20 }}>
-                <KpiTile icon={Hourglass} label={`${role.approvalsScopeLabel} Pending Approvals`} value={String(approvals.length)} sub={role.isAdmin ? 'Awaiting your decision, org-wide' : 'Awaiting your decision'} accent="var(--pv-warn)" />
-                <KpiTile icon={Users} label={`On Leave Today (${role.onLeaveScopeLabel})`} value={onLeaveToday === null ? '—' : String(onLeaveToday)} sub={role.isAdmin ? 'Across the organization' : 'Your direct reports'} accent="var(--pv-info)" />
-              </div>
-            )}
-
             <div style={{ marginBottom: 22 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--pv-txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>My Leave Balances</div>
               <div className="pv-autofit-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
                 {OWN_BALANCES.map((b, i) => <BalanceRingCard key={b.leaveTypeCode} leaveTypeName={b.leaveTypeName} totalDays={b.totalDays} remainingDays={b.remainingDays} accent={BALANCE_ACCENTS[i % BALANCE_ACCENTS.length]} />)}
               </div>
             </div>
-
-            {role.canApprove && (
-              <div style={{ marginBottom: 22 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--pv-txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{role.approvalsScopeLabel} — Pending Approvals</div>
-                  {approvals.length > 0 && (
-                    <div style={{ position: 'relative' }}>
-                      <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--pv-txt-dim)' }} />
-                      <input value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} placeholder="Search employee or type…" style={{ background: 'var(--pv-raised)', border: '1px solid var(--pv-line2)', borderRadius: 6, padding: '7px 10px 7px 28px', fontSize: 12.5, color: 'var(--pv-txt)', width: 200 }} />
-                    </div>
-                  )}
-                </div>
-                <div className="pv-enter" style={{ background: 'var(--pv-panel)', border: '1px solid var(--pv-line)', borderRadius: 10, overflow: 'hidden' }}>
-                  {approvals.length === 0 ? (
-                    <div style={{ padding: 40, textAlign: 'center' }}>
-                      <CheckCircle2 size={26} style={{ color: 'var(--pv-line2)', display: 'block', margin: '0 auto 10px' }} />
-                      <div style={{ fontSize: 13, color: 'var(--pv-txt-mut)' }}>No pending approvals right now.</div>
-                    </div>
-                  ) : filteredApprovals.length === 0 ? (
-                    <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: 'var(--pv-txt-mut)' }}>No approvals match your search.</div>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead><tr>{['Employee', 'Department', 'Type', 'Dates', 'Days', 'Reason', 'Decision'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-                        <tbody>{filteredApprovals.map(r => <ApprovalRow key={r.id} request={r} onDecided={handleApprovalDecided} />)}</tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--pv-txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>My Leave History</div>
@@ -845,10 +769,5 @@ const PV_STYLES = `
   @media (max-width: 1024px) {
     .pv-2col-collapse { grid-template-columns: 1fr !important; }
     .pv-grid-side-collapse { grid-template-columns: 1fr !important; }
-    /* Team/Organization KPI row (Manager/HR/Super Admin only) -> 2 equal columns at
-       tablet and mobile, same breakpoint range as everywhere else in this file. Covers
-       ≤767px too (mobile is a subset of ≤1024px), so both tiles stay full-width-safe
-       and their long labels keep wrapping instead of clipping or forcing overflow. */
-    .pv-kpi-role-row { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   }
 `;

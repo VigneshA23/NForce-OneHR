@@ -12,10 +12,24 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+export type LeaveTypeClassification = 'PAID' | 'UNPAID';
+
 export interface LeaveType {
   id: string;
   code: string;
   name: string;
+  classification: LeaveTypeClassification;
+}
+
+export interface CreateLeaveTypePayload {
+  code: string;
+  name: string;
+  classification: LeaveTypeClassification;
+}
+
+export interface UpdateLeaveTypePayload {
+  name?: string;
+  classification?: LeaveTypeClassification;
 }
 
 export interface LeaveBalance {
@@ -31,8 +45,12 @@ export interface LeaveRequestRecord {
   id: string;
   employeeUserId: string;
   employeeName: string;
+  /** Null for a User with no Employee row (auth-only account) — same fallback as employeeName's
+   * own "Unknown", just displayed as absent rather than a placeholder string. */
+  employeeCode: string | null;
   leaveTypeCode: string;
   leaveTypeName: string;
+  leaveTypeClassification: LeaveTypeClassification;
   startDate: string;
   endDate: string;
   halfDay: boolean;
@@ -56,6 +74,14 @@ export interface SubmitLeaveRequestPayload {
 export const leaveApi = {
   listTypes: (token: string) =>
     fetch(`${BASE}/types`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
+
+  /** Organization Masters > Leave — create a Leave Type. Super Admin/HR Admin only (server-enforced). */
+  createType: (payload: CreateLeaveTypePayload, token: string) =>
+    fetch(`${BASE}/types`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveType>),
+
+  /** Organization Masters > Leave — edit a Leave Type, including its Paid/Unpaid classification. */
+  updateType: (id: string, payload: UpdateLeaveTypePayload, token: string) =>
+    fetch(`${BASE}/types/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveType>),
 
   listBalances: (token: string) =>
     fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
