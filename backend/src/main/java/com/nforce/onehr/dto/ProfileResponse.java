@@ -26,6 +26,22 @@ public class ProfileResponse {
     private String emergencyContactPhone;
     private String workMode;
 
+    // Self-service editable — ESS "My Profile" redesign
+    private String firstName;
+    private String middleName;
+    private String lastName;
+    private String preferredName;
+    private String bio;
+    private String maritalStatus;
+    private String emergencyContactRelationship;
+    private String permanentAddress;      // "address" above stays Current Address
+    private String passportNumber;
+    private LocalDate passportExpiry;
+    private String bankAccountNumber;     // masked, e.g. "•••• •••• 5591"
+    private String bankName;
+    private String bankIfsc;
+    private String nationalId;            // masked
+
     // Employment — read-only, HR-managed
     private String employeeCode;
     private String departmentName;
@@ -37,4 +53,16 @@ public class ProfileResponse {
     private String managerEmail;
     private boolean active;
     private boolean hasEmployeeRecord;
+
+    // Job tab — read-only, HR-managed
+    private String jobCode;
+    private LocalDate probationEndDate;
+    private LocalDate confirmationDate;
+    private String businessUnitName;
+    private String shiftName;
+    private String weeklyOffPolicyName;
+    private String attendancePenalizationPolicyName;
+
+    // Attendance indicator — "IN" | "OUT"
+    private String attendanceStatus;
 }

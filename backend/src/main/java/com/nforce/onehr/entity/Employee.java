@@ -112,6 +112,59 @@ public class Employee {
     @Column(name = "emergency_contact_phone", length = 30)
     private String emergencyContactPhone;
 
+    // ESS "My Profile" redesign — additional self-service fields (V194).
+    @Column(name = "first_name", length = 100)
+    private String firstName;
+
+    @Column(name = "middle_name", length = 100)
+    private String middleName;
+
+    @Column(name = "last_name", length = 100)
+    private String lastName;
+
+    @Column(name = "preferred_name", length = 100)
+    private String preferredName;
+
+    @Column(name = "bio")
+    private String bio;
+
+    @Column(name = "marital_status", length = 30)
+    private String maritalStatus;
+
+    @Column(name = "emergency_contact_relationship", length = 50)
+    private String emergencyContactRelationship;
+
+    @Column(name = "permanent_address")
+    private String permanentAddress;
+
+    @Column(name = "passport_number", length = 50)
+    private String passportNumber;
+
+    @Column(name = "passport_expiry")
+    private LocalDate passportExpiry;
+
+    @Column(name = "bank_account_number", length = 50)
+    private String bankAccountNumber;
+
+    @Column(name = "bank_name", length = 150)
+    private String bankName;
+
+    @Column(name = "bank_ifsc", length = 20)
+    private String bankIfsc;
+
+    @Column(name = "national_id", length = 50)
+    private String nationalId;
+
+    // Job tab — read-only, HR-managed.
+    @Column(name = "job_code", length = 50)
+    private String jobCode;
+
+    @Column(name = "probation_end_date")
+    private LocalDate probationEndDate;
+
+    @Column(name = "confirmation_date")
+    private LocalDate confirmationDate;
+
     // Deliberately NO timezone field. The finalized Location/Timezone model (see V169's migration
     // comment) makes Location the single, non-bypassable source of an employee's effective
     // attendance timezone — Employee → Location → Location.timezone — so there is no per-employee

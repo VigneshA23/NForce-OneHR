@@ -192,6 +192,95 @@ body {
 }
 
 @keyframes glow-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+/* OneHR Assistant header badge — a slow, calm rotation (7s) for the conic-gradient ring behind
+   the Sparkles icon. [data-motion="reduce"] above already neutralizes it for anyone with that
+   preference on, same as every other animation in this file. */
+@keyframes nf-assistant-ring-spin { to { transform: rotate(360deg); } }
+/* Panel open animation (plays each time the panel is shown — it fully mounts/unmounts per open,
+   see AssistantPanel) and per-message entrance, so a reply feels like it arrived rather than just
+   appearing. Both respect [data-motion="reduce"] above. */
+@keyframes nf-assistant-panel-in {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes nf-assistant-msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes nf-assistant-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+/* Tiny flourish (MessageList's SparkleBurst) when an answer arrives — each dot travels to its own
+   --sx/--sy offset (set inline per-dot) and fades, one short one-shot celebration rather than an
+   ongoing loop. */
+@keyframes nf-assistant-sparkle-burst {
+  0%   { transform: translate(0, 0) scale(0); opacity: 1; }
+  40%  { opacity: 1; }
+  100% { transform: translate(var(--sx), var(--sy)) scale(1); opacity: 0; }
+}
+/* The floating launcher's always-on ambient breathing glow (AssistantLauncher) — much slower and
+   fainter than the header badge's, since this one is visible on every page, indefinitely, whether
+   or not anyone is looking at it. */
+@keyframes nf-assistant-launcher-breathe {
+  0%, 100% { opacity: .35; transform: scale(1); }
+  50%      { opacity: .7;  transform: scale(1.08); }
+}
+@keyframes nf-assistant-invite-in {
+  from { opacity: 0; transform: translateY(6px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* OneHR Assistant — light-mode intensity boost.
+   Every color-mix() wash in assistantStyles.ts was tuned by eye against the dark theme's
+   near-black --panel/--shell (#16181D/#0E0F12): a low-percentage brand tint blended toward that
+   reads as a rich glow. The same percentages blended toward light mode's --panel/--shell
+   (#FFFFFF/#F7F8FA) read as barely-there instead, because alpha blending desaturates much faster
+   toward white than toward black — the identical CSS produces a much weaker visual result on the
+   two themes. Rather than compromise the dark-mode look (already right) or thread a second set of
+   percentages through every inline style, these rules override the same properties for light mode
+   only, roughly doubling the strength and adding a soft colored shadow in a couple of spots — the
+   "colored elevation" trick premium light-mode UIs lean on where a glow alone would vanish.
+   !important is required because inline styles otherwise always win over an external stylesheet
+   rule regardless of specificity — the same reason .shell-sidebar's responsive clamps use it.
+   Only the badge/avatar/bubble/chip/bg rules apply under Aanuj's flat-red palette (assistantStyles
+   no longer uses color-mix for the launcher/panel/header/composer base colors) — kept here anyway
+   since these specific classNames (the restored header badge, avatar, sparkle chips) still do. */
+[data-theme="light"] .nf-ai-header {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 32%, var(--raised)) 0%, var(--raised) 72%) !important;
+}
+[data-theme="light"] .nf-ai-badge {
+  background: color-mix(in srgb, var(--brand) 30%, var(--panel)) !important;
+}
+[data-theme="light"] .nf-ai-badge-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand-bright) 55%, transparent) 0%, transparent 72%) !important;
+}
+[data-theme="light"] .nf-ai-avatar {
+  background: color-mix(in srgb, var(--brand) 26%, var(--panel)) !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+[data-theme="light"] .nf-ai-bubble-user {
+  background: color-mix(in srgb, var(--brand) 16%, var(--panel)) !important;
+  border-color: color-mix(in srgb, var(--brand) 38%, transparent) !important;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+[data-theme="light"] .nf-ai-chip-solid {
+  background: color-mix(in srgb, var(--brand) 18%, transparent) !important;
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent) !important;
+}
+[data-theme="light"] .nf-ai-chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--brand) 20%, transparent) !important;
+  border-color: color-mix(in srgb, var(--brand) 42%, transparent) !important;
+}
+[data-theme="light"] .nf-ai-bg {
+  background-image:
+    radial-gradient(260px circle at 100% 0%, color-mix(in srgb, var(--brand) 24%, transparent) 0%, transparent 72%),
+    radial-gradient(300px circle at 0% 100%, color-mix(in srgb, var(--brand) 16%, transparent) 0%, transparent 72%),
+    radial-gradient(circle, color-mix(in srgb, var(--brand) 16%, transparent) 1px, transparent 1.6px) !important;
+}
+[data-theme="light"] .nf-ai-launcher-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand-bright) 65%, transparent) 0%, transparent 70%) !important;
+}
 @keyframes nf-toast-in { from { opacity: 0; transform: translateY(-6px) scale(.97) } to { opacity: 1; transform: none } }
 @keyframes nf-hero-pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
@@ -880,27 +969,32 @@ input[type="date"] {
    Two rules only; everything else about the assistant is inline styles over the
    same CSS custom properties every other page uses (see assistantStyles.ts).
 
-   The panel is a floating card on desktop and a full-screen sheet on phones —
-   a 396px card at 360px viewport width would either overflow or leave no room
-   to read an answer. Height uses var(--app-height) rather than bare 100dvh, for
-   the same iOS Safari reason the rest of this file does: the browser chrome
-   changes 100dvh mid-scroll and the composer ends up under the address bar.
+   The panel stays the same floating card at every viewport width, phones
+   included — it only shrinks to fit, via width/max-height min()s against the
+   viewport, rather than switching to an edge-to-edge full-screen sheet. Height
+   uses var(--app-height) rather than bare 100dvh, for the same iOS Safari
+   reason the rest of this file does: the browser chrome changes 100dvh
+   mid-scroll and the composer would otherwise end up under the address bar.
 
    The launcher sits at z-index 80, below the mobile nav scrim at 90, so the
    off-canvas menu covers it instead of leaving a button floating over the
-   overlay. It also shifts up on phones to clear the thumb zone. */
+   overlay. Both the launcher's and the panel's right/bottom here are only the
+   *default* position — once dragged (AssistantLauncher.tsx/AssistantPanel.tsx
+   both drag via an inline left/top), that takes over. `left` is deliberately
+   left unset by this rule, not forced to `auto !important`: an `!important`
+   on `left` would beat the inline drag position outright, in the cascade,
+   before layout even gets to CSS's own over-constraint resolution (which is
+   what lets an inline left quietly win over a merely-cascade-winning right).
+   Leaving `left` alone here keeps it exactly what panelStyle/launcherStyle
+   already make it undragged (unset, i.e. auto) while still letting a drag's
+   inline left apply. */
 @media (max-width: 767px) {
   .nf-assistant-panel {
-    right: 0 !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    max-height: var(--app-height, 100dvh) !important;
-    height: var(--app-height, 100dvh) !important;
-    border-radius: 0 !important;
-    border-left: none !important;
-    border-right: none !important;
-    border-bottom: none !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    width: min(360px, calc(100vw - 24px)) !important;
+    max-height: min(72vh, calc(var(--app-height, 100dvh) - 88px)) !important;
+    height: auto !important;
   }
   .nf-assistant-launcher {
     right: 16px !important;

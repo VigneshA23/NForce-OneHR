@@ -25,6 +25,34 @@ export interface ProfileData {
   managerEmail: string | null;
   active: boolean;
   hasEmployeeRecord: boolean;
+
+  // ESS "My Profile" redesign — self-service editable
+  firstName: string | null;
+  middleName: string | null;
+  lastName: string | null;
+  preferredName: string | null;
+  bio: string | null;
+  maritalStatus: string | null;
+  emergencyContactRelationship: string | null;
+  permanentAddress: string | null;      // "address" stays Current Address
+  passportNumber: string | null;
+  passportExpiry: string | null;
+  bankAccountNumber: string | null;     // masked, e.g. "•••• •••• 5591"
+  bankName: string | null;
+  bankIfsc: string | null;
+  nationalId: string | null;            // masked
+
+  // Job tab — read-only, HR-managed
+  jobCode: string | null;
+  probationEndDate: string | null;
+  confirmationDate: string | null;
+  businessUnitName: string | null;
+  shiftName: string | null;
+  weeklyOffPolicyName: string | null;
+  attendancePenalizationPolicyName: string | null;
+
+  // Attendance indicator
+  attendanceStatus: 'IN' | 'OUT';
 }
 
 export interface UpdateProfilePayload {
@@ -36,6 +64,49 @@ export interface UpdateProfilePayload {
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   workMode?: string;
+
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  preferredName?: string;
+  bio?: string;
+  maritalStatus?: string;
+  emergencyContactRelationship?: string;
+  permanentAddress?: string;
+  passportNumber?: string;
+  passportExpiry?: string;
+  bankAccountNumber?: string;
+  bankName?: string;
+  bankIfsc?: string;
+  nationalId?: string;
+}
+
+export interface EducationEntry {
+  id: string;
+  institutionName: string;
+  degree: string;
+  fieldOfStudy: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EducationPayload {
+  institutionName: string;
+  degree: string;
+  fieldOfStudy?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface ProfileTimelineEvent {
+  type: string;
+  date: string;
+  // Full-precision moment behind `date` — use this (not `date`) when ordering events, so
+  // same-day changes still sort correctly relative to each other.
+  timestamp: string;
+  description: string;
 }
 
 async function handle<T>(res: Response): Promise<T> {
@@ -79,4 +150,36 @@ export const profileApi = {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ avatarUrl }),
     }).then(handle<ProfileData>),
+
+  getTimeline: (token: string) =>
+    fetch(`${BASE}/timeline`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<ProfileTimelineEvent[]>),
+};
+
+export const profileEducationApi = {
+  list: (token: string) =>
+    fetch(`${BASE}/education`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<EducationEntry[]>),
+
+  create: (token: string, payload: EducationPayload) =>
+    fetch(`${BASE}/education`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<EducationEntry>),
+
+  update: (token: string, id: string, payload: EducationPayload) =>
+    fetch(`${BASE}/education/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<EducationEntry>),
+
+  remove: (token: string, id: string) =>
+    fetch(`${BASE}/education/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Failed to delete education entry');
+    }),
 };

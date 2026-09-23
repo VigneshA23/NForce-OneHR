@@ -150,28 +150,6 @@ export async function clearConversation(token: string, conversationId: string): 
 }
 
 /**
- * Thumbs up or down on the last answer.
- *
- * Deliberately swallows its own failure. Feedback is a courtesy the user pays us, not a
- * transaction: showing them an error because we could not record their opinion of an answer they
- * already have would be worse than losing the signal.
- */
-export async function sendFeedback(
-  token: string,
-  conversationId: string,
-  rating: 'UP' | 'DOWN',
-  comment?: string,
-): Promise<void> {
-  try {
-    await fetch(`${BASE}/feedback`, {
-      method: 'POST',
-      headers: authHeaders(token),
-      body: JSON.stringify({ conversationId, rating, comment }),
-    });
-  } catch { /* best effort */ }
-}
-
-/**
  * Whether the assistant is usable at all.
  *
  * Any authenticated user can call this — it is what decides whether the launcher renders, so
