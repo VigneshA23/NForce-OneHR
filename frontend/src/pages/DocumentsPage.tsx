@@ -4,7 +4,7 @@ import { CheckCircle, AlertTriangle, Search } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { myPolicies, acknowledgePolicy, publishedAnnouncements, type Policy, type Announcement } from '../api/policies';
-import { card } from './documents/shared';
+import { card, bucketRequiredDocuments } from './documents/shared';
 import { useMyDocumentsData } from './documents/useMyDocumentsData';
 import { MyDocumentsSection } from './documents/MyDocumentsSection';
 
@@ -92,9 +92,7 @@ export default function DocumentsPage() {
   }
 
   // KPI data
-  const verified = required.filter(r => r.status === 'VERIFIED');
-  const pending = required.filter(r => r.status === 'PENDING_VERIFICATION' || r.status === 'REJECTED');
-  const missing = required.filter(r => !r.uploaded);
+  const { verified, pending, rejected, missing } = bucketRequiredDocuments(required);
   const pendingPolicies = policies.filter(p => p.required && p.acknowledged === false);
 
   const tabStyle = (t: typeof tab): React.CSSProperties => ({
@@ -115,11 +113,12 @@ export default function DocumentsPage() {
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
 
       {/* KPI tiles */}
-      <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+      <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Required', value: required.length, color: 'var(--txt)' },
           { label: 'Verified', value: verified.length, color: '#22c55e' },
           { label: 'Pending Review', value: pending.length, color: '#eab308' },
+          { label: 'Rejected', value: rejected.length, color: '#ef4444' },
           { label: 'Not Submitted', value: missing.length, color: '#ef4444' },
         ].map(k => (
           <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>

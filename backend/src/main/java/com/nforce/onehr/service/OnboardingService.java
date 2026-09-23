@@ -11,6 +11,10 @@ import com.nforce.onehr.entity.OnboardingChecklistItem;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -121,6 +125,76 @@ public class OnboardingService {
         return employeeService.listEmployees().stream()
                 .filter(e -> !onboarded.contains(e.getUserId()))
                 .collect(Collectors.toList());
+    }
+
+    // Server-side searched/paginated Pending tab (ONEHR-488/489) — filters and pages at the
+    // database via EmployeeRepository#findEligibleForOnboarding instead of loading every
+    // not-yet-onboarded employee into the browser to filter/paginate client-side.
+    @Transactional(readOnly = true)
+    public Page<EmployeeResponse> eligibleEmployeesPaged(String actorEmail, String search, int page, int size) {
+        requireAdmin(actorEmail);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "fullName"));
+        return employeeService.listEligibleForOnboarding(search, pageable);
+    }
+
+    // Server-side searched/paginated Onboarding Started / Successfully Onboarded tabs
+    // (ONEHR-488/489). Filters and pages at the database (OnboardingChecklistRepository
+    // #searchByStatus) so #compute's per-employee document/asset lookups only run for the
+    // current page's rows, not every checklist on every request.
+    @Transactional(readOnly = true)
+    public Page<OnboardingChecklistSummaryDto> searchQueue(String actorEmail, String status, String search, int page, int size) {
+        requireAdmin(actorEmail);
+        if (!"IN_PROGRESS".equals(status) && !"COMPLETED".equals(status)) {
+            throw new IllegalArgumentException("status must be IN_PROGRESS or COMPLETED");
+        }
+        String pattern = (search == null || search.isBlank()) ? "%" : "%" + search.trim().toLowerCase() + "%";
+        Sort sort = "COMPLETED".equals(status)
+                ? Sort.by(Sort.Direction.DESC, "completedAt")
+                : Sort.by(Sort.Direction.DESC, "startedAt");
+        Pageable pageable = PageRequest.of(page, size, sort);
+        LocalDate today = LocalDate.now();
+
+        return checklistRepo.searchByStatus(status, pattern, pageable)
+                .map(c -> {
+                    Employee emp = employeeRepo.findById(c.getEmployeeUserId())
+                            .orElseThrow(() -> new NoSuchElementException("Employee not found: " + c.getEmployeeUserId()));
+                    return toSummary(c, emp, compute(c, emp, today));
+                });
+    }
+
+    // Aggregate KPI cards for the Onboarding page header — one full-corpus computation (the
+    // same one #listQueue/#eligibleEmployees always did) reduced to a handful of counts, kept
+    // independent of pagination/search so the cards never lag behind or get capped by whichever
+    // page a tab happens to be showing.
+    @Transactional(readOnly = true)
+    public OnboardingStatsDto stats(String actorEmail) {
+        requireAdmin(actorEmail);
+        long pendingCount = eligibleEmployees(actorEmail).size();
+        List<OnboardingChecklistSummaryDto> all = listQueue(actorEmail);
+        List<OnboardingChecklistSummaryDto> started = all.stream()
+                .filter(r -> !r.isArchived()).collect(Collectors.toList());
+        List<OnboardingChecklistSummaryDto> completed = all.stream()
+                .filter(OnboardingChecklistSummaryDto::isArchived).collect(Collectors.toList());
+        long overdueCount = started.stream().filter(r -> "OVERDUE".equals(r.getStatus())).count();
+
+        LocalDate today = LocalDate.now();
+        long completedThisMonth = completed.stream()
+                .filter(r -> r.getCompletedDate() != null
+                        && r.getCompletedDate().getYear() == today.getYear()
+                        && r.getCompletedDate().getMonthValue() == today.getMonthValue())
+                .count();
+        long avgDays = completed.isEmpty() ? 0 : Math.round(completed.stream()
+                .mapToLong(r -> r.getDurationDays() != null ? r.getDurationDays() : 0L)
+                .average().orElse(0));
+
+        return OnboardingStatsDto.builder()
+                .pendingCount(pendingCount)
+                .startedCount(started.size())
+                .completedCount(completed.size())
+                .overdueCount(overdueCount)
+                .completedThisMonthCount(completedThisMonth)
+                .avgCompletionDays(avgDays)
+                .build();
     }
 
     // ── Detail ──────────────────────────────────────────────

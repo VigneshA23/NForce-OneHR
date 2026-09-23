@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Upload, AlertTriangle, Search } from 'lucide-react';
 import { type EmployeeDocument, type DocumentType, type RequiredDocument } from '../../api/documents';
-import { card, thS, tdS, StatusBadge, UploadModal, ViewButton } from './shared';
+import { card, thS, tdS, StatusBadge, UploadModal, ViewButton, bucketRequiredDocuments } from './shared';
 
-type Section = 'verified' | 'pending' | 'missing';
+type Section = 'verified' | 'pending' | 'rejected' | 'missing';
 
 // The actual "My Documents" document list — sub-tabs (Pending Review / Verified / Not
 // Submitted), search, table, upload/re-upload/view actions. Shared verbatim by DocumentsPage
@@ -36,9 +36,7 @@ export function MyDocumentsSection({
     return myDocs.find(d => d.documentTypeId === typeId) ?? null;
   }
 
-  const verified = required.filter(r => r.status === 'VERIFIED');
-  const pending = required.filter(r => r.status === 'PENDING_VERIFICATION' || r.status === 'REJECTED');
-  const missing = required.filter(r => !r.uploaded);
+  const { verified, pending, rejected, missing } = bucketRequiredDocuments(required);
 
   const secStyle = (s: Section): React.CSSProperties => ({
     padding: '6px 16px', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 12,
@@ -47,7 +45,7 @@ export function MyDocumentsSection({
     border: '1px solid var(--line)',
   });
 
-  const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : missing;
+  const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : section === 'rejected' ? rejected : missing;
   const q = search.trim().toLowerCase();
   const filteredDocs = q ? sectionDocs.filter(r => r.documentTypeName.toLowerCase().includes(q)) : sectionDocs;
 
@@ -59,6 +57,9 @@ export function MyDocumentsSection({
         </button>
         <button className="nf-doc-tab-btn" style={secStyle('verified')} onClick={() => setSection('verified')}>
           <span className="nf-doc-tab-label">Verified</span> {verified.length > 0 && <span style={{ marginLeft: 4, background: '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{verified.length}</span>}
+        </button>
+        <button className="nf-doc-tab-btn" style={secStyle('rejected')} onClick={() => setSection('rejected')}>
+          <span className="nf-doc-tab-label">Rejected</span> {rejected.length > 0 && <span style={{ marginLeft: 4, background: '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{rejected.length}</span>}
         </button>
         <button className="nf-doc-tab-btn" style={secStyle('missing')} onClick={() => setSection('missing')}>
           <span className="nf-doc-tab-label">Not Submitted</span> {missing.length > 0 && <span style={{ marginLeft: 4, background: '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{missing.length}</span>}
@@ -87,7 +88,7 @@ export function MyDocumentsSection({
             <tbody>
               {filteredDocs.length === 0 ? (
                 <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                  {q ? 'No results.' : section === 'verified' ? 'No verified documents yet.' : section === 'pending' ? 'No documents pending review.' : 'All required documents submitted!'}
+                  {q ? 'No results.' : section === 'verified' ? 'No verified documents yet.' : section === 'pending' ? 'No documents pending review.' : section === 'rejected' ? 'No rejected documents.' : 'All required documents submitted!'}
                 </td></tr>
               ) : filteredDocs.map(r => {
                 const doc = docForType(r.documentTypeId);

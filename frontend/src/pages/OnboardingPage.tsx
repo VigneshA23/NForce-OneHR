@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ChevronRight, ChevronLeft, Clock, FileText, Package, RefreshCw, Check,
-  Archive, Calendar, Users, AlertTriangle, ClipboardList, X, Eye,
+  Archive, Calendar, Users, AlertTriangle, ClipboardList, X, Eye, Search,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
   onboardingApi, type OnboardingSummary, type OnboardingDetail, type OnboardingItem,
-  type OnboardingStatus, type StartOnboardingPayload,
+  type OnboardingStatus, type StartOnboardingPayload, type OnboardingStats, type Paged,
 } from '../api/onboarding';
 import type { EmployeeRecord } from '../api/employees';
 import { assetsApi, type AssetResponse } from '../api/assets';
@@ -82,6 +82,33 @@ function Section({ icon, title, count, children }: { icon: React.ReactNode; titl
         {count && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{count}</span>}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ── Server-side pagination bar — shared by all three lifecycle tabs ─────────
+
+function PaginationBar({ page, totalPages, onPrev, onNext }: { page: number; totalPages: number; onPrev: () => void; onNext: () => void }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Page {page + 1} of {totalPages}</span>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button
+          disabled={page === 0}
+          onClick={onPrev}
+          style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+        >
+          <ChevronLeft size={13} />
+        </button>
+        <button
+          disabled={page >= totalPages - 1}
+          onClick={onNext}
+          style={{ padding: '5px 10px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer', opacity: page >= totalPages - 1 ? .4 : 1, color: 'var(--txt)', display: 'flex', alignItems: 'center' }}
+        >
+          <ChevronRight size={13} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -512,82 +539,76 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 type OnboardingTab = 'pending' | 'started' | 'completed';
 
+const PAGE_SIZE = 20;
+
+const STATUS_FOR_TAB: Record<'started' | 'completed', 'IN_PROGRESS' | 'COMPLETED'> = {
+  started: 'IN_PROGRESS',
+  completed: 'COMPLETED',
+};
+
 export default function OnboardingPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [tab, setTab] = useState<OnboardingTab>('pending');
-  const [rows, setRows] = useState<OnboardingSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
-  const [pending, setPending] = useState<EmployeeRecord[]>([]);
-  const [pendingLoading, setPendingLoading] = useState(true);
-  const [pendingError, setPendingError] = useState('');
-  const [pendingSearch, setPendingSearch] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+
+  // Pending is Employee-shaped; Started/Completed share the OnboardingSummary/status-queue shape.
+  const [pendingData, setPendingData] = useState<Paged<EmployeeRecord> | null>(null);
+  const [queueData, setQueueData] = useState<Paged<OnboardingSummary> | null>(null);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState('');
+
+  const [stats, setStats] = useState<OnboardingStats | null>(null);
+
   const [startingId, setStartingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
-  const load = () => {
-    setLoading(true);
-    setLoadError('');
-    onboardingApi.queue(token)
-      .then(setRows)
+  // Reused after starting/completing onboarding, and by each tab's Retry button — always reloads
+  // whichever tab/search/page is currently active.
+  const loadList = useCallback(() => {
+    setListLoading(true);
+    setListError('');
+    const request = tab === 'pending'
+      ? onboardingApi.eligibleEmployees(search, page, PAGE_SIZE, token).then(setPendingData)
+      : onboardingApi.queue(STATUS_FOR_TAB[tab], search, page, PAGE_SIZE, token).then(setQueueData);
+    return request
       .catch(e => {
         const message = e instanceof Error ? e.message : 'Failed to load';
-        setLoadError(message);
+        setListError(message);
         showToast('error', message);
       })
-      .finally(() => setLoading(false));
-  };
+      .finally(() => setListLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, search, page, token]);
 
-  const loadPending = () => {
-    setPendingLoading(true);
-    setPendingError('');
-    onboardingApi.eligibleEmployees(token)
-      .then(setPending)
-      .catch(e => {
-        const message = e instanceof Error ? e.message : 'Failed to load';
-        setPendingError(message);
-        showToast('error', message);
-      })
-      .finally(() => setPendingLoading(false));
-  };
+  // KPI cards reflect the whole corpus, independent of whichever tab/page/search is active — a
+  // separate effect so paging/searching a tab never refetches the cards, same split AuditLogView
+  // uses for its stat cards vs. its paged rows.
+  const loadStats = useCallback(() => {
+    return onboardingApi.stats(token)
+      .then(setStats)
+      .catch(e => console.error('Failed to load onboarding stats', e));
+  }, [token]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); loadPending(); }, [token]);
+  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => { loadStats(); }, [loadStats]);
+
+  function switchTab(next: OnboardingTab) {
+    setTab(next);
+    setSearch('');
+    setPage(0);
+  }
 
   if (selected) {
     return (
       <OnboardingDetailView
         checklistId={selected}
-        onBack={() => { setSelected(null); load(); }}
-        onChanged={() => load()}
+        onBack={() => { setSelected(null); loadList(); loadStats(); }}
+        onChanged={() => { loadList(); loadStats(); }}
       />
     );
   }
-
-  const started = rows.filter(r => !r.archived);
-  const completed = rows.filter(r => r.archived);
-  const overdueCount = started.filter(r => r.status === 'OVERDUE').length;
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const completedThisMonth = completed.filter(r => {
-    if (!r.completedDate) return false;
-    const d = new Date(r.completedDate);
-    return d >= monthStart && d < monthEnd;
-  }).length;
-  const avgDays = completed.length
-    ? Math.round(completed.reduce((s, r) => s + (r.durationDays ?? 0), 0) / completed.length)
-    : 0;
-
-  const filteredPending = pendingSearch.trim()
-    ? pending.filter(e => {
-        const q = pendingSearch.trim().toLowerCase();
-        return e.fullName.toLowerCase().includes(q)
-          || e.employeeCode.toLowerCase().includes(q)
-          || (e.departmentName ?? '').toLowerCase().includes(q);
-      })
-    : pending;
 
   // Starts onboarding directly for one Pending employee — no second employee search/selection
   // step. Success moves them straight into that employee's checklist (Pending → Started); no
@@ -598,14 +619,22 @@ export default function OnboardingPage() {
       const payload: StartOnboardingPayload = { employeeUserId: employee.userId };
       const created = await onboardingApi.start(payload, token);
       showToast('success', `Checklist created for ${created.employeeName}`);
-      load();
-      loadPending();
+      loadList();
+      loadStats();
       setSelected(created.checklistId);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed to start onboarding');
       setStartingId(null);
     }
   }
+
+  const pendingRows = pendingData?.content ?? [];
+  const queueRows = queueData?.content ?? [];
+  const totalElements = (tab === 'pending' ? pendingData : queueData)?.totalElements ?? 0;
+  const totalPages = (tab === 'pending' ? pendingData : queueData)?.totalPages ?? 0;
+  const overdueCount = stats?.overdueCount ?? 0;
+  const completedThisMonth = stats?.completedThisMonthCount ?? 0;
+  const avgDays = stats?.avgCompletionDays ?? 0;
 
   return (
     <div>
@@ -617,83 +646,88 @@ export default function OnboardingPage() {
       </div>
 
       <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>
-        <Kpi icon={<Users size={14} />} label="Pending onboarding" value={pending.length} note="Not yet started" />
-        <Kpi icon={<ClipboardList size={14} />} label="Onboarding started" value={started.length} note="In progress right now" />
+        <Kpi icon={<Users size={14} />} label="Pending onboarding" value={stats?.pendingCount ?? 0} note="Not yet started" />
+        <Kpi icon={<ClipboardList size={14} />} label="Onboarding started" value={stats?.startedCount ?? 0} note="In progress right now" />
         <Kpi icon={<AlertTriangle size={14} />} label="Overdue tasks" value={overdueCount} note="Flows with a missed due date" danger={overdueCount > 0} />
         <Kpi icon={<Check size={14} />} label="Completed this month" value={completedThisMonth} note="Successfully onboarded this calendar month" />
         <Kpi icon={<Clock size={14} />} label="Avg. time to complete" value={`${avgDays} d`} note="Joining date to full checklist" />
       </div>
 
       <div style={{ display: 'flex', gap: 18, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
-        <button onClick={() => setTab('pending')} style={tabStyle(tab === 'pending')}>Pending Onboarding ({pending.length})</button>
-        <button onClick={() => setTab('started')} style={tabStyle(tab === 'started')}>Onboarding Started ({started.length})</button>
-        <button onClick={() => setTab('completed')} style={tabStyle(tab === 'completed')}>Successfully Onboarded ({completed.length})</button>
+        <button onClick={() => switchTab('pending')} style={tabStyle(tab === 'pending')}>Pending Onboarding ({stats?.pendingCount ?? 0})</button>
+        <button onClick={() => switchTab('started')} style={tabStyle(tab === 'started')}>Onboarding Started ({stats?.startedCount ?? 0})</button>
+        <button onClick={() => switchTab('completed')} style={tabStyle(tab === 'completed')}>Successfully Onboarded ({stats?.completedCount ?? 0})</button>
+      </div>
+
+      <div style={{ marginBottom: 12, maxWidth: 340, position: 'relative' }}>
+        <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(0); }}
+          placeholder="Search by employee name or code…"
+          style={{ ...inputStyle, paddingLeft: 30 }}
+        />
+      </div>
+
+      <div style={{ marginBottom: 8, fontSize: 12.5, color: 'var(--txt-mut)' }}>
+        {listLoading ? 'Loading…' : `${totalElements} record(s) found`}
       </div>
 
       {tab === 'pending' ? (
-        <div>
-          <div style={{ marginBottom: 12, maxWidth: 340 }}>
-            <input
-              value={pendingSearch}
-              onChange={e => setPendingSearch(e.target.value)}
-              placeholder="Search pending employees…"
-              style={inputStyle}
-            />
-          </div>
-          <div style={card}>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
-                <thead>
-                  <tr>
-                    <th style={thS}>Employee</th>
-                    <th style={thS}>Department</th>
-                    <th style={thS}>Joining date</th>
-                    <th style={thS}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingLoading ? (
-                    <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 40 }}>Loading…</td></tr>
-                  ) : pendingError ? (
-                    <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 40 }}>
-                      <span style={{ color: '#E4373D' }}>Couldn't load pending employees ({pendingError}).</span>{' '}
-                      <button onClick={loadPending} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>Retry</button>
-                    </td></tr>
-                  ) : pending.length === 0 ? (
-                    <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 40 }}>Every active employee already has onboarding started or completed.</td></tr>
-                  ) : filteredPending.length === 0 ? (
-                    <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 40 }}>No pending employees match "{pendingSearch}".</td></tr>
-                  ) : filteredPending.map(e => (
-                    <tr key={e.userId}>
-                      <td style={tdS}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <EmployeeAvatar userId={e.userId} name={e.fullName} size={30} fontSize={11} background="var(--brand)" />
-                          <div>
-                            <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</div>
-                            <div style={{ color: 'var(--txt-dim)', fontSize: 11.5, fontFamily: 'Inter, sans-serif' }}>{e.employeeCode}</div>
-                          </div>
+        <div style={card}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
+              <thead>
+                <tr>
+                  <th style={thS}>Employee</th>
+                  <th style={thS}>Department</th>
+                  <th style={thS}>Joining date</th>
+                  <th style={thS}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {listLoading ? (
+                  <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 40 }}>Loading…</td></tr>
+                ) : listError ? (
+                  <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 40 }}>
+                    <span style={{ color: '#E4373D' }}>Couldn't load pending employees ({listError}).</span>{' '}
+                    <button onClick={loadList} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>Retry</button>
+                  </td></tr>
+                ) : pendingRows.length === 0 ? (
+                  <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 40 }}>
+                    {search.trim() ? `No pending employees match "${search}".` : 'Every active employee already has onboarding started or completed.'}
+                  </td></tr>
+                ) : pendingRows.map(e => (
+                  <tr key={e.userId}>
+                    <td style={tdS}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <EmployeeAvatar userId={e.userId} name={e.fullName} size={30} fontSize={11} background="var(--brand)" />
+                        <div>
+                          <div style={{ fontWeight: 600, color: 'var(--txt)' }}>{e.fullName}</div>
+                          <div style={{ color: 'var(--txt-dim)', fontSize: 11.5, fontFamily: 'Inter, sans-serif' }}>{e.employeeCode}</div>
                         </div>
-                      </td>
-                      <td style={tdS}>
-                        {e.departmentName ?? '—'}
-                        {e.designationName && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 1 }}>{e.designationName}</div>}
-                      </td>
-                      <td style={tdS}>{fmtDate(e.joiningDate)}</td>
-                      <td style={{ ...tdS, textAlign: 'right' }}>
-                        <button
-                          onClick={() => startOnboardingFor(e)}
-                          disabled={startingId === e.userId}
-                          style={{ ...btnPrimaryStyle, padding: '6px 12px', fontSize: 12.5 }}
-                        >
-                          {startingId === e.userId ? 'Starting…' : 'Start Onboarding'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </div>
+                    </td>
+                    <td style={tdS}>
+                      {e.departmentName ?? '—'}
+                      {e.designationName && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 1 }}>{e.designationName}</div>}
+                    </td>
+                    <td style={tdS}>{fmtDate(e.joiningDate)}</td>
+                    <td style={{ ...tdS, textAlign: 'right' }}>
+                      <button
+                        onClick={() => startOnboardingFor(e)}
+                        disabled={startingId === e.userId}
+                        style={{ ...btnPrimaryStyle, padding: '6px 12px', fontSize: 12.5 }}
+                      >
+                        {startingId === e.userId ? 'Starting…' : 'Start Onboarding'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+          <PaginationBar page={page} totalPages={totalPages} onPrev={() => setPage(p => p - 1)} onNext={() => setPage(p => p + 1)} />
         </div>
       ) : (
         <div style={card}>
@@ -711,16 +745,18 @@ export default function OnboardingPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
+                {listLoading ? (
                   <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>Loading…</td></tr>
-                ) : loadError ? (
+                ) : listError ? (
                   <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>
-                    <span style={{ color: '#E4373D' }}>Couldn't load onboarding flows ({loadError}).</span>{' '}
-                    <button onClick={load} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>Retry</button>
+                    <span style={{ color: '#E4373D' }}>Couldn't load onboarding flows ({listError}).</span>{' '}
+                    <button onClick={loadList} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>Retry</button>
                   </td></tr>
-                ) : (tab === 'started' ? started : completed).length === 0 ? (
-                  <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>Nothing here yet.</td></tr>
-                ) : (tab === 'started' ? started : completed).map(r => {
+                ) : queueRows.length === 0 ? (
+                  <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>
+                    {search.trim() ? `No results match "${search}".` : 'Nothing here yet.'}
+                  </td></tr>
+                ) : queueRows.map(r => {
                   const pct = r.totalItems > 0 ? Math.round(100 * r.doneItems / r.totalItems) : 0;
                   return (
                     <tr
@@ -767,6 +803,7 @@ export default function OnboardingPage() {
               </tbody>
             </table>
           </div>
+          <PaginationBar page={page} totalPages={totalPages} onPrev={() => setPage(p => p - 1)} onNext={() => setPage(p => p + 1)} />
         </div>
       )}
     </div>
