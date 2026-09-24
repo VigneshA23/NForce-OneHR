@@ -92,6 +92,9 @@ function fmtEffectiveDate(iso: string) {
 }
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEK_CHIPS = ['M', 'T', 'W', 'T', 'F'];
+// Team calendar rows per page — a full month's daily indicators makes each row wide, so a large
+// team (30+ direct reports) otherwise turns the calendar into an unbroken multi-screen scroll.
+const TEAM_CALENDAR_PAGE_SIZE = 15;
 
 /* ── Shared style constants (matching ApprovalsPage.tsx / LeavePage.tsx exactly) ── */
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
@@ -1998,6 +2001,9 @@ function PeersView({ token }: { token: string }) {
   const [monthAttendance, setMonthAttendance] = useState<AttendanceRecord[]>([]);
   const [monthLeave, setMonthLeave] = useState<LeaveRequestRecord[]>([]);
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  // See the manager-facing Team calendar's own note on TEAM_CALENDAR_PAGE_SIZE — same reasoning,
+  // just for the project-team roster instead of direct reports.
+  const [calendarPage, setCalendarPage] = useState(0);
 
   const [search, setSearch] = useState('');
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
@@ -2093,6 +2099,12 @@ function PeersView({ token }: { token: string }) {
   }
 
   const OVERFLOW_LIMIT = 6;
+
+  // Team calendar pagination — see the manager-facing view's own comment on TEAM_CALENDAR_PAGE_SIZE.
+  const calendarTotalPages = Math.max(1, Math.ceil(peers.length / TEAM_CALENDAR_PAGE_SIZE));
+  const calendarPageSafe = Math.min(calendarPage, calendarTotalPages - 1);
+  const pagedPeers = peers.slice(
+    calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE, calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + TEAM_CALENDAR_PAGE_SIZE);
 
   return (
     <div>
@@ -2201,7 +2213,11 @@ function PeersView({ token }: { token: string }) {
       <div style={{ ...panelStyle, marginBottom: 16 }}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Team calendar</span>
-          <span style={panelCountStyle}>{peers.length} {peers.length === 1 ? 'person' : 'people'} · project team</span>
+          <span style={panelCountStyle}>
+            {calendarTotalPages > 1
+              ? `${calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + 1}–${Math.min(peers.length, (calendarPageSafe + 1) * TEAM_CALENDAR_PAGE_SIZE)} of ${peers.length} · project team`
+              : `${peers.length} ${peers.length === 1 ? 'person' : 'people'} · project team`}
+          </span>
         </div>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 8, padding: 4 }}>
@@ -2235,7 +2251,7 @@ function PeersView({ token }: { token: string }) {
               </tr>
             </thead>
             <tbody>
-              {peers.map(p => (
+              {pagedPeers.map(p => (
                 <tr key={p.userId} style={inactiveDimStyle(p.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2268,6 +2284,13 @@ function PeersView({ token }: { token: string }) {
             </tbody>
           </table>
         </div>
+        {calendarTotalPages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
+            <button onClick={() => setCalendarPage(p => Math.max(0, p - 1))} disabled={calendarPageSafe === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe === 0 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe === 0 ? 0.5 : 1 }}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {calendarPageSafe + 1} of {calendarTotalPages}</span>
+            <button onClick={() => setCalendarPage(p => Math.min(calendarTotalPages - 1, p + 1))} disabled={calendarPageSafe >= calendarTotalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe >= calendarTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe >= calendarTotalPages - 1 ? 0.5 : 1 }}>Next →</button>
+          </div>
+        )}
       </div>
 
       {/* Peer directory grid — same information density as DirectoryPage.tsx's detail drawer
@@ -2694,6 +2717,10 @@ export default function MyTeamPage() {
   const [viewDate, setViewDate] = useState(() => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1); });
   const [monthAttendance, setMonthAttendance] = useState<AttendanceRecord[]>([]);
   const [monthLeave, setMonthLeave] = useState<LeaveRequestRecord[]>([]);
+  // Team calendar pagination — a large team's calendar (one row per report, one column per day of
+  // the month) otherwise renders every report at once with no way to jump to a specific person
+  // without scrolling past dozens of rows first.
+  const [calendarPage, setCalendarPage] = useState(0);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'IN' | 'OUT' | 'NOT_IN_YET' | 'LEAVE'>(() => {
@@ -2907,6 +2934,14 @@ export default function MyTeamPage() {
   // ── Out this week ──
   const weekDayDates = [0, 1, 2, 3, 4].map(i => addDays(weekStart, i));
 
+  // Team calendar pagination — clamped rather than reset outright, so switching months doesn't
+  // quietly bounce someone mid-team back to page 1; it only steps back when the current page no
+  // longer exists at all (e.g. the team shrank).
+  const calendarTotalPages = Math.max(1, Math.ceil(directReports.length / TEAM_CALENDAR_PAGE_SIZE));
+  const calendarPageSafe = Math.min(calendarPage, calendarTotalPages - 1);
+  const pagedDirectReports = directReports.slice(
+    calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE, calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + TEAM_CALENDAR_PAGE_SIZE);
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -3067,7 +3102,11 @@ export default function MyTeamPage() {
       <div style={{ ...panelStyle, marginBottom: 16 }}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Team calendar</span>
-          <span style={panelCountStyle}>{directReports.length} {directReports.length === 1 ? 'person' : 'people'}</span>
+          <span style={panelCountStyle}>
+            {calendarTotalPages > 1
+              ? `${calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + 1}–${Math.min(directReports.length, (calendarPageSafe + 1) * TEAM_CALENDAR_PAGE_SIZE)} of ${directReports.length}`
+              : `${directReports.length} ${directReports.length === 1 ? 'person' : 'people'}`}
+          </span>
         </div>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 8, padding: 4 }}>
@@ -3101,7 +3140,7 @@ export default function MyTeamPage() {
               </tr>
             </thead>
             <tbody>
-              {directReports.map(dr => (
+              {pagedDirectReports.map(dr => (
                 <tr key={dr.userId} style={inactiveDimStyle(dr.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3134,6 +3173,13 @@ export default function MyTeamPage() {
             </tbody>
           </table>
         </div>
+        {calendarTotalPages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
+            <button onClick={() => setCalendarPage(p => Math.max(0, p - 1))} disabled={calendarPageSafe === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe === 0 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe === 0 ? 0.5 : 1 }}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {calendarPageSafe + 1} of {calendarTotalPages}</span>
+            <button onClick={() => setCalendarPage(p => Math.min(calendarTotalPages - 1, p + 1))} disabled={calendarPageSafe >= calendarTotalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe >= calendarTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe >= calendarTotalPages - 1 ? 0.5 : 1 }}>Next →</button>
+          </div>
+        )}
       </div>
 
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>

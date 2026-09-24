@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
+import { roundDays } from '../utils/leaveDays';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
 // mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
@@ -97,7 +98,9 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; accent: string }) {
   const total = Number(balance.totalDays);
   const available = Math.max(0, Number(balance.remainingDays));
-  const consumed = Math.max(0, total - available);
+  // roundDays strips the IEEE-754 noise this subtraction can reintroduce even on two already-exact
+  // BigDecimal-derived values (e.g. 15 - 13.7 rendering as 1.3000000000000007) - see utils/leaveDays.ts.
+  const consumed = roundDays(Math.max(0, total - available));
   const isEmptyQuota = total <= 0;
   const availablePct = isEmptyQuota ? 0 : Math.min(100, Math.round((available / total) * 100));
   const ringOffset = RING_CIRCUMFERENCE * (1 - availablePct / 100);
@@ -167,6 +170,13 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     : (new Date(effectiveEndDate).getTime() - new Date(form.startDate).getTime()) / 86400000 + 1;
   const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && requestedDays > selectedBalance.remainingDays;
 
+  // Early-UX only, mirroring the backend's own classification-based rule (LeaveService#submitRequest)
+  // — the backend independently re-validates against ALL of the employee's paid balances regardless
+  // of what's checked here, so this can never be relied on to enforce the rule by itself.
+  const selectedType = types.find(t => t.code === form.leaveTypeCode);
+  const hasAnyPaidBalance = balances.some(b => b.remainingDays > 0);
+  const blockedUnpaidWithPaidBalance = selectedType?.classification === 'UNPAID' && hasAnyPaidBalance;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.reason.trim()) { setError('A reason is required.'); return; }
@@ -175,6 +185,10 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
     if (exceedsBalance && selectedBalance) {
       setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${selectedBalance.remainingDays} days.`);
+      return;
+    }
+    if (blockedUnpaidWithPaidBalance) {
+      setError('You cannot apply for unpaid leave while you have an available paid leave balance.');
       return;
     }
     setSubmitting(true); setError(null);
@@ -208,6 +222,11 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
                 {exceedsBalance && ' — this request exceeds your available balance'}
               </div>
             )}
+            {blockedUnpaidWithPaidBalance && (
+              <div style={{ fontSize: 11.5, color: 'var(--risk)', marginTop: 5 }}>
+                You cannot apply for unpaid leave while you have an available paid leave balance.
+              </div>
+            )}
           </div>
           <Field label="Start Date *">
             <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
@@ -226,7 +245,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
           </div>
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || exceedsBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
+            <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
           </div>
         </form>
       </div>

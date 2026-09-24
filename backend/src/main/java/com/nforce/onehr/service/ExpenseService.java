@@ -187,9 +187,11 @@ public class ExpenseService {
         BigDecimal openAmount = open.stream().map(ExpenseClaim::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // Windowed on expenseDate (a plain LocalDate, the day the expense was actually incurred),
+        // not the claim's decision/clearance timestamp - see the repository query's own comment.
         YearMonth now = YearMonth.now(ZoneId.of("UTC"));
-        Instant from = now.atDay(1).atStartOfDay(ZoneId.of("UTC")).toInstant();
-        Instant to = now.atEndOfMonth().plusDays(1).atStartOfDay(ZoneId.of("UTC")).toInstant();
+        LocalDate from = now.atDay(1);
+        LocalDate to = now.atEndOfMonth().plusDays(1);
         BigDecimal approvedAmt = claimRepo.sumApprovedThisMonth(actorId, from, to);
         long approvedCount = claimRepo.countApprovedThisMonth(actorId, from, to);
 

@@ -83,6 +83,7 @@ class LeaveServiceTest {
     private LeaveType sick;
     private LeaveType casual;
     private LeaveType lossOfPay;
+    private LeaveType sabbatical;
 
     @BeforeEach
     void setUp() {
@@ -93,6 +94,10 @@ class LeaveServiceTest {
         sick = LeaveType.builder().id(UUID.randomUUID()).code("SICK").name("Sick Leave").build();
         casual = LeaveType.builder().id(UUID.randomUUID()).code("CASUAL").name("Casual Leave").build();
         lossOfPay = LeaveType.builder().id(UUID.randomUUID()).code("LOP").name("Loss of Pay")
+                .classification(LeaveTypeClassification.UNPAID).build();
+        // A second, independently-named Unpaid type — used to prove the new balance-vs-unpaid
+        // rule (see below) is driven by classification, not by "LOP"/"Loss of Pay" specifically.
+        sabbatical = LeaveType.builder().id(UUID.randomUUID()).code("SABBATICAL").name("Sabbatical")
                 .classification(LeaveTypeClassification.UNPAID).build();
 
         // employeeName() falls back to userRepository when there's no Employee row —
@@ -140,7 +145,11 @@ class LeaveServiceTest {
     }
 
     private LeaveBalance balanceOf(BigDecimal total, BigDecimal used) {
-        return LeaveBalance.builder().employeeUserId(employeeId).leaveType(annual)
+        return balanceOf(annual, total, used);
+    }
+
+    private LeaveBalance balanceOf(LeaveType type, BigDecimal total, BigDecimal used) {
+        return LeaveBalance.builder().employeeUserId(employeeId).leaveType(type)
                 .year(LocalDate.now().getYear()).totalDays(total).usedDays(used).build();
     }
 
@@ -236,13 +245,29 @@ class LeaveServiceTest {
     // ── Leave Type Paid/Unpaid classification ───────────────────────────────────────────────
 
     @Test
-    void submitRequest_unpaidLeaveType_neverChecksOrRequiresABalance() {
+    void submitRequest_unpaidLeaveType_isRejected_whenPaidBalanceIsAvailable() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        // 10 days still available on the (paid) Annual balance.
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("5"))));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
+        assertEquals("You have 10 day(s) of paid leave available — use that before applying for Loss of Pay.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_isAllowed_whenNoPaidBalanceRemains() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        // Fully exhausted — nothing left to use before going unpaid.
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("15"))));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        // No leaveBalanceRepository stub configured at all — an Unpaid type must never look one up,
-        // so its 10-day Paid balance (from any other type) is left completely untouched.
         LocalDate start = LocalDate.now().plusDays(5);
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
@@ -250,7 +275,27 @@ class LeaveServiceTest {
         assertEquals("PENDING", resp.getStatus());
         assertEquals(new BigDecimal("3"), resp.getTotalDays());
         assertEquals(LeaveTypeClassification.UNPAID, resp.getLeaveTypeClassification());
+        // Confirms an Unpaid submission itself still never deducts from or writes to any balance
+        // row — it only reads the paid balances to confirm none remain available.
         verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any());
+        verify(leaveBalanceRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_isAllowed_whenEmployeeHasNoBalanceRowsAtAll() {
+        // No LeaveBalance rows at all (e.g. opening balances not yet seeded) must not be read as
+        // "balance available" — Unpaid still has to be reachable, not blocked by treating an empty
+        // list as a positive balance.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
     }
 
     @Test
@@ -275,6 +320,88 @@ class LeaveServiceTest {
         assertEquals(LeaveTypeClassification.UNPAID, approved.getLeaveTypeClassification());
         verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any());
         verify(leaveBalanceRepository, never()).save(any());
+    }
+
+    // ── Unpaid leave blocked while an applicable paid balance is available ──────────────────
+    //
+    // Driven purely by LeaveType#classification (see LeaveService#hasAnyPositivePaidBalance) —
+    // no leave-type name/code is hardcoded, so this must hold for every Unpaid-classified type.
+
+    @Test
+    void submitRequest_unpaidLeaveType_rejectedWhenPaidBalanceAvailable() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
+        assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_anotherUnpaidLeaveType_alsoRejectedWhenPaidBalanceAvailable() {
+        // Same rule, a different Unpaid-classified type — proves the check isn't tied to "LOP".
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("SABBATICAL")).thenReturn(Optional.of(sabbatical));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request("SABBATICAL", start, start.plusDays(1), false, "Career break"), employeeEmail));
+        assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_paidLeaveType_unaffectedByTheUnpaidBlockingRule() {
+        // Existing Paid-type behavior preserved: the new rule only ever evaluates for Unpaid
+        // types, so a Paid submission never even calls the new balance-scan repository method.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndYear(any(), any());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_allowedWhenPaidBalanceIsZero() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), new BigDecimal("15")))); // fully consumed
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_allowedWhenNoPaidBalanceRowExists() {
+        // No LeaveBalance rows configured at all for this employee/year — "no applicable paid
+        // balance" must be treated as zero (existing Unpaid behavior), not as an error.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
     }
 
     // ── Status-aware annual-leave-limit enforcement ─────────────────────────────────────────

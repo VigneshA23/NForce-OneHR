@@ -46,14 +46,17 @@ public class ExceptionService {
     private static final Set<String> HIDDEN_FROM_EXCEPTION_DASHBOARD = Set.of(
             ExceptionType.NO_ATTENDANCE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
 
-    // The four penalizable discrepancy types — see notifyUnnotifiedExceptions' own javadoc for why
-    // these, and only these, are emailed exclusively by the scheduled job rather than immediately
-    // on detection. LEAVE_ATTENDANCE_CONFLICT is deliberately excluded: it's never a penalty
-    // candidate (ConfiguredAttendancePolicyEngine has no case for it), so it keeps its original
-    // immediate-on-detection email instead.
+    // Every exception type emailed exclusively by the scheduled job (notifyUnnotifiedExceptions),
+    // never immediately on detection — see that method's own javadoc. LEAVE_ATTENDANCE_CONFLICT
+    // used to be a deliberate exception, emailed synchronously the moment an HR Admin/Manager
+    // opened the Exceptions dashboard and first detected it — which meant an employee could be
+    // emailed same-day, and once per admin who happened to view the dashboard before the row
+    // existed yet, instead of exactly once the following day like every other exception type.
+    // Folded in here to get the same once-per-row, notifiedAt-gated guarantee.
     private static final Set<String> SCHEDULED_EMAIL_TYPES = Set.of(
             ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH,
-            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE);
+            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE,
+            ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -587,19 +590,13 @@ public class ExceptionService {
         // detectExceptions). AttendancePenaltyEvaluationService has its own defensive duplicate
         // guard regardless (see its class javadoc).
         //
-        // Email is handled separately: LEAVE_ATTENDANCE_CONFLICT is not a penalizable discrepancy
-        // (see ConfiguredAttendancePolicyEngine's switch — it always falls to NO_MATCH for this
-        // type), so it's still emailed immediately here, same as before. The four penalizable
-        // types (LATE_ARRIVAL/MISSING_PUNCH/NO_ATTENDANCE/WORK_HOURS_SHORTAGE) are deliberately
-        // NOT emailed here — detection (this method, reachable from the dashboard-load path) and
-        // notification are independent by design; see notifyUnnotifiedExceptions, the scheduled
-        // job's own step, which is the only path that ever emails the employee about one of these
-        // four, so the email time is never influenced by whether/when anyone opened the dashboard.
+        // Email is handled separately, and deliberately NOT here: detection (this method,
+        // reachable from the dashboard-load path) and notification are independent by design; see
+        // notifyUnnotifiedExceptions, the scheduled job's own step, which is the only path that
+        // ever emails the employee about any exception type, so the email time is never influenced
+        // by whether/when anyone opened the dashboard.
         if (isNew) {
             evaluatePolicy(record, exceptionType);
-            if (ExceptionType.LEAVE_ATTENDANCE_CONFLICT.equals(exceptionType)) {
-                notifyEmployee(employeeUserId, exceptionType, exceptionDate, expectedTime, actualTime, minutesLate);
-            }
         }
     }
 
