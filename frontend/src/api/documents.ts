@@ -43,7 +43,7 @@ export interface EmployeeDocument {
   fileUrl: string;
   issueDate: string | null;
   expiryDate: string | null;
-  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED';
+  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED' | 'WITHDRAWN';
   verifiedBy: string | null;
   verifiedAt: string | null;
   rejectionReason: string | null;
@@ -152,6 +152,12 @@ export async function uploadDocument(token: string, params: {
   if (params.issueDate) form.append('issueDate', params.issueDate);
   if (params.expiryDate) form.append('expiryDate', params.expiryDate);
   return handle(await fetch(`${BASE_DOCS}/my/upload`, { method: 'POST', headers: authOnly(token), body: form }));
+}
+
+// Withdraws the caller's own document still awaiting review, freeing the slot for a fresh
+// upload instead of silently orphaning it (see DocumentService.withdrawDocument).
+export async function withdrawDocument(token: string, id: string): Promise<EmployeeDocument> {
+  return handle(await fetch(`${BASE_DOCS}/my/${id}/withdraw`, { method: 'POST', headers: authHeaders(token) }));
 }
 
 // ── HR/SA Admin ────────────────────────────────────────────

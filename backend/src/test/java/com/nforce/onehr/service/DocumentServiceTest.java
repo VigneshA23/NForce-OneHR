@@ -162,6 +162,99 @@ class DocumentServiceTest {
     }
 
     @Test
+    void uploadDocument_currentIsPendingReview_isRejected() {
+        UUID currentId = UUID.randomUUID();
+        EmployeeDocument current = EmployeeDocument.builder()
+                .id(currentId).employeeUserId(employeeId).documentType(docType)
+                .fileName("pending.pdf").fileUrl("/api/documents/" + currentId + "/file").fileData("data".getBytes())
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false)
+                .build();
+        when(docRepo.findByEmployeeUserIdAndDocumentTypeIdAndSupersededFalse(employeeId, 1)).thenReturn(Optional.of(current));
+
+        MockMultipartFile file = new MockMultipartFile("file", "new.pdf", "application/pdf", "new-bytes".getBytes());
+        assertThrows(IllegalStateException.class,
+                () -> documentService.uploadDocument(EMPLOYEE_EMAIL, 1, file, null, null));
+
+        // Must not touch the pending row at all — withdraw() is the only way to move it aside.
+        verify(docRepo, never()).saveAndFlush(any());
+        verify(docRepo, never()).save(any(EmployeeDocument.class));
+    }
+
+    // ── withdrawDocument (Pending Review only) ───────────────────────────────
+
+    @Test
+    void withdrawDocument_pendingDocument_marksWithdrawnAndSuperseded() {
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        EmployeeDocumentResponse resp = documentService.withdrawDocument(EMPLOYEE_EMAIL, docId);
+
+        assertEquals("WITHDRAWN", resp.getStatus());
+        assertTrue(resp.isSuperseded());
+        // No new row is inserted — unlike a re-upload, withdrawing doesn't create a replacement.
+        verify(docRepo, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void withdrawDocument_verifiedDocument_isRejected() {
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("VERIFIED").versionNumber(1).superseded(false).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        assertThrows(IllegalStateException.class, () -> documentService.withdrawDocument(EMPLOYEE_EMAIL, docId));
+    }
+
+    @Test
+    void withdrawDocument_alreadySupersededDocument_isRejected() {
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(true).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        assertThrows(IllegalStateException.class, () -> documentService.withdrawDocument(EMPLOYEE_EMAIL, docId));
+    }
+
+    @Test
+    void withdrawDocument_nonOwner_isDenied() {
+        String otherEmail = "other@test.com";
+        User other = User.builder().id(UUID.randomUUID()).email(otherEmail)
+                .roles(new HashSet<>(Set.of(role("EMPLOYEE")))).build();
+        when(userRepo.findByEmail(otherEmail)).thenReturn(Optional.of(other));
+
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        assertThrows(AccessDeniedException.class, () -> documentService.withdrawDocument(otherEmail, docId));
+    }
+
+    @Test
+    void uploadDocument_afterWithdraw_startsFreshVersionChain() throws Exception {
+        // Simulates the state left behind by withdrawDocument: current=false, so the next upload
+        // is treated exactly like a first-ever submission, not a re-upload of the withdrawn row.
+        when(docRepo.findByEmployeeUserIdAndDocumentTypeIdAndSupersededFalse(employeeId, 1)).thenReturn(Optional.empty());
+
+        MockMultipartFile file = new MockMultipartFile("file", "fresh.pdf", "application/pdf", "data".getBytes());
+        EmployeeDocumentResponse resp = documentService.uploadDocument(EMPLOYEE_EMAIL, 1, file, null, null);
+
+        assertEquals(1, resp.getVersionNumber());
+        assertNull(resp.getPreviousVersionId());
+        assertEquals("PENDING_VERIFICATION", resp.getStatus());
+    }
+
+    @Test
     void getDocumentHistory_returnsAllVersionsNewestFirst() {
         UUID v1Id = UUID.randomUUID();
         UUID v2Id = UUID.randomUUID();

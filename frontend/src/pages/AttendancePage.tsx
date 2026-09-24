@@ -2184,6 +2184,13 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     // whole monthly cap (e.g. 200 minutes against a 120-minute allowance) through untouched.
     // Mirrors the hard check AttendanceRequestService.submit enforces server-side.
     const partialDayLimitMinutes = PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60;
+    // Checked independently of remainingMinutes/balance (which may still be loading or have
+    // failed to load) so an absurd value (e.g. 999999999999) is rejected immediately client-side
+    // instead of only being caught once the request round-trips to the server.
+    if (requestType === 'PARTIAL_DAY' && Number(partialDayMinutes) > partialDayLimitMinutes) {
+      setError(`You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
+      return;
+    }
     if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && Number(partialDayMinutes) > remainingMinutes) {
       // Only claim the allowance is "used up" when it actually is (remainingMinutes <= 0) —
       // e.g. 0/120 used, requesting 200 minutes in one shot isn't "you've used your 120
@@ -2211,7 +2218,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   // Balance is intentionally not part of this — insufficient balance never disables Submit,
   // it's confirmed at click time instead (see handleSubmit).
   const canSubmit = !!reason.trim() && !submitting
-    && (requestType !== 'PARTIAL_DAY' || (!timeRequiredError && Number(partialDayMinutes) > 0));
+    && (requestType !== 'PARTIAL_DAY' || (!timeRequiredError && Number(partialDayMinutes) > 0
+      && Number(partialDayMinutes) <= PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60));
 
   return (
     <div style={overlayStyle}>
@@ -2377,7 +2385,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                 <Field label={partialDayModeLabel}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input
-                      type="number" min="1" step="1" inputMode="numeric" value={partialDayMinutes}
+                      type="number" min="1" max={PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60} step="1" inputMode="numeric" value={partialDayMinutes}
                       // Digits only — `type="number"` still lets the browser accept a typed "."
                       // (e.g. "120.333"), so decimals are stripped here rather than relying on
                       // step="1" alone, which only rounds spinner clicks, not free-typed input.
@@ -2394,6 +2402,9 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                     />
                     <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>minutes</span>
                   </div>
+                  {Number(partialDayMinutes) > PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60 && (
+                    <div style={fieldErrorStyle}>You are not allowed to raise a request for more than {PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60} minutes.</div>
+                  )}
                 </Field>
               )}
               {computedMessage && (

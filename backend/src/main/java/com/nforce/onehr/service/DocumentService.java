@@ -105,6 +105,13 @@ public class DocumentService {
         // updates within one flush, and both rows would otherwise briefly be non-superseded at
         // once, tripping the ux_employee_documents_current partial unique index (V190).
         Optional<EmployeeDocument> currentOpt = docRepo.findByEmployeeUserIdAndDocumentTypeIdAndSupersededFalse(actorId, documentTypeId);
+        // A document awaiting HR review can't be silently re-uploaded over — that orphans the
+        // pending row (HR can never act on it once superseded) and leaves stale "Pending Review"
+        // entries in Document History forever. The employee must withdraw() it first, which frees
+        // the slot for a fresh upload. Verified/Rejected/absent documents are unaffected.
+        if (currentOpt.isPresent() && "PENDING_VERIFICATION".equals(currentOpt.get().getStatus())) {
+            throw new IllegalStateException("This document is pending review. Withdraw it before uploading a new version.");
+        }
         int nextVersion = 1;
         UUID previousVersionId = null;
         if (currentOpt.isPresent()) {
@@ -132,6 +139,31 @@ public class DocumentService {
         doc.setFileUrl("/api/documents/" + doc.getId() + "/file");
         doc = docRepo.save(doc);
         return EmployeeDocumentResponse.from(doc);
+    }
+
+    // ── Employee: withdraw a document still awaiting review ──
+
+    /**
+     * Frees up the (employee, documentType) slot without HR ever having to act on it: the
+     * current row is marked WITHDRAWN and superseded, exactly like a re-upload's supersede step,
+     * but without inserting a replacement row. With no current row left, the document type
+     * reverts to "not submitted" everywhere (required-document computation, onboarding
+     * breakdown, KPIs) for free — none of those queries need to know about WITHDRAWN.
+     */
+    @Transactional
+    public EmployeeDocumentResponse withdrawDocument(String actorEmail, UUID documentId) {
+        UUID actorId = requireUser(actorEmail).getId();
+        EmployeeDocument doc = docRepo.findById(documentId)
+                .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
+        if (!doc.getEmployeeUserId().equals(actorId)) {
+            throw new AccessDeniedException("Access denied");
+        }
+        if (doc.isSuperseded() || !"PENDING_VERIFICATION".equals(doc.getStatus())) {
+            throw new IllegalStateException("Only a document pending review can be withdrawn.");
+        }
+        doc.setStatus("WITHDRAWN");
+        doc.setSuperseded(true);
+        return EmployeeDocumentResponse.from(docRepo.save(doc));
     }
 
     // ── HR/SA & owning employee: full version history for a document ──

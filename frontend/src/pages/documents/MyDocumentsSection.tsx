@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Upload, AlertTriangle, Search } from 'lucide-react';
 import { type EmployeeDocument, type DocumentType, type RequiredDocument } from '../../api/documents';
-import { card, thS, tdS, StatusBadge, UploadModal, ViewButton, bucketRequiredDocuments } from './shared';
+import { card, thS, tdS, StatusBadge, UploadModal, ViewButton, WithdrawButton, bucketRequiredDocuments } from './shared';
 
 type Section = 'verified' | 'pending' | 'rejected' | 'missing';
 
@@ -34,6 +34,14 @@ export function MyDocumentsSection({
 
   function docForType(typeId: number): EmployeeDocument | null {
     return myDocs.find(d => d.documentTypeId === typeId) ?? null;
+  }
+
+  // Mirrors UploadModal's onUploaded — withdrawing frees the (employee, documentType) slot, so
+  // the type reverts to "Not Submitted" the same way it looks before any upload ever happened.
+  function handleWithdrawn(documentTypeId: number) {
+    setMyDocs(prev => prev.filter(d => d.documentTypeId !== documentTypeId));
+    setRequired(prev => prev.map(r => r.documentTypeId === documentTypeId
+      ? { ...r, uploaded: false, status: null } : r));
   }
 
   const { verified, pending, rejected, missing } = bucketRequiredDocuments(required);
@@ -114,10 +122,14 @@ export function MyDocumentsSection({
                     </td>
                     <td style={tdS}>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setUploadTarget({ type: r, existing: doc })}
-                          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A01418', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                          <Upload size={12} /> {doc ? 'Re-upload' : 'Upload'}
-                        </button>
+                        {r.status === 'PENDING_VERIFICATION' ? (
+                          doc && <WithdrawButton doc={doc} onWithdrawn={handleWithdrawn} />
+                        ) : (
+                          <button onClick={() => setUploadTarget({ type: r, existing: doc })}
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A01418', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                            <Upload size={12} /> {doc ? 'Update' : 'Upload'}
+                          </button>
+                        )}
                         {doc && <ViewButton docId={doc.id} />}
                       </div>
                     </td>
