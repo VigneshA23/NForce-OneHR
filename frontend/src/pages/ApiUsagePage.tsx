@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, ExternalLink, Gauge, MessageSquareText, Settings2, ShieldAlert, Zap } from 'lucide-react';
+import {
+  Activity, Database, ExternalLink, Gauge, MessageSquareText, RefreshCw, Settings2, ShieldAlert, Zap,
+} from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -8,7 +10,8 @@ import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
   fetchUsageStats, fetchBilling, fetchBillingSettings, updateBillingSettings,
-  type AiUsageStats, type AiBilling, type AiBillingSettings,
+  fetchHealth, reindexKnowledge,
+  type AiUsageStats, type AiBilling, type AiBillingSettings, type AssistantHealth, type KnowledgeIndexingReport,
 } from '../api/aiAssistant';
 
 // ── Shared styles (matches ReportsPage.tsx — plain style objects, no CSS framework) ──
@@ -279,6 +282,137 @@ function BillingCard({ token }: { token: string }) {
   );
 }
 
+/** "Sep 24, 2026, 6:59 PM" — full timestamp, since an admin deciding whether to re-index needs the
+ *  exact moment, not a relative "3 hours ago" that goes stale the instant the page is left open. */
+function formatIndexedAt(iso: string | null): string {
+  if (!iso) return 'Never';
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
+/**
+ * The assistant answers only from what was in the index at the last re-index — editing Help
+ * Content or a knowledge YAML file has zero effect on live answers until this runs (see
+ * KnowledgeIndexingService's own Javadoc: no startup/scheduled trigger, by design, since a full
+ * rebuild costs real embedding calls and briefly leaves the index inconsistent). This card exists
+ * so that "I fixed the knowledge base" and "the assistant now answers correctly" are the same
+ * moment for a Super Admin, instead of a manual API call nobody but engineering knows to make.
+ */
+function KnowledgeBaseCard({ token }: { token: string }) {
+  const { showToast } = useToast();
+
+  const [health, setHealth] = useState<AssistantHealth | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reindexing, setReindexing] = useState(false);
+  const [lastReport, setLastReport] = useState<KnowledgeIndexingReport | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchHealth(token)
+      .then(setHealth)
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed to load index status'))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function runReindex() {
+    if (!window.confirm(
+      "Re-index the knowledge base now?\n\nThis rebuilds NORA's entire search index from the " +
+      'current Help Content and knowledge files, costs real Mistral embedding calls, and takes ' +
+      'about a minute. Do this after publishing a Help Content change or editing a knowledge file.',
+    )) return;
+    setReindexing(true);
+    try {
+      const report = await reindexKnowledge(token);
+      setLastReport(report);
+      showToast('success', `Re-indexed: ${report.documents} documents → ${report.chunks} chunks`);
+      load(); // refresh indexReady/indexedChunks/lastIndexedAt against the new index
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Re-index failed');
+    } finally {
+      setReindexing(false);
+    }
+  }
+
+  return (
+    <div style={{ ...card, padding: '16px 18px', marginBottom: 18 }}>
+      <style>{'@keyframes nf-spin { to { transform: rotate(360deg); } }'}</style>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
+            <Database size={14} style={{ color: 'var(--brand)' }} /> Knowledge base
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
+            What NORA answers from. A Help Content or knowledge-file change only takes effect here.
+          </div>
+        </div>
+        <button
+          onClick={runReindex}
+          disabled={reindexing || loading}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+            background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px',
+            fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)',
+            cursor: (reindexing || loading) ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
+          }}
+        >
+          <RefreshCw size={12} style={reindexing ? { animation: 'nf-spin 1s linear infinite' } : undefined} />
+          {reindexing ? 'Re-indexing…' : 'Re-index now'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: '16px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>Loading…</div>
+      ) : error ? (
+        <div style={{ padding: '16px 0' }}>
+          <span style={{ color: COLOR_ERROR, fontSize: 12.5 }}>Couldn't load index status ({error}).</span>{' '}
+          <button onClick={load} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 12.5, padding: 0 }}>Retry</button>
+        </div>
+      ) : health && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 28px', marginTop: 14 }}>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Status</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: health.indexReady ? COLOR_SUCCESS : COLOR_ERROR, marginTop: 3 }}>
+              {health.indexReady ? 'Ready' : 'Not ready'}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Indexed chunks</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 3 }}>{formatNumber(health.indexedChunks)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Last indexed</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 3 }}>{formatIndexedAt(health.lastIndexedAt)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Sources</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 3 }}>
+              {health.knowledgeSources.length > 0 ? health.knowledgeSources.join(', ') : '—'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reindexing && (
+        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 12 }}>
+          Rebuilding the index — this page will update automatically when it's done. Answers keep
+          using the previous index until the rebuild finishes.
+        </div>
+      )}
+      {lastReport && !reindexing && (
+        <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 12 }}>
+          Last run: {formatNumber(lastReport.documents)} documents → {formatNumber(lastReport.chunks)} chunks
+          ({formatNumber(lastReport.removed)} stale rows replaced).
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ApiUsagePage() {
   const token = useAuthStore(s => s.token) ?? '';
   const role = useAuthStore(s => s.user?.role);
@@ -339,6 +473,7 @@ export default function ApiUsagePage() {
         </a>
       </div>
 
+      <KnowledgeBaseCard token={token} />
       <BillingCard token={token} />
 
       {/* Period selector */}
