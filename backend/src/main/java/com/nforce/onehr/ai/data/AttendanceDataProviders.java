@@ -2,7 +2,9 @@ package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
-import com.nforce.onehr.dto.TodayAttendanceResponse;
+import com.nforce.onehr.dto.AttendanceResponse;
+import com.nforce.onehr.dto.PunchResponse;
+import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
 import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
@@ -14,15 +16,21 @@ import com.nforce.onehr.service.AttendanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The caller's own attendance state.
@@ -35,36 +43,216 @@ public final class AttendanceDataProviders {
 
     private AttendanceDataProviders() {}
 
-    /** Today's punches and whether the caller can currently clock in or out. */
+    /**
+     * The caller's attendance for their current work date: whether they are clocked in, when they
+     * first checked in, how long they have worked so far, and whether they arrived late.
+     *
+     * <p>Previously reported only "record exists" and two can-clock-in/out flags, so "what time did
+     * I check in today" or "how long have I worked" had no answer. Built from pure reads -
+     * {@code currentWorkDate}, {@code getPunchForDate}, {@code getPunches}, {@code getConfig} -
+     * rather than {@code getToday}, which also settles a stale open session as a side effect; the
+     * assistant is read-only, and the figures are the same either way.
+     */
     @Component
     @RequiredArgsConstructor
     public static class Today implements AssistantDataProvider {
 
         private final AttendanceService attendanceService;
+        private final EmployeeRepository employeeRepository;
+        private final AttendanceRulesService attendanceRulesService;
 
         @Override public String id() { return "attendance.today"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your attendance today"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
-        @Override public Set<String> modules() { return Set.of("attendance"); }
+        @Override public Set<String> modules() { return Set.of("attendance", "attendance-today"); }
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
-            // Null timezone: the assistant has no browser to ask, and the service falls back to the
-            // server's own zone. That is right for a stated fact about today rather than for a
-            // clock-in, which is a write and is not something this feature can do.
-            TodayAttendanceResponse today = attendanceService.getToday(context.getActorEmail(), null);
-            if (today == null) return Optional.empty();
+            String email = context.getActorEmail();
+            LocalDate workDate = attendanceService.currentWorkDate(email);
+            AttendanceResponse record = attendanceService.getPunchForDate(email, workDate);
+            List<PunchResponse> punches = attendanceService.getPunches(email, workDate);
+            AttendanceConfigResponse config = attendanceService.getConfig(email);
+            LocalDateTime now = LocalDateTime.now(zoneOf(email, employeeRepository, attendanceRulesService));
 
-            StringBuilder out = new StringBuilder("Work date: ").append(today.getWorkDate());
-            if (today.getRecord() == null) {
-                out.append("\n- No attendance record for today yet.");
-            } else {
-                out.append("\n- Record exists for today.");
+            StringBuilder out = new StringBuilder("Work date: %s (today)".formatted(workDate));
+            if (config != null && config.getShiftStart() != null) {
+                out.append("\n- Shift: %s, %s to %s".formatted(config.getShiftName(),
+                        LiveDataText.clock(config.getShiftStart()), LiveDataText.clock(config.getShiftEnd())));
             }
-            out.append("\n- Can clock in now: ").append(today.isCanCheckIn());
-            out.append("\n- Can clock out now: ").append(today.isCanCheckOut());
+            if (record == null && punches.isEmpty()) {
+                out.append("\n- Not checked in yet today: no punch has been recorded for this work date.");
+                return Optional.of(out.toString());
+            }
+
+            PunchResponse open = punches.stream()
+                    .filter(p -> p.getCheckInAt() != null && p.getCheckOutAt() == null)
+                    .reduce((first, second) -> second)
+                    .orElse(null);
+            out.append("\n- Currently clocked in: ")
+                    .append(open != null ? "yes, since " + LiveDataText.clock(open.getCheckInAt()) : "no");
+
+            LocalDateTime firstIn = record != null && record.getCheckInAt() != null
+                    ? record.getCheckInAt()
+                    : punches.get(0).getCheckInAt();
+            out.append("\n- First check-in: ").append(LiveDataText.clock(firstIn));
+            punches.stream().map(PunchResponse::getCheckOutAt).filter(Objects::nonNull)
+                    .max(Comparator.naturalOrder())
+                    .ifPresent(lastOut -> out.append("\n- Last check-out: ").append(LiveDataText.clock(lastOut)));
+
+            // workedMinutes is the settled total of closed sessions only; an open session's time so
+            // far is added the same way the Attendance page's live counter does.
+            long worked = record != null && record.getWorkedMinutes() != null
+                    ? record.getWorkedMinutes()
+                    : punches.stream().filter(p -> p.getCheckOutAt() != null)
+                            .mapToLong(p -> LiveDataText.minutesBetween(p.getCheckInAt(), p.getCheckOutAt())).sum();
+            if (open != null) worked += LiveDataText.minutesBetween(open.getCheckInAt(), now);
+            out.append("\n- Worked so far today: ").append(LiveDataText.hoursMinutes(worked))
+                    .append(open != null ? " (including the session still open)" : "");
+            out.append("\n- Check-in sessions today: ").append(punches.size());
+            if (record != null && record.getStatus() != null) {
+                out.append("\n- Day status: ").append(record.getStatus());
+            }
+            if (record != null) {
+                out.append("\n- Arrival: ").append(lateness(record, config).map(l -> "late by " + l)
+                        .orElse("on time (within the shift's grace period)"));
+            }
             return Optional.of(out.toString());
         }
+    }
+
+    /**
+     * The caller's attendance log for the last 30 days, newest first - the same rows My Attendance
+     * shows, through the same read ({@code getMyHistory}).
+     *
+     * <p>Answers "what time did I check in on Monday", "how many hours did I work last week" and
+     * "how many days was I late this month" - none of which the exceptions or penalties providers
+     * can, since those only hold days where something went wrong.
+     */
+    @Component
+    @RequiredArgsConstructor
+    public static class MyHistory implements AssistantDataProvider {
+
+        private static final int LOOKBACK_DAYS = 30;
+
+        private final AttendanceService attendanceService;
+
+        @Override public String id() { return "attendance.my-history"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
+        @Override public String title() { return "Your attendance log for the last 30 days"; }
+        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> modules() { return Set.of("attendance", "attendance-history"); }
+
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context) {
+            String email = context.getActorEmail();
+            LocalDate to = attendanceService.currentWorkDate(email);
+            LocalDate from = to.minusDays(LOOKBACK_DAYS - 1);
+            List<AttendanceResponse> rows = attendanceService.getMyHistory(email, from, to);
+            AttendanceConfigResponse config = attendanceService.getConfig(email);
+
+            StringBuilder out = new StringBuilder("From %s to %s (today), newest first.".formatted(from, to));
+            if (rows == null || rows.isEmpty()) {
+                out.append("\nNo attendance records at all in that range.");
+                return Optional.of(out.toString());
+            }
+
+            List<AttendanceResponse> late = rows.stream().filter(r -> lateness(r, config).isPresent()).toList();
+            long workedTotal = rows.stream().mapToLong(r -> r.getWorkedMinutes() == null ? 0 : r.getWorkedMinutes()).sum();
+            out.append("\nSummary: exactly %d day(s) with an attendance record; total worked %s (average %s per recorded day)."
+                    .formatted(rows.size(), LiveDataText.hoursMinutes(workedTotal), LiveDataText.hoursMinutes(workedTotal / rows.size())));
+            out.append("\nLate arrivals (%d): %s".formatted(late.size(),
+                    late.isEmpty() ? "none" : late.stream().map(r -> r.getWorkDate().toString()).collect(Collectors.joining(", "))));
+            appendStatusCount(out, rows, "HALF_DAY");
+            appendStatusCount(out, rows, "MISSING_CHECKOUT");
+            long penalized = rows.stream().filter(AttendanceResponse::isPenalized).count();
+            if (penalized > 0) out.append("\nDays tagged PENALIZED: ").append(penalized);
+            out.append("\nA date with no row below has no attendance record - a weekly off, holiday, leave day or a day "
+                    + "not worked. Do not call it absent unless the user's question establishes it was a working day.");
+
+            out.append("\nDaily rows:");
+            for (AttendanceResponse r : rows) {
+                out.append("\n- %s (%s): %s, in %s, out %s, worked %s".formatted(
+                        r.getWorkDate(),
+                        r.getWorkDate().getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
+                        r.getStatus() == null ? "no status" : r.getStatus(),
+                        LiveDataText.clock(r.getCheckInAt()),
+                        LiveDataText.clock(r.getCheckOutAt()),
+                        LiveDataText.hoursMinutes(r.getWorkedMinutes() == null ? 0 : r.getWorkedMinutes())));
+                lateness(r, config).ifPresent(l -> out.append(", late by ").append(l));
+                if (r.isPenalized()) out.append(", PENALIZED");
+                if ("REGULARIZATION".equals(r.getSource())) out.append(", corrected by regularization");
+            }
+            return Optional.of(out.toString());
+        }
+
+        private static void appendStatusCount(StringBuilder out, List<AttendanceResponse> rows, String status) {
+            List<String> dates = rows.stream().filter(r -> status.equals(r.getStatus()))
+                    .map(r -> r.getWorkDate().toString()).toList();
+            if (!dates.isEmpty()) {
+                out.append("\n%s days (%d): %s".formatted(status, dates.size(), String.join(", ", dates)));
+            }
+        }
+    }
+
+    /** The caller's assigned shift, its grace period, the half-day threshold and their weekly offs. */
+    @Component
+    @RequiredArgsConstructor
+    public static class MyShift implements AssistantDataProvider {
+
+        private final AttendanceService attendanceService;
+
+        @Override public String id() { return "attendance.my-shift"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
+        @Override public String title() { return "Your shift, grace period and weekly offs"; }
+        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> modules() { return Set.of("attendance", "shift"); }
+
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context) {
+            AttendanceConfigResponse config = attendanceService.getConfig(context.getActorEmail());
+            if (config == null) return Optional.empty();
+
+            StringBuilder out = new StringBuilder();
+            if (config.getShiftStart() == null) {
+                out.append("- No shift is assigned to you right now (NO_SHIFT_ASSIGNED); HR assigns shifts.");
+            } else {
+                out.append("- Shift: %s, %s to %s".formatted(config.getShiftName(),
+                        LiveDataText.clock(config.getShiftStart()), LiveDataText.clock(config.getShiftEnd())));
+                out.append("\n- Late grace period: %d minutes - a check-in more than %d minutes after the shift start counts as late"
+                        .formatted(config.getLateGraceMinutes(), config.getLateGraceMinutes()));
+            }
+            out.append("\n- Half-day threshold: %s hours".formatted(config.getHalfDayMaxHours()));
+            if (config.getWeeklyOffDays() != null && !config.getWeeklyOffDays().isEmpty()) {
+                out.append("\n- Weekly offs: ").append(String.join(", ", config.getWeeklyOffDays()));
+            }
+            return Optional.of(out.toString());
+        }
+    }
+
+    /**
+     * Lateness exactly as the Attendance page shows it: only when the raw minutes past shift start
+     * exceed the shift's grace period (the page's LateBadge gate), and phrased from check-in minus
+     * shift start to the second, falling back to the stored minutes for a legacy record.
+     */
+    static Optional<String> lateness(AttendanceResponse record, AttendanceConfigResponse config) {
+        Integer minutes = record.getLateByMinutes();
+        int grace = config != null ? config.getLateGraceMinutes() : 10;
+        if (minutes == null || minutes <= grace) return Optional.empty();
+        if (record.getCheckInAt() != null && record.getShiftStartAt() != null
+                && record.getCheckInAt().isAfter(record.getShiftStartAt())) {
+            long seconds = Duration.between(record.getShiftStartAt(), record.getCheckInAt()).getSeconds();
+            long h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60;
+            return Optional.of(h > 0 ? "%dh %dm %ds".formatted(h, m, s) : "%dm %ds".formatted(m, s));
+        }
+        return Optional.of("%d minutes".formatted(minutes));
+    }
+
+    static ZoneId zoneOf(String email, EmployeeRepository employeeRepository, AttendanceRulesService attendanceRulesService) {
+        return employeeRepository.findByUser_Email(email)
+                .map(attendanceRulesService::resolveEmployeeZoneId)
+                .orElseGet(attendanceRulesService::getDefaultZoneId);
     }
 
     /** Recent attendance exceptions raised against the caller. */
@@ -98,6 +286,7 @@ public final class AttendanceDataProviders {
         private final AttendanceRulesService attendanceRulesService;
 
         @Override public String id() { return "attendance.my-exceptions"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your attendance exceptions in the last 7 days"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
         @Override public Set<String> modules() { return Set.of("attendance", "exceptions"); }
@@ -201,6 +390,7 @@ public final class AttendanceDataProviders {
         private final AttendanceRulesService attendanceRulesService;
 
         @Override public String id() { return "attendance.my-penalties"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your active attendance penalties"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
         @Override public Set<String> modules() { return Set.of("attendance", "penalties"); }
