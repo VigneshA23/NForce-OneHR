@@ -95,6 +95,15 @@ body {
   --warn:        #E0A93B;
   --risk:        #E4373D;
   --info:        #4C8DD6;
+
+  /* Organization Masters — additional restrained accents for per-section identity (Designations/
+     Locations/Document Types/Leave/Attendance Rules/AI Assistant), alongside the tokens above. */
+  --om-purple:   #A78BFA;
+  --om-teal:     #2DD4BF;
+  --om-indigo:   #818CF8;
+  --om-rose:     #FB7185;
+  --om-cyan:     #22D3EE;
+  --om-violet:   #C084FC;
 }
 
 /* WCAG-AA verified on white: brand-bright 5.7:1, ok 4.9:1, warn 5.6:1, risk 5.7:1, info 6.4:1 */
@@ -116,6 +125,13 @@ body {
   --warn:        #896010;
   --risk:        #C81A1F;
   --info:        #1A5FAA;
+
+  --om-purple:   #6D4FD6;
+  --om-teal:     #0E8074;
+  --om-indigo:   #4145C4;
+  --om-rose:     #C23A57;
+  --om-cyan:     #0E7C90;
+  --om-violet:   #8330C9;
 }
 
 /* Accessibility: "High contrast" (User Preferences → Accessibility) — pushes text/border tokens
@@ -1151,3 +1167,37 @@ input[type="date"] {
   100% { left: 100%; opacity: 0; }
 }
 .nf-flow-track:hover .nf-flow-dot { filter: brightness(1.35); }
+
+/* ============================================================
+   Organization Masters — presentational polish only.
+   Tab icon badges (per-tab accent), row icon badges, and a
+   lightweight section-loading state. No data/validation/CRUD
+   logic here.
+   ============================================================ */
+
+.nf-org-tab-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
+  color: var(--txt-mut); background: transparent;
+  transition: background .15s, color .15s;
+}
+.nf-org-tab[aria-selected="true"] .nf-org-tab-icon {
+  background: color-mix(in srgb, var(--tab-accent, var(--brand)) 20%, transparent);
+  color: var(--tab-accent, var(--brand-bright));
+}
+.nf-org-tab:hover:not([aria-selected="true"]) .nf-org-tab-icon {
+  background: var(--raised2); color: var(--txt);
+}
+
+.nf-org-icon-badge {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--badge-accent, var(--txt-mut)) 22%, transparent);
+}
+
+@keyframes nf-org-spin { to { transform: rotate(360deg); } }
+.nf-org-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--line2); border-top-color: var(--brand-bright);
+  animation: nf-org-spin .7s linear infinite;
+}

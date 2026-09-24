@@ -175,6 +175,16 @@ public class LeaveService {
                 ? new BigDecimal("0.5")
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
 
+        // An employee with an available paid leave balance must exhaust/use that before falling
+        // back to an Unpaid-classified type — this is a business rule (not day-count-based), so it
+        // applies to every Unpaid LeaveType, not just a specific hardcoded one. Checked against ALL
+        // of the employee's distinct paid balances for the year (mirrors #listMyBalances' dedup of
+        // the Annual/Sick/Casual group), not just the balance tied to the selected type.
+        if (!type.isPaid() && hasAnyPositivePaidBalance(actor.getId(), req.getStartDate().getYear())) {
+            throw new IllegalArgumentException(
+                    "You cannot apply for unpaid leave while you have an available paid leave balance.");
+        }
+
         // Unpaid leave types (see LeaveType#isPaid) don't draw from any LeaveBalance — the
         // requested days must never consume the employee's paid leave balance, so there is
         // nothing to look up or validate against here. Mirrors the skip in #approve below.
@@ -662,6 +672,21 @@ public class LeaveService {
                 LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31));
         if (pendingReserved == null) pendingReserved = BigDecimal.ZERO;
         return b.getTotalDays().subtract(b.getUsedDays()).subtract(pendingReserved);
+    }
+
+    /**
+     * True if the employee has any distinct paid-classification LeaveType balance with a
+     * positive available balance for the given year — used to block Unpaid submissions (see
+     * #submitRequest). Mirrors #listMyBalances' filtering/dedup (paid types only, Annual/Sick/
+     * Casual collapsed to the single Annual row) so this reads the same balances a user actually
+     * sees, reusing #availableBalance rather than a duplicate calculation.
+     */
+    private boolean hasAnyPositivePaidBalance(UUID employeeUserId, int year) {
+        return leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year).stream()
+                .filter(b -> b.getLeaveType().isPaid())
+                .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
+                        || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
+                .anyMatch(b -> availableBalance(b).compareTo(BigDecimal.ZERO) > 0);
     }
 
     private boolean isAnnualBalanceLeaveType(LeaveType type) {
