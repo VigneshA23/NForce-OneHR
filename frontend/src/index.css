@@ -1136,6 +1136,42 @@ input[type="date"] {
   background: var(--panel); border-top: 1px solid var(--line);
 }
 
+/* Overtime Requests — row "⋮" action button + menu (OvertimeActionMenu). The menu is portaled to
+   <body> with position: fixed (top/left set inline), so no table/panel overflow can clip it.
+   z-index sits above page content but below modal overlays (500). */
+.nf-ot-menu-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--raised); color: var(--txt-mut); border: 1px solid var(--line2); border-radius: 7px;
+  cursor: pointer; transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.nf-ot-menu-btn:hover { background: var(--raised2); border-color: var(--txt-dim); color: var(--txt); }
+.nf-ot-menu-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--brand) 10%, var(--raised)); border-color: color-mix(in srgb, var(--brand) 45%, var(--line2));
+  color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+.nf-ot-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.nf-ot-menu {
+  position: fixed; z-index: 450; min-width: 172px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 28px -6px rgba(0,0,0,.35);
+}
+.nf-ot-menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: none; border-radius: 6px;
+  background: transparent; color: var(--txt); font-size: 12.5px; font-weight: 500; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.nf-ot-menu-item svg { flex-shrink: 0; color: var(--txt-dim); }
+.nf-ot-menu-item:hover, .nf-ot-menu-item:focus-visible { background: var(--raised2); outline: none; }
+.nf-ot-menu-item--approve, .nf-ot-menu-item--approve svg { color: var(--ok); }
+.nf-ot-menu-item--approve:hover, .nf-ot-menu-item--approve:focus-visible { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.nf-ot-menu-item--reject, .nf-ot-menu-item--reject svg { color: var(--risk); }
+.nf-ot-menu-item--reject:hover, .nf-ot-menu-item--reject:focus-visible { background: color-mix(in srgb, var(--risk) 12%, transparent); }
+.nf-ot-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+/* Touch screens: larger button and rows for a comfortable tap target. */
+@media (pointer: coarse) {
+  .nf-ot-menu-btn { width: 36px; height: 36px; }
+  .nf-ot-menu-item { padding: 11px 12px; font-size: 13px; }
+}
+
 /* Attendance Requests / Overtime Requests tables — same table-vs-card idea as the Attendance
    Log above, but keyed to the table's own container width (they sit in the page's left column,
    so the viewport says little about how much room they get). Wide enough: a fixed-layout table

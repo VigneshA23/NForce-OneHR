@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -6123,56 +6123,94 @@ function OvertimeActionMenu({ request, canApprove, onView, onApprove, onReject }
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // null until measured — the menu renders hidden for one layout pass so its real size is known.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      // The menu is portaled out of `ref`, so a click inside it must not count as "outside".
+      const t = e.target as Node;
+      if (ref.current && !ref.current.contains(t) && !menuRef.current?.contains(t)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { setOpen(false); buttonRef.current?.focus(); }
     }
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  // Portaled to document.body with position: fixed (same approach as DetailDrawer/Tooltip): the
+  // table sits inside the .nf-req-wrap overflow-x scroller (which also clips vertically) within an
+  // overflow: hidden panel, so an absolutely-positioned menu was cut off — fully hidden on the last
+  // rows. Placement: below the button, right-aligned to it; flips above when there isn't room
+  // below; always kept 8px inside the viewport. Re-measured on scroll/resize so it stays anchored.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return; }
+    function place() {
+      const b = buttonRef.current?.getBoundingClientRect();
+      const m = menuRef.current;
+      if (!b || !m) return;
+      const GAP = 4, EDGE = 8;
+      const w = m.offsetWidth, h = m.offsetHeight;
+      let top = b.bottom + GAP;
+      if (top + h > window.innerHeight - EDGE) {
+        const above = b.top - GAP - h;
+        top = above >= EDGE ? above : Math.max(EDGE, window.innerHeight - EDGE - h);
+      }
+      const left = Math.min(Math.max(b.right - w, EDGE), window.innerWidth - EDGE - w);
+      setPos({ top, left });
+    }
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
   }, [open]);
 
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+    <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       <button
+        ref={buttonRef}
+        className="nf-ot-menu-btn"
         onClick={() => setOpen((o) => !o)}
         aria-label="Actions"
-        style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
-        <MoreVertical size={14} />
+        <MoreVertical size={15} />
       </button>
-      {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 40, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.35)', minWidth: 150, overflow: 'hidden' }}>
-          <button
-            onClick={() => { setOpen(false); onView(); }}
-            style={dropdownMenuItemStyle}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            View Request
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          className="nf-ot-menu"
+          style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? 'visible' : 'hidden' }}
+        >
+          <button role="menuitem" className="nf-ot-menu-item" onClick={() => { setOpen(false); onView(); }}>
+            <Eye size={13} /> View Request
           </button>
           {canApprove && request.status === 'PENDING' && (
             <>
-              <button
-                onClick={() => { setOpen(false); onApprove(); }}
-                style={{ ...dropdownMenuItemStyle, color: '#2FB67C' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                Approve
+              <div className="nf-ot-menu-sep" role="separator" />
+              <button role="menuitem" className="nf-ot-menu-item nf-ot-menu-item--approve" onClick={() => { setOpen(false); onApprove(); }}>
+                <CheckCircle2 size={13} /> Approve
               </button>
-              <button
-                onClick={() => { setOpen(false); onReject(); }}
-                style={{ ...dropdownMenuItemStyle, color: '#E4373D' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                Reject
+              <button role="menuitem" className="nf-ot-menu-item nf-ot-menu-item--reject" onClick={() => { setOpen(false); onReject(); }}>
+                <XCircle size={13} /> Reject
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
