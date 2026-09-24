@@ -80,7 +80,7 @@ class DataProviderSafetyTest {
         assertThat(found).containsExactlyInAnyOrder(
                 "Balances", "MyRequests", "PendingApprovals",
                 "MyClaims", "PendingForManager",
-                "Today", "MyExceptions",
+                "Today", "MyExceptions", "MyPenalties",
                 "MyRegularizations", "PendingRegularizations",
                 "MyWfhAndPartialDay", "PendingWfhAndPartialDay",
                 "MyOvertime", "PendingOvertime",
