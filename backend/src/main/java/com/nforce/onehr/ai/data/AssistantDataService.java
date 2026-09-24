@@ -51,8 +51,21 @@ public class AssistantDataService {
      * <p>Not a performance guard. Each provider is a real query returning real employee data into a
      * prompt that leaves the building, so the number that can fire on one question is capped
      * deliberately rather than left to however many modules happened to match.
+     *
+     * <p>Raised from 3 to 4 (ONEHR - a "do I have any penalties" question was answered as "no
+     * penalties" for an employee with a real active one, reproduced live on the Attendance page).
+     * The primary fix for that bug is not this number: it is that {@code action.attendance.penalty}
+     * and {@code action.attendance.my-exceptions} now carry their own specific knowledge module
+     * ({@code penalties}, {@code exceptions}) instead of the generic {@code attendance} every other
+     * attendance-adjacent provider shares, so a question actually about penalties now scores
+     * {@code attendance.my-penalties} above its own sibling {@code attendance.my-exceptions} within
+     * their family, and wins that family's first-round pick outright rather than needing a second
+     * round that other, merely page-boosted families kept consuming first. This constant is now only
+     * a modest safety margin above the original 3, for the case a question is genuinely about both
+     * exceptions and penalties at once and neither outscores the other within their shared family -
+     * that still costs a second round, and this is one slot of headroom for it.
      */
-    private static final int MAX_PROVIDERS_PER_TURN = 3;
+    private static final int MAX_PROVIDERS_PER_TURN = 4;
 
     /**
      * How relevant the page the user is looking at counts as.

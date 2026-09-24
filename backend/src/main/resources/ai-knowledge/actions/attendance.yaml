@@ -198,6 +198,85 @@ knowledge:
 
       It appears in your Requests list while it waits, and in your approver's Approval Center.
 
+  - knowledgeId: action.attendance.penalty
+    type: ACTION
+    module: penalties
+    pageId: attendance
+    actionId: attendance.penalty
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Attendance penalties
+    synonyms:
+      - attendance penalty
+      - why was I penalized
+      - on which day was I penalized
+      - penalized badge
+      - PENALIZED tag
+      - penalty deduction
+      - late penalty
+      - did I get penalized
+      - leave deducted for attendance
+    body: |
+      A penalty is a leave or Loss-of-Pay deduction OneHR applies automatically when your
+      organisation's configured Penalization Policy matches an attendance discrepancy on a day —
+      most commonly a late arrival or a missing punch. It is a separate thing from an attendance
+      exception: an exception is the detected discrepancy itself, a penalty is the deduction that
+      followed from it.
+
+      Where to see it: on My Attendance, a date with an active penalty is tagged PENALIZED. You can
+      ask this assistant which specific date(s) that applies to — it can read your own active
+      penalties directly, it does not need you to open the page first.
+
+      A penalty stays active (shown as PENDING_REVIEW behind the scenes) until it is resolved. It
+      does not expire or clear itself.
+
+      How it gets resolved:
+      - If the discrepancy was a mistake — a forgotten punch, a wrong time — submit a regularization
+        request for that date. If it is approved, the penalty for that date is reversed
+        automatically and any leave it deducted is credited back.
+      - Otherwise, your Manager, an HR Admin or a Super Admin can cancel a still-pending penalty
+        directly from the Regularize & Cancel Penalties screen, which also restores any leave it
+        deducted.
+
+      You cannot cancel your own penalty yourself — only regularizing the underlying attendance
+      record, or having a Manager/HR Admin/Super Admin cancel it, resolves one.
+
+  - knowledgeId: action.attendance.my-exceptions
+    type: ACTION
+    module: exceptions
+    pageId: attendance
+    actionId: attendance.my-exceptions
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Your own recent late arrivals and missed punches
+    synonyms:
+      - when did i come late
+      - which days did i come late
+      - what days was i late
+      - was i late this week
+      - my late arrivals
+      - late arrivals in the last 7 days
+      - my attendance exceptions
+      - my missing punches
+      - did i miss any punches
+      - how many times was i late
+      - days i came late in the past week
+    body: |
+      You can ask this assistant about your own recent attendance problems directly — which days you
+      arrived late or had a missing punch in roughly the last week — without opening My Attendance
+      first. It reads your own exception history for that window and states the exact dates.
+
+      The exception types that can show up here: late arrival (clocked in after your shift start plus
+      its grace period), missing punch (a check-in without a check-out, or the reverse), no attendance
+      recorded, and work hours shortage (worked fewer hours than the day expected). More than one can
+      land on the same date.
+
+      An exception is a detected discrepancy, not a deduction — it does not by itself mean leave or
+      pay was docked. Ask about attendance penalties separately for that.
+
+      For anything beyond roughly the last week, or the full picture with punch times, open My
+      Attendance directly.
+
   - knowledgeId: action.attendance.exceptions
     type: ACTION
     module: attendance
@@ -222,9 +301,11 @@ knowledge:
       - Leave and attendance conflict, when attendance is recorded on a day covered by approved
         leave.
       - Pending leave approval, which is worked out when the dashboard is loaded rather than stored.
+      - No attendance recorded, when a working day has no punch at all.
+      - Work hours shortage, when a day's worked hours fall short of what it expected.
 
-      Three further types exist in the data model but are never generated: no attendance recorded,
-      work hours shortage, and early departure. They are reserved for future use, so an empty
-      result for one of those means the detection does not exist, not that there is nothing to find.
+      One further type exists in the data model but is never generated: early departure. It is
+      reserved for future use, so an empty result for it means the detection does not exist, not
+      that there is nothing to find.
 
       Managers see their own direct reports. HR Admins see the organisation.
