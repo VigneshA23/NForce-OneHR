@@ -304,4 +304,36 @@ class AttendanceRequestServiceTest {
         verify(notificationService, times(1))
                 .send(eq(employeeId), eq("ATTENDANCE_REQUEST_APPROVED"), any(), any(), any());
     }
+
+    @Test
+    void listTeamApprovedWfh_queriesOnlyApprovedWfhForTheManagersDirectReports() {
+        LocalDate day = LocalDate.of(2026, 9, 24);
+        UUID reportId = UUID.randomUUID();
+        when(historyRepository.findCurrentDirectReportIds(employeeId)).thenReturn(List.of(reportId));
+        when(requestRepository.findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+                List.of(reportId), "WFH", "APPROVED", day, day)).thenReturn(List.of());
+
+        assertTrue(service.listTeamApprovedWfh(employeeEmail, day, day).isEmpty());
+        verify(requestRepository).findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+                List.of(reportId), "WFH", "APPROVED", day, day);
+    }
+
+    @Test
+    void listTeamApprovedWfh_noDirectReports_returnsEmptyWithoutQuerying() {
+        LocalDate day = LocalDate.of(2026, 9, 24);
+        when(historyRepository.findCurrentDirectReportIds(employeeId)).thenReturn(List.of());
+
+        assertTrue(service.listTeamApprovedWfh(employeeEmail, day, day).isEmpty());
+        verify(requestRepository, never()).findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+                any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void listPeerApprovedWfh_callerWithoutManager_returnsEmpty() {
+        LocalDate day = LocalDate.of(2026, 9, 24);
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(java.util.Optional.empty());
+
+        assertTrue(service.listPeerApprovedWfh(employeeEmail, day, day).isEmpty());
+        verify(historyRepository, never()).findCurrentPeerIds(any());
+    }
 }

@@ -15,7 +15,8 @@ import {
   type PenaltyRow, type PenaltyFilters, type AttendancePenaltyStatus, type RegularizationRecord,
 } from '../api/attendance';
 import { KebabMenu } from '../components/KebabMenu';
-import { leaveApi, type LeaveRequestRecord } from '../api/leave';
+import { leaveApi, type LeaveBalance, type LeaveRequestRecord } from '../api/leave';
+import { attendanceRequestApi, type AttendanceRequestRecord } from '../api/attendanceRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { approvalCenterApi, type ApprovalItem } from '../api/approvalCenter';
 import {
@@ -530,6 +531,53 @@ const DAY_COLORS: Record<Exclude<DayCategory, 'plain'>, string> = {
   wfh: 'var(--info)',
   missing: 'var(--risk)',
 };
+
+/* ── WFH / On duty: driven by APPROVED WFH requests only ──
+ * Never by the employee's profile work mode (a HYBRID/REMOTE employee who didn't raise a WFH
+ * request is not WFH that day) nor by a Web Clock-In (that has its own "Remote clock-ins" card).
+ * There is no separate On Duty request type in the schema, so WFH is the only source. */
+function wfhPeopleFrom(requests: AttendanceRequestRecord[]): { userId: string; fullName: string }[] {
+  const seen = new Set<string>();
+  const list: { userId: string; fullName: string }[] = [];
+  requests.forEach(r => {
+    if (r.status === 'APPROVED' && r.requestType === 'WFH' && !seen.has(r.employeeUserId)) {
+      seen.add(r.employeeUserId);
+      list.push({ userId: r.employeeUserId, fullName: r.employeeName });
+    }
+  });
+  return list;
+}
+
+function formatDays(n: number): string {
+  const v = Number(n);
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/** Roster card's current-year leave balance, one entry per paid leave type (`null` = loading). */
+function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
+  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span style={labelStyle}>Leave balance</span>
+      {balances === null ? (
+        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Loading…</span>
+      ) : balances.length === 0 ? (
+        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No balance on file</span>
+      ) : balances.map(b => (
+        <span key={b.leaveTypeCode} style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+          {b.leaveTypeName}: <strong style={{ color: 'var(--txt)' }}>{formatDays(b.remainingDays)}</strong> of {formatDays(b.totalDays)} days remaining
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** `${employeeUserId}:${requestDate}` keys for approved WFH requests — calendar day-cell lookup. */
+function wfhDayKeysFrom(requests: AttendanceRequestRecord[]): Set<string> {
+  return new Set(requests
+    .filter(r => r.status === 'APPROVED' && r.requestType === 'WFH')
+    .map(r => `${r.employeeUserId}:${r.requestDate}`));
+}
 
 /* ── Shared: date-range control for the leaderboard/negligence tabs ── */
 function DateRangeControl({ from, to, onFrom, onTo }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void }) {
@@ -1956,6 +2004,8 @@ function PeersView({ token }: { token: string }) {
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'onTime' | 'late' | 'wfh' | 'remote'>(null);
+  const [todayWfh, setTodayWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [monthWfh, setMonthWfh] = useState<AttendanceRequestRecord[]>([]);
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
@@ -1970,6 +2020,10 @@ function PeersView({ token }: { token: string }) {
   }, [token, today]);
 
   useEffect(() => {
+    attendanceRequestApi.peerApprovedWfh(today, today, token).then(setTodayWfh).catch(() => setTodayWfh([]));
+  }, [token, today]);
+
+  useEffect(() => {
     holidaysApi.listForMyLocation(token).then(setHolidays).catch(() => setHolidays([]));
   }, [token]);
 
@@ -1980,7 +2034,8 @@ function PeersView({ token }: { token: string }) {
     Promise.all([
       attendanceApi.peersMonth(from, to, token).catch(() => []),
       leaveApi.peers(from, to, token).catch(() => []),
-    ]).then(([att, lv]) => { setMonthAttendance(att); setMonthLeave(lv); });
+      attendanceRequestApi.peerApprovedWfh(from, to, token).catch(() => []),
+    ]).then(([att, lv, wfh]) => { setMonthAttendance(att); setMonthLeave(lv); setMonthWfh(wfh); });
   }, [token, viewDate]);
 
   const attendanceByEmployee = useMemo(() => new Map(todayRecords.map(r => [r.employeeUserId, r])), [todayRecords]);
@@ -2001,17 +2056,7 @@ function PeersView({ token }: { token: string }) {
   const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
-  const wfhOnDutyEmployees = useMemo(() => {
-    const seen = new Set<string>();
-    const list: { userId: string; fullName: string }[] = [];
-    todayRecords.forEach(r => {
-      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
-        seen.add(r.employeeUserId);
-        list.push({ userId: r.employeeUserId, fullName: r.fullName });
-      }
-    });
-    return list;
-  }, [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => wfhPeopleFrom(todayWfh), [todayWfh]);
   const onTimeCount = onTimeEmployees.length;
   const lateCount = lateEmployees.length;
   const remoteClockInCount = remoteClockInEmployees.length;
@@ -2033,14 +2078,16 @@ function PeersView({ token }: { token: string }) {
     monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
     return m;
   }, [monthAttendance]);
+  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
 
   function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
     if (onLeave) return 'leave';
+    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
     const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return (record.workMode && record.workMode !== 'ONSITE') || record.source === 'WEB_REMOTE' ? 'wfh' : 'plain';
+    if (record) return 'plain';
     if (iso >= today) return 'plain';
     return 'missing';
   }
@@ -2657,6 +2704,9 @@ export default function MyTeamPage() {
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'teamSize' | 'onTime' | 'late' | 'wfh' | 'remote' | 'attention'>(null);
+  const [todayWfh, setTodayWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [monthWfh, setMonthWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [teamBalances, setTeamBalances] = useState<LeaveBalance[] | null>(null);
   // Separate from `viewing`/EmployeeDetailModal (the main roster's "View" button, unchanged) —
   // avatars inside the "Not in yet today" card open employment details instead.
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
@@ -2720,6 +2770,16 @@ export default function MyTeamPage() {
     leaveApi.team(today, today, token).then(setTodayLeave).catch(() => setTodayLeave([]));
   }, [token, today, isEmployee]);
 
+  useEffect(() => {
+    if (isEmployee) return;
+    attendanceRequestApi.teamApprovedWfh(today, today, token).then(setTodayWfh).catch(() => setTodayWfh([]));
+  }, [token, today, isEmployee]);
+
+  useEffect(() => {
+    if (isEmployee) return;
+    leaveApi.listTeamBalances(token).then(setTeamBalances).catch(() => setTeamBalances([]));
+  }, [token, isEmployee]);
+
   const weekStart = useMemo(() => mondayOf(new Date()), []);
   const weekEnd = useMemo(() => addDays(weekStart, 4), [weekStart]);
 
@@ -2746,12 +2806,23 @@ export default function MyTeamPage() {
     Promise.all([
       attendanceApi.teamMonth(from, to, token).catch(() => []),
       leaveApi.team(from, to, token).catch(() => []),
-    ]).then(([att, lv]) => { setMonthAttendance(att); setMonthLeave(lv); });
+      attendanceRequestApi.teamApprovedWfh(from, to, token).catch(() => []),
+    ]).then(([att, lv, wfh]) => { setMonthAttendance(att); setMonthLeave(lv); setMonthWfh(wfh); });
   }, [token, viewDate, isEmployee]);
 
   const attendanceByEmployee = useMemo(() => new Map(todayRecords.map(r => [r.employeeUserId, r])), [todayRecords]);
   const directoryByEmployee = useMemo(() => new Map(directory.map(d => [d.userId, d])), [directory]);
   const onLeaveToday = useMemo(() => new Map(todayLeave.map(l => [l.employeeUserId, l])), [todayLeave]);
+  const balancesByEmployee = useMemo(() => {
+    const m = new Map<string, LeaveBalance[]>();
+    (teamBalances ?? []).forEach(b => {
+      if (!b.employeeUserId) return;
+      const arr = m.get(b.employeeUserId) ?? [];
+      arr.push(b);
+      m.set(b.employeeUserId, arr);
+    });
+    return m;
+  }, [teamBalances]);
   const attentionItems = useMemo(() => pendingItems.filter(i => i.requestType === 'LEAVE' || i.requestType === 'REGULARIZATION'), [pendingItems]);
   const requestsByEmployee = useMemo(() => {
     const m = new Map<string, ApprovalItem[]>();
@@ -2781,17 +2852,7 @@ export default function MyTeamPage() {
   const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
-  const wfhOnDutyEmployees = useMemo(() => {
-    const seen = new Set<string>();
-    const list: { userId: string; fullName: string }[] = [];
-    todayRecords.forEach(r => {
-      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
-        seen.add(r.employeeUserId);
-        list.push({ userId: r.employeeUserId, fullName: r.fullName });
-      }
-    });
-    return list;
-  }, [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => wfhPeopleFrom(todayWfh), [todayWfh]);
   const onTimeCount = onTimeEmployees.length;
   const lateCount = lateEmployees.length;
   const remoteClockInCount = remoteClockInEmployees.length;
@@ -2829,14 +2890,16 @@ export default function MyTeamPage() {
     monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
     return m;
   }, [monthAttendance]);
+  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
 
   function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
     if (onLeave) return 'leave';
+    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
     const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return (record.workMode && record.workMode !== 'ONSITE') || record.source === 'WEB_REMOTE' ? 'wfh' : 'plain';
+    if (record) return 'plain';
     if (iso >= today) return 'plain';
     return 'missing';
   }
@@ -3121,6 +3184,7 @@ export default function MyTeamPage() {
                     <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{row.leaveTypeName}</span>
                   )}
                 </div>
+                <LeaveBalanceLine balances={teamBalances === null ? null : balancesByEmployee.get(row.dr.userId) ?? []} />
                 {row.requests.length > 0 && (
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                     {groupRequestsByType(row.requests).map(({ type, count }) => (
