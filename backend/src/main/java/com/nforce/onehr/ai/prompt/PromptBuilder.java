@@ -5,10 +5,15 @@ import com.nforce.onehr.ai.contract.PageReference;
 import com.nforce.onehr.ai.contract.RetrievalResult;
 import com.nforce.onehr.ai.data.AssistantDataService;
 import com.nforce.onehr.ai.navigation.PageRegistry;
+import com.nforce.onehr.service.AttendanceRulesService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.TextStyle;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -32,6 +37,7 @@ import java.util.Optional;
 public class PromptBuilder {
 
     private final PageRegistry pageRegistry;
+    private final AttendanceRulesService attendanceRulesService;
 
     /** Builds the system prompt: standing policy, who is asking, what they can reach, what we know. */
     public String buildSystemPrompt(AssistantRequestContext context,
@@ -58,6 +64,23 @@ public class PromptBuilder {
                                     Optional<PageReference> currentPage,
                                     AssistantDataService.LiveData liveData) {
         StringBuilder sb = new StringBuilder(SystemPromptTemplate.POLICY);
+
+        // Without this, the model has no ground truth for "today" and falls back to whatever date
+        // its own training implies — observed producing a "yesterday" a full day off from the
+        // org's actual business date (ONEHR — chatbot misreads "yesterday"). Same zone as every
+        // other org-wide "business today" in the app (see AttendanceRulesService#getDefaultZoneId,
+        // used the same way by RegularizationService), so a date the assistant states matches what
+        // the rest of OneHR would show for the same moment.
+        ZoneId zone = attendanceRulesService.getDefaultZoneId();
+        LocalDateTime now = LocalDateTime.now(zone);
+        sb.append("\n\nCURRENT DATE & TIME\n");
+        sb.append("- Today: ").append(now.toLocalDate())
+                .append(" (").append(now.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH)).append(")\n");
+        sb.append("- Current time: ").append(String.format("%02d:%02d", now.getHour(), now.getMinute()))
+                .append(" (").append(zone.getId()).append(")\n");
+        sb.append("- Resolve every relative date or time reference (\"today\", \"yesterday\", ")
+                .append("\"tomorrow\", \"this week\", \"last week\", \"this month\", \"last month\") ")
+                .append("against this date and time. Never use any other notion of the current date.\n");
 
         sb.append("\n\nSIGNED-IN USER\n");
         sb.append("- Role: ").append(describeRole(context)).append('\n');

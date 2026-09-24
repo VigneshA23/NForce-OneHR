@@ -25,6 +25,7 @@ import com.nforce.onehr.ai.response.UnknownResponses;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.service.AttendanceRulesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -64,6 +66,7 @@ class AiAssistantServiceTest {
     @Mock private ConversationService conversationService;
     @Mock private AiInteractionLogger interactionLogger;
     @Mock private AiRateLimitSettingsService rateLimitSettingsService;
+    @Mock private AttendanceRulesService attendanceRulesService;
 
     private AiProperties properties;
     private AiAssistantService service;
@@ -93,9 +96,11 @@ class AiAssistantServiceTest {
         when(embeddingProvider.lastCallInfo()).thenReturn(new EmbeddingProvider.EmbeddingCallInfo(1, 20));
         when(llmProvider.lastAttemptCount()).thenReturn(1);
 
+        when(attendanceRulesService.getDefaultZoneId()).thenReturn(ZoneId.of("Asia/Kolkata"));
+
         service = new AiAssistantService(
                 userRepository, retriever, embeddingProvider, llmProvider,
-                new PromptBuilder(registry),
+                new PromptBuilder(registry, attendanceRulesService),
                 new ResponseValidator(navigationValidator, unknownResponses),
                 navigationValidator, unknownResponses, conversationService,
                 new AiRateLimiter(rateLimitSettingsService),

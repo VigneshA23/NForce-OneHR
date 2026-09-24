@@ -33,6 +33,10 @@ public final class SystemPromptTemplate {
             about someone's leave or pay is worse than no answer.
 
             GROUNDING
+            - A CURRENT DATE & TIME section below states the actual current date, day of week and \
+            time. Treat it as fact and use it to resolve every relative date or time reference \
+            ("today", "yesterday", "tomorrow", "this week", "last month", ...). Never compute or \
+            guess "today" any other way.
             - The KNOWLEDGE section is your only source of truth about OneHR behaviour.
             - If it does not contain what you need, reply with type UNKNOWN. Do not fill the gap by \
             inference, and do not soften a gap into a vague answer that sounds helpful.

@@ -4,11 +4,14 @@ import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.TodayAttendanceResponse;
 import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
+import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.AttendanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -70,6 +73,8 @@ public final class AttendanceDataProviders {
         private static final int MAX_ROWS = 5;
 
         private final AttendanceService attendanceService;
+        private final EmployeeRepository employeeRepository;
+        private final AttendanceRulesService attendanceRulesService;
 
         @Override public String id() { return "attendance.my-exceptions"; }
         @Override public String title() { return "Your attendance exceptions in the last 7 days"; }
@@ -78,7 +83,15 @@ public final class AttendanceDataProviders {
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
-            LocalDate today = LocalDate.now();
+            // Was LocalDate.now() — the JVM/server's default zone, not the employee's (see
+            // AttendanceService#resolveZone for the same employee-then-org-default fallback chain
+            // used everywhere else "today" is computed). On a server not running in the org's own
+            // timezone this silently shifted the 7-day lookback window by whatever the offset is,
+            // same root cause as the "yesterday" date bug this was found alongside.
+            ZoneId zone = employeeRepository.findByUser_Email(context.getActorEmail())
+                    .map(attendanceRulesService::resolveEmployeeZoneId)
+                    .orElseGet(attendanceRulesService::getDefaultZoneId);
+            LocalDate today = LocalDate.now(zone);
             List<AttendanceExceptionResponse> exceptions = attendanceService.getMyExceptions(
                     context.getActorEmail(), today.minusDays(LOOKBACK_DAYS), today);
             if (exceptions == null || exceptions.isEmpty()) return Optional.empty();
