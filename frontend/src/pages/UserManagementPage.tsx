@@ -248,9 +248,15 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   // valid, final choice, never auto-advanced to "the next working day" or any other date; the
   // admin can still move it to any future date, but never to the past (enforced both by the
   // date input's own `min` and, independently, by the backend).
+  // Role/Employment Type/Work Mode/Business Unit/Department/Designation all start unselected
+  // (ONEHR — "Add User Dropdowns Display Default Values Instead of Selection Placeholders"):
+  // none of these should be preselected to a value the admin never actively chose. Employment
+  // Type and Work Mode still fall back to FULL_TIME/ONSITE server-side if left blank (see
+  // UserManagementService#createUser) — that backend default is unchanged, only the UI no longer
+  // shows it as though the admin had picked it.
   const [form, setForm] = useState<CreateUserPayload>({
-    fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10),
-    workMode: 'ONSITE', effectiveFrom: todayIso(),
+    fullName: '', email: '', role: '', joiningDate: new Date().toISOString().slice(0, 10),
+    effectiveFrom: todayIso(),
   });
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -335,6 +341,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     // space is rejected outright rather than silently stripped before validating.
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
+    if (!form.role) { setError('Role is required.'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
     // Defense-in-depth: the date input's own `required`/`min` already keep this from happening
@@ -449,6 +456,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
               }));
             }}>
+              <option value="" disabled>Select Role</option>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
@@ -476,28 +484,30 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           </Field>
           <Field label="Joining Date *"><input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} /></Field>
           <Field label="Employment Type">
-            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
+            <select style={inputStyle} value={form.employmentType ?? ''} onChange={e => set('employmentType', e.target.value)}>
+              <option value="">Select Employment Type</option>
               {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
             </select>
           </Field>
           <Field label="Work Mode">
-            <select style={inputStyle} value={form.workMode ?? 'ONSITE'} onChange={e => set('workMode', e.target.value)}>
+            <select style={inputStyle} value={form.workMode ?? ''} onChange={e => set('workMode', e.target.value)}>
+              <option value="">Select Work Mode</option>
               {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
             </select>
           </Field>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">— None —</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="">Select Business Unit</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
-              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">Select Department</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">— None —</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              <option value="">Select Designation</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <div style={{ gridColumn: '1/-1' }}>
@@ -507,15 +517,18 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           </div>
           <div style={{ gridColumn: '1/-1' }}>
             {(() => {
+              const noRoleYet = !form.role;
               const isSA = form.role === 'SUPER_ADMIN';
-              const mgrList = getManagersForRole(form.role, opts.managers);
+              const mgrList = noRoleYet ? [] : getManagersForRole(form.role, opts.managers);
               const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager or HR Admin'
                 : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
                 : 'Super Admin';
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
-                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                  <select style={inputStyle} value={form.managerId ?? ''} disabled={noRoleYet} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">
+                      {noRoleYet ? '— Select a Role first —' : isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}
+                    </option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
@@ -525,7 +538,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                       </option>
                     ))}
                   </select>
-                  {!isSA && mgrList.length === 0 && (
+                  {!noRoleYet && !isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
                       No {mgrRoleLabel} users found — add one first.
                     </div>
