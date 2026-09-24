@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, X, ChevronDown } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { UserPlus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, MoreVertical } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi, type ShiftRow } from '../api/org';
 import { onboardingApi } from '../api/onboarding';
 import { useToast } from '../context/ToastContext';
-import { KebabMenu } from '../components/KebabMenu';
 import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
-import { StatusBadge, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
+import { InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 import { businessTodayIsoDate } from '../utils/businessDate';
 
 /** "Sep 16, 2026" from a plain "YYYY-MM-DD" date-input value — for the Effective From helper text. */
@@ -47,31 +47,185 @@ const ROLE_COLOR: Record<string, string> = {
 };
 
 function RoleBadge({ role }: { role: string }) {
+  const c = ROLE_COLOR[role] ?? '#9BA1AC';
   return (
-    <span style={{ fontSize: 11, fontWeight: 600, color: ROLE_COLOR[role] ?? '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
+    <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.03em', color: c, background: `${c}1A`, borderRadius: 6, padding: '3px 9px', whiteSpace: 'nowrap' }}>
       {role.replace(/_/g, ' ')}
     </span>
   );
 }
 
-interface OrgOptions { businessUnits: any[]; departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
-
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
-const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
-const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-
-function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+// Page-local, purely presentational restyle of the Active/Inactive pill (dot + rounded pill) —
+// same `active` input and same Active/Inactive wording as the shared EmployeeStatus.StatusBadge.
+function StatusBadge({ active }: { active: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: active ? '#2FB67C' : '#E4373D', background: active ? 'rgba(47,182,124,.1)' : 'rgba(228,55,61,.1)', borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: active ? '#2FB67C' : '#E4373D' }} />
+      {active ? 'Active' : 'Inactive'}
+    </span>
+  );
+}
+
+function initials(name: string) {
+  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
+}
+
+function Avatar({ name, size = 32 }: { name: string; size?: number }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      background: 'rgba(177,17,22,.14)', color: 'var(--brand-bright)',
+      display: 'grid', placeItems: 'center',
+      fontSize: size * 0.36, fontWeight: 700, flexShrink: 0,
+      fontFamily: '"Space Grotesk", sans-serif',
+    }}>
+      {initials(name)}
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label style={labelStyle}>{label}</label>{children}</div>;
+// ─── Row Actions Menu ──────────────────────────────────────────────────────────
+// Page-scoped 3-dot menu for the User Management table (deliberately NOT the
+// shared components/KebabMenu.tsx, which is used by 7+ other pages — keeping
+// this local to UserManagementPage.tsx means its styling/exclusivity behavior
+// can't leak into unrelated modules). `open`/`onToggle`/`onClose` are
+// controlled by the parent's single `openMenuId` state, so opening one row's
+// menu always closes any other — only one can ever be open at a time. It
+// renders exactly the `items` it's handed (same shape as KebabMenu's items), so
+// every per-row visibility rule (self / last-active-Super-Admin guards) lives in
+// the caller's items array, not here.
+interface RowActionItem { label: string; onClick: () => void; danger?: boolean; dividerBefore?: boolean; }
+
+function RowActionsMenu({ open, onToggle, onClose, items }: {
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  items: RowActionItem[];
+}) {
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number }>({ top: 0, right: 0 });
+  const [hovered, setHovered] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const minWidth = 180;
+
+  if (items.length === 0) return null;
+
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const menuHeight = items.length * 36 + 8;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const viewportMargin = 8;
+      const maxRight = Math.max(viewportMargin, window.innerWidth - minWidth - viewportMargin);
+      const right = Math.min(window.innerWidth - rect.right, maxRight);
+      if (spaceBelow < menuHeight) setPos({ bottom: window.innerHeight - rect.top + 4, right });
+      else setPos({ top: rect.bottom + 4, right });
+    }
+    onToggle();
+  }
+
+  const lit = open || hovered;
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={handleClick}
+        aria-label="Row actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          background: lit ? 'var(--raised2)' : 'transparent',
+          border: `1px solid ${lit ? 'var(--line2)' : 'transparent'}`,
+          borderRadius: 8, width: 30, height: 30, cursor: 'pointer',
+          color: lit ? 'var(--txt)' : 'var(--txt-mut)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'background .15s, border-color .15s, color .15s',
+        }}
+      >
+        <MoreVertical size={15} />
+      </button>
+
+      {open && createPortal(
+        <>
+          {/* Full-viewport scrim, above the table's overflow context — clicking it (or
+              any row's own trigger) closes the menu, which is how exclusivity + outside-click-to-close both work. */}
+          <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
+          <div
+            role="menu"
+            style={{
+              position: 'fixed', top: pos.top, bottom: pos.bottom, right: pos.right,
+              background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
+              boxShadow: '0 16px 40px rgba(16,24,40,.18)', zIndex: 1000,
+              minWidth, maxWidth: 'calc(100vw - 16px)', boxSizing: 'border-box', overflow: 'hidden',
+            }}
+          >
+            {items.map((item, i) => (
+              <button
+                key={i}
+                role="menuitem"
+                onClick={e => { e.stopPropagation(); item.onClick(); onClose(); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
+                  fontSize: 12.5, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer',
+                  color: item.danger ? 'var(--risk)' : 'var(--txt)',
+                  borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
+                  transition: 'background .1s',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
+    </>
+  );
+}
+
+interface OrgOptions { businessUnits: any[]; departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
+
+const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,17,23,.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
+const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.4)' };
+const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 12px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' };
+const formSectionLabelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 2 };
+const primaryBtnStyle: React.CSSProperties = { background: 'linear-gradient(135deg, var(--brand-bright), var(--brand))', color: '#fff', border: 'none', borderRadius: 9, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 6px 16px rgba(177,17,22,.25)' };
+const secondaryBtnStyle: React.CSSProperties = { background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
+
+function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
+      <div>
+        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 16, color: 'var(--txt)' }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{subtitle}</div>}
+      </div>
+      <button onClick={onClose} style={{ background: 'var(--raised2)', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    </div>
+  );
+}
+
+// Groups related fields under a small uppercase heading, matching the premium
+// section pattern used elsewhere on the User Management page — purely a
+// visual wrapper, no effect on the fields' state, validation, or submission.
+function FormSection({ label, columns = 2, children }: { label: string; columns?: 1 | 2; children: React.ReactNode }) {
+  return (
+    <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={formSectionLabelStyle}>{label}</div>
+      <div className={columns === 2 ? 'nf-grid-2col-collapse' : undefined} style={{ display: 'grid', gridTemplateColumns: columns === 2 ? '1fr 1fr' : '1fr', gap: 14 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, span, children }: { label: string; span?: 'full'; children: React.ReactNode }) {
+  return <div style={span === 'full' ? { gridColumn: '1/-1' } : undefined}><label style={labelStyle}>{label}</label>{children}</div>;
 }
 
 // ─── Creatable Location Select ────────────────────────────────────────────────
@@ -248,9 +402,15 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   // valid, final choice, never auto-advanced to "the next working day" or any other date; the
   // admin can still move it to any future date, but never to the past (enforced both by the
   // date input's own `min` and, independently, by the backend).
+  // Role/Employment Type/Work Mode/Business Unit/Department/Designation all start unselected
+  // (ONEHR — "Add User Dropdowns Display Default Values Instead of Selection Placeholders"):
+  // none of these should be preselected to a value the admin never actively chose. Employment
+  // Type and Work Mode still fall back to FULL_TIME/ONSITE server-side if left blank (see
+  // UserManagementService#createUser) — that backend default is unchanged, only the UI no longer
+  // shows it as though the admin had picked it.
   const [form, setForm] = useState<CreateUserPayload>({
-    fullName: '', email: '', role: 'EMPLOYEE', joiningDate: new Date().toISOString().slice(0, 10),
-    workMode: 'ONSITE', effectiveFrom: todayIso(),
+    fullName: '', email: '', role: '', joiningDate: new Date().toISOString().slice(0, 10),
+    effectiveFrom: todayIso(),
   });
   const [startOnboarding, setStartOnboarding] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -335,6 +495,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     // space is rejected outright rather than silently stripped before validating.
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
+    if (!form.role) { setError('Role is required.'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
     // Defense-in-depth: the date input's own `required`/`min` already keep this from happening
@@ -423,7 +584,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{created.tempPassword}</code>
               </div>
             )}
-            <button onClick={onClose} style={{ marginTop: 20, width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
+            <button onClick={onClose} style={{ ...primaryBtnStyle, marginTop: 20, width: '100%', padding: '11px 16px', fontSize: 14 }}>Done</button>
           </div>
         </div>
       </div>
@@ -434,24 +595,14 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 580 }}>
-        <ModalHeader title="Add User" onClose={onClose} />
-        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && !employeeCodeConflict && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-          <div style={{ gridColumn: '1/-1' }}><Field label="Full Name *"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field></div>
-          <div style={{ gridColumn: '1/-1' }}><Field label="Company Email *"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field></div>
-          <Field label="Role *">
-            <select style={inputStyle} value={form.role} onChange={e => {
-              const newRole = e.target.value;
-              const newMgrs = getManagersForRole(newRole, opts.managers);
-              setForm(f => ({
-                ...f, role: newRole,
-                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
-              }));
-            }}>
-              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-          </Field>
+      <div style={{ ...modalStyle, maxWidth: 640 }}>
+        <ModalHeader title="Add User" subtitle="Create a new account with role, department, and access details." onClose={onClose} />
+        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr', gap: 22 }}>
+          {error && !employeeCodeConflict && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+
+          <FormSection label="Identity">
+          <Field label="Full Name *" span="full"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field>
+          <Field label="Company Email *" span="full"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field>
           <Field label="Employee ID">
             <input
               style={inputStyle}
@@ -475,47 +626,71 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             )}
           </Field>
           <Field label="Joining Date *"><input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} /></Field>
+          </FormSection>
+
+          <FormSection label="Role & Employment">
+          <Field label="Role *">
+            <select style={inputStyle} value={form.role} onChange={e => {
+              const newRole = e.target.value;
+              const newMgrs = getManagersForRole(newRole, opts.managers);
+              setForm(f => ({
+                ...f, role: newRole,
+                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+              }));
+            }}>
+              <option value="" disabled>Select Role</option>
+              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </Field>
           <Field label="Employment Type">
-            <select style={inputStyle} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
+            <select style={inputStyle} value={form.employmentType ?? ''} onChange={e => set('employmentType', e.target.value)}>
+              <option value="">Select Employment Type</option>
               {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
             </select>
           </Field>
           <Field label="Work Mode">
-            <select style={inputStyle} value={form.workMode ?? 'ONSITE'} onChange={e => set('workMode', e.target.value)}>
+            <select style={inputStyle} value={form.workMode ?? ''} onChange={e => set('workMode', e.target.value)}>
+              <option value="">Select Work Mode</option>
               {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
             </select>
           </Field>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">— None —</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="">Select Business Unit</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
-              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">Select Department</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">— None —</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              <option value="">Select Designation</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
-          <div style={{ gridColumn: '1/-1' }}>
+          </FormSection>
+
+          <FormSection label="Location & Reporting" columns={1}>
+          <div>
             <Field label="Location *">
               <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
             </Field>
           </div>
-          <div style={{ gridColumn: '1/-1' }}>
+          <div>
             {(() => {
+              const noRoleYet = !form.role;
               const isSA = form.role === 'SUPER_ADMIN';
-              const mgrList = getManagersForRole(form.role, opts.managers);
+              const mgrList = noRoleYet ? [] : getManagersForRole(form.role, opts.managers);
               const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager or HR Admin'
                 : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
                 : 'Super Admin';
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
-                  <select style={inputStyle} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                  <select style={inputStyle} value={form.managerId ?? ''} disabled={noRoleYet} onChange={e => set('managerId', e.target.value)}>
+                    <option value="">
+                      {noRoleYet ? '— Select a Role first —' : isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}
+                    </option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
@@ -525,7 +700,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                       </option>
                     ))}
                   </select>
-                  {!isSA && mgrList.length === 0 && (
+                  {!noRoleYet && !isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
                       No {mgrRoleLabel} users found — add one first.
                     </div>
@@ -534,7 +709,10 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
               );
             })()}
           </div>
-          <div style={{ gridColumn: '1/-1' }}>
+          </FormSection>
+
+          <FormSection label="Shift" columns={1}>
+          <div>
             <Field label="Shift">
               <ShiftSelect
                 shifts={getShiftOptions(opts.shifts, form.shiftId)}
@@ -546,7 +724,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             </Field>
           </div>
           {form.shiftId && (
-            <div style={{ gridColumn: '1/-1' }}>
+            <div>
               <Field label="Effective From *">
                 <input
                   type="date"
@@ -564,8 +742,11 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
               )}
             </div>
           )}
-          <div style={{ gridColumn: '1/-1' }}>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', cursor: 'pointer' }}>
+          </FormSection>
+
+          <FormSection label="Onboarding" columns={1}>
+          <div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={startOnboarding}
@@ -580,9 +761,11 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
               </span>
             </label>
           </div>
+          </FormSection>
+
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Creating…' : 'Create User'}</button>
+            <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
+            <button type="submit" disabled={submitting} style={{ ...primaryBtnStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Creating…' : 'Create User'}</button>
           </div>
         </form>
       </div>
@@ -781,8 +964,8 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
             <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
           )}
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
+            <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
+            <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ ...primaryBtnStyle, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
         </form>
       </div>
@@ -992,6 +1175,9 @@ export default function UserManagementPage() {
   const [resetting, setResetting] = useState<EmployeeRecord | null>(null);
   const [toggling, setToggling] = useState<EmployeeRecord | null>(null);
   const [deleting, setDeleting] = useState<EmployeeRecord | null>(null);
+  // Which row's RowActionsMenu is open (by userId) — a single value, so only one menu can be
+  // open at a time. Purely UI state; has no effect on which actions a row offers.
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   // Reference data for the Add/Edit User forms — departments/designations/locations/managers/
   // shifts. Fetched ONCE here (not per-modal-open) and shared by both AddModal and EditModal, so
   // opening either repeatedly doesn't re-run 5 API calls (including the expensive
@@ -1052,64 +1238,84 @@ export default function UserManagementPage() {
   // Reset to page 1 when filters change
   useEffect(() => { setPage(1); }, [search, statusFilter, deptFilter, roleFilter]);
 
-  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-  const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-  const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', color: 'var(--txt-mut)', fontSize: 12, cursor: 'pointer', outline: 'none' };
+  const thStyle: React.CSSProperties = { padding: '13px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--raised)' };
+  const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+  const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 12px', color: 'var(--txt-mut)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', outline: 'none' };
 
   const ROLE_LABEL: Record<string, string> = { EMPLOYEE: 'Employee', MANAGER: 'Manager', HR_ADMIN: 'HR Admin', SUPER_ADMIN: 'Super Admin' };
 
-  const tileStyle = (accent: string): React.CSSProperties => ({
-    background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
-    padding: '14px 18px', flex: '1 1 140px',
-    borderLeft: `3px solid ${accent}`,
+  const kpiCardStyle: React.CSSProperties = {
+    background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14,
+    padding: '18px 20px', flex: '1 1 220px', boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+    display: 'flex', flexDirection: 'column', gap: 12,
+  };
+  const kpiIconStyle = (bg: string, fg: string): React.CSSProperties => ({
+    width: 40, height: 40, borderRadius: 11, background: bg, color: fg, display: 'grid', placeItems: 'center', flexShrink: 0,
   });
 
   return (
     <div>
       {/* Header */}
-      <div className="nf-policy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <div>
-          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage access, roles, and account status for all users.</p>
+      <div className="nf-policy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(177,17,22,.12)', color: 'var(--brand-bright)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <UserIcon size={19} />
+          </div>
+          <div>
+            <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
+            <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 3 }}>Manage access, roles, and account status for all users.</p>
+          </div>
         </div>
         <div className="nf-policy-actions" style={{ display: 'flex' }}>
-          <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
-            <UserPlus size={14} /> Add User
+          <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, var(--brand-bright), var(--brand))', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 18px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', boxShadow: '0 6px 16px rgba(177,17,22,.28)', justifyContent: 'center' }}>
+            <UserPlus size={15} /> Add User
           </button>
         </div>
       </div>
 
       {/* Stats tiles */}
       {!loading && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-          <div style={tileStyle('#9BA1AC')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{total}</div>
-            <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Total Users</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>
+        <div style={{ display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={kpiCardStyle}>
+            <div style={kpiIconStyle('rgba(155,161,172,.14)', 'var(--txt-mut)')}><Users2 size={18} /></div>
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{total}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Total Users</div>
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>
               {Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')}
             </div>
           </div>
-          <div style={tileStyle('#2FB67C')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#2FB67C', fontFamily: 'Inter, sans-serif' }}>{active}</div>
-            <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Active</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((active / total) * 100) : 0}% of total</div>
+          <div style={kpiCardStyle}>
+            <div style={kpiIconStyle('rgba(47,182,124,.14)', '#2FB67C')}><ShieldCheck size={18} /></div>
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#2FB67C', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{active}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Active</div>
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>{total > 0 ? Math.round((active / total) * 100) : 0}% of total</div>
           </div>
-          <div style={tileStyle('#E4373D')}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#E4373D', fontFamily: 'Inter, sans-serif' }}>{inactive}</div>
-            <div style={{ fontSize: 11, color: 'var(--txt-mut)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>Inactive</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 6 }}>{total > 0 ? Math.round((inactive / total) * 100) : 0}% of total</div>
+          <div style={kpiCardStyle}>
+            <div style={kpiIconStyle('rgba(228,55,61,.12)', '#E4373D')}><UserX size={18} /></div>
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#E4373D', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{inactive}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Inactive</div>
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>{total > 0 ? Math.round((inactive / total) * 100) : 0}% of total</div>
           </div>
         </div>
       )}
 
       {/* Search + Filters */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          placeholder="Search name, email, or employee ID…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
-        />
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}>
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
+          <SearchIcon size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+          <input
+            placeholder="Search by name, email, or employee ID…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 12px 9px 34px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
+          />
+        </div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} style={filterSelect}>
           <option value="ALL">All Status</option>
           <option value="ACTIVE">Active</option>
@@ -1125,14 +1331,14 @@ export default function UserManagementPage() {
         </select>
         {(search || statusFilter !== 'ALL' || deptFilter || roleFilter) && (
           <button onClick={() => { setSearch(''); setStatusFilter('ALL'); setDeptFilter(''); setRoleFilter(''); }}
-            style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+            style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 14px', fontSize: 12.5, fontWeight: 600, color: 'var(--txt-mut)', cursor: 'pointer' }}>
             Clear
           </button>
         )}
       </div>
 
       {/* Table */}
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : filtered.length === 0 ? (
@@ -1164,14 +1370,23 @@ export default function UserManagementPage() {
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
                       <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{u.employeeCode}</td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{u.fullName}</td>
+                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Avatar name={u.fullName} />
+                          {u.fullName}
+                        </div>
+                      </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                       <td style={tdStyle}><RoleBadge role={u.role} /></td>
                       <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
                       <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
                       <td style={tdStyle}><StatusBadge active={u.active} /></td>
                       <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
-                        <KebabMenu items={[
+                        <RowActionsMenu
+                          open={openMenuId === u.userId}
+                          onToggle={() => setOpenMenuId(id => id === u.userId ? null : u.userId)}
+                          onClose={() => setOpenMenuId(null)}
+                          items={[
                           { label: 'Edit', onClick: () => setEditing(u) },
                           { label: 'Reset Password', onClick: () => setResetting(u) },
                           // Deactivate is hidden outright for the logged-in Super Admin's own row
@@ -1186,7 +1401,8 @@ export default function UserManagementPage() {
                           ...(isSelf ? [] : [
                             { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
                           ]),
-                        ]} />
+                          ]}
+                        />
                       </td>
                     </tr>
                     );
@@ -1197,13 +1413,13 @@ export default function UserManagementPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
                   {filtered.length} result{filtered.length !== 1 ? 's' : ''} · page {page} of {totalPages}
                 </span>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                    style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === 1 ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>
+                    style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '6px 13px', fontSize: 12, color: page === 1 ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>
                     ← Prev
                   </button>
                   {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -1211,13 +1427,13 @@ export default function UserManagementPage() {
                     const p = start + i;
                     return p <= totalPages ? (
                       <button key={p} onClick={() => setPage(p)}
-                        style={{ background: p === page ? 'var(--brand)' : 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 10px', fontSize: 12, color: p === page ? '#fff' : 'var(--txt-mut)', cursor: 'pointer', minWidth: 32 }}>
+                        style={{ background: p === page ? 'var(--brand)' : 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '6px 10px', fontSize: 12, color: p === page ? '#fff' : 'var(--txt-mut)', cursor: 'pointer', minWidth: 32 }}>
                         {p}
                       </button>
                     ) : null;
                   })}
                   <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                    style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === totalPages ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === totalPages ? 'not-allowed' : 'pointer' }}>
+                    style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '6px 13px', fontSize: 12, color: page === totalPages ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === totalPages ? 'not-allowed' : 'pointer' }}>
                     Next →
                   </button>
                 </div>
