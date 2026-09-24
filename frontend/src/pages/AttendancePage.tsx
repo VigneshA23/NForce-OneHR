@@ -394,6 +394,16 @@ const tdStyle: React.CSSProperties = {
   padding: '10px 12px', fontSize: 12, color: 'var(--txt-mut)',
   borderBottom: '1px solid var(--line)', verticalAlign: 'middle',
 };
+// Attendance Requests / Overtime Requests tables (className "nf-req-table", inside an
+// "nf-req-wrap" container). They sit in the page's left column (~620px at a 1280px viewport,
+// ~790px at 1440px), so — same approach as the Attendance Log — they use `table-layout: fixed` +
+// a percentage colgroup (ReqColGroup) to honor the panel's width instead of sizing to content,
+// with headers allowed to wrap. When the container is too narrow for the columns to stay
+// legible, a container query in index.css restacks each row into a labelled card (every td
+// carries its column name in data-label), so nothing needs sideways scrolling.
+const reqTableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' };
+const reqThStyle: React.CSSProperties = { ...thStyle, padding: '9px 8px', whiteSpace: 'normal', verticalAlign: 'bottom', lineHeight: 1.35 };
+const reqTdStyle: React.CSSProperties = { ...tdStyle, padding: '10px 8px', overflowWrap: 'break-word' };
 const panelStyle: React.CSSProperties = {
   background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden',
   boxShadow: '0 1px 2px rgba(0,0,0,.06), 0 8px 20px -12px rgba(0,0,0,.25)',
@@ -508,7 +518,8 @@ function RegularizationStatusPill({ status }: { status: string }) {
       borderRadius: 5, padding: '2.5px 7px',
     }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      {status}
+      {/* Zero-width space after "_" gives e.g. PARTIALLY_APPROVED a wrap point in a narrow table column. */}
+      {status.replace(/_/g, '_​')}
     </span>
   );
 }
@@ -755,6 +766,11 @@ function Tooltip({ content, children }: { content: React.ReactNode; children: Re
       )}
     </>
   );
+}
+
+/** Column widths for a fixed-layout request table — see reqTableStyle. */
+function ReqColGroup({ widths }: { widths: string[] }) {
+  return <colgroup>{widths.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>;
 }
 
 /** Single-line, ellipsis-truncated text with a hover tooltip revealing the full content. */
@@ -1033,7 +1049,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             {submitAttempted && !reason.trim() && <div style={fieldErrorStyle}>Note is required.</div>}
           </Field>
 
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', ['--nf-modal-pad' as string]: '24px' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
             {/* Never disabled for dateAlreadyApproved/beforeJoiningDate/dateOutsideWindow — those
                 are policy violations surfaced only after a Request click (see submitAttempted),
@@ -1738,7 +1754,7 @@ function MonthCalendar({
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
 
   return (
-    <div className="nf-section-enter" style={panelStyle}>
+    <div className={compact ? 'nf-section-enter' : 'nf-section-enter nf-month-cal'} style={panelStyle}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: compact ? '10px 14px' : '12px 16px', borderBottom: '1px solid var(--line)' }}>
         <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: compact ? 12.5 : 14, color: 'var(--txt)' }}>
           {calendarMonthLabel(year, month)}
@@ -1777,14 +1793,14 @@ function MonthCalendar({
         </div>
       )}
       <div style={{ padding: compact ? 10 : 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: compact ? 3 : 5, marginBottom: 5 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: compact ? 3 : 5, marginBottom: 5 }}>
           {(compact ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']).map((d, i) => (
             <div key={i} style={{ fontSize: compact ? 9 : 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', textAlign: 'center', letterSpacing: '.05em' }}>
               {d}
             </div>
           ))}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: compact ? 3 : 5 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: compact ? 3 : 5 }}>
           {cells.map((day, i) => {
             if (day == null) return <div key={i} />;
             const info = dayInfo(day);
@@ -1810,6 +1826,7 @@ function MonthCalendar({
                   cursor: disabled ? 'default' : 'pointer',
                   opacity: disabled ? 0.45 : 1,
                   display: 'flex', flexDirection: compact ? 'column' : 'column', alignItems: compact ? 'center' : 'stretch', gap: 2,
+                  minWidth: 0,
                 }}
               >
                 <span style={{ fontSize: compact ? 10 : 11.5, fontWeight: 600, color: info.isWeekend ? 'var(--txt-dim)' : 'var(--txt)' }}>
@@ -1817,7 +1834,7 @@ function MonthCalendar({
                 </span>
                 {compact
                   ? (!info.isBeforeJoining && dotColor && <span style={{ width: 5, height: 5, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />)
-                  : (!info.isBeforeJoining && <DayCellBadge info={info} />)}
+                  : (!info.isBeforeJoining && <span className="nf-cal-badge"><DayCellBadge info={info} /></span>)}
               </button>
             );
           })}
@@ -2458,12 +2475,12 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
             />
           </Field>
           <NotifyEmployeeField token={token} value={notifyEntry} onChange={setNotifyEntry} />
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+          <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              style={{ background: canSubmit ? 'var(--brand)' : 'var(--raised2)', color: canSubmit ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, fontWeight: 600, cursor: !canSubmit ? 'not-allowed' : 'pointer' }}
+              style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, fontWeight: 600, cursor: !canSubmit ? 'not-allowed' : 'pointer', opacity: canSubmit ? 1 : 0.55 }}
             >
               {submitting ? 'Submitting…' : 'Submit for Approval'}
             </button>
@@ -3015,7 +3032,7 @@ function CheckInAction({ actionStyle, today, loading, submitting, onCheckIn, onC
       >
         <Laptop size={14} style={{ color: 'var(--brand)' }} /> {loading ? 'Check-in' : label}
       </button>
-      {confirmingCheckout && (
+      {confirmingCheckout && createPortal(
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 380 }}>
             <ModalHeader title="Check out?" onClose={() => setConfirmingCheckout(false)} />
@@ -3041,8 +3058,8 @@ function CheckInAction({ actionStyle, today, loading, submitting, onCheckIn, onC
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+      document.body)}
     </>
   );
 }
@@ -3186,7 +3203,7 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
       >
         <Wifi size={14} style={{ color: 'var(--brand)' }} /> {busy ? 'Checking in…' : 'Web Check-In'}
       </button>
-      {open && (
+      {open && createPortal(
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 480 }}>
             <ModalHeader title='Web Clock-In Request' onClose={() => !busy && setOpen(false)} />
@@ -3207,7 +3224,7 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
                   {reason.length} / 1024
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => setOpen(false)}
                   disabled={busy}
@@ -3225,8 +3242,8 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+      document.body)}
     </>
   );
 }
@@ -3249,7 +3266,7 @@ function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, 
   };
 
   return (
-    <div className="nf-section-enter" style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+    <div className="nf-section-enter nf-quick-actions" style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 7 }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 2 }}>
         <ShieldCheck size={12} style={{ color: 'var(--ok)' }} /> Quick Actions
       </span>
@@ -3264,16 +3281,23 @@ function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, 
       <button className="nf-insight-tile" style={actionStyle} onClick={() => setModal('POLICY')}>
         <FileText size={14} style={{ color: 'var(--brand)' }} /> Attendance Policy
       </button>
-      {(modal === 'WFH' || modal === 'PARTIAL_DAY') && (
+      {/* Portaled to document.body, like DetailDrawer: this panel carries `.nf-section-enter`
+          (its finished transform animation makes it the containing block for position: fixed
+          descendants) and overflow: hidden, so nested here the modals rendered inside the panel
+          and were clipped — hiding their Submit/Cancel buttons. Web Check-In/Check-Out's own
+          modals (WebCheckInAction/CheckInAction) are portaled the same way. */}
+      {(modal === 'WFH' || modal === 'PARTIAL_DAY') && createPortal(
         <AttendanceRequestModal
           presetType={modal}
           token={token}
           onClose={() => setModal(null)}
           onSaved={() => { /* toast already shown by the modal itself */ }}
-        />
+        />,
+        document.body,
       )}
-      {modal === 'POLICY' && (
-        <AttendancePolicyModal token={token} onClose={() => setModal(null)} />
+      {modal === 'POLICY' && createPortal(
+        <AttendancePolicyModal token={token} onClose={() => setModal(null)} />,
+        document.body,
       )}
     </div>
   );
@@ -4782,12 +4806,26 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     <>
     <div
       className="nf-grid-proportional-collapse"
-      style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16 }}
+      style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '18px 16px' }}
     >
-      {/* LEFT column — Today hero, KPI row, then the Logs & Requests workspace. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
-        <TodaysTimingsPanel today={today} config={config} workedMinutesToday={workedMinutesToday} />
+      {/* Row 1 — Today hero beside Quick Actions (top-right, level with the hero; both cells
+          stretch to the row's height so their edges line up). Row 2 — KPI row + Logs & Requests
+          workspace beside the sticky Attendance Health / mini-calendar rail. Below 1024px
+          (.nf-grid-proportional-collapse) the four cells stack in this same DOM order, so Quick
+          Actions stays right under Today instead of dropping below the whole workspace. */}
+      <TodaysTimingsPanel today={today} config={config} workedMinutesToday={workedMinutesToday} />
+      <QuickActionsPanel
+        token={token}
+        today={today}
+        todayLoading={loading}
+        submitting={submitting}
+        onCheckIn={() => punch('in')}
+        onCheckOut={() => punch('out')}
+        onWebCheckInSubmitted={refreshTodayAndMonth}
+      />
 
+      {/* LEFT column (row 2) — KPI row, then the Logs & Requests workspace. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
         {/* Insight row — plain counts already carried by monthRecords/holiday+leave maps for the
             selected calendar month, surfaced once here instead of only inside the Calendar tab. */}
         <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
@@ -4834,19 +4872,25 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
         {logsTab === 'CALENDAR' && (
         <div style={{ marginTop: 14 }}>
-        <div className="nf-grid-proportional-collapse" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
-          <MonthCalendar
-            year={viewYear}
-            month={viewMonth}
-            dayInfo={getDayInfo}
-            selectedDate={selectedDate}
-            onSelect={setSelectedDate}
-            onPrev={goToPrevMonth}
-            onNext={goToNextMonth}
-            onToday={() => goToMonth(now.getFullYear(), now.getMonth())}
-          />
+        {/* Wrapping flex split rather than a fixed 2fr/1fr grid: this sits in the page's left
+            column (~620px at a 1280px viewport), where 2/3 of it left the 7-column calendar too
+            narrow for its day pills. The calendar keeps a legible basis and the day-detail panel
+            wraps below it until there's room for both side by side. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+          <div style={{ flex: '2 1 580px', minWidth: 0 }}>
+            <MonthCalendar
+              year={viewYear}
+              month={viewMonth}
+              dayInfo={getDayInfo}
+              selectedDate={selectedDate}
+              onSelect={setSelectedDate}
+              onPrev={goToPrevMonth}
+              onNext={goToNextMonth}
+              onToday={() => goToMonth(now.getFullYear(), now.getMonth())}
+            />
+          </div>
 
-          <div style={{ ...panelStyle, padding: '16px 18px' }}>
+          <div style={{ ...panelStyle, padding: '16px 18px', flex: '1 1 240px', minWidth: 0 }}>
             {!selectedInfo ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '20px 0', color: 'var(--txt-dim)' }}>
                 <CalendarDays size={22} />
@@ -5156,12 +5200,12 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       </div>
       </div>
 
-      {/* RIGHT column — Attendance Health, a glanceable mini calendar (same year/month/
-          selection state as the Calendar tab), then Quick Actions at the bottom. The outer grid
-          no longer sets alignItems: 'start', so this cell stretches to match the (usually much
-          taller) left column's height; the inner `position: sticky` wrapper then pins its actual
-          content near the top of the viewport while scrolling, instead of leaving a large dead
-          gap below Quick Actions once the uncapped Attendance Log makes the left column tall. */}
+      {/* RIGHT column (row 2) — Attendance Health and a glanceable mini calendar (same
+          year/month/selection state as the Calendar tab); Quick Actions moved up to row 1. The
+          outer grid doesn't set alignItems: 'start', so this cell stretches to match the
+          (usually much taller) left column's height; the inner `position: sticky` wrapper then
+          pins its actual content near the top of the viewport while scrolling, instead of
+          leaving a large dead gap once the uncapped Attendance Log makes the left column tall. */}
       <div style={{ minWidth: 0 }}>
       <div style={{ position: 'sticky', top: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
         <AttendanceStatsPanel
@@ -5184,15 +5228,6 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           onNext={goToNextMonth}
           onToday={() => goToMonth(now.getFullYear(), now.getMonth())}
           compact
-        />
-        <QuickActionsPanel
-          token={token}
-          today={today}
-          todayLoading={loading}
-          submitting={submitting}
-          onCheckIn={() => punch('in')}
-          onCheckOut={() => punch('out')}
-          onWebCheckInSubmitted={refreshTodayAndMonth}
         />
       </div>
       </div>
@@ -5446,7 +5481,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
       {/* My Regularization Requests — month filter only, grouped by month within that filter */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-          <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>My Requests</h3>
+          <SectionHeading title="My Requests" />
           <MonthFilter month={selectedMonth} onChange={setSelectedMonth} />
         </div>
         {loading ? (
@@ -5462,21 +5497,25 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
             <div key={monthKey}>
               <MonthGroupHeading monthKey={monthKey} />
               <div style={panelStyle}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+                  <table className="nf-req-table" style={reqTableStyle}>
+                    <ReqColGroup widths={['13%', '11%', '9%', '16%', '14%', '14%', '13%', '10%']} />
+                    <thead><tr>{['Date', 'Requested In / Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={reqThStyle}>{h}</th>)}</tr></thead>
                     <tbody>
                       {rows.map(r => (
                         <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
-                          <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
-                          <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
-                          <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
-                          <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
-                          <td style={{ ...tdStyle, maxWidth: 200 }}><TruncatedText text={r.reason} /></td>
-                          <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                          <td style={tdStyle}><ReviewerCell r={r} /></td>
-                          <td style={{ ...tdStyle, maxWidth: 180 }}><TruncatedText text={r.reviewComment} /></td>
-                          <td style={tdStyle}>
+                          <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
+                          {/* In / Out stacked in one cell — same pattern as the Attendance Log's "In / Out" column. */}
+                          <td data-label="Requested In / Out" style={reqTdStyle}>
+                            <div>{formatTime(r.requestedCheckIn) ?? dash}</div>
+                            <div style={{ color: 'var(--txt-dim)', marginTop: 2 }}>{formatTime(r.requestedCheckOut) ?? dash}</div>
+                          </td>
+                          <td data-label="Total Hours" style={reqTdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                          <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                          <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                          <td data-label="Approver / Reviewer" style={reqTdStyle}><ReviewerCell r={r} /></td>
+                          <td data-label="Comments" style={reqTdStyle}><TruncatedText text={r.reviewComment} /></td>
+                          <td data-label="Action" style={reqTdStyle}>
                             {r.status === 'PENDING' && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); setEditing(r); }}
@@ -5505,7 +5544,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
       {canApprove && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-            <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>Pending Approvals</h3>
+            <SectionHeading title="Pending Approvals" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--txt-mut)' }}>
                 Date
@@ -5554,11 +5593,12 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
             const someSelected = !allSelected && selectableIds.some(id => selectedIds.has(id));
             return (
             <div style={panelStyle}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+                <table className="nf-req-table" style={reqTableStyle}>
+                  <ReqColGroup widths={['5%', '16%', '12%', '10%', '9%', '11%', '14%', '12%', '11%']} />
                   <thead>
                     <tr>
-                      <th style={{ ...thStyle, width: 34 }}>
+                      <th className="nf-req-select" style={reqThStyle}>
                         {selectableIds.length > 0 && (
                           <input
                             type="checkbox"
@@ -5573,13 +5613,13 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                           />
                         )}
                       </th>
-                      {['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                      {['Employee', 'Date', 'Requested In / Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={reqThStyle}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {approvalsPaged.map(r => (
                       <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
-                        <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                        <td className="nf-req-select" data-label="" style={reqTdStyle} onClick={e => e.stopPropagation()}>
                           {isActionableRequest(r, isManager) && (
                             <input
                               type="checkbox"
@@ -5592,20 +5632,22 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                             />
                           )}
                         </td>
-                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                        <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                           {r.employeeName}
-                          <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
+                          <TruncatedText text={r.employeeEmail} style={{ fontSize: 10, fontWeight: 400, color: 'var(--txt-dim)' }} />
                         </td>
-                        <td style={tdStyle}>{r.attendanceDate}</td>
-                        <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
-                        <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
-                        <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
-                        <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                        <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                        <td style={tdStyle}><ReviewerCell r={r} /></td>
-                        <td style={tdStyle}>
+                        <td data-label="Date" style={reqTdStyle}>{r.attendanceDate}</td>
+                        <td data-label="Requested In / Out" style={reqTdStyle}>
+                          <div>{formatTime(r.requestedCheckIn) ?? dash}</div>
+                          <div style={{ color: 'var(--txt-dim)', marginTop: 2 }}>{formatTime(r.requestedCheckOut) ?? dash}</div>
+                        </td>
+                        <td data-label="Total Hours" style={reqTdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                        <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                        <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                        <td data-label="Reviewer" style={reqTdStyle}><ReviewerCell r={r} /></td>
+                        <td data-label="Actions" style={reqTdStyle}>
                           {isActionableRequest(r, isManager) ? (
-                            <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} onClick={e => e.stopPropagation()}>
                               <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
                               <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
                             </div>
@@ -5847,11 +5889,14 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {groups.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Nothing to show.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+            <table className="nf-req-table" style={reqTableStyle}>
+              <ReqColGroup widths={showActions
+                ? ['13.5%', '10.9%', '9.2%', '11.2%', '10.4%', '12.5%', '12.2%', '12.2%', '7.9%']
+                : ['17%', '11%', '13%', '14%', '13%', '12%', '11.5%', '8.5%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={reqThStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {groups.map((group) => {
@@ -5866,21 +5911,21 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                     : dash;
                   return (
                     <tr key={first.id}>
-                      {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{first.employeeName}</td>}
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                      {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{first.employeeName}</td>}
+                      <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <Home size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} />
                           <span>{formatWfhRange(group)}</span>
                         </div>
                       </td>
-                      <td style={tdStyle}>Work From Home</td>
-                      <td style={tdStyle}>
+                      <td data-label="Request Type" style={reqTdStyle}>Work From Home</td>
+                      <td data-label="Requested On" style={reqTdStyle}>
                         <div>{formatDay(first.createdAt.slice(0, 10))}</div>
                         <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>by {first.employeeName}</div>
                       </td>
-                      <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={first.reason} /></td>
-                      <td style={tdStyle}><RegularizationStatusPill status={status} /></td>
-                      <td style={tdStyle}>
+                      <td data-label="Reason" style={reqTdStyle}><TruncatedText text={first.reason} /></td>
+                      <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={status} /></td>
+                      <td data-label="Last Action By" style={reqTdStyle}>
                         {lastAction ? (
                           <>
                             {lastAction.reviewedByName}
@@ -5888,8 +5933,8 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                           </>
                         ) : dash}
                       </td>
-                      <td style={tdStyle}>{nextApprover}</td>
-                      <td style={tdStyle}>
+                      <td data-label="Next Approver" style={reqTdStyle}>{nextApprover}</td>
+                      <td data-label="Actions" style={reqTdStyle}>
                         <WfhActionMenu
                           group={group}
                           canApprove={showActions && canApprove}
@@ -5915,8 +5960,11 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {rows.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Nothing to show.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+            <table className="nf-req-table" style={reqTableStyle}>
+              <ReqColGroup widths={showActions
+                ? ['14%', '15%', '12%', '9%', '13%', '13%', '14%', '10%']
+                : ['18%', '14%', '10%', '19%', '15%', '14%', '10%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — in "My Requests"
                     every row is the viewer's own, so the name would be redundant. Mirrors
@@ -5924,21 +5972,21 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                     Pending Approvals table for the same reason. The Actions column, unlike
                     Employee, is unconditional — every row (own or pending-approval) can at least
                     be viewed, matching renderWfhTable. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Mode', 'Hours', 'Reason', 'Approver', 'Status', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Mode', 'Hours', 'Reason', 'Approver', 'Status', 'Actions'].map((h) => <th key={h} style={reqThStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
-                    <td style={tdStyle}>{partialDayModeLabel(r)}</td>
+                    {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
+                    <td data-label="Mode" style={reqTdStyle}>{partialDayModeLabel(r)}</td>
                     {/* partialDayHours is a decimal (e.g. 3.33 for 3h 20m) — round-trip through
                         minutes for a precise "3h 20m" instead of that raw fraction. */}
-                    <td style={tdStyle}>{r.partialDayHours != null ? formatDuration(Math.round(r.partialDayHours * 60)) ?? dash : dash}</td>
-                    <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                    <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
-                    <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                    <td style={tdStyle}>
+                    <td data-label="Hours" style={reqTdStyle}>{r.partialDayHours != null ? formatDuration(Math.round(r.partialDayHours * 60)) ?? dash : dash}</td>
+                    <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                    <td data-label="Approver" style={reqTdStyle}>{r.assignedApproverName ?? dash}</td>
+                    <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    <td data-label="Actions" style={reqTdStyle}>
                       <PartialDayActionMenu
                         request={r}
                         canApprove={showActions && canApprove}
@@ -5979,12 +6027,12 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {canApprove && (
           <div>
             <SectionHeading title="Pending Approvals — Work From Home" />
-            {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhPending, true)}
+            {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhPending, true)}
           </div>
         )}
         <div>
           <SectionHeading title="My Work From Home Requests" />
-          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhMyRequests, false)}
+          {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhMyRequests, false)}
         </div>
       </div>
 
@@ -5993,12 +6041,12 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {canApprove && (
           <div>
             <SectionHeading title="Pending Approvals — Partial Day" />
-            {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayPending, true)}
+            {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayPending, true)}
           </div>
         )}
         <div>
           <SectionHeading title="My Partial Day Requests" />
-          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayMyRequests, false)}
+          {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayMyRequests, false)}
         </div>
       </div>
 
@@ -6674,21 +6722,24 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
         {rows.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Nothing to show.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+            <table className="nf-req-table" style={reqTableStyle}>
+              <ReqColGroup widths={showApprovalActions
+                ? ['14%', '14%', '12%', '12%', '13%', '13%', '12%', '10%']
+                : ['17%', '12%', '19%', '14%', '14%', '14%', '10%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showApprovalActions) — see the same
                     reasoning in AttendanceRequestsSection.renderTable. The "..." Actions column is
                     always present (every row can at least be viewed), unlike the old Approve/
                     Reject buttons that only appeared in the approvals table. */}
-                <tr>{[...(showApprovalActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{[...(showApprovalActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={reqThStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showApprovalActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
-                    <td style={tdStyle}>
+                    {showApprovalActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
+                    <td data-label="Overtime Hours" style={reqTdStyle}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         {formatDuration(r.requestedMinutes) ?? dash}
                         {/* Opens the same detail drawer's Applied/Approved hours breakdown —
@@ -6703,11 +6754,11 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
                         </button>
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                    <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                    <td style={tdStyle}><OvertimeLastActionCell r={r} /></td>
-                    <td style={tdStyle}><OvertimeNextApproverCell r={r} /></td>
-                    <td style={tdStyle}>
+                    <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                    <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    <td data-label="Last Action By" style={reqTdStyle}><OvertimeLastActionCell r={r} /></td>
+                    <td data-label="Next Approver" style={reqTdStyle}><OvertimeNextApproverCell r={r} /></td>
+                    <td data-label="Actions" style={reqTdStyle}>
                       <OvertimeActionMenu
                         request={r}
                         canApprove={showApprovalActions && canApprove}
@@ -6731,7 +6782,7 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
       {canApprove && (
         <div>
           <SectionHeading title="Pending Approvals — Overtime" />
-          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderTable(pending, true)}
+          {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderTable(pending, true)}
         </div>
       )}
       <div>
@@ -6747,7 +6798,7 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
             </button>
           </div>
         </div>
-        {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
+        {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
       </div>
       {showRequest && (
         <OvertimeRequestModal
@@ -7028,7 +7079,7 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
             />
           </Field>
           <NotifyEmployeeField token={token} value={notifyEntry} onChange={setNotifyEntry} />
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+          <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
             <button
               onClick={handleSubmit}
