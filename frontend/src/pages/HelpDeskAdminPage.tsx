@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Clock, Inbox, Paperclip, Send, UserCog } from 'lucide-react';
+import {
+  ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock, Eye, History, Inbox, Info,
+  Lock, MessageSquareText, Paperclip, Play, Search, Send, SlidersHorizontal, Ticket, UserPlus,
+} from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -12,36 +15,64 @@ import {
   type TicketStatus,
   type TicketSummary,
 } from '../api/helpdesk';
+import './RequestsPage.css';
 
-const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
-const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', color: 'var(--txt)', fontSize: 12.5, outline: 'none' };
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-
-const STATUS_COLORS: Record<TicketStatus, { bg: string; color: string }> = {
-  OPEN: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-  IN_PROGRESS: { bg: 'rgba(99,102,241,.18)', color: '#818CF8' },
-  RESOLVED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-  CLOSED: { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' },
+// Presentational only — tone class per status (see RequestsPage.css).
+const STATUS_TONES: Record<TicketStatus, string> = {
+  OPEN: 'tone-warn',
+  IN_PROGRESS: 'tone-indigo',
+  RESOLVED: 'tone-ok',
+  CLOSED: 'tone-mute',
 };
 
 function StatusBadge({ status }: { status: TicketStatus }) {
-  const s = STATUS_COLORS[status] ?? { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' };
   return (
-    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>
+    <span className={`nf-rq-badge ${STATUS_TONES[status] ?? 'tone-mute'}`}>
       {status.replace(/_/g, ' ')}
     </span>
   );
 }
 
-function Kpi({ icon, label, value, danger }: { icon: React.ReactNode; label: string; value: number; danger?: boolean }) {
+function Kpi({ icon, label, value, danger, tone }: { icon: React.ReactNode; label: string; value: number; danger?: boolean; tone: string }) {
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ color: 'var(--brand)' }}>{icon}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
+    <div className="nf-rq-kpi">
+      <div className={`nf-rq-kpi-icon ${tone}`}>{icon}</div>
+      <div style={{ minWidth: 0 }}>
+        <div className="nf-rq-kpi-label">{label}</div>
+        <div className={`nf-rq-kpi-value${danger && value > 0 ? ' nf-rq-kpi-value--danger' : ''}`}>{value}</div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger && value > 0 ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
+    </div>
+  );
+}
+
+/** Initials for the avatar chip — derived from the name already on the row, no photo fetch. */
+function initials(name?: string | null) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
+}
+
+function Person({ name, fallback, large }: { name?: string | null; fallback?: string; large?: boolean }) {
+  return (
+    <div className="nf-rq-person">
+      <span className={`nf-rq-avatar${large ? ' nf-rq-avatar--lg' : ''}${name ? '' : ' nf-rq-avatar--muted'}`} aria-hidden="true">
+        {name ? initials(name) : '–'}
+      </span>
+      <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '—'}</span>
+    </div>
+  );
+}
+
+function PageHeader({ subtitle }: { subtitle?: string }) {
+  return (
+    <div className="nf-rq-header">
+      <div className="nf-rq-header-main">
+        <div className="nf-rq-header-icon"><Ticket size={24} /></div>
+        <div>
+          <h1 className="nf-rq-title">HR Service Requests</h1>
+          {subtitle && <p className="nf-rq-subtitle">{subtitle}</p>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -65,18 +96,13 @@ const NEXT_STATUS_OPTIONS: Record<TicketStatus, TicketStatus[]> = {
 function ReplyBubble({ reply, token }: { reply: ReplyItem; token: string }) {
   const isHr = reply.senderRole === 'HR';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: isHr ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
-      <div style={{
-        maxWidth: '80%',
-        background: reply.internal ? 'rgba(224,169,59,.12)' : isHr ? 'rgba(177,17,22,.08)' : 'var(--raised)',
-        border: `1px solid ${reply.internal ? 'rgba(224,169,59,.35)' : isHr ? 'rgba(177,17,22,.25)' : 'var(--line)'}`,
-        borderRadius: 10, padding: '10px 14px',
-      }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', marginBottom: 4 }}>
-          {reply.senderName} <span style={{ color: 'var(--txt-dim)', fontWeight: 500 }}>· {isHr ? 'HR' : 'Employee'}</span>
-          {reply.internal && <span style={{ marginLeft: 6, color: '#E0A93B', fontWeight: 700 }}>INTERNAL NOTE</span>}
+    <div className={`nf-rq-msg${isHr ? ' nf-rq-msg--hr' : ''}`}>
+      <div className={`nf-rq-bubble${reply.internal ? ' nf-rq-bubble--internal' : ''}`}>
+        <div className="nf-rq-bubble-meta">
+          {reply.senderName} <span className="nf-rq-bubble-role">· {isHr ? 'HR' : 'Employee'}</span>
+          {reply.internal && <span className="nf-rq-internal-tag"><Lock size={9} /> INTERNAL NOTE</span>}
         </div>
-        <div style={{ fontSize: 13, color: 'var(--txt)', whiteSpace: 'pre-wrap' }}>{reply.message}</div>
+        <div className="nf-rq-bubble-text">{reply.message}</div>
         {reply.hasAttachment && (
           <button
             onClick={async () => {
@@ -87,13 +113,30 @@ function ReplyBubble({ reply, token }: { reply: ReplyItem; token: string }) {
               a.click();
               URL.revokeObjectURL(url);
             }}
-            style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '4px 9px', fontSize: 11.5, color: 'var(--txt-mut)', cursor: 'pointer' }}
+            className="nf-rq-attach"
           >
-            <Paperclip size={11} /> {reply.attachmentName}
+            <Paperclip size={12} /> <span>{reply.attachmentName}</span>
           </button>
         )}
       </div>
-      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 3 }}>{fmtDateTime(reply.createdAt)}</div>
+      <div className="nf-rq-msg-time">{fmtDateTime(reply.createdAt)}</div>
+    </div>
+  );
+}
+
+/** Ticket identity block shared by the preview and the workspace. */
+function TicketHeading({ ticket, raisedBy }: { ticket: TicketDetail; raisedBy?: boolean }) {
+  return (
+    <div className="nf-rq-ticket-head">
+      <div className="nf-rq-ticket-id">
+        <span className="nf-rq-type-icon tone-brand" style={{ width: 44, height: 44, borderRadius: 12 }}><Ticket size={20} /></span>
+        <div style={{ minWidth: 0 }}>
+          <div className="nf-rq-ticket-kicker">{ticket.ticketNumber}</div>
+          <h2 className="nf-rq-ticket-title">{ticket.categoryName}</h2>
+          {raisedBy && <div className="nf-rq-ticket-by">Raised by {ticket.employeeName}</div>}
+        </div>
+      </div>
+      <StatusBadge status={ticket.status} />
     </div>
   );
 }
@@ -158,87 +201,119 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
   }
 
   if (loading || !ticket) {
-    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>;
+    return <div className="nf-rq-panel nf-rq-loading">Loading…</div>;
   }
 
   return (
-    <div>
-      <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--txt-mut)', fontSize: 12.5, cursor: 'pointer', marginBottom: 14, padding: 0 }}>
-        ← Back to queue
+    <>
+      <button onClick={onBack} className="nf-rq-back">
+        <ArrowLeft size={15} /> Back to queue
       </button>
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>Raised by {ticket.employeeName}</div>
+      <div className="nf-rq-split">
+        <div className="nf-rq-stack">
+          <div className="nf-rq-panel">
+            <div className="nf-rq-panel-body">
+              <TicketHeading ticket={ticket} raisedBy />
+              <div className="nf-rq-section-label">Description</div>
+              <div className="nf-rq-quote">{ticket.description}</div>
+            </div>
           </div>
-          <StatusBadge status={ticket.status} />
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--txt-mut)', whiteSpace: 'pre-wrap', marginBottom: 14 }}>{ticket.description}</div>
 
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-          <div style={{ minWidth: 180 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Assigned To</div>
-            <select style={filterSelect} value={assigneeId} disabled={savingAssign} onChange={e => handleAssign(e.target.value)}>
-              <option value="">Unassigned</option>
-              {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
-            </select>
-          </div>
-          <div style={{ minWidth: 180 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Change Status</div>
-            <select
-              style={filterSelect}
-              value=""
-              disabled={savingStatus || NEXT_STATUS_OPTIONS[ticket.status].length === 0}
-              onChange={e => e.target.value && handleStatusChange(e.target.value as TicketStatus)}
-            >
-              <option value="">{NEXT_STATUS_OPTIONS[ticket.status].length === 0 ? 'No further transitions' : 'Select next status…'}</option>
-              {NEXT_STATUS_OPTIONS[ticket.status].map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-            </select>
+          <div className="nf-rq-panel">
+            <div className="nf-rq-panel-head">
+              <h3 className="nf-rq-panel-title"><MessageSquareText size={16} /> Conversation</h3>
+            </div>
+            <div className="nf-rq-thread">
+              {ticket.replies.length === 0 ? (
+                <div className="nf-rq-thread-empty">No replies yet.</div>
+              ) : (
+                ticket.replies.map(r => <ReplyBubble key={r.id} reply={r} token={token} />)
+              )}
+            </div>
+
+            <form onSubmit={handleReply} className="nf-rq-composer">
+              <textarea
+                className="nf-rq-textarea"
+                placeholder="Type a reply…"
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+              />
+              <div className="nf-rq-composer-bar">
+                <div className="nf-rq-composer-opts">
+                  <label className="nf-rq-opt nf-rq-opt--file">
+                    <Paperclip size={13} />
+                    <span>{attachment ? attachment.name : 'Attach a file'}</span>
+                    <input type="file" style={{ display: 'none' }} onChange={e => setAttachment(e.target.files?.[0] ?? null)} />
+                  </label>
+                  <label className="nf-rq-opt">
+                    <input type="checkbox" checked={internal} onChange={e => setInternal(e.target.checked)} />
+                    Internal note (HR only)
+                  </label>
+                </div>
+                <button type="submit" disabled={sending || !message.trim()} className="nf-rq-btn nf-rq-btn--primary">
+                  <Send size={14} /> {sending ? 'Sending…' : 'Reply'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 12 }}>
-          Created {fmtDateTime(ticket.createdAt)} · Last updated {fmtDateTime(ticket.updatedAt)}
-          {ticket.resolvedAt && <> · Resolved {fmtDateTime(ticket.resolvedAt)} by {ticket.resolvedByName}</>}
+
+        <div className="nf-rq-stack">
+          <div className="nf-rq-panel">
+            <div className="nf-rq-panel-head">
+              <h3 className="nf-rq-panel-title"><SlidersHorizontal size={16} /> Manage Ticket</h3>
+            </div>
+            <div className="nf-rq-panel-body" style={{ display: 'grid', gap: 16 }}>
+              <div>
+                <label className="nf-rq-field-label" htmlFor="nf-rq-assignee">Assigned To</label>
+                <select id="nf-rq-assignee" className="nf-rq-select nf-rq-select--block" value={assigneeId} disabled={savingAssign} onChange={e => handleAssign(e.target.value)}>
+                  <option value="">Unassigned</option>
+                  {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="nf-rq-field-label" htmlFor="nf-rq-next-status">Change Status</label>
+                <select
+                  id="nf-rq-next-status"
+                  className="nf-rq-select nf-rq-select--block"
+                  value=""
+                  disabled={savingStatus || NEXT_STATUS_OPTIONS[ticket.status].length === 0}
+                  onChange={e => e.target.value && handleStatusChange(e.target.value as TicketStatus)}
+                >
+                  <option value="">{NEXT_STATUS_OPTIONS[ticket.status].length === 0 ? 'No further transitions' : 'Select next status…'}</option>
+                  {NEXT_STATUS_OPTIONS[ticket.status].map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="nf-rq-panel">
+            <div className="nf-rq-panel-head">
+              <h3 className="nf-rq-panel-title"><History size={16} /> Activity</h3>
+            </div>
+            <div className="nf-rq-panel-body">
+              <ul className="nf-rq-timeline">
+                <li>
+                  <span className="nf-rq-tl-dot nf-rq-tl-dot--filled tone-brand" />
+                  <div><div className="nf-rq-tl-title">Created</div><div className="nf-rq-tl-sub">{fmtDateTime(ticket.createdAt)}</div></div>
+                </li>
+                <li>
+                  <span className="nf-rq-tl-dot tone-info" />
+                  <div><div className="nf-rq-tl-title">Last updated</div><div className="nf-rq-tl-sub">{fmtDateTime(ticket.updatedAt)}</div></div>
+                </li>
+                {ticket.resolvedAt && (
+                  <li>
+                    <span className="nf-rq-tl-dot nf-rq-tl-dot--filled tone-ok" />
+                    <div><div className="nf-rq-tl-title">Resolved</div><div className="nf-rq-tl-sub">{fmtDateTime(ticket.resolvedAt)} by {ticket.resolvedByName}</div></div>
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
-
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Conversation</div>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 16, maxHeight: 360, overflowY: 'auto' }}>
-        {ticket.replies.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--txt-dim)', textAlign: 'center', padding: 20 }}>No replies yet.</div>
-        ) : (
-          ticket.replies.map(r => <ReplyBubble key={r.id} reply={r} token={token} />)
-        )}
-      </div>
-
-      <form onSubmit={handleReply} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <textarea
-          style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
-          placeholder="Type a reply…"
-          value={message}
-          onChange={e => setMessage(e.target.value)}
-        />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-              <Paperclip size={13} />
-              {attachment ? attachment.name : 'Attach a file'}
-              <input type="file" style={{ display: 'none' }} onChange={e => setAttachment(e.target.files?.[0] ?? null)} />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-              <input type="checkbox" checked={internal} onChange={e => setInternal(e.target.checked)} />
-              Internal note (HR only)
-            </label>
-          </div>
-          <button type="submit" disabled={sending || !message.trim()} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: sending ? 'not-allowed' : 'pointer', opacity: sending ? 0.7 : 1 }}>
-            <Send size={13} /> {sending ? 'Sending…' : 'Reply'}
-          </button>
-        </div>
-      </form>
-    </div>
+    </>
   );
 }
 
@@ -247,10 +322,6 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
 // mount and otherwise only calls the existing assign/startWorking endpoints, and only in
 // response to an explicit button click. Reuses TicketDetail (same shape TicketDetailView
 // already fetches) and the existing agents list — no new backend read is introduced.
-
-const previewPrimaryBtnStyle: React.CSSProperties = { background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer' };
-const previewSecondaryBtnStyle: React.CSSProperties = { background: 'none', border: '1px solid var(--line2)', color: 'var(--txt)', borderRadius: 8, padding: '10px 20px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer' };
-const previewLinkStyle: React.CSSProperties = { background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 };
 
 function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onChanged }: {
   ticketId: string; token: string; agents: AssignableAgent[];
@@ -300,91 +371,97 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
   }
 
   if (loading || !ticket) {
-    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>;
+    return <div className="nf-rq-panel nf-rq-loading">Loading…</div>;
   }
 
   const canStartWorking = ticket.status === 'OPEN';
   const canReassign = ticket.status === 'OPEN' || ticket.status === 'IN_PROGRESS';
 
   return (
-    <div>
-      <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--txt-mut)', fontSize: 12.5, cursor: 'pointer', marginBottom: 14, padding: 0 }}>
-        ← Back to queue
+    <>
+      <button onClick={onBack} className="nf-rq-back">
+        <ArrowLeft size={15} /> Back to queue
       </button>
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 4 }}>{ticket.ticketNumber}</div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)' }}>{ticket.categoryName}</div>
-          </div>
-          <StatusBadge status={ticket.status} />
-        </div>
+      <div className="nf-rq-split">
+        <div className="nf-rq-panel">
+          <div className="nf-rq-panel-body">
+            <TicketHeading ticket={ticket} />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, paddingBottom: 16, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Requested By</div>
-            <div style={{ fontSize: 13, color: 'var(--txt)' }}>{ticket.employeeName}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Created</div>
-            <div style={{ fontSize: 13, color: 'var(--txt)' }}>{fmtDateTime(ticket.createdAt)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Assigned To</div>
-            <div style={{ fontSize: 13, color: 'var(--txt)' }}>{ticket.assignedToName ?? 'Unassigned'}</div>
-          </div>
-        </div>
-
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Description</div>
-        <div style={{ fontSize: 13, color: 'var(--txt-mut)', whiteSpace: 'pre-wrap' }}>{ticket.description}</div>
-      </div>
-
-      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', textAlign: 'center', marginBottom: 16 }}>
-        Just viewing — nothing changes until you choose an action below.
-      </div>
-
-      {showAssignPanel ? (
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 18, marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Assign To</div>
-          <select style={filterSelect} value={assigneeChoice} onChange={e => setAssigneeChoice(e.target.value)}>
-            <option value="">Select an HR Admin…</option>
-            {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
-          </select>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
-            <button onClick={() => setShowAssignPanel(false)} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button
-              onClick={handleConfirmAssign}
-              disabled={!assigneeChoice || assigning}
-              style={{ ...previewPrimaryBtnStyle, padding: '8px 18px', cursor: (!assigneeChoice || assigning) ? 'not-allowed' : 'pointer', opacity: (!assigneeChoice || assigning) ? 0.6 : 1 }}
-            >
-              {assigning ? 'Assigning…' : 'Assign'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginBottom: canStartWorking ? 10 : 16 }}>
-            {canStartWorking && (
-              <button onClick={handleStartWorking} disabled={starting} style={{ ...previewPrimaryBtnStyle, cursor: starting ? 'not-allowed' : 'pointer', opacity: starting ? 0.7 : 1 }}>
-                {starting ? 'Starting…' : 'Start Working'}
-              </button>
-            )}
-            {canReassign && (
-              <button onClick={() => setShowAssignPanel(true)} style={previewSecondaryBtnStyle}>Assign to HR</button>
-            )}
-            {!canStartWorking && (
-              <button onClick={() => onOpenWorkspace(ticketId)} style={previewPrimaryBtnStyle}>Open Conversation</button>
-            )}
-          </div>
-          {canStartWorking && (
-            <div style={{ textAlign: 'center' }}>
-              <button onClick={() => onOpenWorkspace(ticketId)} style={previewLinkStyle}>View conversation without starting work →</button>
+            <div className="nf-rq-fields">
+              <div>
+                <div className="nf-rq-field-label">Requested By</div>
+                <Person name={ticket.employeeName} />
+              </div>
+              <div>
+                <div className="nf-rq-field-label">Created</div>
+                <div className="nf-rq-field-value">{fmtDateTime(ticket.createdAt)}</div>
+              </div>
+              <div>
+                <div className="nf-rq-field-label">Assigned To</div>
+                <Person name={ticket.assignedToName} fallback="Unassigned" />
+              </div>
             </div>
-          )}
-        </>
-      )}
-    </div>
+
+            <div className="nf-rq-section-label">Description</div>
+            <div className="nf-rq-quote">{ticket.description}</div>
+          </div>
+        </div>
+
+        <div className="nf-rq-panel">
+          <div className="nf-rq-panel-head">
+            <h3 className="nf-rq-panel-title">{showAssignPanel ? <><UserPlus size={16} /> Assign To</> : <><Play size={16} /> Actions</>}</h3>
+          </div>
+          <div className="nf-rq-panel-body">
+            <div className="nf-rq-hint" style={{ marginBottom: 16 }}>
+              <Info size={14} /> Just viewing — nothing changes until you choose an action below.
+            </div>
+
+            {showAssignPanel ? (
+              <>
+                <select className="nf-rq-select nf-rq-select--block" aria-label="Assign To" value={assigneeChoice} onChange={e => setAssigneeChoice(e.target.value)}>
+                  <option value="">Select an HR Admin…</option>
+                  {agents.filter(a => a.active !== false).map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
+                </select>
+                <div className="nf-rq-actions-row" style={{ marginTop: 14 }}>
+                  <button onClick={() => setShowAssignPanel(false)} className="nf-rq-btn nf-rq-btn--ghost">Cancel</button>
+                  <button
+                    onClick={handleConfirmAssign}
+                    disabled={!assigneeChoice || assigning}
+                    className="nf-rq-btn nf-rq-btn--primary"
+                  >
+                    {assigning ? 'Assigning…' : 'Assign'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="nf-rq-actions">
+                {canStartWorking && (
+                  <button onClick={handleStartWorking} disabled={starting} className="nf-rq-btn nf-rq-btn--primary nf-rq-btn--block">
+                    <Play size={14} /> {starting ? 'Starting…' : 'Start Working'}
+                  </button>
+                )}
+                {canReassign && (
+                  <button onClick={() => setShowAssignPanel(true)} className="nf-rq-btn nf-rq-btn--outline nf-rq-btn--block">
+                    <UserPlus size={14} /> Assign to HR
+                  </button>
+                )}
+                {!canStartWorking && (
+                  <button onClick={() => onOpenWorkspace(ticketId)} className="nf-rq-btn nf-rq-btn--primary nf-rq-btn--block">
+                    <MessageSquareText size={14} /> Open Conversation
+                  </button>
+                )}
+                {canStartWorking && (
+                  <div style={{ textAlign: 'center', marginTop: 4 }}>
+                    <button onClick={() => onOpenWorkspace(ticketId)} className="nf-rq-link">View conversation without starting work →</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -400,6 +477,8 @@ const QUEUE_FILTERS: QueueFilter[] = [
   { key: 'RESOLVED', label: 'Resolved', statuses: ['RESOLVED'] },
   { key: 'CLOSED', label: 'Closed', statuses: ['CLOSED'] },
 ];
+
+const TABLE_HEADERS = ['Ticket Number', 'Employee', 'Topic', 'Status', 'Assigned To', 'Last Update'];
 
 export default function HelpDeskAdminPage() {
   const token = useAuthStore(s => s.token)!;
@@ -465,10 +544,8 @@ export default function HelpDeskAdminPage() {
 
   if (selectedId) {
     return (
-      <div>
-        <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
-        </div>
+      <div className="nf-rq">
+        <PageHeader />
         <TicketDetailView ticketId={selectedId} token={token} agents={agents} onBack={() => { setSelectedId(null); refreshAll(); }} onChanged={refreshAll} />
       </div>
     );
@@ -479,10 +556,8 @@ export default function HelpDeskAdminPage() {
   // "Open Conversation" / going Back leave it exactly as it was.
   if (previewId) {
     return (
-      <div>
-        <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
-        </div>
+      <div className="nf-rq">
+        <PageHeader />
         <TicketPreview
           ticketId={previewId}
           token={token}
@@ -496,77 +571,115 @@ export default function HelpDeskAdminPage() {
   }
 
   return (
-    <div>
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>HR Service Requests</h1>
-        <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Help Desk tickets raised by employees across the organization.</p>
-      </div>
+    <div className="nf-rq">
+      <PageHeader subtitle="Help Desk tickets raised by employees across the organization." />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 8 }}>
-        <Kpi icon={<Inbox size={14} />} label="Active Queue" value={dashboard.openCount + dashboard.inProgressCount} danger />
-        <Kpi icon={<Inbox size={14} />} label="Open" value={dashboard.openCount} />
-        <Kpi icon={<Clock size={14} />} label="In Progress" value={dashboard.inProgressCount} />
-        <Kpi icon={<CheckCircle2 size={14} />} label="Resolved" value={dashboard.resolvedCount} />
-        <Kpi icon={<UserCog size={14} />} label="Closed" value={dashboard.closedCount} />
+      <div className="nf-rq-kpis">
+        <Kpi icon={<Inbox size={20} />} tone="tone-brand" label="Active Queue" value={dashboard.openCount + dashboard.inProgressCount} danger />
+        <Kpi icon={<CircleDot size={20} />} tone="tone-warn" label="Open" value={dashboard.openCount} />
+        <Kpi icon={<Clock size={20} />} tone="tone-indigo" label="In Progress" value={dashboard.inProgressCount} />
+        <Kpi icon={<CheckCircle2 size={20} />} tone="tone-ok" label="Resolved" value={dashboard.resolvedCount} />
+        <Kpi icon={<Lock size={20} />} tone="tone-mute" label="Closed" value={dashboard.closedCount} />
       </div>
-      <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '0 0 22px' }}>
+      <p className="nf-rq-note">
         Totals across all tickets — the search and assignee filters below narrow the list only.
       </p>
 
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-        <input
-          placeholder="Search ticket number or description…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
-        />
-        <select value={assigneeFilter} onChange={e => setAssigneeFilter(e.target.value)} style={filterSelect}>
-          <option value="">All Assignees</option>
-          {agents.map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
-        </select>
-      </div>
-      {hasActiveNarrowing && (
-        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 12 }}>
-          Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter — the cards above still reflect all tickets.
+      <div className="nf-rq-card">
+        <div className="nf-rq-tabs" role="tablist" aria-label="Filter by ticket status">
+          {QUEUE_FILTERS.map(f => (
+            <button
+              key={f.key}
+              role="tab"
+              aria-selected={statusFilter === f.key}
+              onClick={() => setStatusFilter(f.key)}
+              className={`nf-rq-tab${statusFilter === f.key ? ' nf-rq-tab--active' : ''}`}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
-      )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {QUEUE_FILTERS.map(f => (
-          <button key={f.key} onClick={() => setStatusFilter(f.key)} style={{
-            padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
-            background: statusFilter === f.key ? 'var(--brand)' : 'var(--raised)',
-            color: statusFilter === f.key ? '#fff' : 'var(--txt-mut)',
-          }}>
-            {f.label}
-          </button>
-        ))}
-      </div>
+        <div className="nf-rq-filters">
+          <div className="nf-rq-search">
+            <Search size={16} />
+            <input
+              className="nf-rq-input"
+              placeholder="Search ticket number or description…"
+              aria-label="Search ticket number or description"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <select
+            value={assigneeFilter}
+            onChange={e => setAssigneeFilter(e.target.value)}
+            aria-label="Filter by assignee"
+            className={`nf-rq-select${assigneeFilter ? ' nf-rq-select--active' : ''}`}
+          >
+            <option value="">All Assignees</option>
+            {agents.map(a => <option key={a.userId} value={a.userId}>{a.name}</option>)}
+          </select>
+        </div>
+        {hasActiveNarrowing && (
+          <div className="nf-rq-narrowing">
+            Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter — the cards above still reflect all tickets.
+          </div>
+        )}
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
+          <div className="nf-rq-table-wrap" aria-busy="true">
+            <span className="nf-rq-sr-only">Loading…</span>
+            <table className="nf-rq-table">
+              <tbody>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="nf-rq-skel-row">
+                    <td className="nf-rq-td-lead"><span className="nf-rq-skel" style={{ width: 90 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 140 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 120 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 80 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 110 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 120 }} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : tickets.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center' }}>
-            <div style={{ fontSize: 15, color: 'var(--txt-mut)' }}>No tickets match these filters.</div>
+          <div className="nf-rq-empty" style={{ borderTop: '1px solid var(--line)' }}>
+            <div className="nf-rq-empty-icon"><Inbox size={24} /></div>
+            <div className="nf-rq-empty-title">No tickets match these filters.</div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-rq-table-wrap">
+            <table className="nf-rq-table">
               <thead>
                 <tr>
-                  {['Ticket Number', 'Employee', 'Topic', 'Status', 'Assigned To', 'Last Update'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {TABLE_HEADERS.map(h => <th key={h}>{h}</th>)}
+                  <th className="nf-rq-th-actions"><span className="nf-rq-sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {tickets.map(t => (
-                  <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setPreviewId(t.id)}>
-                    <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', fontWeight: 600 }}>{t.ticketNumber}</td>
-                    <td style={tdStyle}>{t.employeeName}</td>
-                    <td style={tdStyle}>{t.categoryName}</td>
-                    <td style={tdStyle}><StatusBadge status={t.status} /></td>
-                    <td style={tdStyle}>{t.assignedToName ?? '—'}</td>
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDateTime(t.updatedAt)}</td>
+                  <tr key={t.id} onClick={() => setPreviewId(t.id)}>
+                    <td className="nf-rq-td-lead" data-label="Ticket Number"><span className="nf-rq-ticket-no">{t.ticketNumber}</span></td>
+                    <td data-label="Employee"><Person name={t.employeeName} /></td>
+                    <td data-label="Topic">{t.categoryName}</td>
+                    <td data-label="Status"><StatusBadge status={t.status} /></td>
+                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">—</span>}</td>
+                    <td data-label="Last Update" className="nf-rq-nowrap">{fmtDateTime(t.updatedAt)}</td>
+                    <td className="nf-rq-td-actions">
+                      {/* Same action as clicking the row — opens the read-only preview. */}
+                      <button
+                        type="button"
+                        className="nf-rq-row-btn"
+                        aria-label={`View ticket ${t.ticketNumber}`}
+                        title="View ticket"
+                        onClick={e => { e.stopPropagation(); setPreviewId(t.id); }}
+                      >
+                        <Eye size={16} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -575,10 +688,16 @@ export default function HelpDeskAdminPage() {
         )}
 
         {totalPages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
-            <button onClick={() => loadQueue(page - 1)} disabled={page === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? 0.5 : 1 }}>← Prev</button>
-            <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {page + 1} of {totalPages}</span>
-            <button onClick={() => loadQueue(page + 1)} disabled={page >= totalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer', opacity: page >= totalPages - 1 ? 0.5 : 1 }}>Next →</button>
+          <div className="nf-rq-footer" style={{ justifyContent: 'center' }}>
+            <div className="nf-rq-pager">
+              <button onClick={() => loadQueue(page - 1)} disabled={page === 0} className="nf-rq-btn nf-rq-btn--outline nf-rq-btn--sm">
+                <ChevronLeft size={15} /> Prev
+              </button>
+              <span className="nf-rq-page-label">Page {page + 1} of {totalPages}</span>
+              <button onClick={() => loadQueue(page + 1)} disabled={page >= totalPages - 1} className="nf-rq-btn nf-rq-btn--outline nf-rq-btn--sm">
+                Next <ChevronRight size={15} />
+              </button>
+            </div>
           </div>
         )}
       </div>
