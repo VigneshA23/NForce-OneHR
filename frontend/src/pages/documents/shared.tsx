@@ -3,7 +3,7 @@ import { CheckCircle, Clock, Eye, XCircle } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import {
-  uploadDocument, fetchDocumentFile,
+  uploadDocument, withdrawDocument, fetchDocumentFile,
   type EmployeeDocument, type RequiredDocument, type DocumentType,
 } from '../../api/documents';
 
@@ -85,7 +85,7 @@ export function UploadModal({
         expiryDate: expiryDate || null,
       });
       onUploaded(doc);
-      showToast('success', existing ? 'Document re-uploaded' : 'Document uploaded');
+      showToast('success', existing ? 'Document updated' : 'Document uploaded');
       onClose();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Upload failed');
@@ -100,7 +100,7 @@ export function UploadModal({
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
-        <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{existing ? 'Re-upload' : 'Upload'}: {name}</h3>
+        <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{existing ? 'Update' : 'Upload'}: {name}</h3>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>File *</label>
@@ -130,12 +130,70 @@ export function UploadModal({
             </button>
             <button type="submit" disabled={loading || !!dateError}
               style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: loading || dateError ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: loading || dateError ? .7 : 1 }}>
-              {loading ? 'Uploading…' : 'Upload'}
+              {loading ? (existing ? 'Updating…' : 'Uploading…') : existing ? 'Update' : 'Upload'}
             </button>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+// ── Withdraw (Pending Review only) ─────────────────────────
+// A document awaiting HR review can't be re-uploaded over directly (see
+// DocumentService.uploadDocument) — the employee withdraws it first, which frees the slot and
+// reverts the document type to "Not Submitted", then uploads fresh.
+
+export function WithdrawButton({ doc, onWithdrawn }: {
+  doc: EmployeeDocument;
+  onWithdrawn(documentTypeId: number): void;
+}) {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
+  const [confirming, setConfirming] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function confirmWithdraw() {
+    setLoading(true);
+    try {
+      await withdrawDocument(token, doc.id);
+      onWithdrawn(doc.documentTypeId);
+      showToast('success', 'Document withdrawn — you can now upload a new version');
+      setConfirming(false);
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Withdraw failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <button onClick={() => setConfirming(true)}
+        style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+        Withdraw
+      </button>
+      {confirming && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 380, maxWidth: '94vw' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Withdraw {doc.documentTypeName}?</h3>
+            <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--txt-mut)' }}>
+              This pulls it out of Pending Review so HR won't act on it. You'll be able to upload a new version right after.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setConfirming(false)} disabled={loading}
+                style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
+                Cancel
+              </button>
+              <button type="button" onClick={confirmWithdraw} disabled={loading}
+                style={{ padding: '8px 20px', background: '#ef4444', border: 'none', borderRadius: 6, color: '#fff', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: loading ? .7 : 1 }}>
+                {loading ? 'Withdrawing…' : 'Withdraw'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

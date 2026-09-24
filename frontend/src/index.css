@@ -727,7 +727,7 @@ input[type="date"] {
     max-height: 60vh;
     -webkit-overflow-scrolling: touch;
   }
-  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; }
+  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; table-layout: auto !important; }
   .nf-doc-table-scroll th, .nf-doc-table-scroll td { white-space: nowrap; }
 }
 
@@ -1074,6 +1074,24 @@ input[type="date"] {
    selected/today/disabled styles already set per-cell. */
 .nf-cal-cell:not(:disabled):hover { border-color: var(--brand) !important; transform: translateY(-1px); }
 .nf-cal-cell { transition: border-color .15s, transform .15s, background .15s, box-shadow .15s; }
+/* Day-cell status pill — the grid tracks are minmax(0, 1fr), so the pill is capped to its cell
+   instead of widening the column past the panel (which clipped the calendar via overflow:
+   hidden). It wraps only at spaces/hyphens ("Weekly-/off", "Partial/Day"); a single word too
+   long for the cell ("Regularization") is truncated, never broken mid-word. The pills set
+   white-space: nowrap inline, hence !important. */
+.nf-month-cal { container-type: inline-size; }
+.nf-cal-badge { display: flex; min-width: 0; }
+.nf-cal-badge > span { max-width: 100%; min-width: 0; white-space: normal !important; overflow: hidden; text-overflow: ellipsis; }
+/* Too narrow for any label (cells under ~70px — tablet/phone): each pill becomes a slim colour
+   bar in its own status colour, matching the legend above the grid (the same idea as the
+   compact rail calendar's dots). The label text stays in the DOM for screen readers. */
+@container (max-width: 559px) {
+  .nf-cal-badge > span {
+    font-size: 0 !important; padding: 0 !important; height: 5px; width: 100%; border-radius: 3px;
+    background: currentColor !important; border: none !important; opacity: .8;
+  }
+  .nf-cal-badge > span > span { display: none; }
+}
 
 /* Attendance Log — sticky header while the table body scrolls */
 .nf-sticky-thead th { position: sticky; top: 0; z-index: 2; }
@@ -1098,6 +1116,100 @@ input[type="date"] {
 }
 .nf-log-card + .nf-log-card { margin-top: 10px; }
 .nf-log-card:hover { border-color: var(--line2); }
+
+/* Quick Actions (Attendance) — top-right beside the Today hero on desktop. Once the page grid
+   stacks (<=1024px, same breakpoint as .nf-grid-proportional-collapse) the card spans the full
+   width, so its action buttons flow into columns instead of one long full-width list. */
+@media (max-width: 1024px) {
+  .nf-quick-actions { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  .nf-quick-actions > :first-child { grid-column: 1 / -1; }
+}
+
+/* Attendance request forms (Regularization, WFH/Partial Day, Web Clock-In, Overtime) — the
+   Cancel/Submit row sticks to the bottom of the modal's own scroll area, so on a short viewport a
+   long form never pushes Submit out of sight. The negative margins let the bar span the modal
+   body's padding (--nf-modal-pad, default 20px) with an opaque background. */
+.nf-modal-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  margin: 4px calc(-1 * var(--nf-modal-pad, 20px)) calc(-1 * var(--nf-modal-pad, 20px));
+  padding: 12px var(--nf-modal-pad, 20px) var(--nf-modal-pad, 20px);
+  background: var(--panel); border-top: 1px solid var(--line);
+}
+
+/* Overtime Requests — row "⋮" action button + menu (OvertimeActionMenu). The menu is portaled to
+   <body> with position: fixed (top/left set inline), so no table/panel overflow can clip it.
+   z-index sits above page content but below modal overlays (500). */
+.nf-ot-menu-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--raised); color: var(--txt-mut); border: 1px solid var(--line2); border-radius: 7px;
+  cursor: pointer; transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.nf-ot-menu-btn:hover { background: var(--raised2); border-color: var(--txt-dim); color: var(--txt); }
+.nf-ot-menu-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--brand) 10%, var(--raised)); border-color: color-mix(in srgb, var(--brand) 45%, var(--line2));
+  color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+.nf-ot-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.nf-ot-menu {
+  position: fixed; z-index: 450; min-width: 172px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 28px -6px rgba(0,0,0,.35);
+}
+.nf-ot-menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: none; border-radius: 6px;
+  background: transparent; color: var(--txt); font-size: 12.5px; font-weight: 500; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.nf-ot-menu-item svg { flex-shrink: 0; color: var(--txt-dim); }
+.nf-ot-menu-item:hover, .nf-ot-menu-item:focus-visible { background: var(--raised2); outline: none; }
+.nf-ot-menu-item--approve, .nf-ot-menu-item--approve svg { color: var(--ok); }
+.nf-ot-menu-item--approve:hover, .nf-ot-menu-item--approve:focus-visible { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.nf-ot-menu-item--reject, .nf-ot-menu-item--reject svg { color: var(--risk); }
+.nf-ot-menu-item--reject:hover, .nf-ot-menu-item--reject:focus-visible { background: color-mix(in srgb, var(--risk) 12%, transparent); }
+.nf-ot-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+/* Touch screens: larger button and rows for a comfortable tap target. */
+@media (pointer: coarse) {
+  .nf-ot-menu-btn { width: 36px; height: 36px; }
+  .nf-ot-menu-item { padding: 11px 12px; font-size: 13px; }
+}
+
+/* Attendance Requests / Overtime Requests tables — same table-vs-card idea as the Attendance
+   Log above, but keyed to the table's own container width (they sit in the page's left column,
+   so the viewport says little about how much room they get). Wide enough: a fixed-layout table
+   (see reqTableStyle in AttendancePage.tsx). Narrower: each row restacks into a card whose
+   cells are labelled from their data-label, so every column and action stays visible without
+   any sideways scrolling or mid-word breaking. */
+.nf-req-wrap { container-type: inline-size; }
+/* Table mode: outer columns get the same 12px inset as the Attendance Log's cells (thStyle/
+   tdStyle), so every Logs & Requests tab shares one left/right content edge. */
+@container (min-width: 780px) {
+  .nf-req-table th:first-child, .nf-req-table td:first-child { padding-left: 12px !important; }
+  .nf-req-table th:last-child, .nf-req-table td:last-child { padding-right: 12px !important; }
+}
+@container (max-width: 779px) {
+  .nf-req-table, .nf-req-table tbody, .nf-req-table thead, .nf-req-table thead tr { display: block; }
+  .nf-req-table colgroup, .nf-req-table thead th { display: none; }
+  /* ...except Pending Approvals' select-all checkbox, kept reachable as its own row. */
+  .nf-req-table thead th.nf-req-select:not(:empty) {
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px !important;
+  }
+  .nf-req-table thead th.nf-req-select:not(:empty)::after { content: 'Select all on this page'; }
+  .nf-req-table tr {
+    position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-auto-flow: row dense; gap: 12px 16px; padding: 14px 16px; border-bottom: 1px solid var(--line);
+  }
+  .nf-req-table tr:last-child { border-bottom: none; }
+  .nf-req-table td { display: block; min-width: 0; padding: 0 !important; border: none !important; }
+  /* e.g. the Action cell of a non-pending request — no label for nothing. */
+  .nf-req-table td:empty { display: none; }
+  .nf-req-table td::before {
+    content: attr(data-label); display: block; margin-bottom: 3px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim);
+  }
+  .nf-req-table td[data-label="Reason"], .nf-req-table td[data-label="Comments"] { grid-column: span 2; }
+  /* Bulk-select checkbox: pinned to the card's top-right corner rather than taking a grid cell. */
+  .nf-req-table td.nf-req-select { position: absolute; top: 12px; right: 14px; }
+  .nf-req-table td.nf-req-select::before { content: none; }
+}
 
 /* Logs & Requests tab bar — the four tabs (Attendance Log/Calendar/Attendance Requests/
    Overtime Requests) don't fit their container's natural width below ~900px (same tier the

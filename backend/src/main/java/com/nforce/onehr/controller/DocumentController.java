@@ -60,6 +60,11 @@ public class DocumentController {
         return service.uploadDocument(principal.getName(), documentTypeId, file, issueDate, expiryDate);
     }
 
+    @PostMapping("/my/{id}/withdraw")
+    public EmployeeDocumentResponse withdraw(Principal principal, @PathVariable UUID id) {
+        return service.withdrawDocument(principal.getName(), id);
+    }
+
     // ── HR/SA endpoints ────────────────────────────────────
 
     @GetMapping
