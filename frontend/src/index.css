@@ -727,7 +727,7 @@ input[type="date"] {
     max-height: 60vh;
     -webkit-overflow-scrolling: touch;
   }
-  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; }
+  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; table-layout: auto !important; }
   .nf-doc-table-scroll th, .nf-doc-table-scroll td { white-space: nowrap; }
 }
 

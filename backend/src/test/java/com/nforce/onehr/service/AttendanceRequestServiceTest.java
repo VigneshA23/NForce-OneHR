@@ -109,6 +109,16 @@ class AttendanceRequestServiceTest {
     }
 
     @Test
+    void rejectsAnUnrealisticallyLargePartialDayValue() {
+        // Regression for the "Will Come Late By" field accepting values like 999999999999
+        // minutes with no upper bound — the monthly cap check must reject it outright, the same
+        // way it rejects any other over-cap request, regardless of magnitude.
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 999999999999.0), employeeEmail));
+        assertTrue(ex.getMessage().contains("not allowed to raise a request for more than 120 minutes"));
+    }
+
+    @Test
     void rejectsZeroOrNegativePartialDayHours() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 0), employeeEmail));
