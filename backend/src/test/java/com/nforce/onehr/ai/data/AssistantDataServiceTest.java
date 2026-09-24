@@ -67,6 +67,7 @@ class AssistantDataServiceTest {
 
         @Override public String id() { return id; }
         @Override public String title() { return "title of " + id; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public Set<AudienceBucket> audiences() { return audiences; }
         @Override public Set<String> modules() { return modules; }
 
@@ -298,6 +299,34 @@ class AssistantDataServiceTest {
 
         assertThat(data.providerIds()).contains("attendance.my-penalties");
         assertThat(data.providerIds()).doesNotContain("attendance.my-exceptions");
+    }
+
+    @Test
+    @DisplayName("on a crowded page, the provider the question actually retrieved wins its family's slot")
+    void pageTiesAreBrokenByWhatTheQuestionRetrieved() {
+        // Every provider here gets the same 0.75 from simply being on the Attendance page. Only
+        // attendance.today also matched retrieved knowledge - and at 0.65, below the page's own
+        // weight, so raw scores alone still tie. Alphabetically attendance.my-exceptions sorts
+        // first, and with three other page-tied families filling the cap it would take the
+        // attendance family's only slot: "what time did I check in today" answered from exceptions.
+        List<AssistantDataProvider> providers = List.of(
+                new SpyProvider("attendance.my-exceptions", Set.of(AudienceBucket.values()), Set.of("attendance", "exceptions"), "a"),
+                new SpyProvider("attendance.today", Set.of(AudienceBucket.values()), Set.of("attendance", "attendance-today"), "b"),
+                new SpyProvider("attendance-request.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "c"),
+                new SpyProvider("overtime.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "d"),
+                new SpyProvider("regularization.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "e"));
+        AssistantDataService service = new AssistantDataService(providers);
+
+        AssistantRequestContext onAttendancePage = AssistantRequestContext.builder()
+                .userId(UUID.randomUUID()).actorEmail("e@nforceone.com")
+                .primaryRoleCode("EMPLOYEE").shellRole(ShellRole.EMPLOYEE)
+                .audiences(Set.of(AudienceBucket.EMPLOYEE))
+                .currentPageId("attendance").currentModule("attendance")
+                .build();
+
+        AssistantDataService.LiveData data = service.fetch(onAttendancePage, List.of(knowledgeFrom("attendance-today", 0.65)));
+
+        assertThat(data.providerIds()).contains("attendance.today").doesNotContain("attendance.my-exceptions");
     }
 
     @Test

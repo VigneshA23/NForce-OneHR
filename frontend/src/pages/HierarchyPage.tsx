@@ -9,7 +9,7 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import logoUrl from '../assets/nforce-logo.png';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
-import { EmployeeAvatar, getInitials } from '../components/EmployeeAvatar';
+import { EmployeeAvatar, getInitials, waitForAvatarPhotos } from '../components/EmployeeAvatar';
 import './HierarchyPage.css';
 
 const PEER_MAX = 8;
@@ -659,9 +659,27 @@ export default function HierarchyPage() {
   // Breadcrumb is outside chartRef DOM — drawn from ctx data directly into canvas.
   async function buildExportCanvas(): Promise<HTMLCanvasElement> {
     await document.fonts.ready;
-    const { default: html2canvas } = await import('html2canvas');
+
+    // A click can land while an EmployeeAvatar mounted moments earlier is still waiting on its
+    // photo fetch — capturing then would snapshot the pre-photo initials fallback, exporting a
+    // blank avatar for someone who does have a photo on file. Wait for every visible person's
+    // fetch to settle, then let React actually paint the result before handing the DOM to
+    // html2canvas (awaiting the fetch alone doesn't guarantee the resulting state update has
+    // been committed and rendered yet).
+    await waitForAvatarPhotos([
+      ctx?.manager?.id,
+      ...(ctx?.peers.map(p => p.id) ?? []),
+      ...(ctx?.directReports.map(d => d.id) ?? []),
+    ]);
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+
+    const { default: html2canvas } = await import('html2canvas-pro');
+    // Match whichever theme is actually on screen (light/dark/high-contrast) instead of a
+    // hardcoded dark fill, so the exported chart background isn't wrong for non-dark themes.
+    const panelBg = getComputedStyle(chartRef.current!).getPropertyValue('--panel').trim() || '#16181D';
     const chartCanvas = await html2canvas(chartRef.current!, {
-      backgroundColor: '#16181D', scale: 2, useCORS: true, logging: false,
+      backgroundColor: panelBg, scale: 2, useCORS: true, logging: false,
       // The on-screen zoom is a viewing aid only — always export the chart at 100%.
       onclone: doc => {
         doc.querySelectorAll<HTMLElement>('[data-hier-zoom]').forEach(el => { el.style.zoom = '1'; });

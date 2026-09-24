@@ -32,6 +32,7 @@ public final class LeaveDataProviders {
         private final LeaveService leaveService;
 
         @Override public String id() { return "leave.balances"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your current leave balances"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
         @Override public Set<String> modules() { return Set.of("leave"); }
@@ -62,6 +63,7 @@ public final class LeaveDataProviders {
         private final LeaveService leaveService;
 
         @Override public String id() { return "leave.my-requests"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your recent leave requests"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
         @Override public Set<String> modules() { return Set.of("leave", "requests"); }
@@ -71,16 +73,13 @@ public final class LeaveDataProviders {
             List<LeaveRequestResponse> requests = leaveService.listMyRequests(context.getActorEmail());
             if (requests == null || requests.isEmpty()) return Optional.empty();
 
-            return Optional.of(requests.stream()
-                    .limit(MAX_ROWS)
-                    // Status matters, and so does the approver, because "who do I chase" is the
-                    // real question behind "where is my request". The reason the employee typed is
-                    // deliberately left out - it is the most personal field on the row and adds
-                    // nothing to an answer about status.
-                    .map(r -> "- %s, %s to %s (%s days): %s".formatted(
-                            r.getLeaveTypeName(), r.getStartDate(), r.getEndDate(),
-                            r.getTotalDays(), r.getStatus()))
-                    .collect(Collectors.joining("\n")));
+            // Status matters, and so does who decided, because "who do I chase" is the real question
+            // behind "where is my request". The reason the employee typed is deliberately left out -
+            // it is the most personal field on the row and adds nothing to an answer about status.
+            return Optional.of(LiveDataText.cappedList(requests, MAX_ROWS, "leave request(s) raised by you", "most recent",
+                    r -> "%s, %s to %s (%s days): %s%s".formatted(
+                            r.getLeaveTypeName(), r.getStartDate(), r.getEndDate(), r.getTotalDays(), r.getStatus(),
+                            r.getDecidedByName() == null ? "" : " (decided by " + r.getDecidedByName() + ")")));
         }
     }
 
@@ -94,6 +93,7 @@ public final class LeaveDataProviders {
         private final LeaveService leaveService;
 
         @Override public String id() { return "leave.pending-approvals"; }
+        @Override public DataScope scope() { return DataScope.APPROVALS; }
         @Override public String title() { return "Leave requests waiting for your decision"; }
 
         @Override
