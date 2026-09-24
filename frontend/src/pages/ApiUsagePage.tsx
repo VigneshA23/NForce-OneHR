@@ -35,6 +35,18 @@ const PERIOD_OPTIONS = [
   { days: 90, label: '90 days' },
 ] as const;
 
+// Explicit 'en-US' everywhere on this page rather than a bare .toLocaleString()/Intl default,
+// which otherwise renders using the browser's OS locale (e.g. en-IN's 1,00,000 lakh grouping) —
+// this page always shows American thousands-grouping regardless of the viewer's system locale.
+const numberFormatter = new Intl.NumberFormat('en-US');
+const compactNumberFormatter = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+/** "1,234,567" — full grouped number, for KPI cards, tooltips, and other exact readouts. */
+function formatNumber(n: number): string { return numberFormatter.format(n); }
+/** "1.2M" / "45K" — short form for chart axis ticks, where full grouped numbers would clip. */
+function formatCompact(n: number): string { return compactNumberFormatter.format(n); }
+
 function KpiCard({ icon, label, value, note, danger }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean }) {
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
@@ -204,10 +216,10 @@ function BillingCard({ token }: { token: string }) {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 14, marginBottom: 6 }}>
             <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: overBudget ? COLOR_ERROR : 'var(--txt)' }}>
-              ${billing.estimatedCostUsd.toFixed(2)}
+              {usdFormatter.format(billing.estimatedCostUsd)}
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>
-              of ${billing.monthlyBudgetUsd.toFixed(2)} budget · {Math.round(billing.usedPercent)}% used
+              of {usdFormatter.format(billing.monthlyBudgetUsd)} budget · {Math.round(billing.usedPercent)}% used
             </span>
           </div>
           <div style={{ height: 10, borderRadius: 6, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -219,7 +231,7 @@ function BillingCard({ token }: { token: string }) {
             </div>
           )}
           <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 8 }}>
-            {billing.promptTokens.toLocaleString()} prompt + {billing.completionTokens.toLocaleString()} completion + {billing.embeddingTokens.toLocaleString()} embedding tokens so far this month
+            {formatNumber(billing.promptTokens)} prompt + {formatNumber(billing.completionTokens)} completion + {formatNumber(billing.embeddingTokens)} embedding tokens so far this month
           </div>
         </>
       )}
@@ -358,8 +370,8 @@ export default function ApiUsagePage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<MessageSquareText size={14} />} label="Total Requests" value={stats.totalRequests} note={`real Mistral calls · ${stats.totalTurns} question${stats.totalTurns === 1 ? '' : 's'} asked`} />
-            <KpiCard icon={<Zap size={14} />} label="Total Tokens" value={stats.totalTokens.toLocaleString()} note={`${stats.totalPromptTokens.toLocaleString()} prompt · ${stats.totalCompletionTokens.toLocaleString()} completion · ${stats.totalEmbeddingTokens.toLocaleString()} embedding`} />
+            <KpiCard icon={<MessageSquareText size={14} />} label="Total Requests" value={formatNumber(stats.totalRequests)} note={`real Mistral calls · ${formatNumber(stats.totalTurns)} question${stats.totalTurns === 1 ? '' : 's'} asked`} />
+            <KpiCard icon={<Zap size={14} />} label="Total Tokens" value={formatNumber(stats.totalTokens)} note={`${formatNumber(stats.totalPromptTokens)} prompt · ${formatNumber(stats.totalCompletionTokens)} completion · ${formatNumber(stats.totalEmbeddingTokens)} embedding`} />
             <KpiCard icon={<Activity size={14} />} label="Success Rate" value={successRate} note={`${stats.errorCount} failed question${stats.errorCount === 1 ? '' : 's'}`} danger={stats.totalTurns > 0 && stats.errorCount / stats.totalTurns > 0.1} />
             <KpiCard icon={<Gauge size={14} />} label="Avg Latency" value={`${Math.round(stats.avgLatencyMs)}ms`} note="per completed request" />
           </div>
@@ -371,11 +383,11 @@ export default function ApiUsagePage() {
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No requests in this period.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={requestsChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <BarChart data={requestsChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
                     <XAxis dataKey="date" tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={{ stroke: 'var(--line2)' }} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
+                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} formatter={(value) => formatNumber(Number(value))} />
                     <Bar dataKey="Requests" fill={COLOR_SUCCESS} radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -387,11 +399,11 @@ export default function ApiUsagePage() {
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No token usage in this period.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={tokensChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <BarChart data={tokensChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
                     <XAxis dataKey="date" tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={{ stroke: 'var(--line2)' }} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
+                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} formatter={(value) => formatNumber(Number(value))} />
                     <Bar dataKey="Prompt" stackId="tok" fill={COLOR_PROMPT} radius={[0, 0, 0, 0]} />
                     <Bar dataKey="Completion" stackId="tok" fill={COLOR_COMPLETION} radius={[0, 0, 0, 0]} />
                     <Bar dataKey="Embedding" stackId="tok" fill={COLOR_SUCCESS} radius={[3, 3, 0, 0]} />
