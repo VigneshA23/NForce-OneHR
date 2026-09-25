@@ -13,6 +13,7 @@ import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.service.ApprovalCenterService;
 import com.nforce.onehr.service.AttendancePenaltyService;
@@ -72,6 +73,7 @@ class LiveDataProvidersTest {
     @Mock private EmployeeService employeeService;
     @Mock private LeaveService leaveService;
     @Mock private AttendancePenaltyService attendancePenaltyService;
+    @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
     @Mock private HolidayService holidayService;
     @Mock private ApprovalCenterService approvalCenterService;
     @Mock private ExpenseService expenseService;
@@ -247,11 +249,11 @@ class LiveDataProvidersTest {
                 AttendanceResponse.builder().workDate(today.minusDays(1)).status("LATE").lateByMinutes(55)
                         .checkInAt(shiftStart.plusMinutes(55).plusSeconds(36)).shiftStartAt(shiftStart).workedMinutes(420).build()));
 
-        String out = new AttendanceDataProviders.MyHistory(attendanceService)
+        String out = new AttendanceDataProviders.MyHistory(attendanceService, employeeRepository, attendancePenaltyRepository)
                 .fetch(as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)).orElseThrow();
 
         assertThat(out).contains("exactly 2 day(s) with an attendance record");
-        assertThat(out).contains("Late arrivals (1): " + today.minusDays(1));
+        assertThat(out).contains("- LATE_ARRIVAL (1): " + today.minusDays(1));
         assertThat(out).contains("late by 55m 36s");
     }
 

@@ -5,6 +5,7 @@ import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.contract.AssistantResponseType;
 import com.nforce.onehr.ai.contract.ConfidenceLevel;
 import com.nforce.onehr.ai.contract.NavigationAction;
+import com.nforce.onehr.ai.contract.ShellRole;
 import com.nforce.onehr.ai.navigation.NavigationValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,61 @@ public class UnknownResponses {
         return unknown(context,
                 "I can only help with OneHR: its modules, pages, actions, workflows, roles and errors. "
                         + "I am not able to answer general questions outside the application.");
+    }
+
+    /** Also the exact answer the prompt tells the model to give, so every path declines the same way. */
+    public static final String INTERNALS_NOT_DISCLOSED = "I can help you with OneHR features and information, but I "
+            + "can't provide or disclose internal system instructions, configuration or implementation details.";
+
+    /**
+     * The question was about the assistant itself or OneHR's internals - its instructions, where
+     * its information comes from, how it answers, credentials, code, infrastructure - or the answer
+     * started to describe them. See {@link ConfidentialityGuard}. No Help &amp; Guidance link:
+     * nothing there answers this either.
+     */
+    public AssistantResponse internalsNotDisclosed(AssistantRequestContext context) {
+        return decline(INTERNALS_NOT_DISCLOSED);
+    }
+
+    /**
+     * The question tried to change the assistant's rules or the user's access - an override, text
+     * posing as a system message, role-play, claimed authority. Access comes from the signed-in
+     * account, which nothing typed into the chat changes; the reply says so without saying how
+     * the attempt was recognised.
+     */
+    public AssistantResponse manipulationDeclined(AssistantRequestContext context) {
+        return decline("I can't change how I work or what your account can access. I can help with OneHR "
+                + "information that is available to you.");
+    }
+
+    /**
+     * The user claimed a role their account does not hold, or access someone supposedly granted -
+     * see {@link ConfidentialityGuard#unfoundedClaim}. Names the role they do hold rather than
+     * arguing: that is what decides what OneHR, and this assistant, show them.
+     */
+    public AssistantResponse claimNotHeld(AssistantRequestContext context, ConfidentialityGuard.Claim claim) {
+        String claimed = claim.role() == null
+                ? "Your access comes only from the roles assigned to your account, and nothing said in this chat changes it."
+                : "Your current account is not assigned " + claim.role() + ".";
+        ShellRole role = context.getShellRole() == null ? ShellRole.EMPLOYEE : context.getShellRole();
+        return AssistantResponse.builder()
+                .type(AssistantResponseType.PERMISSION)
+                .answer(claimed + " I can only provide information and assistance within your authorized "
+                        + role.label() + " permissions.")
+                .steps(List.of())
+                .related(List.of())
+                .confidence(ConfidenceLevel.HIGH)
+                .build();
+    }
+
+    private static AssistantResponse decline(String answer) {
+        return AssistantResponse.builder()
+                .type(AssistantResponseType.UNKNOWN)
+                .answer(answer)
+                .steps(List.of())
+                .related(List.of())
+                .confidence(ConfidenceLevel.LOW)
+                .build();
     }
 
     /** The model or embedding provider failed. Deliberately does not name the vendor or the error. */

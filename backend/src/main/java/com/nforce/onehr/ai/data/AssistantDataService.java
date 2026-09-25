@@ -54,16 +54,10 @@ public class AssistantDataService {
      *
      * <p>Raised from 3 to 4 (ONEHR - a "do I have any penalties" question was answered as "no
      * penalties" for an employee with a real active one, reproduced live on the Attendance page).
-     * The primary fix for that bug is not this number: it is that {@code action.attendance.penalty}
-     * and {@code action.attendance.my-exceptions} now carry their own specific knowledge module
-     * ({@code penalties}, {@code exceptions}) instead of the generic {@code attendance} every other
-     * attendance-adjacent provider shares, so a question actually about penalties now scores
-     * {@code attendance.my-penalties} above its own sibling {@code attendance.my-exceptions} within
-     * their family, and wins that family's first-round pick outright rather than needing a second
-     * round that other, merely page-boosted families kept consuming first. This constant is now only
-     * a modest safety margin above the original 3, for the case a question is genuinely about both
-     * exceptions and penalties at once and neither outscores the other within their shared family -
-     * that still costs a second round, and this is one slot of headroom for it.
+     * Raising it was not enough on its own: on the Attendance page four families match, so every
+     * slot goes in the first round and the attendance family never gets a second one. That is why
+     * the caller's log, exceptions and penalties are one provider ({@code attendance.my-history})
+     * rather than three - a question about late days and penalties together only needs one slot.
      */
     private static final int MAX_PROVIDERS_PER_TURN = 4;
 
