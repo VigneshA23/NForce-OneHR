@@ -1894,9 +1894,9 @@ function ReportsTab({ token }: { token: string }) {
 }
 
 /* ── "Appreciate your lead" / peer kudos (ONEHR-73) ── */
-interface KudosTarget { userId: string; name: string; }
+export interface KudosTarget { userId: string; name: string; }
 
-function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
+export function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
   const small = size === 'small';
   return (
     <button onClick={onClick} style={{
@@ -1913,7 +1913,7 @@ function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; 
 
 const KUDOS_CATEGORIES = ['Great Work', 'Teamwork', 'Leadership', 'Extra Mile'];
 
-function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
+export function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
   const { showToast } = useToast();
   const [category, setCategory] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -2007,6 +2007,7 @@ function PeersView({ token }: { token: string }) {
 
   const [search, setSearch] = useState('');
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
+  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'onTime' | 'late' | 'wfh' | 'remote'>(null);
@@ -2015,6 +2016,10 @@ function PeersView({ token }: { token: string }) {
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
+    directoryApi.myManager(token)
+      // No manager comes back as an empty 200 body (→ {}), not just 204/null — hence `m?.userId`.
+      .then(m => setManager(m?.userId ? { userId: m.userId, name: m.fullName } : null))
+      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -2108,6 +2113,18 @@ function PeersView({ token }: { token: string }) {
 
   return (
     <div>
+      {/* Reporting manager — "Appreciate your lead" */}
+      {manager && (
+        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Avatar userId={manager.userId} name={manager.name} size={38} />
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{manager.name}</div>
+          </div>
+          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
+        </div>
+      )}
+
       {/* Who's on leave / Not in yet */}
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
