@@ -17,15 +17,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -211,6 +215,116 @@ class PolicyServiceTest {
 
         assertThrows(AccessDeniedException.class, () -> policyService.publishNewVersion(employeeEmail, 30L, req));
         verify(policyRepo, never()).save(any());
+    }
+
+    // ── Policy Attachment (Images / PDF / Word) — ONEHR-462 ─────────────────────────────────
+
+    @ParameterizedTest(name = "uploadAttachment() accepts {0}")
+    @CsvSource({
+            "policy.jpg,image/jpeg",
+            "policy.jpeg,image/jpeg",
+            "policy.png,image/png",
+            "policy.pdf,application/pdf",
+            "policy.doc,application/msword",
+            "policy.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    })
+    void uploadAttachment_acceptsSupportedFormats(String fileName, String contentType) throws Exception {
+        Policy policy = Policy.builder().id(50L).title("Code of Conduct").version("1.0").build();
+        when(policyRepo.findById(50L)).thenReturn(Optional.of(policy));
+        when(policyRepo.save(any(Policy.class))).thenAnswer(inv -> inv.getArgument(0));
+        MultipartFile file = new MockMultipartFile("file", fileName, contentType, "policy content".getBytes());
+
+        PolicyResponse resp = policyService.uploadAttachment(ADMIN_EMAIL, 50L, file);
+
+        assertEquals(fileName, resp.getAttachmentName());
+        assertEquals("/api/policies/50/attachment", resp.getAttachmentUrl());
+    }
+
+    @Test
+    void uploadAttachment_rejectsUnsupportedFileType() {
+        Policy policy = Policy.builder().id(51L).title("Code of Conduct").version("1.0").build();
+        when(policyRepo.findById(51L)).thenReturn(Optional.of(policy));
+        MultipartFile file = new MockMultipartFile("file", "malware.exe", "application/octet-stream", "x".getBytes());
+
+        assertThrows(IllegalArgumentException.class, () -> policyService.uploadAttachment(ADMIN_EMAIL, 51L, file));
+        verify(policyRepo, never()).save(any());
+    }
+
+    @Test
+    void uploadAttachment_rejectsEmptyFile() {
+        Policy policy = Policy.builder().id(52L).title("Code of Conduct").version("1.0").build();
+        when(policyRepo.findById(52L)).thenReturn(Optional.of(policy));
+        MultipartFile file = new MockMultipartFile("file", "empty.pdf", "application/pdf", new byte[0]);
+
+        assertThrows(IllegalArgumentException.class, () -> policyService.uploadAttachment(ADMIN_EMAIL, 52L, file));
+        verify(policyRepo, never()).save(any());
+    }
+
+    @Test
+    void uploadAttachment_rejectsOversizedFile() {
+        Policy policy = Policy.builder().id(53L).title("Code of Conduct").version("1.0").build();
+        when(policyRepo.findById(53L)).thenReturn(Optional.of(policy));
+        MultipartFile file = mock(MultipartFile.class);
+        when(file.isEmpty()).thenReturn(false);
+        when(file.getSize()).thenReturn(11L * 1024 * 1024);
+        when(file.getOriginalFilename()).thenReturn("big.pdf");
+
+        assertThrows(IllegalArgumentException.class, () -> policyService.uploadAttachment(ADMIN_EMAIL, 53L, file));
+        verify(policyRepo, never()).save(any());
+    }
+
+    @Test
+    void uploadAttachment_unauthorizedUserCannotAttach() {
+        String employeeEmail = "employee@test.com";
+        User employeeUser = User.builder().id(UUID.randomUUID()).email(employeeEmail)
+                .roles(new HashSet<>(Set.of(role("EMPLOYEE")))).build();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        MultipartFile file = new MockMultipartFile("file", "policy.pdf", "application/pdf", "x".getBytes());
+
+        assertThrows(AccessDeniedException.class, () -> policyService.uploadAttachment(employeeEmail, 60L, file));
+        verify(policyRepo, never()).save(any());
+    }
+
+    @Test
+    void getAttachment_returnsPolicyWhenAttachmentPresent() {
+        Policy policy = Policy.builder().id(54L).title("Code of Conduct").version("1.0")
+                .attachmentName("policy.pdf").attachmentData(new byte[]{1, 2, 3}).build();
+        when(policyRepo.findById(54L)).thenReturn(Optional.of(policy));
+
+        Policy result = policyService.getAttachment(54L);
+
+        assertEquals("policy.pdf", result.getAttachmentName());
+    }
+
+    @Test
+    void getAttachment_throwsWhenPolicyHasNoAttachment() {
+        Policy policy = Policy.builder().id(55L).title("Code of Conduct").version("1.0").build();
+        when(policyRepo.findById(55L)).thenReturn(Optional.of(policy));
+
+        assertThrows(NoSuchElementException.class, () -> policyService.getAttachment(55L));
+    }
+
+    // ── Publish (Create Policy) still works without an attachment ──
+
+    @Test
+    void publish_withoutAttachment_stillCreatesPolicy() {
+        when(policyRepo.findByTitleOrderByPublishedAtDesc(anyString())).thenReturn(List.of());
+        when(policyRepo.save(any(Policy.class))).thenAnswer(inv -> {
+            Policy p = inv.getArgument(0);
+            p.setId(56L);
+            return p;
+        });
+        when(employeeRepo.findAllActiveWithDetails()).thenReturn(List.of());
+
+        PublishPolicyRequest req = new PublishPolicyRequest();
+        req.setTitle("Code of Conduct");
+        req.setVersion("1.0");
+        req.setDescription("Be excellent to each other.");
+
+        PolicyResponse resp = policyService.publish(ADMIN_EMAIL, req);
+
+        assertEquals(56L, resp.getId());
+        assertNull(resp.getAttachmentUrl());
     }
 
     @Test

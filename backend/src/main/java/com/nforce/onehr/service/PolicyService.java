@@ -7,11 +7,14 @@ import com.nforce.onehr.entity.PolicyAcknowledgment;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.AttachmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -112,6 +115,36 @@ public class PolicyService {
                 "Please review and acknowledge version " + p.getVersion() + ".");
 
         return PolicyResponse.from(p);
+    }
+
+    // ── HR/SA: attach a document (image/PDF/Word) to a policy ──
+    // Same validate-then-store pattern as HelpdeskService#applyAttachment (10MB/allow-list rule
+    // shared via AttachmentValidator) — a policy has at most one attachment, so a re-upload
+    // simply replaces it rather than versioning like EmployeeDocument does.
+
+    @Transactional
+    public PolicyResponse uploadAttachment(String actorEmail, Long policyId, MultipartFile file) throws IOException {
+        requireAdminRole(actorEmail);
+        Policy p = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+        AttachmentValidator.validate(file);
+        p.setAttachmentName(file.getOriginalFilename());
+        p.setAttachmentType(file.getContentType());
+        p.setAttachmentSize(file.getSize());
+        p.setAttachmentData(file.getBytes());
+        return PolicyResponse.from(policyRepo.save(p));
+    }
+
+    // ── Any authenticated user: fetch a policy's attachment bytes ──
+
+    @Transactional(readOnly = true)
+    public Policy getAttachment(Long policyId) {
+        Policy p = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+        if (p.getAttachmentData() == null) {
+            throw new NoSuchElementException("This policy has no attachment");
+        }
+        return p;
     }
 
     // ── HR/SA: publish a substantive new version of an existing policy ──

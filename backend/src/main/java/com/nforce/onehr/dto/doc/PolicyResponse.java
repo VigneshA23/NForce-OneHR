@@ -21,11 +21,14 @@ public class PolicyResponse {
     Instant acknowledgedAt;
     int versionNumber;
     Long previousVersionId;
+    String attachmentName;
+    String attachmentUrl;
 
     public static PolicyResponse from(Policy p, Boolean acknowledged, Instant acknowledgedAt) {
         return new PolicyResponse(p.getId(), p.getTitle(), p.getVersion(), p.getDescription(),
                 p.getAudience(), p.isRequired(), p.getPublishedAt(), p.getPublishedBy(), p.isActive(),
-                acknowledged, acknowledgedAt, p.getVersionNumber(), p.getPreviousVersionId());
+                acknowledged, acknowledgedAt, p.getVersionNumber(), p.getPreviousVersionId(),
+                p.getAttachmentName(), p.getAttachmentData() != null ? "/api/policies/" + p.getId() + "/attachment" : null);
     }
 
     public static PolicyResponse from(Policy p) {

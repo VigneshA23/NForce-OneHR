@@ -52,4 +52,17 @@ public class Policy {
 
     @Column(name = "previous_version_id")
     private Long previousVersionId;
+
+    // Optional attachment (image/PDF/Word) — mirrors HelpdeskReply's inline attachment columns.
+    @Column(name = "attachment_name", length = 255)
+    private String attachmentName;
+
+    @Column(name = "attachment_type", length = 100)
+    private String attachmentType;
+
+    @Column(name = "attachment_size")
+    private Long attachmentSize;
+
+    @Column(name = "attachment_data", columnDefinition = "BYTEA")
+    private byte[] attachmentData;
 }

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Megaphone, CheckCircle, Clock, Search } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
-  listAllPolicies, publishPolicy, editPolicy, publishPolicyVersion, policyVersionHistory,
+  listAllPolicies, publishPolicy, uploadPolicyAttachment, editPolicy, publishPolicyVersion, policyVersionHistory,
   deactivatePolicy, reactivatePolicy, deletePolicy,
   listAcknowledgments, listAllAnnouncements, createAnnouncement, publishAnnouncement,
   updateAnnouncement, deactivateAnnouncement, reactivateAnnouncement, deleteAnnouncement,
@@ -80,6 +80,7 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
   const [audience, setAudience] = useState<string[]>([...ALL_AUDIENCE]);
   const [required, setRequired] = useState(true);
   const [loading, setLoading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!title.trim()) { setVersion('1.0'); return; }
@@ -102,7 +103,11 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
     setLoading(true);
     try {
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
-      const p = await publishPolicy(token, { title, version, description, audience: audienceStr, required });
+      let p = await publishPolicy(token, { title, version, description, audience: audienceStr, required });
+      const file = fileRef.current?.files?.[0];
+      if (file) {
+        p = await uploadPolicyAttachment(token, p.id, file);
+      }
       onPublished(p);
       showToast('success', 'Policy published');
       onClose();
@@ -127,6 +132,10 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
               {[...new Set(policies.map(p => p.title))].map(t => <option key={t} value={t} />)}
             </datalist>
             {isUpdate && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#eab308' }}>Existing policy — will publish v{version}, supersede current.</p>}
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Attachment <span style={{ fontSize: 11 }}>(optional — image, PDF, or Word document)</span></label>
+            <input ref={fileRef} type="file" accept=".jpg,.jpeg,.png,.pdf,.doc,.docx" style={inputS} />
           </div>
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Version <span style={{ fontSize: 11 }}>(auto-suggested)</span></label>

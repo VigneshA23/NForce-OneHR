@@ -6,6 +6,10 @@ function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+function authOnly(token: string) {
+  return { Authorization: `Bearer ${token}` };
+}
+
 async function handle<T>(res: Response): Promise<T> {
   let body: { message?: string } = {};
   try { body = await res.json(); } catch { /* non-json */ }
@@ -29,6 +33,8 @@ export interface Policy {
   acknowledgedAt: string | null;
   versionNumber: number;
   previousVersionId: number | null;
+  attachmentName: string | null;
+  attachmentUrl: string | null;
 }
 
 export interface PolicyAcknowledgment {
@@ -88,6 +94,20 @@ export async function publishPolicy(token: string, body: {
   title: string; version: string; description: string; audience?: string; required?: boolean;
 }): Promise<Policy> {
   return handle(await fetch(BASE_POLICIES, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(body) }));
+}
+
+// Images/PDF/Word — see AttachmentValidator on the backend for the enforced size/type rule.
+export async function uploadPolicyAttachment(token: string, id: number, file: File): Promise<Policy> {
+  const form = new FormData();
+  form.append('file', file);
+  return handle(await fetch(`${BASE_POLICIES}/${id}/attachment`, { method: 'POST', headers: authOnly(token), body: form }));
+}
+
+export async function fetchPolicyAttachment(token: string, id: number): Promise<string> {
+  const res = await fetch(`${BASE_POLICIES}/${id}/attachment`, { headers: authOnly(token) });
+  if (!res.ok) throw new Error(`Attachment fetch failed (${res.status})`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }
 
 export async function editPolicy(token: string, id: number, body: {
