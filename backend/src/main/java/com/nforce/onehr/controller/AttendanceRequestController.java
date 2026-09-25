@@ -56,6 +56,24 @@ public class AttendanceRequestController {
         return attendanceRequestService.getWfhBalance(principal.getName(), date);
     }
 
+    /** Approved WFH requests in [from, to] for the caller's direct reports — My Team. */
+    @GetMapping("/team/wfh")
+    public List<AttendanceRequestResponse> teamApprovedWfh(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceRequestService.listTeamApprovedWfh(principal.getName(), from, to);
+    }
+
+    /** Approved WFH requests in [from, to] for the caller's peers — My Team: Peers view. */
+    @GetMapping("/peers/wfh")
+    public List<AttendanceRequestResponse> peerApprovedWfh(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return attendanceRequestService.listPeerApprovedWfh(principal.getName(), from, to);
+    }
+
     @GetMapping("/pending")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
     public List<AttendanceRequestResponse> pending(Principal principal) {
