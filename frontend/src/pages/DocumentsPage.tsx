@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, AlertTriangle, Search } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search, Eye } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { myPolicies, acknowledgePolicy, publishedAnnouncements, type Policy, type Announcement } from '../api/policies';
@@ -10,15 +10,17 @@ import { MyDocumentsSection } from './documents/MyDocumentsSection';
 
 // ── Policy Read-First Modal ───────────────────────────────
 
+// Without onConfirm the modal is read-only (view the policy, no acknowledgment step).
 function AcknowledgeModal({ policy, onConfirm, onClose }: {
   policy: Policy;
-  onConfirm(): Promise<void>;
+  onConfirm?(): Promise<void>;
   onClose(): void;
 }) {
   const [checked, setChecked] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function submit() {
+    if (!onConfirm) return;
     setLoading(true);
     try { await onConfirm(); } finally { setLoading(false); }
   }
@@ -31,22 +33,26 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
           {policy.description}
         </div>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
-          <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
-            style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0, cursor: 'pointer' }} />
-          <span style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>
-            I have read and understood this policy and agree to comply with its terms.
-          </span>
-        </label>
+        {onConfirm && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
+            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
+              style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0, cursor: 'pointer' }} />
+            <span style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>
+              I have read and understood this policy and agree to comply with its terms.
+            </span>
+          </label>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} disabled={loading}
             style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-            Cancel
+            {onConfirm ? 'Cancel' : 'Close'}
           </button>
-          <button onClick={submit} disabled={!checked || loading}
-            style={{ padding: '8px 20px', background: checked ? '#A01418' : 'var(--shell)', border: checked ? 'none' : '1px solid var(--line)', borderRadius: 6, color: checked ? '#fff' : 'var(--txt-dim)', cursor: checked ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600, transition: 'all .15s' }}>
-            {loading ? 'Saving…' : 'Confirm Acknowledgment'}
-          </button>
+          {onConfirm && (
+            <button onClick={submit} disabled={!checked || loading}
+              style={{ padding: '8px 20px', background: checked ? '#A01418' : 'var(--shell)', border: checked ? 'none' : '1px solid var(--line)', borderRadius: 6, color: checked ? '#fff' : 'var(--txt-dim)', cursor: checked ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600, transition: 'all .15s' }}>
+              {loading ? 'Saving…' : 'Confirm Acknowledgment'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -68,6 +74,7 @@ export default function DocumentsPage() {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [ackTarget, setAckTarget] = useState<Policy | null>(null);
+  const [viewTarget, setViewTarget] = useState<Policy | null>(null);
   const [policiesLoading, setPoliciesLoading] = useState(true);
   const loading = docsLoading || policiesLoading;
 
@@ -179,10 +186,10 @@ export default function DocumentsPage() {
                   </div>
                 </div>
                 <div style={{ flexShrink: 0 }}>
-                  {/* Acknowledgment wasn't enabled when this policy was published — it's viewable
-                      only, so no action is shown and it never counts as pending (see p.required
-                      gating on pendingPolicies above and the backend's countPendingRequired* queries). */}
-                  {p.required && (
+                  {/* Acknowledgment wasn't enabled when this policy was published — it's view-only
+                      (read-only modal, no acknowledgment step) and it never counts as pending (see
+                      p.required gating on pendingPolicies above and the backend's countPendingRequired* queries). */}
+                  {p.required ? (
                     p.acknowledged === false ? (
                       <button onClick={() => setAckTarget(p)}
                         style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
@@ -193,6 +200,11 @@ export default function DocumentsPage() {
                         <CheckCircle size={14} /> Acknowledged
                       </span>
                     )
+                  ) : (
+                    <button onClick={() => setViewTarget(p)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                      <Eye size={14} /> View
+                    </button>
                   )}
                 </div>
               </div>
@@ -232,6 +244,8 @@ export default function DocumentsPage() {
           onClose={() => setAckTarget(null)}
         />
       )}
+
+      {viewTarget && <AcknowledgeModal policy={viewTarget} onClose={() => setViewTarget(null)} />}
     </div>
   );
 }
