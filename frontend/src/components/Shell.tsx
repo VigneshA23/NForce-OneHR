@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
-import { readRecentSearches, addRecentSearch, clearRecentSearches } from '../lib/recentSearches';
+import { readRecentSearches, addRecentSearch, clearRecentSearches, type RecentDestination } from '../lib/recentSearches';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
@@ -22,6 +22,8 @@ import { profileApi } from '../api/profile';
 import { EmployeeAvatar } from './EmployeeAvatar';
 import { WorkAnniversaryOverlay } from './WorkAnniversaryOverlay';
 import { getAnniversaryYears, hasShownAnniversaryThisYear, markAnniversaryShown } from '../lib/workAnniversary';
+import { BirthdayCelebrationOverlay } from './BirthdayCelebrationOverlay';
+import { isBirthdayToday, localDateKey, hasShownBirthdayToday, markBirthdayShown } from '../lib/birthday';
 import { useAccentColor, ACCENT_BAND_POSITION_X } from '../lib/accentColor';
 import sidebarDecoration from '../assets/sidebar-decoration.png';
 import { AssistantLauncher } from './aiAssistant/AssistantLauncher';
@@ -153,6 +155,12 @@ export function Shell() {
   // Work-anniversary celebration — null means "not showing"; see the profile-sync effect below
   // for when/how this gets set, and workAnniversary.ts for the date/once-per-year logic.
   const [anniversaryYears, setAnniversaryYears] = useState<number | null>(null);
+  // Birthday celebration — null means "not showing". `anniversaryYears` set alongside it signals
+  // the combined "birthday + work anniversary today" variant (see BirthdayCelebrationOverlay);
+  // these two overlays are mutually exclusive by construction in the profile-sync effect below, so
+  // only one of anniversaryYears/birthdayShowing is ever non-null/true at a time.
+  const [birthdayShowing, setBirthdayShowing] = useState(false);
+  const [birthdayAnniversaryYears, setBirthdayAnniversaryYears] = useState<number | undefined>(undefined);
   // Small on-page "you've been appreciated" celebration — see KudosCelebrationToast. Fed by the
   // notification poll below via notificationEvents, so it's not its own network call.
   const [kudosQueue, setKudosQueue] = useState<KudosCelebrationItem[]>([]);
@@ -168,7 +176,7 @@ export function Shell() {
   const [searchGroups, setSearchGroups] = useState<SearchGroup[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
-  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [recentSearches, setRecentSearches] = useState<RecentDestination[]>([]);
   const [searchIdx, setSearchIdx] = useState(-1);
   // Mobile-only: the collapsed magnifying-glass icon (≤767px, where the full bar doesn't fit —
   // see .nf-topbar-search-icon) expands into this full-width search row instead of doing nothing.
@@ -183,7 +191,13 @@ export function Shell() {
   const name     = storeUser?.fullName || email || 'User';
 
   const navItems = NAV[role];
-  const current  = navItems.find((n) => location.pathname.startsWith(n.path)) ?? navItems[0];
+  // My Profile is reached via the avatar dropdown (below), not a sidebar module, so it has no
+  // entry in NAV — without this, the lookup below would silently fall back to navItems[0] and
+  // both the topbar title and the sidebar's active-item highlight would show "Home" instead.
+  const current: NavItem = navItems.find((n) => location.pathname.startsWith(n.path))
+    ?? (location.pathname.startsWith('/profile')
+      ? { key: 'profile', label: 'My Profile', icon: User, phase: 1, path: '/profile' }
+      : navItems[0]);
 
   type FlatResult =
     | { kind: 'nav'; item: NavItem }
@@ -254,24 +268,30 @@ export function Shell() {
   }
 
   function goToResultsPage(q: string) {
-    if (email) setRecentSearches(addRecentSearch(email, q));
+    // Not recorded as a recent destination: the search-results page isn't itself a specific place
+    // to jump back to the way a nav item or an individual result is — see handleResultSelect and
+    // recentSearches.ts's own note on why this tracks destinations, not typed text.
     navigate(`/search?q=${encodeURIComponent(q)}`);
     closeSearch();
   }
 
   function handleResultSelect(result: FlatResult) {
     if (result.kind === 'nav') {
+      if (email) setRecentSearches(addRecentSearch(email, { label: result.item.label, path: result.item.path }));
       navigate(result.item.path);
     } else {
-      if (email) setRecentSearches(addRecentSearch(email, trimmedQuery));
+      if (email) setRecentSearches(addRecentSearch(email, { label: result.result.title, path: result.result.detailUrl }));
       navigate(result.result.detailUrl);
     }
     closeSearch();
   }
 
-  function handleRecentSearchClick(q: string) {
-    setSearchQuery(q);
-    setSearchIdx(-1);
+  function handleRecentSearchClick(destination: RecentDestination) {
+    // Reaching a destination again from history is itself "accessing it from the search bar", so
+    // it's bumped back to the front the same as a fresh result click would be.
+    if (email) setRecentSearches(addRecentSearch(email, destination));
+    navigate(destination.path);
+    closeSearch();
   }
 
   function handleClearRecentSearches() {
@@ -310,19 +330,36 @@ export function Shell() {
         if (p.photoDataUrl !== storeUser.photoDataUrl) patch.photoDataUrl = p.photoDataUrl;
         if (Object.keys(patch).length > 0) setAuth(token, { ...storeUser, ...patch });
 
-        // Work-anniversary celebration — piggybacks on this same profile fetch rather than
-        // making its own network call. p.hasEmployeeRecord/p.joiningDate cover the "missing or
-        // invalid joining date" case safely (getAnniversaryYears returns null for either), and
-        // hasShownAnniversaryThisYear gates it to once per employee per year even across
-        // logout/login or a page refresh (persisted in localStorage, not just this session).
+        // Work-anniversary + birthday celebrations — both piggyback on this same profile fetch
+        // rather than making their own network call. p.hasEmployeeRecord/p.joiningDate/
+        // p.dateOfBirth cover "missing or invalid date" safely (getAnniversaryYears/
+        // isBirthdayToday return null/false for any of those), and the once-per-year /
+        // once-per-day localStorage gates persist across logout/login or a page refresh, not just
+        // this session. When both land on the same day, this shows ONE combined overlay
+        // (BirthdayCelebrationOverlay with anniversaryYears set) instead of the two stacking —
+        // WorkAnniversaryOverlay's own state (anniversaryYears) is deliberately left unset in that
+        // case, so only one overlay's `open` is ever true at a time.
         if (p.hasEmployeeRecord) {
-          const years = getAnniversaryYears(p.joiningDate, new Date());
-          if (years !== null) {
-            const thisYear = new Date().getFullYear();
-            if (!hasShownAnniversaryThisYear(window.localStorage, p.email, thisYear)) {
-              markAnniversaryShown(window.localStorage, p.email, thisYear);
-              setAnniversaryYears(years);
-            }
+          const today = new Date();
+          const years = getAnniversaryYears(p.joiningDate, today);
+          const isBday = isBirthdayToday(p.dateOfBirth, today);
+          const thisYear = today.getFullYear();
+          const dayKey = localDateKey(today);
+
+          const anniversaryDue = years !== null && !hasShownAnniversaryThisYear(window.localStorage, p.email, thisYear);
+          const birthdayDue = isBday && !hasShownBirthdayToday(window.localStorage, p.email, dayKey);
+
+          if (anniversaryDue && birthdayDue) {
+            markAnniversaryShown(window.localStorage, p.email, thisYear);
+            markBirthdayShown(window.localStorage, p.email, dayKey);
+            setBirthdayAnniversaryYears(years ?? undefined);
+            setBirthdayShowing(true);
+          } else if (anniversaryDue) {
+            markAnniversaryShown(window.localStorage, p.email, thisYear);
+            setAnniversaryYears(years);
+          } else if (birthdayDue) {
+            markBirthdayShown(window.localStorage, p.email, dayKey);
+            setBirthdayShowing(true);
           }
         }
       })
@@ -330,17 +367,30 @@ export function Shell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // Manual QA hook for the work-anniversary celebration — e.g. /dashboard?anniversaryTest=5 forces
-  // it open showing "5 Years of Excellence", bypassing both the real join-date check and the
-  // once-per-year localStorage gate above. There's no UI path to set an arbitrary employee's join
-  // date to today for testing, and this shared dev database has real teammates' data in it, so
-  // this is the safe way to preview/QA the overlay without touching any employee record. Never
-  // fires for a real user unless they specifically type this query param.
+  // Manual QA hook for the work-anniversary/birthday celebrations — e.g. /dashboard?anniversaryTest=5
+  // forces the anniversary overlay open showing "5 Years of Excellence", /dashboard?birthdayTest=1
+  // forces the birthday overlay, and both together force the combined variant — all bypassing the
+  // real date checks and the localStorage "already shown" gates above. There's no UI path to set an
+  // arbitrary employee's join date or date of birth to today for testing, and this shared dev
+  // database has real teammates' data in it, so this is the safe way to preview/QA either overlay
+  // without touching any employee record. Never fires for a real user unless they specifically type
+  // one of these query params.
   useEffect(() => {
-    const raw = new URLSearchParams(location.search).get('anniversaryTest');
-    if (raw === null) return;
-    const years = Number(raw);
-    if (Number.isInteger(years) && years > 0) setAnniversaryYears(years);
+    const params = new URLSearchParams(location.search);
+    const anniversaryRaw = params.get('anniversaryTest');
+    const birthdayRaw = params.get('birthdayTest');
+    const years = anniversaryRaw !== null ? Number(anniversaryRaw) : NaN;
+    const hasAnniversary = Number.isInteger(years) && years > 0;
+    const hasBirthday = birthdayRaw !== null;
+
+    if (hasAnniversary && hasBirthday) {
+      setBirthdayAnniversaryYears(years);
+      setBirthdayShowing(true);
+    } else if (hasAnniversary) {
+      setAnniversaryYears(years);
+    } else if (hasBirthday) {
+      setBirthdayShowing(true);
+    }
   }, [location.search]);
 
   // The one app-wide notification poll (drives the bell badge). Other mounted pages (e.g.
@@ -533,12 +583,12 @@ export function Shell() {
               Clear
             </button>
           </div>
-          {recentSearches.map(q => (
-            <button key={q} onMouseDown={() => handleRecentSearchClick(q)} style={dropdownRowStyle(false)}
+          {recentSearches.map(destination => (
+            <button key={destination.path} onMouseDown={() => handleRecentSearchClick(destination)} style={dropdownRowStyle(false)}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
               <ClockIcon size={13} style={{ color: '#6B7280', flexShrink: 0 }} aria-hidden="true" />
-              {q}
+              {destination.label}
             </button>
           ))}
         </div>
@@ -872,6 +922,14 @@ export function Shell() {
         onClose={() => setAnniversaryYears(null)}
       />
 
+      <BirthdayCelebrationOverlay
+        open={birthdayShowing}
+        employeeName={name}
+        photoDataUrl={storeUser?.photoDataUrl}
+        anniversaryYears={birthdayAnniversaryYears}
+        onClose={() => { setBirthdayShowing(false); setBirthdayAnniversaryYears(undefined); }}
+      />
+
       <KudosCelebrationToast
         items={kudosQueue}
         onDismiss={(id) => setKudosQueue(prev => prev.filter(k => k.id !== id))}
@@ -881,7 +939,7 @@ export function Shell() {
           stacking context, and last in the tree so it layers without changing anything above it.
           currentPageId reuses `current.key`, already computed for the sidebar - the assistant
           never derives the page itself, and the server re-validates whatever arrives. */}
-      <AssistantLauncher currentPageId={current.key} />
+      <AssistantLauncher currentPageId={current.key} unreadCount={unreadCount} />
     </div>
   );
 }

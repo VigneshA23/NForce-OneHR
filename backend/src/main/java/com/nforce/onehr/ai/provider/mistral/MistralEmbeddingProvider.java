@@ -39,9 +39,17 @@ public class MistralEmbeddingProvider implements EmbeddingProvider {
     private final MistralHttpClient httpClient;
     private final AiProperties properties;
 
+    /** See {@link EmbeddingProvider#lastCallInfo()}. Only {@link #embedOneBatch} writes this. */
+    private final ThreadLocal<EmbeddingCallInfo> lastCall = ThreadLocal.withInitial(() -> EmbeddingCallInfo.NONE);
+
     @Override
     public String name() {
         return "mistral";
+    }
+
+    @Override
+    public EmbeddingCallInfo lastCallInfo() {
+        return lastCall.get();
     }
 
     @Override
@@ -75,7 +83,17 @@ public class MistralEmbeddingProvider implements EmbeddingProvider {
         body.put("model", properties.getMistral().getEmbedModel());
         body.put("input", batch);
 
-        JsonNode response = httpClient.postJson(EMBEDDINGS_PATH, body);
+        JsonNode response;
+        try {
+            response = httpClient.postJson(EMBEDDINGS_PATH, body);
+        } finally {
+            // Recorded even when postJson throws - a failed embed call still cost real Mistral
+            // requests, which the API Usage dashboard needs to count regardless of outcome.
+            lastCall.set(new EmbeddingCallInfo(httpClient.lastAttemptCount(), 0));
+        }
+        JsonNode usage = response.path("usage");
+        lastCall.set(new EmbeddingCallInfo(httpClient.lastAttemptCount(), usage.path("prompt_tokens").asInt(0)));
+
         JsonNode data = response.path("data");
         if (!data.isArray() || data.size() != batch.size()) {
             throw new AiProviderException("mistral",

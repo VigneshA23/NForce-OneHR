@@ -34,6 +34,19 @@ public final class HelpContentSpecifications {
         return (root, query, cb) -> cb.equal(root.get("status"), "PUBLISHED");
     }
 
+    /**
+     * Admin list/detail gate: a DRAFT is private to whoever created it — no other HR Admin/Super
+     * Admin, however privileged, may see it. Every other status (PENDING_APPROVAL, APPROVED,
+     * PUBLISHED, UNPUBLISHED, ARCHIVED) is left untouched by this predicate, so the existing
+     * submit-for-review/approval-center visibility (any admin can see submitted content) is
+     * preserved unchanged — only the DRAFT state is newly restricted.
+     */
+    public static Specification<HelpContent> draftVisibleOnlyToCreator(UUID viewerId) {
+        return (root, query, cb) -> cb.or(
+                cb.notEqual(root.get("status"), "DRAFT"),
+                cb.equal(root.get("createdBy"), viewerId));
+    }
+
     /** Matches on title, description, or body text (case-insensitive, partial). */
     public static Specification<HelpContent> searchText(String search) {
         if (search == null || search.isBlank()) return (root, query, cb) -> cb.conjunction();

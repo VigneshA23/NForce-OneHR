@@ -2,6 +2,7 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.reports.AttendanceRequestReportRow;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -19,18 +20,29 @@ import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Manager: Attendance Request Reports Library (ONEHR-109) — Regularization ("Remote Clock-ins"),
+ * Attendance Request Reports Library (ONEHR-109) — Regularization ("Remote Clock-ins"),
  * Web Clock-in, Overtime, Partial Day and WFH ("Working Remotely (WFH/OD)") report cards. Shift &
  * Weekly Off Requests and Mobile Location Punches have no backing entity anywhere in the
  * codebase and are intentionally NOT implemented here — the frontend renders them as disabled
  * "Coming soon" cards instead of silently returning empty data (ONEHR-109 AC #5). There is also
  * no "OD" (on-duty) request type anywhere in the schema — WFH_OD reports only WFH rows, each
  * carrying its FULL_DAY/FIRST_HALF/SECOND_HALF mode.
+ *
+ * <p>Scope differs by caller role: a Manager only ever sees their own current direct reports
+ * (originally the only caller this was built for — see the ONEHR-109 title). HR_ADMIN/SUPER_ADMIN
+ * see every employee org-wide instead — bug fix (ONEHR: "HR Admin: Overtime/WFH/Partial request
+ * records are not fetched under Reports"): this endpoint was opened up to HR_ADMIN/SUPER_ADMIN at
+ * the controller (@PreAuthorize) without ever updating the scope here, so an HR Admin — who
+ * typically has few or no direct reports of their own in {@code EmployeeManagerHistory} — always
+ * got an empty {@code reportIds}, and thus an empty report, regardless of how many requests
+ * actually existed company-wide (which Approval Center, correctly org-scoped for HR/SA, already
+ * showed).
  */
 @Service
 @RequiredArgsConstructor
@@ -40,6 +52,7 @@ public class ReportsService {
 
     private static final String ATTENDANCE_REQUEST_TYPE_PARTIAL_DAY = "PARTIAL_DAY";
     private static final String ATTENDANCE_REQUEST_TYPE_WFH = "WFH";
+    private static final Set<String> ORG_WIDE_REPORT_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
 
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
@@ -50,13 +63,16 @@ public class ReportsService {
 
     @Transactional(readOnly = true)
     public List<AttendanceRequestReportRow> getAttendanceRequestReport(
-            String managerEmail, ReportType type, LocalDate from, LocalDate to) {
-        Employee manager = resolveManager(managerEmail);
-        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
-        if (reportIds.isEmpty()) {
+            String actorEmail, ReportType type, LocalDate from, LocalDate to) {
+        Employee actor = resolveManager(actorEmail);
+        List<Employee> scopeEmployees = isOrgWideReporter(actor)
+                ? employeeRepository.findAllWithDetails()
+                : employeeRepository.findAllById(managerHistoryRepository.findCurrentDirectReportIds(actor.getUserId()));
+        if (scopeEmployees.isEmpty()) {
             return List.of();
         }
-        Map<UUID, Employee> byId = employeeRepository.findAllById(reportIds).stream()
+        List<UUID> reportIds = scopeEmployees.stream().map(Employee::getUserId).toList();
+        Map<UUID, Employee> byId = scopeEmployees.stream()
                 .collect(Collectors.toMap(Employee::getUserId, Function.identity()));
 
         List<AttendanceRequestReportRow> rows = switch (type) {
@@ -181,5 +197,13 @@ public class ReportsService {
         return employeeRepository.findByUser_Email(actorEmail)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "No employee profile found for this account. Contact HR to complete your profile."));
+    }
+
+    /** True for HR_ADMIN/SUPER_ADMIN — same role check convention as every other org-wide-vs-team
+     * branch in this codebase (e.g. ExpenseService#isFinalApprover). A null User (only possible in
+     * a test double that never set one) is never org-wide — same as a caller with no admin role. */
+    private boolean isOrgWideReporter(Employee actor) {
+        User user = actor.getUser();
+        return user != null && user.getRoles().stream().anyMatch(r -> ORG_WIDE_REPORT_ROLES.contains(r.getCode()));
     }
 }

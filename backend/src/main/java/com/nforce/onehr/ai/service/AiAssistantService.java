@@ -4,6 +4,7 @@ import com.nforce.onehr.ai.config.AiProperties;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.contract.AudienceBucket;
+import com.nforce.onehr.ai.contract.EmbeddingProvider;
 import com.nforce.onehr.ai.contract.KnowledgeRetriever;
 import com.nforce.onehr.ai.contract.LlmCompletion;
 import com.nforce.onehr.ai.contract.LlmProvider;
@@ -58,6 +59,7 @@ public class AiAssistantService {
 
     private final UserRepository userRepository;
     private final KnowledgeRetriever retriever;
+    private final EmbeddingProvider embeddingProvider;
     private final LlmProvider llmProvider;
     private final PromptBuilder promptBuilder;
     private final ResponseValidator responseValidator;
@@ -100,7 +102,7 @@ public class AiAssistantService {
             // with retry information (see AiExceptionHandler). Still recorded the same way so
             // observability is unaffected by which path a turn was refused through.
             record(context, null, question, List.of(), null, null,
-                    AiInteractionLogger.RATE_LIMITED, startedNanos);
+                    AiInteractionLogger.RATE_LIMITED, startedNanos, EmbeddingProvider.EmbeddingCallInfo.NONE, 0);
             throw new AiRateLimitExceededException(decision.retryAfterSeconds());
         }
 
@@ -122,6 +124,7 @@ public class AiAssistantService {
                                      AiConversation conversation,
                                      long startedNanos) {
         List<RetrievalResult> knowledge;
+        EmbeddingProvider.EmbeddingCallInfo embedInfo;
         try {
             knowledge = retriever.retrieve(RetrievalQuery.builder()
                     .rawQuery(question)
@@ -129,11 +132,16 @@ public class AiAssistantService {
                     .moduleHint(currentPage.map(PageReference::getModule).orElse(null))
                     .pageIdHint(currentPage.map(PageReference::getPageId).orElse(null))
                     .build());
+            embedInfo = embeddingProvider.lastCallInfo();
         } catch (AiProviderException e) {
+            // Read regardless of which of retrieval's two possible failure sources this was (the
+            // embed call itself, or the vector search after it) - lastCallInfo reflects whatever
+            // the embedding provider's own most recent attempt actually cost, either way.
+            embedInfo = embeddingProvider.lastCallInfo();
             log.warn("Retrieval failed ({}): returning a controlled unavailable response", e.getMessage());
             AssistantResponse unavailable = unknownResponses.providerUnavailable(context);
             record(context, conversation.getId(), question, List.of(), null, unavailable,
-                    AiInteractionLogger.RETRIEVAL_UNAVAILABLE, startedNanos);
+                    AiInteractionLogger.RETRIEVAL_UNAVAILABLE, startedNanos, embedInfo, 0);
             return unavailable;
         }
 
@@ -146,7 +154,7 @@ public class AiAssistantService {
             conversationService.recordTurn(conversation.getId(), question,
                     unknown.getAnswer(), unknown.getType().name());
             record(context, conversation.getId(), question, List.of(), null, unknown,
-                    AiInteractionLogger.NO_KNOWLEDGE, startedNanos);
+                    AiInteractionLogger.NO_KNOWLEDGE, startedNanos, embedInfo, 0);
             return unknown;
         }
 
@@ -161,26 +169,30 @@ public class AiAssistantService {
                 question, conversationService.recentTurns(conversation.getId()));
 
         LlmCompletion completion;
+        int completionAttempts;
         try {
             completion = llmProvider.complete(LlmRequest.builder()
                     .systemPrompt(systemPrompt)
                     .userPrompt(userPrompt)
                     .jsonMode(true)
                     .build());
+            completionAttempts = llmProvider.lastAttemptCount();
         } catch (AiProviderException e) {
             // Must not escape: GlobalExceptionHandler would turn it into a bare 500, and a provider
             // outage is not the user's error. Requirement 19 calls for a controlled response.
+            completionAttempts = llmProvider.lastAttemptCount();
             log.warn("LLM provider failed ({}): returning a controlled unavailable response", e.getMessage());
             AssistantResponse unavailable = unknownResponses.providerUnavailable(context);
             record(context, conversation.getId(), question, knowledge, null, unavailable,
-                    AiInteractionLogger.PROVIDER_UNAVAILABLE, startedNanos);
+                    AiInteractionLogger.PROVIDER_UNAVAILABLE, startedNanos, embedInfo, completionAttempts);
             return unavailable;
         }
 
         AssistantResponse response = responseValidator.validate(completion.getContent(), context);
         conversationService.recordTurn(conversation.getId(), question,
                 response.getAnswer(), response.getType().name());
-        record(context, conversation.getId(), question, knowledge, completion, response, null, startedNanos);
+        record(context, conversation.getId(), question, knowledge, completion, response, null, startedNanos,
+                embedInfo, completionAttempts);
         return response;
     }
 
@@ -196,13 +208,20 @@ public class AiAssistantService {
                                      String question,
                                      String errorCode,
                                      long startedNanos) {
-        record(context, null, question, List.of(), null, response, errorCode, startedNanos);
+        // Never reaches retrieval or the model - zero real Mistral requests to attribute.
+        record(context, null, question, List.of(), null, response, errorCode, startedNanos,
+                EmbeddingProvider.EmbeddingCallInfo.NONE, 0);
         return response;
     }
 
     /**
      * Note the third argument: the question goes in, but only to be measured.
      * {@link AiInteractionLogger.Turn} has no field that could hold it.
+     *
+     * @param embedInfo attempts/tokens for this turn's embedding call, or
+     *                  {@link EmbeddingProvider.EmbeddingCallInfo#NONE} when retrieval never ran
+     * @param completionAttempts real Mistral HTTP attempts the completion call cost, or 0 when it
+     *                           was never reached
      */
     private void record(AssistantRequestContext context,
                         UUID conversationId,
@@ -211,7 +230,9 @@ public class AiAssistantService {
                         LlmCompletion completion,
                         AssistantResponse response,
                         String errorCode,
-                        long startedNanos) {
+                        long startedNanos,
+                        EmbeddingProvider.EmbeddingCallInfo embedInfo,
+                        int completionAttempts) {
         interactionLogger.record(AiInteractionLogger.Turn.builder()
                 .context(context)
                 .conversationId(conversationId)
@@ -221,6 +242,8 @@ public class AiAssistantService {
                 .response(response)
                 .errorCode(errorCode)
                 .latencyMs((System.nanoTime() - startedNanos) / 1_000_000L)
+                .embeddingPromptTokens(embedInfo.attempts() == 0 ? null : embedInfo.promptTokens())
+                .apiCallAttempts(embedInfo.attempts() + completionAttempts)
                 .build());
     }
 

@@ -6,17 +6,21 @@ import com.nforce.onehr.ai.contract.KnowledgeType;
 import com.nforce.onehr.ai.contract.RetrievalResult;
 import com.nforce.onehr.ai.contract.ShellRole;
 import com.nforce.onehr.ai.navigation.PageRegistry;
+import com.nforce.onehr.service.AttendanceRulesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * The prompt as a security boundary.
@@ -33,7 +37,9 @@ class PromptBuilderTest {
     void setUp() {
         registry = new PageRegistry();
         ReflectionTestUtils.invokeMethod(registry, "load");
-        builder = new PromptBuilder(registry);
+        AttendanceRulesService attendanceRulesService = mock(AttendanceRulesService.class);
+        when(attendanceRulesService.getDefaultZoneId()).thenReturn(ZoneId.of("Asia/Kolkata"));
+        builder = new PromptBuilder(registry, attendanceRulesService);
     }
 
     private AssistantRequestContext employee() {
@@ -109,6 +115,16 @@ class PromptBuilderTest {
         String prompt = builder.buildSystemPrompt(employee(), List.of(), Optional.empty());
 
         assertThat(prompt).contains("answer with type UNKNOWN");
+    }
+
+    @Test
+    @DisplayName("the system prompt states the actual current date, not left for the model to guess")
+    void systemPromptStatesTheCurrentDate() {
+        String prompt = builder.buildSystemPrompt(employee(), List.of(), Optional.empty());
+
+        assertThat(prompt).contains("CURRENT DATE & TIME");
+        assertThat(prompt).contains(java.time.LocalDate.now(ZoneId.of("Asia/Kolkata")).toString());
+        assertThat(prompt).contains("Resolve every relative date or time reference");
     }
 
     @Test

@@ -23,6 +23,7 @@ public class OnboardingChecklistDetailDto {
     private boolean archived;
     private String status;
     private Instant completedAt;
+    private boolean readyToComplete;
     private int totalItems;
     private int doneItems;
 

@@ -2,13 +2,8 @@ package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
-import com.nforce.onehr.dto.asset.AssetRequestResponse;
-import com.nforce.onehr.service.AssetService;
-import com.nforce.onehr.service.AttendanceRequestService;
-import com.nforce.onehr.service.ExpenseService;
-import com.nforce.onehr.service.LeaveService;
-import com.nforce.onehr.service.OvertimeRequestService;
-import com.nforce.onehr.service.RegularizationService;
+import com.nforce.onehr.dto.ApprovalItemDto;
+import com.nforce.onehr.service.ApprovalCenterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -22,41 +17,32 @@ import java.util.stream.Collectors;
 /**
  * A precise total across every Approval Center queue, in one line per type.
  *
- * <p>This is a deliberate, narrow exception to {@link AssistantDataProvider}'s "one provider, one
- * service method" rule. The Approval Center aggregates six independently-approved request types
- * (Leave, Regularization, Expense, Asset Request, Work From Home/Partial Day, Overtime), each with
- * its own detail provider elsewhere in this package. A question like "how many things need my
- * approval" is not really about any one of those types — it is about the total, and the general
- * relevance-ranked provider selection in {@link AssistantDataService} can surface at most a handful
- * of the six per turn (by design - see its own Javadoc on {@code MAX_PROVIDERS_PER_TURN}), so no
- * combination of detail providers alone can ever guarantee a complete count. Without this provider,
- * the assistant either had to under-report a partial figure as if it were the whole one - which is
- * how this class of question broke before this provider existed, reporting Leave's count as the
- * total while Expense, Regularization and everything else went unmentioned - or refuse to answer at
- * all.
+ * <p>A question like "how many things need my approval" is about the total, and the general
+ * relevance-ranked provider selection in {@link AssistantDataService} can surface only a handful of
+ * the per-type detail providers in one turn (by design - see its own Javadoc on
+ * {@code MAX_PROVIDERS_PER_TURN}), so no combination of them can guarantee a complete count.
  *
- * <p>The trade against "one provider, one method" is deliberately narrow: this provider returns
- * <strong>counts only</strong>, never a row of somebody's request detail, so it does not duplicate
- * what the six detail providers already expose and does not spend the extra PII budget an additional
- * detail provider would. It counts what the caller could already see themselves by opening the
- * Approval Center this page's own knowledge points them to - the same six {@code
- * listPendingForApprover(actorEmail)}-shaped methods the detail providers call, none of them mutating
- * and none of them taking anyone other than the actor.
+ * <p>Reads {@link ApprovalCenterService#pendingApprovals} - the exact method behind the Approval
+ * Center screen and the Super Admin dashboard's pending-approvals donut - so the figure here cannot
+ * disagree with what the caller sees there. It previously re-assembled the six queues itself and had
+ * drifted from the screen twice over: HR Admins and Super Admins had their expense claims counted
+ * at the manager stage only (the screen counts both stages org-wide), and document reviews were not
+ * counted at all.
+ *
+ * <p>Counts only, never a row of anybody's request detail - the per-type detail providers cover
+ * that, and a total spends none of the extra personal-data budget another detail list would.
  */
 @Component
 @RequiredArgsConstructor
 public class ApprovalSummaryProvider implements AssistantDataProvider {
 
-    private static final String STATUS_PENDING = "PENDING";
+    /** The Approval Center's own labels (DashboardPage.tsx APPROVAL_TYPE_LABELS), in its order. */
+    private static final Map<String, String> TYPE_LABELS = labels();
 
-    private final LeaveService leaveService;
-    private final ExpenseService expenseService;
-    private final RegularizationService regularizationService;
-    private final AttendanceRequestService attendanceRequestService;
-    private final OvertimeRequestService overtimeRequestService;
-    private final AssetService assetService;
+    private final ApprovalCenterService approvalCenterService;
 
     @Override public String id() { return "approvals.summary"; }
+    @Override public DataScope scope() { return DataScope.APPROVALS; }
     @Override public String title() { return "Total pending approvals across every request type"; }
 
     @Override
@@ -68,36 +54,43 @@ public class ApprovalSummaryProvider implements AssistantDataProvider {
 
     @Override
     public Optional<String> fetch(AssistantRequestContext context) {
-        String actorEmail = context.getActorEmail();
+        List<ApprovalItemDto> pending = approvalCenterService.pendingApprovals(context.getActorEmail());
+        // Stated, not omitted: "how many things need my approval" is a count question, and a missing
+        // block reads as "not looked up", which is a different answer from "none".
+        if (pending == null || pending.isEmpty()) {
+            return Optional.of("0 items awaiting your decision in the Approval Center - it is empty right now.");
+        }
 
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        counts.put("Leave", size(leaveService.listPendingApprovals(actorEmail)));
-        counts.put("Regularization", size(regularizationService.listPendingForApprover(actorEmail)));
-        counts.put("Expense", size(expenseService.pendingForManager(actorEmail)));
-        counts.put("Asset Request", pendingAssetCount(actorEmail));
-        counts.put("Work From Home / Partial Day", size(attendanceRequestService.listPendingForApprover(actorEmail)));
-        counts.put("Overtime", size(overtimeRequestService.listPendingForApprover(actorEmail)));
+        Map<String, Long> byType = pending.stream()
+                .collect(Collectors.groupingBy(ApprovalItemDto::getRequestType, LinkedHashMap::new, Collectors.counting()));
 
-        int total = counts.values().stream().mapToInt(Integer::intValue).sum();
-        if (total == 0) return Optional.empty();
-
-        String rows = counts.entrySet().stream()
-                .filter(e -> e.getValue() > 0)
+        String rows = TYPE_LABELS.entrySet().stream()
+                .filter(e -> byType.containsKey(e.getKey()))
+                .map(e -> "- %s: %d".formatted(e.getValue(), byType.get(e.getKey())))
+                .collect(Collectors.joining("\n"));
+        // A type this list does not know yet still counts toward the total and is still shown.
+        String unlabelled = byType.entrySet().stream()
+                .filter(e -> !TYPE_LABELS.containsKey(e.getKey()))
                 .map(e -> "- %s: %d".formatted(e.getKey(), e.getValue()))
                 .collect(Collectors.joining("\n"));
 
-        return Optional.of("%d total awaiting your decision, across all request types.\n%s".formatted(total, rows));
+        StringBuilder out = new StringBuilder("%d total awaiting your decision in the Approval Center, across all request types."
+                .formatted(pending.size()));
+        if (!rows.isEmpty()) out.append('\n').append(rows);
+        if (!unlabelled.isEmpty()) out.append('\n').append(unlabelled);
+        return Optional.of(out.toString());
     }
 
-    /** Matches {@code AssetDataProviders.PendingAssetRequests}: HR/Admin's queue also includes
-     * already-{@code APPROVED} items awaiting fulfilment, which are not "awaiting your decision". */
-    private int pendingAssetCount(String actorEmail) {
-        List<AssetRequestResponse> pending = assetService.listPendingForApprover(actorEmail);
-        if (pending == null) return 0;
-        return (int) pending.stream().filter(r -> STATUS_PENDING.equals(r.getStatus())).count();
-    }
-
-    private int size(List<?> list) {
-        return list == null ? 0 : list.size();
+    private static Map<String, String> labels() {
+        Map<String, String> labels = new LinkedHashMap<>();
+        labels.put("LEAVE", "Leave");
+        labels.put("REGULARIZATION", "Regularization");
+        labels.put("EXPENSE", "Expense");
+        labels.put("ASSET_REQUEST", "Asset Request");
+        labels.put("WFH", "Work From Home");
+        labels.put("PARTIAL_DAY", "Partial Day");
+        labels.put("OVERTIME", "Overtime");
+        labels.put("HELP_CONTENT", "Document Review (Help & Guidance content)");
+        return labels;
     }
 }

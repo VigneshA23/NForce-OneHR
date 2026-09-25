@@ -199,6 +199,24 @@ public class AttendanceService {
     }
 
     /**
+     * Whether the employee currently has an open, non-stale normal Check-In/Check-Out session —
+     * the same {@code canCheckOut} semantics {@link #getToday} exposes on
+     * {@code TodayAttendanceResponse}, extracted here so ProfileService's "In/Out" indicator can
+     * reuse it without duplicating the open-session lookup or staleness check (and risking the two
+     * endpoints disagreeing). Deliberately ignores Web Clock-In sessions, same as getToday.
+     */
+    @Transactional
+    public boolean isClockedIn(UUID employeeUserId) {
+        Employee employee = employeeRepository.findById(employeeUserId)
+                .orElseThrow(() -> new IllegalArgumentException("Employee not found: " + employeeUserId));
+        Optional<Attendance> open = findOpenNormalAttendance(employeeUserId);
+        if (open.isEmpty()) return false;
+        ZoneId zone = resolveZone(open.get(), employee);
+        LocalDateTime now = LocalDateTime.now(zone);
+        return !flagMissingCheckoutIfStale(open.get(), now);
+    }
+
+    /**
      * Sum of the gaps between consecutive closed punch sessions — an open (unclosed) session
      * contributes nothing yet. Spans BOTH punch sources (normal Check-In/Out and Web Check-In/
      * Out): a gap between, say, a Web Check-Out and a later normal Check-In is still a break,
@@ -886,6 +904,16 @@ public class AttendanceService {
     public List<AttendanceResponse> getMyHistory(String actorEmail, LocalDate from, LocalDate to) {
         Employee employee = resolveEmployee(actorEmail);
         return historyFor(employee, from, to);
+    }
+
+    /**
+     * The caller's current shift-relative work date - the same "today" the Attendance Log and
+     * {@link #getToday} use, so an overnight shift still reads as the day it started. A pure
+     * read, unlike {@link #getToday}, which also settles a stale open session as it goes.
+     */
+    @Transactional(readOnly = true)
+    public LocalDate currentWorkDate(String actorEmail) {
+        return defaultHistoryEnd(resolveEmployee(actorEmail));
     }
 
     /**
