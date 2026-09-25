@@ -54,6 +54,10 @@ public class AiInteractionLogger {
     public static final String EMPTY_MESSAGE = "EMPTY_MESSAGE";
     /** Over {@code app.ai.limits.max-message-chars}. */
     public static final String MESSAGE_TOO_LONG = "MESSAGE_TOO_LONG";
+    /** Asked about the assistant's or OneHR's internals, or tried to change its rules; the model was never called. */
+    public static final String CONFIDENTIAL = "CONFIDENTIAL";
+    /** Claimed a role or access the account does not hold; the model was never called. */
+    public static final String ROLE_CLAIM = "ROLE_CLAIM";
     /** Over the per-user hourly budget. */
     public static final String RATE_LIMITED = "RATE_LIMITED";
     /** Retrieval returned nothing the caller was allowed to see; the model was never called. */

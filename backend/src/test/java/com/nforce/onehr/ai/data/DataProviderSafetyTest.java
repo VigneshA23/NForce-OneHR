@@ -104,7 +104,7 @@ class DataProviderSafetyTest {
         assertThat(found).containsExactlyInAnyOrder(
                 // self
                 "Balances", "MyRequests", "MyClaims",
-                "Today", "MyHistory", "MyShift", "MyExceptions", "MyPenalties",
+                "Today", "MyHistory", "MyShift",
                 "MyRegularizations", "MyWfhAndPartialDay", "MyOvertime",
                 "MyAssetRequests", "MyAssetAssignments",
                 "MyProfile", "UpcomingHolidays", "MyNotifications",
