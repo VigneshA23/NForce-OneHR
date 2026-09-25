@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.ProfileResponse;
+import com.nforce.onehr.dto.ProfileTimelineEvent;
 import com.nforce.onehr.dto.SetAvatarRequest;
 import com.nforce.onehr.dto.UpdateProfileRequest;
 import com.nforce.onehr.service.ProfileService;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/profile")
@@ -23,6 +25,11 @@ public class ProfileController {
     @GetMapping
     public ResponseEntity<ProfileResponse> getProfile(Authentication auth) {
         return ResponseEntity.ok(profileService.getProfile(auth.getName()));
+    }
+
+    @GetMapping("/timeline")
+    public ResponseEntity<List<ProfileTimelineEvent>> getTimeline(Authentication auth) {
+        return ResponseEntity.ok(profileService.getTimeline(auth.getName()));
     }
 
     @PatchMapping

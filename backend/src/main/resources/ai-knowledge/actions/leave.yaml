@@ -13,7 +13,7 @@ knowledge:
     module: leave
     pageId: leave
     actionId: leave.apply
-    version: 1
+    version: 2
     audience: [EMPLOYEE, MANAGER, HR, ADMIN]
     title: Applying for leave
     synonyms:
@@ -27,17 +27,24 @@ knowledge:
       - I want a day off
       - annual leave request
       - sick leave
+      - unpaid leave
+      - apply leave for tomorrow
     body: |
-      Open Leave and Holidays from the sidebar, then use Apply for Leave.
+      Open Leave and Holidays from the sidebar, then use Request Leave.
 
       Steps:
       1. Open Leave and Holidays.
-      2. Click Apply for Leave.
-      3. Choose the leave type. Your available balance for each type is shown.
-      4. Choose the duration: full day, half day, quarter day or hourly.
-      5. Pick the start and end dates. For a half day, start and end must be the same date.
-      6. Enter a reason.
-      7. Submit.
+      2. Click Request Leave.
+      3. Choose the leave type from the dropdown. Leave types are configured by an HR Admin under
+         Organization Masters and each is either Paid or Unpaid; an Unpaid type is labelled
+         "(Unpaid)" in the list. Your available balance is shown next to a Paid type only — Unpaid
+         leave does not draw from any balance.
+      4. Pick the start date and end date. There is no separate "duration" field: leaving Half day
+         unchecked and choosing a start/end range requests a full day for every date in that range
+         (a single day if start and end are the same); checking Half day requests 0.5 day for just
+         the start date and locks the end date to match it.
+      5. Enter a reason.
+      6. Submit.
 
       The request is created with status PENDING and goes to your approver. You can track it from
       Requests, and you are notified when it is decided.
@@ -45,10 +52,15 @@ knowledge:
       Rules that will stop a submission:
       - The end date cannot be before the start date.
       - A half-day request must use the same date for start and end.
-      - You cannot apply for a date in the past. Backdated leave is not accepted.
+      - The start date cannot be before today. Today itself, tomorrow, and any later date are all
+        valid — only a date that has already passed is rejected. Do not describe tomorrow as
+        blocked or as needing to be "at least one day in the future"; same-day and next-day leave
+        are both allowed exactly like any other future date.
       - You cannot have two overlapping requests. If you already have a pending or approved request
         covering any of those dates, the new one is refused.
-      - The request cannot exceed your available balance for that leave type.
+      - For a Paid leave type, the request cannot exceed your available balance for that type.
+      - You cannot apply for an Unpaid-classified leave type while you still have an available paid
+        leave balance — use your paid leave first.
 
       Once submitted you cannot change or cancel it yourself. See "Cancelling or changing a leave
       request" for what to do instead.
@@ -91,7 +103,7 @@ knowledge:
     module: leave
     pageId: leave
     actionId: leave.balance
-    version: 1
+    version: 2
     audience: [EMPLOYEE, MANAGER, HR, ADMIN]
     title: Checking your leave balance
     synonyms:
@@ -102,8 +114,9 @@ knowledge:
       - my leave entitlement
       - do I have leave left
     body: |
-      Your balances are shown on Leave and Holidays, and again in the Apply for Leave form next to
-      each leave type.
+      Your balances are shown on Leave and Holidays, and again in the Request Leave form next to
+      each Paid leave type. Unpaid leave types have no balance to show, since they never draw from
+      one.
 
       How the available figure is worked out: available = total entitlement, minus days already
       used on approved leave, minus days reserved by requests that are still pending.

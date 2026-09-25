@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
-import { Building2, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock, CalendarDays, Bot } from 'lucide-react';
+import {
+  Building2, Building, Briefcase, FileText, MapPin, ShieldAlert, Plus, Search, X, Clock,
+  CalendarDays, Bot, Wallet, ShieldCheck, Activity, UsersRound, Crown, Handshake, Megaphone,
+  Cpu, Landmark, Wrench, BriefcaseBusiness, UserCog, TestTube, Code, UserRound, Home, Globe,
+  Sunrise, Sun, Sunset, Moon, Timer, IdCard, FileSignature, FileCheck, Award, File,
+  ClipboardCheck, CalendarClock, CalendarX2, CalendarCheck2,
+} from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -37,7 +43,7 @@ const LEVEL_OPTIONS = ['L1', 'L2', 'L3', 'L4', 'L5'];
 
 const TABS: Record<OrgTab, TabDef> = {
   businessunits: {
-    label: 'Business Units', icon: Building2,
+    label: 'Business Units', icon: Building,
     columns: ['Name', 'Employees', 'Status'],
     addLabel: 'Add Business Unit',
     emptyLine: 'No business units configured yet. Add one to get started.',
@@ -94,7 +100,7 @@ const TABS: Record<OrgTab, TabDef> = {
   // is a general attendance-classification rule, not a shift/weekly-off concept. columns/addLabel/
   // emptyLine are unused for this tab (see the search/add-button and table-vs-section guards below).
   attendance: {
-    label: 'Attendance Rules', icon: Clock,
+    label: 'Attendance Rules', icon: ClipboardCheck,
     columns: [], addLabel: '', emptyLine: '',
   },
   // A single-setting form (AiRateLimitSettingsSection), same shape as Attendance Rules above. Read
@@ -107,6 +113,147 @@ const TABS: Record<OrgTab, TabDef> = {
     columns: [], addLabel: '', emptyLine: '',
   },
 };
+
+// Presentational accent per tab — reuses the app's existing status/brand tokens plus a handful
+// of restrained additions (index.css --om-*) so each of the 10 sections reads as its own visual
+// category at a glance, without turning the tab bar into a rainbow.
+const TAB_ACCENT: Record<OrgTab, string> = {
+  businessunits: 'var(--info)',
+  departments: 'var(--ok)',
+  designations: 'var(--om-purple)',
+  locations: 'var(--om-teal)',
+  shiftweeklyoff: 'var(--warn)',
+  doctypes: 'var(--om-indigo)',
+  leavetypes: 'var(--om-rose)',
+  penalization: 'var(--risk)',
+  attendance: 'var(--om-cyan)',
+  'ai-assistant': 'var(--om-violet)',
+};
+
+// ── Semantic row icons ──────────────────────────────────────────────────────
+// Each entity's row icon is resolved from its real data (name/timing/etc.) via an ordered
+// keyword table — first matching rule wins — rather than one fixed icon per tab. Keeps the
+// table scannable at a glance without hardcoding per-record icons or inventing any data.
+interface IconRule { test: RegExp; icon: LucideIcon; accent: string }
+
+function resolveIcon(rules: IconRule[], text: string, fallback: { icon: LucideIcon; accent: string }) {
+  const hay = text.toLowerCase();
+  const hit = rules.find(r => r.test.test(hay));
+  return hit ? { icon: hit.icon, accent: hit.accent } : fallback;
+}
+
+// Shared by Business Units and Departments — both are org-groupings, so the same keyword
+// vocabulary (Finance/Engineering/Sales/etc.) is meaningful for either one's real names.
+const ORG_GROUP_ICON_RULES: IconRule[] = [
+  { test: /financ|account|treasury|payroll/, icon: Wallet, accent: 'var(--warn)' },
+  { test: /quality/, icon: ShieldCheck, accent: 'var(--risk)' },
+  { test: /sales.*operat|operat.*sales/, icon: Activity, accent: 'var(--info)' },
+  { test: /human resource|\bhr\b/, icon: UsersRound, accent: 'var(--ok)' },
+  { test: /executive|leadership|\bhead\b|director|chief/, icon: Crown, accent: 'var(--brand-bright)' },
+  { test: /sales/, icon: Handshake, accent: 'var(--ok)' },
+  { test: /marketing|brand/, icon: Megaphone, accent: 'var(--brand-bright)' },
+  { test: /engineer|development|tech/, icon: Cpu, accent: 'var(--info)' },
+  { test: /legal|complian/, icon: Landmark, accent: 'var(--txt-mut)' },
+  { test: /support|helpdesk|service|it\b/, icon: Wrench, accent: 'var(--warn)' },
+  { test: /operat/, icon: Activity, accent: 'var(--info)' },
+];
+function getBusinessUnitIcon(name: string) {
+  return resolveIcon(ORG_GROUP_ICON_RULES, name, { icon: TABS.businessunits.icon, accent: TAB_ACCENT.businessunits });
+}
+function getDepartmentIcon(name: string) {
+  return resolveIcon(ORG_GROUP_ICON_RULES, name, { icon: TABS.departments.icon, accent: TAB_ACCENT.departments });
+}
+
+const DESIGNATION_ICON_RULES: IconRule[] = [
+  { test: /senior.*manager|manager.*senior/, icon: BriefcaseBusiness, accent: 'var(--brand-bright)' },
+  { test: /\blead\b/, icon: UserCog, accent: 'var(--brand-bright)' },
+  { test: /manager/, icon: Briefcase, accent: 'var(--brand-bright)' },
+  { test: /qa|quality|test|automation/, icon: TestTube, accent: 'var(--risk)' },
+  { test: /engineer|developer|software|backend|frontend|full[\s-]?stack/, icon: Code, accent: 'var(--info)' },
+  { test: /human resource|\bhr\b/, icon: UserRound, accent: 'var(--ok)' },
+  { test: /analyst/, icon: Activity, accent: 'var(--info)' },
+  { test: /executive|leadership|\bhead\b|director|chief/, icon: Award, accent: 'var(--brand-bright)' },
+];
+function getDesignationIcon(title: string) {
+  return resolveIcon(DESIGNATION_ICON_RULES, title, { icon: TABS.designations.icon, accent: TAB_ACCENT.designations });
+}
+
+const DOCTYPE_ICON_RULES: IconRule[] = [
+  { test: /passport|aadhar|aadhaar|identity|\bpan\b|voter/, icon: IdCard, accent: 'var(--info)' },
+  { test: /driving|licen[cs]e/, icon: IdCard, accent: 'var(--info)' },
+  { test: /contract|agreement/, icon: FileSignature, accent: 'var(--txt-mut)' },
+  { test: /offer/, icon: FileText, accent: 'var(--txt-mut)' },
+  { test: /experience/, icon: FileCheck, accent: 'var(--ok)' },
+  { test: /certificate|educational|degree|diploma/, icon: Award, accent: 'var(--warn)' },
+  { test: /authoriz|authoris/, icon: ShieldCheck, accent: 'var(--risk)' },
+];
+function getDocTypeIcon(name: string) {
+  return resolveIcon(DOCTYPE_ICON_RULES, name, { icon: File, accent: TAB_ACCENT.doctypes });
+}
+
+// A small, consistent state system (remote / recognized major city / international / on-site
+// office) driven by the row's own city/state/country fields — never a different icon just
+// because two office names differ.
+const MAJOR_CITY_KEYWORDS = [
+  'hyderabad', 'bengaluru', 'bangalore', 'chennai', 'mumbai', 'delhi', 'pune', 'kolkata',
+  'new york', 'los angeles', 'san francisco', 'chicago', 'london', 'dubai', 'singapore',
+  'sydney', 'paris', 'tokyo', 'toronto',
+];
+function getLocationIcon(row: { name: string; city?: string | null; state?: string | null; country?: string | null }) {
+  const hay = `${row.name} ${row.city ?? ''} ${row.state ?? ''}`.toLowerCase();
+  if (/remote|work from home|\bwfh\b/.test(hay)) return { icon: Home, accent: 'var(--warn)' };
+  if (MAJOR_CITY_KEYWORDS.some(city => hay.includes(city))) return { icon: Landmark, accent: TAB_ACCENT.locations };
+  const country = (row.country ?? '').trim().toLowerCase();
+  if (country && country !== 'india') return { icon: Globe, accent: 'var(--info)' };
+  return { icon: Building2, accent: TAB_ACCENT.locations };
+}
+
+const SHIFT_NAME_ICON_RULES: IconRule[] = [
+  { test: /morning|sunrise/, icon: Sunrise, accent: 'var(--warn)' },
+  { test: /night|graveyard|overnight/, icon: Moon, accent: 'var(--info)' },
+  { test: /evening|dusk/, icon: Sunset, accent: 'var(--brand-bright)' },
+  { test: /\bday\b|afternoon|noon/, icon: Sun, accent: 'var(--warn)' },
+  { test: /regular|general|standard/, icon: Clock, accent: TAB_ACCENT.shiftweeklyoff },
+];
+// Named shifts go by what the name says; unnamed/generic ones fall back to their actual start
+// time so every row still gets a meaningful icon. Flexible shifts always show Timer, since
+// "flexible" is itself the defining characteristic (real data, not a name guess).
+function getShiftIcon(row: { name: string; startTime: string; flexible?: boolean }) {
+  if (row.flexible) return { icon: Timer, accent: 'var(--warn)' };
+  const byName = SHIFT_NAME_ICON_RULES.find(r => r.test.test(row.name.toLowerCase()));
+  if (byName) return { icon: byName.icon, accent: byName.accent };
+  const hour = Number(row.startTime?.slice(0, 2));
+  if (Number.isNaN(hour)) return { icon: Clock, accent: TAB_ACCENT.shiftweeklyoff };
+  if (hour >= 5 && hour < 9) return { icon: Sunrise, accent: 'var(--warn)' };
+  if (hour >= 9 && hour < 15) return { icon: Sun, accent: 'var(--warn)' };
+  if (hour >= 15 && hour < 19) return { icon: Sunset, accent: 'var(--brand-bright)' };
+  return { icon: Moon, accent: 'var(--info)' };
+}
+
+const LEAVE_ICON_RULES: IconRule[] = [
+  { test: /sick|medical|health/, icon: CalendarX2, accent: 'var(--risk)' },
+  { test: /unpaid|loss of pay|\blop\b/, icon: CalendarX2, accent: 'var(--txt-mut)' },
+  { test: /casual/, icon: CalendarClock, accent: 'var(--warn)' },
+  { test: /annual|paid|earned/, icon: CalendarCheck2, accent: 'var(--ok)' },
+];
+function getLeaveTypeIcon(name: string) {
+  return resolveIcon(LEAVE_ICON_RULES, name, { icon: TABS.leavetypes.icon, accent: TAB_ACCENT.leavetypes });
+}
+
+// Small tab-colored icon badge shown before a row's primary name/title — resolved per-row from
+// real data, purely presentational. A soft tinted fill + a thin inset ring (--badge-accent, read
+// by .nf-org-icon-badge in index.css) gives the glyph more visual weight than a bare thin-outline
+// icon, without switching icon libraries or adding image assets.
+function RowIconBadge({ icon: Icon, accent }: { icon: LucideIcon; accent: string }) {
+  return (
+    <span
+      className="nf-org-icon-badge"
+      style={{ background: `color-mix(in srgb, ${accent} 16%, transparent)`, ['--badge-accent' as string]: accent }}
+    >
+      <Icon size={14} aria-hidden="true" strokeWidth={2.25} style={{ color: accent }} />
+    </span>
+  );
+}
 
 const PATH_COPY: Record<string, { title: string; tagline: string }> = {
   '/organization': {
@@ -515,15 +662,31 @@ interface ConfirmState {
 }
 
 // ── DocTypeModal ───────────────────────────────────────────────────────────────
+// Create/edit is HR Admin/Super Admin — enforced by DocumentTypeController (@PreAuthorize).
+// Applicability fields are comma-separated and matched case-insensitively by the backend;
+// blank means the type applies to everyone.
+
+const DOC_EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
+
+function parseCsv(v: string): string[] {
+  return v.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function toggleCsv(v: string, item: string): string {
+  const parts = parseCsv(v);
+  const has = parts.some(p => p.toLowerCase() === item.toLowerCase());
+  return (has ? parts.filter(p => p.toLowerCase() !== item.toLowerCase()) : [...parts, item]).join(', ');
+}
 
 interface DocTypeModalProps {
   editRow?: DocumentType;
   token: string;
+  locationNames: string[];
   onClose(): void;
   onSaved(): void;
 }
 
-function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
+function DocTypeModal({ editRow, token, locationNames, onClose, onSaved }: DocTypeModalProps) {
   const isEdit = !!editRow;
   const [name, setName] = useState(editRow?.name ?? '');
   const [reqVerify, setReqVerify] = useState(editRow?.requiresVerification ?? true);
@@ -535,25 +698,31 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) { setError('Name is required'); return; }
+    const trimmed = name.trim();
+    if (!trimmed) { setError('Name is required'); return; }
+    if (trimmed.length > 80) { setError('Name must be at most 80 characters'); return; }
+    const empCsv = parseCsv(empTypes).join(',');
+    const locCsv = parseCsv(locs).join(',');
+    if (empCsv.length > 200 || locCsv.length > 200) { setError('Applicability lists must be at most 200 characters'); return; }
     setError('');
     setLoading(true);
     try {
       if (isEdit && editRow) {
+        // PATCH: null means "unchanged", so send '' (not null) to clear a list back to "All".
         await updateDocType(token, editRow.id, {
-          name: name.trim(),
+          name: trimmed,
           requiresVerification: reqVerify,
           requiresExpiryDate: reqExpiry,
-          applicableEmploymentTypes: empTypes.trim() || null,
-          applicableLocations: locs.trim() || null,
+          applicableEmploymentTypes: empCsv,
+          applicableLocations: locCsv,
         });
       } else {
         await createDocType(token, {
-          name: name.trim(),
+          name: trimmed,
           requiresVerification: reqVerify,
           requiresExpiryDate: reqExpiry,
-          applicableEmploymentTypes: empTypes.trim() || null,
-          applicableLocations: locs.trim() || null,
+          applicableEmploymentTypes: empCsv || null,
+          applicableLocations: locCsv || null,
         });
       }
       onSaved();
@@ -568,16 +737,34 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
   const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
   const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
+  function Chips({ value, options, onChange }: { value: string; options: string[]; onChange(v: string): void }) {
+    if (options.length === 0) return null;
+    const selected = new Set(parseCsv(value).map(s => s.toLowerCase()));
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+        {options.map(o => {
+          const on = selected.has(o.toLowerCase());
+          return (
+            <button key={o} type="button" onClick={() => onChange(toggleCsv(value, o))} aria-pressed={on}
+              style={{ padding: '3px 9px', borderRadius: 999, fontSize: 11, cursor: 'pointer', border: `1px solid ${on ? 'var(--brand)' : 'var(--line2)'}`, background: on ? 'var(--brand)' : 'var(--raised)', color: on ? '#fff' : 'var(--txt-mut)' }}>
+              {o}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 460, maxWidth: '94vw' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto' }}>
         <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Document Type' : 'Add Document Type'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Name *</label>
-            <input style={inputS} value={name} onChange={e => setName(e.target.value)} required autoFocus />
+            <input style={inputS} value={name} onChange={e => setName(e.target.value)} required maxLength={80} autoFocus />
           </div>
-          <div style={{ display: 'flex', gap: 20, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 6, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={reqVerify} onChange={e => setReqVerify(e.target.checked)} style={{ width: 15, height: 15 }} />
               Requires HR verification
@@ -587,15 +774,20 @@ function DocTypeModal({ editRow, token, onClose, onSaved }: DocTypeModalProps) {
               Requires expiry date
             </label>
           </div>
+          <p style={{ margin: '0 0 14px', fontSize: 11.5, color: 'var(--txt-dim)' }}>
+            {reqVerify ? 'New uploads start as Pending Review until HR verifies them.' : 'New uploads are accepted as Verified without HR review.'}
+          </p>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Applicable Employment Types <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(comma-separated, blank = all)</span></label>
-            <input style={inputS} value={empTypes} onChange={e => setEmpTypes(e.target.value)} placeholder="e.g. FULL_TIME,CONTRACT" />
+            <input style={inputS} value={empTypes} onChange={e => setEmpTypes(e.target.value)} placeholder="All employment types" />
+            <Chips value={empTypes} options={DOC_EMPLOYMENT_TYPES} onChange={setEmpTypes} />
           </div>
           <div style={{ marginBottom: 20 }}>
             <label style={labelS}>Applicable Locations <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}>(comma-separated, blank = all)</span></label>
-            <input style={inputS} value={locs} onChange={e => setLocs(e.target.value)} placeholder="e.g. Chennai HQ,Bangalore Office" />
+            <input style={inputS} value={locs} onChange={e => setLocs(e.target.value)} placeholder="All locations" />
+            <Chips value={locs} options={locationNames} onChange={setLocs} />
           </div>
-          {error && <div style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+          {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} disabled={loading} style={{ padding: '7px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={loading} style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
@@ -1139,12 +1331,13 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
 // generic table; only Shifts uses this dedicated layout, matching the approved reference design.
 interface ShiftsMasterDetailProps {
   shifts: ShiftRow[];
+  loading?: boolean;
   token: string;
   canManageShifts: boolean;
   kebabItems(row: ShiftRow): KebabItem[];
 }
 
-function ShiftsMasterDetail({ shifts, token, canManageShifts, kebabItems }: ShiftsMasterDetailProps) {
+function ShiftsMasterDetail({ shifts, loading, token, canManageShifts, kebabItems }: ShiftsMasterDetailProps) {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'summary' | 'employees' | 'versions'>('summary');
@@ -1176,7 +1369,13 @@ function ShiftsMasterDetail({ shifts, token, canManageShifts, kebabItems }: Shif
         </div>
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {shifts.length === 0 ? (
-            <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt-mut)', fontSize: 12.5 }}>No shifts configured yet.</div>
+            <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt-mut)', fontSize: 12.5 }}>
+              {loading ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span className="nf-org-spinner" aria-hidden="true" /> Loading shifts…
+                </span>
+              ) : 'No shifts configured yet.'}
+            </div>
           ) : visible.length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt-mut)', fontSize: 12.5 }}>No shifts match "{search}"</div>
           ) : visible.map(s => (
@@ -1186,7 +1385,10 @@ function ShiftsMasterDetail({ shifts, token, canManageShifts, kebabItems }: Shif
               border: 'none', borderLeft: selected?.id === s.id ? '2px solid var(--brand-bright)' : '2px solid transparent',
               cursor: 'pointer', fontSize: 13, color: 'var(--txt)', gap: 8,
             }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: selected?.id === s.id ? 600 : 400 }}>{s.name}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 9, overflow: 'hidden' }}>
+                <RowIconBadge {...getShiftIcon(s)} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: selected?.id === s.id ? 600 : 400 }}>{s.name}</span>
+              </span>
               <StatusBadge active={s.active} />
             </button>
           ))}
@@ -1198,10 +1400,13 @@ function ShiftsMasterDetail({ shifts, token, canManageShifts, kebabItems }: Shif
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '18px 20px 0' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{selected.name}</h2>
-                <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  Code: {selected.code ?? '--'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <RowIconBadge {...getShiftIcon(selected)} />
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{selected.name}</h2>
+                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    Code: {selected.code ?? '--'}
+                  </div>
                 </div>
               </div>
               {/* Hidden specifically while viewing Employees: editing/deactivating/deleting the
@@ -1288,33 +1493,64 @@ export default function OrgSetupPage() {
   const tab = TABS[activeTab];
   const Icon = tab.icon;
 
-  // Promise.allSettled, not Promise.all — each section loads (and fails) independently, so a
-  // single backend error (e.g. one bad row in Document Types) doesn't blank the whole page and
-  // hide the other three tabs that loaded fine. Failed sections keep whatever they last had
-  // (empty on first load) and their specific error is surfaced, not swallowed into one generic
-  // "unexpected error" that gives no clue which section actually failed.
+  // Each of these 7 tabs' data used to be fetched together, eagerly, on every page load — 7
+  // concurrent requests before the user could see anything, even though only one tab is ever
+  // visible at a time. Now: the active tab's own section loads first (with its own small
+  // in-table spinner, not a page-wide blocker), then the rest load quietly in the background
+  // shortly after — so switching to a tab visited earlier is instant (cached, no refetch), a
+  // brand-new tab still gets its data promptly, and dropdowns elsewhere that read another
+  // section's data (e.g. Document Types' "Applicable Locations", which reads `locations`) still
+  // end up populated without the user having to visit that tab first.
+  type FetchableTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shiftweeklyoff' | 'doctypes' | 'leavetypes';
+  const FETCHABLE_TABS: FetchableTab[] = ['businessunits', 'departments', 'designations', 'locations', 'shiftweeklyoff', 'doctypes', 'leavetypes'];
+  const loadedRef = useRef<Set<FetchableTab>>(new Set());
+  const inFlightRef = useRef<Set<FetchableTab>>(new Set());
+  const [sectionLoading, setSectionLoading] = useState<Partial<Record<FetchableTab, boolean>>>({});
+
+  async function fetchSection(section: FetchableTab, opts?: { silent?: boolean; force?: boolean }) {
+    if (inFlightRef.current.has(section)) return;
+    if (!opts?.force && loadedRef.current.has(section)) return;
+    inFlightRef.current.add(section);
+    if (!opts?.silent) setSectionLoading(s => ({ ...s, [section]: true }));
+    try {
+      switch (section) {
+        case 'businessunits': setBusinessUnits(await orgApi.listBusinessUnits(token)); break;
+        case 'departments': setDepartments(await orgApi.listDepartments(token)); break;
+        case 'designations': setDesignations(await orgApi.listDesignations(token)); break;
+        case 'locations': setLocations(await orgApi.listLocations(token)); break;
+        case 'shiftweeklyoff': setShifts(await orgApi.listShifts(token)); break;
+        case 'doctypes': setDocTypes(await listAllDocTypes(token)); break;
+        case 'leavetypes': setLeaveTypes(await leaveApi.listTypes(token)); break;
+      }
+      loadedRef.current.add(section);
+      setLoadError('');
+    } catch (err) {
+      setLoadError(`Couldn't load ${TABS[section].label} (${err instanceof Error ? err.message : 'failed to load'})`);
+    } finally {
+      inFlightRef.current.delete(section);
+      if (!opts?.silent) setSectionLoading(s => ({ ...s, [section]: false }));
+    }
+  }
+  // Force-refetches whichever tab is currently active — used after a create/update/delete/toggle,
+  // all of which only ever affect the section the user is already looking at.
   async function fetchAll() {
-    const [bus, deps, desigs, locs, shiftRows, dts, lts] = await Promise.allSettled([
-      orgApi.listBusinessUnits(token),
-      orgApi.listDepartments(token),
-      orgApi.listDesignations(token),
-      orgApi.listLocations(token),
-      orgApi.listShifts(token),
-      listAllDocTypes(token),
-      leaveApi.listTypes(token),
-    ]);
-    const failed: string[] = [];
-    if (bus.status === 'fulfilled') setBusinessUnits(bus.value); else failed.push(`Business Units (${bus.reason instanceof Error ? bus.reason.message : 'failed to load'})`);
-    if (deps.status === 'fulfilled') setDepartments(deps.value); else failed.push(`Departments (${deps.reason instanceof Error ? deps.reason.message : 'failed to load'})`);
-    if (desigs.status === 'fulfilled') setDesignations(desigs.value); else failed.push(`Designations (${desigs.reason instanceof Error ? desigs.reason.message : 'failed to load'})`);
-    if (locs.status === 'fulfilled') setLocations(locs.value); else failed.push(`Locations (${locs.reason instanceof Error ? locs.reason.message : 'failed to load'})`);
-    if (shiftRows.status === 'fulfilled') setShifts(shiftRows.value); else failed.push(`Shifts (${shiftRows.reason instanceof Error ? shiftRows.reason.message : 'failed to load'})`);
-    if (dts.status === 'fulfilled') setDocTypes(dts.value); else failed.push(`Document Types (${dts.reason instanceof Error ? dts.reason.message : 'failed to load'})`);
-    if (lts.status === 'fulfilled') setLeaveTypes(lts.value); else failed.push(`Leave Types (${lts.reason instanceof Error ? lts.reason.message : 'failed to load'})`);
-    setLoadError(failed.length > 0 ? `Couldn't load: ${failed.join(', ')}` : '');
+    if ((FETCHABLE_TABS as OrgTab[]).includes(activeTab)) await fetchSection(activeTab as FetchableTab, { force: true });
   }
 
-  useEffect(() => { if (token) fetchAll(); }, [token]);
+  useEffect(() => {
+    if (!token || !(FETCHABLE_TABS as OrgTab[]).includes(activeTab)) return;
+    fetchSection(activeTab as FetchableTab);
+  }, [token, activeTab]);
+
+  useEffect(() => {
+    if (!token) return;
+    // Let the active tab's own request go first on the wire before quietly topping up the rest.
+    const t = setTimeout(() => {
+      FETCHABLE_TABS.forEach(section => fetchSection(section, { silent: true }));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [token]);
+
   useEffect(() => { setSearch(''); }, [activeTab]);
 
   const q = search.toLowerCase();
@@ -1428,7 +1664,9 @@ export default function OrgSetupPage() {
     const wasActive = dt.active;
     setConfirmState({
       title: wasActive ? `Deactivate "${dt.name}"` : `Reactivate "${dt.name}"`,
-      body: wasActive ? `"${dt.name}" will no longer appear for employees to upload.` : `"${dt.name}" will become available again.`,
+      body: wasActive
+        ? `"${dt.name}" will stop appearing in required-document and compliance checks, and employees can no longer upload it. The ${dt.usageCount} document(s) already uploaded are kept unchanged.`
+        : `"${dt.name}" will be required again for applicable employees.`,
       confirmLabel: wasActive ? 'Deactivate' : 'Reactivate',
       danger: wasActive,
       onConfirm: async () => {
@@ -1443,7 +1681,7 @@ export default function OrgSetupPage() {
     if (dt.usageCount > 0) {
       setConfirmState({
         title: `Cannot Delete "${dt.name}"`,
-        body: `${dt.usageCount} employee document(s) use this type. Deactivate it instead.`,
+        body: `"${dt.name}" is used by ${dt.usageCount} employee document(s), so it can't be deleted. Deactivate it instead to stop new uploads while keeping existing documents.`,
         confirmLabel: 'Got it',
         danger: false,
         onConfirm: async () => {},
@@ -1543,6 +1781,7 @@ export default function OrgSetupPage() {
           key={docTypeModal.key}
           editRow={docTypeModal.row}
           token={token}
+          locationNames={locations.filter(l => l.active).map(l => l.name)}
           onClose={() => setDocTypeModal(s => ({ ...s, open: false }))}
           onSaved={() => {
             fetchAll();
@@ -1603,17 +1842,17 @@ export default function OrgSetupPage() {
       )}
 
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-        {/* Tab bar + search + add. flexWrap so the search/add block (fixed-width input + button,
-            never shrinks) drops to its own line once there isn't room for it alongside the tabs,
-            instead of squeezing the tabs' flex:1 box toward zero width — that squeeze is what
-            made the tab bar disappear before. justifyContent: flex-end keeps that block
-            right-aligned whether it's sharing the line with the tabs or sitting alone below. */}
-        <div className="nf-org-toolbar" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', borderBottom: '1px solid var(--line)', padding: '0 4px', alignItems: 'center' }}>
+        {/* Tab bar + search + add, always stacked as two distinct rows (not just wrapped when
+            tight on space) — the section tabs on their own row, the search/add controls on their
+            own row directly beneath with a divider and vertical breathing room. This guarantees
+            the two can never visually overlap/cover each other at any tab count or viewport
+            width, which a single wrapping flex row could still do at some intermediate widths. */}
+        <div className="nf-org-toolbar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', borderBottom: '1px solid var(--line)' }}>
           {/* minWidth: 0 lets this flex item actually shrink below its tabs' combined natural
               width instead of forcing the row wider than the panel — overflowX then scrolls the
               tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
               squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
-          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
+          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', padding: '0 4px' }}>
             {(Object.keys(TABS) as OrgTab[])
               // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
               // load: unlike every other tab here (at least viewable via /organization by HR
@@ -1623,17 +1862,24 @@ export default function OrgSetupPage() {
               const T = TABS[key];
               const TabIcon = T.icon;
               const isActive = activeTab === key;
+              const accent = TAB_ACCENT[key];
               return (
-                <button key={key} onClick={() => setActiveTab(key)} style={{
-                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, whiteSpace: 'nowrap',
-                  padding: '11px 14px', background: 'transparent', border: 'none',
-                  cursor: 'pointer', fontSize: 12.5,
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? 'var(--brand-bright)' : 'var(--txt-mut)',
-                  borderBottom: isActive ? '2px solid var(--brand-bright)' : '2px solid transparent',
-                  marginBottom: -1, transition: 'color 120ms',
-                }}>
-                  <TabIcon size={13} aria-hidden="true" />
+                <button
+                  key={key} onClick={() => setActiveTab(key)}
+                  className="nf-org-tab" aria-selected={isActive}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0, whiteSpace: 'nowrap',
+                    padding: '7px 14px 7px 7px', background: 'transparent', border: 'none',
+                    cursor: 'pointer', fontSize: 12.5,
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? accent : 'var(--txt-mut)',
+                    borderBottom: isActive ? `2px solid ${accent}` : '2px solid transparent',
+                    marginBottom: -1, transition: 'color 120ms',
+                    ['--tab-accent' as string]: accent,
+                  }}>
+                  <span className="nf-org-tab-icon">
+                    <TabIcon size={14} aria-hidden="true" strokeWidth={2.25} />
+                  </span>
                   {T.label}
                 </button>
               );
@@ -1641,10 +1887,13 @@ export default function OrgSetupPage() {
           </div>
           {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
             && activeTab !== 'ai-assistant' && (
-            // 8px vertical padding (was 0) gives this block breathing room from the tabs above
-            // it on the narrow widths where flexWrap drops it to its own line; harmless on the
-            // shared line, where alignItems: center still governs its vertical position.
-            <div className="nf-org-toolbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+            // Its own row directly under the tabs, right-aligned, with a divider + vertical
+            // breathing room so it reads as a clearly separate toolbar strip rather than
+            // crowding — or at some widths visually overlapping — the section tabs above it.
+            <div className="nf-org-toolbar-actions" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+              padding: '10px 12px', borderTop: '1px solid var(--line)',
+            }}>
               <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
                 <Search size={12} aria-hidden="true" style={{
                   position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
@@ -1677,7 +1926,10 @@ export default function OrgSetupPage() {
               Rules manage their own add actions internally (see their own sections below). No
               shared search box here: the master-detail layout has its own, in the left panel. */}
           {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
-            <div className="nf-org-toolbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+            <div className="nf-org-toolbar-actions" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+              padding: '10px 12px', borderTop: '1px solid var(--line)',
+            }}>
               <button onClick={openAdd} aria-label="Add Shift" style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
                 background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
@@ -1749,6 +2001,7 @@ export default function OrgSetupPage() {
             {shiftWeeklyOffSubTab === 'shifts' ? (
               <ShiftsMasterDetail
                 shifts={shifts}
+                loading={!!sectionLoading.shiftweeklyoff}
                 token={token}
                 canManageShifts={canManageShifts}
                 kebabItems={shiftKebabItems}
@@ -1787,7 +2040,16 @@ export default function OrgSetupPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.length === 0 ? (
+              {sectionLoading[activeTab as FetchableTab] && visibleRows.length === 0 ? (
+                <tr>
+                  <td colSpan={tab.columns.length + 1} style={{ padding: '52px 24px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                      <span className="nf-org-spinner" aria-hidden="true" />
+                      <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading {tab.label.toLowerCase()}…</div>
+                    </div>
+                  </td>
+                </tr>
+              ) : visibleRows.length === 0 ? (
                 <tr>
                   <td colSpan={tab.columns.length + 1} style={{ padding: '52px 24px', textAlign: 'center' }}>
                     {search ? (
@@ -1813,7 +2075,12 @@ export default function OrgSetupPage() {
               ) : activeTab === 'businessunits' ? (
                 visibleBusinessUnits.map(b => (
                   <tr key={b.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{b.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <RowIconBadge {...getBusinessUnitIcon(b.name)} />
+                        {b.name}
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={b.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={b.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -1824,7 +2091,12 @@ export default function OrgSetupPage() {
               ) : activeTab === 'departments' ? (
                 visibleDepts.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{d.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <RowIconBadge {...getDepartmentIcon(d.name)} />
+                        {d.name}
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={d.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -1835,7 +2107,12 @@ export default function OrgSetupPage() {
               ) : activeTab === 'designations' ? (
                 visibleDesigs.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{d.title}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <RowIconBadge {...getDesignationIcon(d.title)} />
+                        {d.title}
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '—'}</td>
                     <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>
@@ -1848,7 +2125,12 @@ export default function OrgSetupPage() {
               ) : activeTab === 'locations' ? (
                 visibleLocs.map(l => (
                   <tr key={l.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{l.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <RowIconBadge {...getLocationIcon(l)} />
+                        {l.name}
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '—'}</td>
@@ -1863,11 +2145,16 @@ export default function OrgSetupPage() {
               ) : activeTab === 'doctypes' ? (
                 visibleDocTypes.map(dt => (
                   <tr key={dt.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{dt.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <RowIconBadge {...getDocTypeIcon(dt.name)} />
+                        {dt.name}
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes ?? 'All'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations ?? 'All'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes || 'All'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations || 'All'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={dt.usageCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={dt.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -1882,7 +2169,12 @@ export default function OrgSetupPage() {
               ) : (
                 visibleLeaveTypes.map(lt => (
                   <tr key={lt.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{lt.name}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <RowIconBadge {...getLeaveTypeIcon(lt.name)} />
+                        {lt.name}
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{lt.code}</td>
                     <td style={{ padding: '10px 16px' }}><ClassificationBadge classification={lt.classification} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>

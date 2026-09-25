@@ -154,6 +154,8 @@ public class AiInteractionLogger {
                 .model(completion == null ? null : completion.getModel())
                 .promptTokens(completion == null ? null : completion.getPromptTokens())
                 .completionTokens(completion == null ? null : completion.getCompletionTokens())
+                .embeddingPromptTokens(turn.getEmbeddingPromptTokens())
+                .apiCallAttempts(turn.getApiCallAttempts())
                 .latencyMs((int) Math.min(turn.getLatencyMs(), Integer.MAX_VALUE))
                 .success(errorCode == null)
                 .errorCode(errorCode)
@@ -222,5 +224,9 @@ public class AiInteractionLogger {
         private AssistantResponse response;
         private String errorCode;
         private long latencyMs;
+        /** See {@link AiInteractionLog#getEmbeddingPromptTokens()}. */
+        private Integer embeddingPromptTokens;
+        /** See {@link AiInteractionLog#getApiCallAttempts()}. */
+        private int apiCallAttempts;
     }
 }

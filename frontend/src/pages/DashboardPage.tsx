@@ -30,6 +30,7 @@ import { BirthdayWidget } from '../components/BirthdayWidget';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import { roundDays } from '../utils/leaveDays';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -609,8 +610,6 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
 
       <QuickActions actions={isHr ? HR_ADMIN_QUICK_ACTIONS : MANAGER_QUICK_ACTIONS} />
 
-      <BirthdayWidget />
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -753,6 +752,9 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           emptyMessage={isHr ? 'No one joined the organization in the last 12 months.' : 'No one joined your team in the last 12 months.'}
         />
       </div>
+
+      {/* Kept lower for both Manager and HR — not directly relevant to their top-of-page stats. */}
+      <BirthdayWidget />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -897,9 +899,11 @@ const SUPER_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
 // numbers can never diverge: entries with no configured quota (totalDays <= 0) are
 // excluded, and any negative remainingDays is clamped to 0 before summing.
 function usableRemaining(balances: LeaveBalance[]): number {
-  return balances
+  // roundDays strips the IEEE-754 noise summing several BigDecimal-derived values can reintroduce
+  // (e.g. 13.75 + 0.5 + 0 rendering as 14.249999999999998) - see utils/leaveDays.ts.
+  return roundDays(balances
     .filter(b => b.totalDays > 0)
-    .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0);
+    .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0));
 }
 
 function EmployeeStatTiles({
@@ -1142,8 +1146,8 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
   const configured = useMemo(() => balances.filter(b => b.totalDays > 0), [balances]);
 
   const totalRemaining = usableRemaining(balances);
-  const totalQuota = configured.reduce((s, b) => s + Number(b.totalDays), 0);
-  const totalConsumed = Math.max(0, totalQuota - totalRemaining);
+  const totalQuota = roundDays(configured.reduce((s, b) => s + Number(b.totalDays), 0));
+  const totalConsumed = roundDays(Math.max(0, totalQuota - totalRemaining));
   const data = [
     { name: 'Available', value: totalRemaining },
     { name: 'Consumed/Reserved', value: totalConsumed },
@@ -1804,8 +1808,6 @@ function SuperAdminDashboardView() {
 
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
 
-      <BirthdayWidget />
-
       {/* Row 2 — Stat tiles, each clickable through to its detail view */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         {statTiles.map(({ icon, label, value, sub, accent, onClick }) => (
@@ -2043,6 +2045,10 @@ function SuperAdminDashboardView() {
           )}
         </div>
       </div>
+
+      {/* Not top of page for Super Admin — same reasoning as Manager, kept lower and out of the
+          way of the org-wide admin stats up front. */}
+      <BirthdayWidget />
 
       {/* Recent Audit Events — UNCHANGED */}
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>

@@ -4,6 +4,7 @@ import com.nforce.onehr.ai.config.AiProperties;
 import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.contract.AssistantResponseType;
 import com.nforce.onehr.ai.contract.AudienceBucket;
+import com.nforce.onehr.ai.contract.EmbeddingProvider;
 import com.nforce.onehr.ai.contract.KnowledgeRetriever;
 import com.nforce.onehr.ai.contract.KnowledgeType;
 import com.nforce.onehr.ai.contract.LlmCompletion;
@@ -24,6 +25,7 @@ import com.nforce.onehr.ai.response.UnknownResponses;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.service.AttendanceRulesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -58,10 +61,12 @@ class AiAssistantServiceTest {
 
     @Mock private UserRepository userRepository;
     @Mock private KnowledgeRetriever retriever;
+    @Mock private EmbeddingProvider embeddingProvider;
     @Mock private LlmProvider llmProvider;
     @Mock private ConversationService conversationService;
     @Mock private AiInteractionLogger interactionLogger;
     @Mock private AiRateLimitSettingsService rateLimitSettingsService;
+    @Mock private AttendanceRulesService attendanceRulesService;
 
     private AiProperties properties;
     private AiAssistantService service;
@@ -85,9 +90,17 @@ class AiAssistantServiceTest {
         when(rateLimitSettingsService.currentForEnforcement())
                 .thenReturn(new AiRateLimitSettingsService.Snapshot(true, 1000, 60));
 
+        // Real Mistral request-count instrumentation (see V199) — a lenient default so every test
+        // gets a plausible "one embed call happened" reading without having to stub it individually;
+        // tests that care about the exact figure override this.
+        when(embeddingProvider.lastCallInfo()).thenReturn(new EmbeddingProvider.EmbeddingCallInfo(1, 20));
+        when(llmProvider.lastAttemptCount()).thenReturn(1);
+
+        when(attendanceRulesService.getDefaultZoneId()).thenReturn(ZoneId.of("Asia/Kolkata"));
+
         service = new AiAssistantService(
-                userRepository, retriever, llmProvider,
-                new PromptBuilder(registry),
+                userRepository, retriever, embeddingProvider, llmProvider,
+                new PromptBuilder(registry, attendanceRulesService),
                 new ResponseValidator(navigationValidator, unknownResponses),
                 navigationValidator, unknownResponses, conversationService,
                 new AiRateLimiter(rateLimitSettingsService),
@@ -293,6 +306,59 @@ class AiAssistantServiceTest {
 
         assertThat(response.getConversationId()).isNotBlank();
         verify(conversationService).recordTurn(any(), anyString(), anyString(), anyString());
+    }
+
+    // ── Real Mistral request-count/token instrumentation (V199) ────────────────────────────────
+    // A turn was previously logged as exactly one row regardless of how many real Mistral HTTP
+    // requests it actually cost (an embedding call plus a completion call, either of which can be
+    // retried) - these pin down that apiCallAttempts/embeddingPromptTokens now reflect that.
+
+    @Test
+    @DisplayName("a successful turn's real request count is the embed attempt plus the completion attempt")
+    void successfulTurn_recordsRealApiCallAttemptsAndEmbeddingTokens() {
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        when(embeddingProvider.lastCallInfo()).thenReturn(new EmbeddingProvider.EmbeddingCallInfo(1, 37));
+        when(llmProvider.lastAttemptCount()).thenReturn(1);
+        modelReturns("{\"type\":\"HOW_TO\",\"answer\":\"Open Leave.\",\"confidence\":\"HIGH\"}");
+
+        service.chat("How do I apply for leave?", null, null, EMAIL);
+
+        ArgumentCaptor<AiInteractionLogger.Turn> turn = ArgumentCaptor.forClass(AiInteractionLogger.Turn.class);
+        verify(interactionLogger).record(turn.capture());
+        assertThat(turn.getValue().getApiCallAttempts()).isEqualTo(2); // 1 embed + 1 completion
+        assertThat(turn.getValue().getEmbeddingPromptTokens()).isEqualTo(37);
+    }
+
+    @Test
+    @DisplayName("a completion retried by the transport still has every attempt counted")
+    void completionRetries_areIncludedInApiCallAttempts() {
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        when(embeddingProvider.lastCallInfo()).thenReturn(new EmbeddingProvider.EmbeddingCallInfo(1, 10));
+        // Simulates two transport-level retries before the completion call finally failed for good.
+        when(llmProvider.lastAttemptCount()).thenReturn(3);
+        when(llmProvider.complete(any())).thenThrow(new AiProviderException("mistral", "HTTP 503", true));
+
+        service.chat("How do I apply for leave?", null, null, EMAIL);
+
+        ArgumentCaptor<AiInteractionLogger.Turn> turn = ArgumentCaptor.forClass(AiInteractionLogger.Turn.class);
+        verify(interactionLogger).record(turn.capture());
+        assertThat(turn.getValue().getApiCallAttempts()).isEqualTo(4); // 1 embed + 3 completion attempts
+        assertThat(turn.getValue().getEmbeddingPromptTokens()).isEqualTo(10);
+        assertThat(turn.getValue().getErrorCode()).isEqualTo(AiInteractionLogger.PROVIDER_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("a decline before retrieval ever runs costs zero real requests")
+    void earlyDecline_recordsZeroApiCallAttemptsAndNoEmbeddingTokens() {
+        properties.getLimits().setMaxMessageChars(5);
+
+        service.chat("this question is too long", null, null, EMAIL);
+
+        ArgumentCaptor<AiInteractionLogger.Turn> turn = ArgumentCaptor.forClass(AiInteractionLogger.Turn.class);
+        verify(interactionLogger).record(turn.capture());
+        assertThat(turn.getValue().getApiCallAttempts()).isZero();
+        assertThat(turn.getValue().getEmbeddingPromptTokens()).isNull();
+        assertThat(turn.getValue().getErrorCode()).isEqualTo(AiInteractionLogger.MESSAGE_TOO_LONG);
     }
 
     @Test

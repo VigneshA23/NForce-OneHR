@@ -11,6 +11,10 @@ import com.nforce.onehr.entity.OnboardingChecklistItem;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -105,8 +109,7 @@ public class OnboardingService {
         return all.stream()
                 .map(c -> employeeRepo.findById(c.getEmployeeUserId()).map(emp -> {
                     Computed computed = compute(c, emp, today);
-                    OnboardingChecklist finalized = finalizeIfComplete(c, computed);
-                    return toSummary(finalized, emp, computed);
+                    return toSummary(c, emp, computed);
                 }))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
@@ -124,6 +127,76 @@ public class OnboardingService {
                 .collect(Collectors.toList());
     }
 
+    // Server-side searched/paginated Pending tab (ONEHR-488/489) — filters and pages at the
+    // database via EmployeeRepository#findEligibleForOnboarding instead of loading every
+    // not-yet-onboarded employee into the browser to filter/paginate client-side.
+    @Transactional(readOnly = true)
+    public Page<EmployeeResponse> eligibleEmployeesPaged(String actorEmail, String search, int page, int size) {
+        requireAdmin(actorEmail);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "fullName"));
+        return employeeService.listEligibleForOnboarding(search, pageable);
+    }
+
+    // Server-side searched/paginated Onboarding Started / Successfully Onboarded tabs
+    // (ONEHR-488/489). Filters and pages at the database (OnboardingChecklistRepository
+    // #searchByStatus) so #compute's per-employee document/asset lookups only run for the
+    // current page's rows, not every checklist on every request.
+    @Transactional(readOnly = true)
+    public Page<OnboardingChecklistSummaryDto> searchQueue(String actorEmail, String status, String search, int page, int size) {
+        requireAdmin(actorEmail);
+        if (!"IN_PROGRESS".equals(status) && !"COMPLETED".equals(status)) {
+            throw new IllegalArgumentException("status must be IN_PROGRESS or COMPLETED");
+        }
+        String pattern = (search == null || search.isBlank()) ? "%" : "%" + search.trim().toLowerCase() + "%";
+        Sort sort = "COMPLETED".equals(status)
+                ? Sort.by(Sort.Direction.DESC, "completedAt")
+                : Sort.by(Sort.Direction.DESC, "startedAt");
+        Pageable pageable = PageRequest.of(page, size, sort);
+        LocalDate today = LocalDate.now();
+
+        return checklistRepo.searchByStatus(status, pattern, pageable)
+                .map(c -> {
+                    Employee emp = employeeRepo.findById(c.getEmployeeUserId())
+                            .orElseThrow(() -> new NoSuchElementException("Employee not found: " + c.getEmployeeUserId()));
+                    return toSummary(c, emp, compute(c, emp, today));
+                });
+    }
+
+    // Aggregate KPI cards for the Onboarding page header — one full-corpus computation (the
+    // same one #listQueue/#eligibleEmployees always did) reduced to a handful of counts, kept
+    // independent of pagination/search so the cards never lag behind or get capped by whichever
+    // page a tab happens to be showing.
+    @Transactional(readOnly = true)
+    public OnboardingStatsDto stats(String actorEmail) {
+        requireAdmin(actorEmail);
+        long pendingCount = eligibleEmployees(actorEmail).size();
+        List<OnboardingChecklistSummaryDto> all = listQueue(actorEmail);
+        List<OnboardingChecklistSummaryDto> started = all.stream()
+                .filter(r -> !r.isArchived()).collect(Collectors.toList());
+        List<OnboardingChecklistSummaryDto> completed = all.stream()
+                .filter(OnboardingChecklistSummaryDto::isArchived).collect(Collectors.toList());
+        long overdueCount = started.stream().filter(r -> "OVERDUE".equals(r.getStatus())).count();
+
+        LocalDate today = LocalDate.now();
+        long completedThisMonth = completed.stream()
+                .filter(r -> r.getCompletedDate() != null
+                        && r.getCompletedDate().getYear() == today.getYear()
+                        && r.getCompletedDate().getMonthValue() == today.getMonthValue())
+                .count();
+        long avgDays = completed.isEmpty() ? 0 : Math.round(completed.stream()
+                .mapToLong(r -> r.getDurationDays() != null ? r.getDurationDays() : 0L)
+                .average().orElse(0));
+
+        return OnboardingStatsDto.builder()
+                .pendingCount(pendingCount)
+                .startedCount(started.size())
+                .completedCount(completed.size())
+                .overdueCount(overdueCount)
+                .completedThisMonthCount(completedThisMonth)
+                .avgCompletionDays(avgDays)
+                .build();
+    }
+
     // ── Detail ──────────────────────────────────────────────
 
     @Transactional
@@ -136,24 +209,24 @@ public class OnboardingService {
 
         LocalDate today = LocalDate.now();
         Computed c = compute(checklist, emp, today);
-        OnboardingChecklist finalized = finalizeIfComplete(checklist, c);
-        boolean archived = "COMPLETED".equals(finalized.getStatus());
+        boolean archived = "COMPLETED".equals(checklist.getStatus());
+        boolean readyToComplete = "IN_PROGRESS".equals(checklist.getStatus()) && c.doneItems == c.totalItems;
 
         List<TimelineEntryDto> timeline = new ArrayList<>();
-        timeline.add(TimelineEntryDto.builder().at(finalized.getStartedAt())
+        timeline.add(TimelineEntryDto.builder().at(checklist.getStartedAt())
                 .text("Onboarding started").meta("checklist generated for pre-boarding, documents and setup").build());
         Stream.concat(c.preBoarding.stream(), c.setup.stream())
                 .filter(i -> !i.isAuto() && i.getDoneAt() != null)
                 .forEach(i -> timeline.add(TimelineEntryDto.builder().at(i.getDoneAt())
                         .text(i.getLabel()).meta("checked off by " + i.getDoneByName()).build()));
-        if (archived && finalized.getCompletedAt() != null) {
-            timeline.add(TimelineEntryDto.builder().at(finalized.getCompletedAt())
+        if (archived && checklist.getCompletedAt() != null) {
+            timeline.add(TimelineEntryDto.builder().at(checklist.getCompletedAt())
                     .text("Onboarding complete").meta("all tasks done · archived").build());
         }
         timeline.sort(Comparator.comparing(TimelineEntryDto::getAt));
 
         return OnboardingChecklistDetailDto.builder()
-                .checklistId(finalized.getId())
+                .checklistId(checklist.getId())
                 .employeeUserId(emp.getUserId())
                 .employeeName(emp.getFullName())
                 .employeeCode(emp.getEmployeeCode())
@@ -164,7 +237,8 @@ public class OnboardingService {
                 .joiningDate(emp.getJoiningDate())
                 .archived(archived)
                 .status(archived ? "COMPLETE" : c.statusLabel)
-                .completedAt(finalized.getCompletedAt())
+                .completedAt(checklist.getCompletedAt())
+                .readyToComplete(readyToComplete)
                 .totalItems(c.totalItems)
                 .doneItems(c.doneItems)
                 .preBoarding(c.preBoarding)
@@ -173,6 +247,36 @@ public class OnboardingService {
                 .documentsBreakdown(c.documentsBreakdown)
                 .timeline(timeline)
                 .build();
+    }
+
+    // ── Explicit completion (HR-triggered; no longer an automatic side effect of reads) ──
+
+    @Transactional
+    public OnboardingChecklistDetailDto completeOnboarding(UUID checklistId, String actorEmail) {
+        User actor = requireAdmin(actorEmail);
+        OnboardingChecklist checklist = checklistRepo.findById(checklistId)
+                .orElseThrow(() -> new NoSuchElementException("Onboarding checklist not found: " + checklistId));
+        if (!"IN_PROGRESS".equals(checklist.getStatus())) {
+            throw new IllegalStateException("This onboarding flow is not in progress");
+        }
+        Employee emp = employeeRepo.findById(checklist.getEmployeeUserId())
+                .orElseThrow(() -> new NoSuchElementException("Employee not found: " + checklist.getEmployeeUserId()));
+
+        Computed c = compute(checklist, emp, LocalDate.now());
+        if (c.doneItems != c.totalItems) {
+            throw new IllegalStateException("Onboarding is not ready to be completed — some items are still pending");
+        }
+
+        // Atomic conditional update, not a read-then-write: if another request completed this
+        // same checklist between our read above and now, rowsUpdated is 0 and we reject cleanly
+        // instead of both requests writing COMPLETED and both logging a completion audit entry.
+        int rowsUpdated = checklistRepo.completeIfInProgress(checklistId, Instant.now());
+        if (rowsUpdated == 0) {
+            throw new IllegalStateException("This onboarding flow is not in progress");
+        }
+        auditService.log(actor.getId(), "ONBOARDING_COMPLETED", checklist.getEmployeeUserId());
+
+        return getDetail(checklistId, actorEmail);
     }
 
     // ── Toggle a manual item ────────────────────────────────
@@ -279,18 +383,6 @@ public class OnboardingService {
         c.doneItems = done;
         c.statusLabel = anyOverdue ? "OVERDUE" : anySoon ? "ATTENTION" : "ON_TRACK";
         return c;
-    }
-
-    /** If every item — manual and derived — is now done, flip the checklist to COMPLETED. Runs on every read. */
-    private OnboardingChecklist finalizeIfComplete(OnboardingChecklist checklist, Computed c) {
-        if (!"IN_PROGRESS".equals(checklist.getStatus())) return checklist;
-        if (c.doneItems == c.totalItems) {
-            checklist.setStatus("COMPLETED");
-            checklist.setCompletedAt(Instant.now());
-            checklist = checklistRepo.save(checklist);
-            auditService.log(checklist.getStartedBy(), "ONBOARDING_COMPLETED", checklist.getEmployeeUserId());
-        }
-        return checklist;
     }
 
     private OnboardingChecklistSummaryDto toSummary(OnboardingChecklist checklist, Employee emp, Computed c) {

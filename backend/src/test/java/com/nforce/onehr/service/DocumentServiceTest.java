@@ -2,6 +2,7 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.doc.EmployeeDocumentResponse;
 import com.nforce.onehr.entity.DocumentType;
+import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeDocument;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
@@ -161,6 +162,113 @@ class DocumentServiceTest {
     }
 
     @Test
+    void uploadDocument_currentIsPendingReview_isRejected() {
+        UUID currentId = UUID.randomUUID();
+        EmployeeDocument current = EmployeeDocument.builder()
+                .id(currentId).employeeUserId(employeeId).documentType(docType)
+                .fileName("pending.pdf").fileUrl("/api/documents/" + currentId + "/file").fileData("data".getBytes())
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false)
+                .build();
+        when(docRepo.findByEmployeeUserIdAndDocumentTypeIdAndSupersededFalse(employeeId, 1)).thenReturn(Optional.of(current));
+
+        MockMultipartFile file = new MockMultipartFile("file", "new.pdf", "application/pdf", "new-bytes".getBytes());
+        assertThrows(IllegalStateException.class,
+                () -> documentService.uploadDocument(EMPLOYEE_EMAIL, 1, file, null, null));
+
+        // Must not touch the pending row at all — withdraw() is the only way to move it aside.
+        verify(docRepo, never()).saveAndFlush(any());
+        verify(docRepo, never()).save(any(EmployeeDocument.class));
+    }
+
+    @Test
+    void uploadDocument_typeNotApplicableToEmployeeLocation_isRejected() {
+        docType.setApplicableEmploymentTypes("FULL_TIME");
+        docType.setApplicableLocations("Vishakhapatnam");
+        Employee emp = Employee.builder().userId(employeeId).employmentType("FULL_TIME")
+                .location(com.nforce.onehr.entity.Location.builder().name("Hyderabad").build()).build();
+        when(employeeRepo.findById(employeeId)).thenReturn(Optional.of(emp));
+
+        MockMultipartFile file = new MockMultipartFile("file", "pan.pdf", "application/pdf", "bytes".getBytes());
+        assertThrows(IllegalArgumentException.class,
+                () -> documentService.uploadDocument(EMPLOYEE_EMAIL, 1, file, null, null));
+        verify(docRepo, never()).save(any(EmployeeDocument.class));
+    }
+
+    // ── withdrawDocument (Pending Review only) ───────────────────────────────
+
+    @Test
+    void withdrawDocument_pendingDocument_marksWithdrawnAndSuperseded() {
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        EmployeeDocumentResponse resp = documentService.withdrawDocument(EMPLOYEE_EMAIL, docId);
+
+        assertEquals("WITHDRAWN", resp.getStatus());
+        assertTrue(resp.isSuperseded());
+        // No new row is inserted — unlike a re-upload, withdrawing doesn't create a replacement.
+        verify(docRepo, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void withdrawDocument_verifiedDocument_isRejected() {
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("VERIFIED").versionNumber(1).superseded(false).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        assertThrows(IllegalStateException.class, () -> documentService.withdrawDocument(EMPLOYEE_EMAIL, docId));
+    }
+
+    @Test
+    void withdrawDocument_alreadySupersededDocument_isRejected() {
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(true).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        assertThrows(IllegalStateException.class, () -> documentService.withdrawDocument(EMPLOYEE_EMAIL, docId));
+    }
+
+    @Test
+    void withdrawDocument_nonOwner_isDenied() {
+        String otherEmail = "other@test.com";
+        User other = User.builder().id(UUID.randomUUID()).email(otherEmail)
+                .roles(new HashSet<>(Set.of(role("EMPLOYEE")))).build();
+        when(userRepo.findByEmail(otherEmail)).thenReturn(Optional.of(other));
+
+        UUID docId = UUID.randomUUID();
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(docId).employeeUserId(employeeId).documentType(docType)
+                .fileName("v1.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findById(docId)).thenReturn(Optional.of(doc));
+
+        assertThrows(AccessDeniedException.class, () -> documentService.withdrawDocument(otherEmail, docId));
+    }
+
+    @Test
+    void uploadDocument_afterWithdraw_startsFreshVersionChain() throws Exception {
+        // Simulates the state left behind by withdrawDocument: current=false, so the next upload
+        // is treated exactly like a first-ever submission, not a re-upload of the withdrawn row.
+        when(docRepo.findByEmployeeUserIdAndDocumentTypeIdAndSupersededFalse(employeeId, 1)).thenReturn(Optional.empty());
+
+        MockMultipartFile file = new MockMultipartFile("file", "fresh.pdf", "application/pdf", "data".getBytes());
+        EmployeeDocumentResponse resp = documentService.uploadDocument(EMPLOYEE_EMAIL, 1, file, null, null);
+
+        assertEquals(1, resp.getVersionNumber());
+        assertNull(resp.getPreviousVersionId());
+        assertEquals("PENDING_VERIFICATION", resp.getStatus());
+    }
+
+    @Test
     void getDocumentHistory_returnsAllVersionsNewestFirst() {
         UUID v1Id = UUID.randomUUID();
         UUID v2Id = UUID.randomUUID();
@@ -212,5 +320,107 @@ class DocumentServiceTest {
 
         verify(docRepo, atLeastOnce()).findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeId);
         verify(docRepo, never()).findByEmployeeUserIdOrderByUploadedAtDesc(any());
+    }
+
+    // ── documentsForEmployee (Onboarding "View Documents") ──────────────────
+
+    @Test
+    void documentsForEmployee_adminCaller_returnsOnlyThatEmployeesCurrentDocuments() {
+        String adminEmail = "admin@test.com";
+        User admin = User.builder().id(UUID.randomUUID()).email(adminEmail)
+                .roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build();
+        when(userRepo.findByEmail(adminEmail)).thenReturn(Optional.of(admin));
+        when(employeeRepo.findById(employeeId)).thenReturn(Optional.of(
+                Employee.builder().userId(employeeId).fullName("Jane Doe").employeeCode("E1").build()));
+
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).documentType(docType)
+                .fileName("passport.pdf").fileUrl("x").fileData(new byte[0])
+                .status("VERIFIED").versionNumber(1).superseded(false).build();
+        when(docRepo.findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeId)).thenReturn(List.of(doc));
+
+        List<EmployeeDocumentResponse> docs = documentService.documentsForEmployee(adminEmail, employeeId);
+
+        assertEquals(1, docs.size());
+        assertEquals(employeeId, docs.get(0).getEmployeeUserId());
+        assertEquals("Jane Doe", docs.get(0).getEmployeeName());
+        verify(docRepo).findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeId);
+        // Scoped strictly to this employeeId — never a global/other-employee query.
+        verify(docRepo, never()).findAllWithActiveEmployee();
+    }
+
+    @Test
+    void documentsForEmployee_nonAdminCaller_isDenied() {
+        assertThrows(AccessDeniedException.class, () -> documentService.documentsForEmployee(EMPLOYEE_EMAIL, employeeId));
+    }
+
+    // ── Bug: "HR Admin: unable to verify or reject uploaded employee documents" ─────────────────
+    //
+    // Root cause: listPending/listAll/getAdminKpis used to exclude every document belonging to
+    // ANY HR_ADMIN/SUPER_ADMIN-role employee from EVERY admin's view (via userRepo.findAdminUserIds()),
+    // not just from that document owner's OWN view. A document uploaded by one HR Admin (e.g.
+    // before they were promoted from Employee) was therefore invisible in every admin list and
+    // permanently stuck PENDING_VERIFICATION — nobody could ever discover its id to verify/reject
+    // it, even though verifyDocument() itself only ever blocked the OWNER from self-reviewing.
+    // Fix: scope the exclusion to the CALLER's own id instead of every admin-role employee.
+
+    @Test
+    void listPending_anotherAdminsDocument_isStillVisibleToTheCaller() {
+        String hrAdminEmail = "hr.admin@test.com";
+        User hrAdmin = User.builder().id(UUID.randomUUID()).email(hrAdminEmail)
+                .roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build();
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdmin));
+
+        // The document owner (employeeId) is itself an HR Admin — a different admin from the
+        // caller — and must still show up for the caller to act on.
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).documentType(docType)
+                .fileName("passport.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findByStatusOrderByUploadedAtDesc("PENDING_VERIFICATION")).thenReturn(List.of(doc));
+
+        List<EmployeeDocumentResponse> pending = documentService.listPending(hrAdminEmail);
+
+        assertEquals(1, pending.size());
+        assertEquals(employeeId, pending.get(0).getEmployeeUserId());
+        verify(userRepo, never()).findAdminUserIds();
+    }
+
+    @Test
+    void listPending_excludesTheCallersOwnDocument() {
+        String hrAdminEmail = "hr.admin@test.com";
+        UUID hrAdminId = UUID.randomUUID();
+        User hrAdmin = User.builder().id(hrAdminId).email(hrAdminEmail)
+                .roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build();
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdmin));
+
+        EmployeeDocument ownDoc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(hrAdminId).documentType(docType)
+                .fileName("own.pdf").fileUrl("x").fileData(new byte[0])
+                .status("PENDING_VERIFICATION").versionNumber(1).superseded(false).build();
+        when(docRepo.findByStatusOrderByUploadedAtDesc("PENDING_VERIFICATION")).thenReturn(List.of(ownDoc));
+
+        List<EmployeeDocumentResponse> pending = documentService.listPending(hrAdminEmail);
+
+        assertTrue(pending.isEmpty(), "an admin must never see their own document in the review queue");
+    }
+
+    @Test
+    void listAll_anotherAdminsDocument_isStillVisibleToTheCaller() {
+        String superAdminEmail = "super.admin@test.com";
+        User superAdmin = User.builder().id(UUID.randomUUID()).email(superAdminEmail)
+                .roles(new HashSet<>(Set.of(role("SUPER_ADMIN")))).build();
+        when(userRepo.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdmin));
+
+        EmployeeDocument doc = EmployeeDocument.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).documentType(docType)
+                .fileName("passport.pdf").fileUrl("x").fileData(new byte[0])
+                .status("VERIFIED").versionNumber(1).superseded(false).build();
+        when(docRepo.findAllWithActiveEmployee()).thenReturn(List.of(doc));
+
+        List<EmployeeDocumentResponse> all = documentService.listAll(superAdminEmail);
+
+        assertEquals(1, all.size());
+        verify(userRepo, never()).findAdminUserIds();
     }
 }

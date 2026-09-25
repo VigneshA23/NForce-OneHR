@@ -109,6 +109,16 @@ class AttendanceRequestServiceTest {
     }
 
     @Test
+    void rejectsAnUnrealisticallyLargePartialDayValue() {
+        // Regression for the "Will Come Late By" field accepting values like 999999999999
+        // minutes with no upper bound — the monthly cap check must reject it outright, the same
+        // way it rejects any other over-cap request, regardless of magnitude.
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 999999999999.0), employeeEmail));
+        assertTrue(ex.getMessage().contains("not allowed to raise a request for more than 120 minutes"));
+    }
+
+    @Test
     void rejectsZeroOrNegativePartialDayHours() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.submit(partialDayRequest(LocalDate.of(2026, 8, 9), 0), employeeEmail));
@@ -303,5 +313,37 @@ class AttendanceRequestServiceTest {
 
         verify(notificationService, times(1))
                 .send(eq(employeeId), eq("ATTENDANCE_REQUEST_APPROVED"), any(), any(), any());
+    }
+
+    @Test
+    void listTeamApprovedWfh_queriesOnlyApprovedWfhForTheManagersDirectReports() {
+        LocalDate day = LocalDate.of(2026, 9, 24);
+        UUID reportId = UUID.randomUUID();
+        when(historyRepository.findCurrentDirectReportIds(employeeId)).thenReturn(List.of(reportId));
+        when(requestRepository.findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+                List.of(reportId), "WFH", "APPROVED", day, day)).thenReturn(List.of());
+
+        assertTrue(service.listTeamApprovedWfh(employeeEmail, day, day).isEmpty());
+        verify(requestRepository).findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+                List.of(reportId), "WFH", "APPROVED", day, day);
+    }
+
+    @Test
+    void listTeamApprovedWfh_noDirectReports_returnsEmptyWithoutQuerying() {
+        LocalDate day = LocalDate.of(2026, 9, 24);
+        when(historyRepository.findCurrentDirectReportIds(employeeId)).thenReturn(List.of());
+
+        assertTrue(service.listTeamApprovedWfh(employeeEmail, day, day).isEmpty());
+        verify(requestRepository, never()).findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+                any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void listPeerApprovedWfh_callerWithoutManager_returnsEmpty() {
+        LocalDate day = LocalDate.of(2026, 9, 24);
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(java.util.Optional.empty());
+
+        assertTrue(service.listPeerApprovedWfh(employeeEmail, day, day).isEmpty());
+        verify(historyRepository, never()).findCurrentPeerIds(any());
     }
 }

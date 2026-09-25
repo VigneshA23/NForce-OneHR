@@ -95,6 +95,15 @@ body {
   --warn:        #E0A93B;
   --risk:        #E4373D;
   --info:        #4C8DD6;
+
+  /* Organization Masters — additional restrained accents for per-section identity (Designations/
+     Locations/Document Types/Leave/Attendance Rules/AI Assistant), alongside the tokens above. */
+  --om-purple:   #A78BFA;
+  --om-teal:     #2DD4BF;
+  --om-indigo:   #818CF8;
+  --om-rose:     #FB7185;
+  --om-cyan:     #22D3EE;
+  --om-violet:   #C084FC;
 }
 
 /* WCAG-AA verified on white: brand-bright 5.7:1, ok 4.9:1, warn 5.6:1, risk 5.7:1, info 6.4:1 */
@@ -116,6 +125,13 @@ body {
   --warn:        #896010;
   --risk:        #C81A1F;
   --info:        #1A5FAA;
+
+  --om-purple:   #6D4FD6;
+  --om-teal:     #0E8074;
+  --om-indigo:   #4145C4;
+  --om-rose:     #C23A57;
+  --om-cyan:     #0E7C90;
+  --om-violet:   #8330C9;
 }
 
 /* Accessibility: "High contrast" (User Preferences → Accessibility) — pushes text/border tokens
@@ -192,6 +208,95 @@ body {
 }
 
 @keyframes glow-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+/* OneHR Assistant header badge — a slow, calm rotation (7s) for the conic-gradient ring behind
+   the Sparkles icon. [data-motion="reduce"] above already neutralizes it for anyone with that
+   preference on, same as every other animation in this file. */
+@keyframes nf-assistant-ring-spin { to { transform: rotate(360deg); } }
+/* Panel open animation (plays each time the panel is shown — it fully mounts/unmounts per open,
+   see AssistantPanel) and per-message entrance, so a reply feels like it arrived rather than just
+   appearing. Both respect [data-motion="reduce"] above. */
+@keyframes nf-assistant-panel-in {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes nf-assistant-msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes nf-assistant-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+/* Tiny flourish (MessageList's SparkleBurst) when an answer arrives — each dot travels to its own
+   --sx/--sy offset (set inline per-dot) and fades, one short one-shot celebration rather than an
+   ongoing loop. */
+@keyframes nf-assistant-sparkle-burst {
+  0%   { transform: translate(0, 0) scale(0); opacity: 1; }
+  40%  { opacity: 1; }
+  100% { transform: translate(var(--sx), var(--sy)) scale(1); opacity: 0; }
+}
+/* The floating launcher's always-on ambient breathing glow (AssistantLauncher) — much slower and
+   fainter than the header badge's, since this one is visible on every page, indefinitely, whether
+   or not anyone is looking at it. */
+@keyframes nf-assistant-launcher-breathe {
+  0%, 100% { opacity: .35; transform: scale(1); }
+  50%      { opacity: .7;  transform: scale(1.08); }
+}
+@keyframes nf-assistant-invite-in {
+  from { opacity: 0; transform: translateY(6px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* OneHR Assistant — light-mode intensity boost.
+   Every color-mix() wash in assistantStyles.ts was tuned by eye against the dark theme's
+   near-black --panel/--shell (#16181D/#0E0F12): a low-percentage brand tint blended toward that
+   reads as a rich glow. The same percentages blended toward light mode's --panel/--shell
+   (#FFFFFF/#F7F8FA) read as barely-there instead, because alpha blending desaturates much faster
+   toward white than toward black — the identical CSS produces a much weaker visual result on the
+   two themes. Rather than compromise the dark-mode look (already right) or thread a second set of
+   percentages through every inline style, these rules override the same properties for light mode
+   only, roughly doubling the strength and adding a soft colored shadow in a couple of spots — the
+   "colored elevation" trick premium light-mode UIs lean on where a glow alone would vanish.
+   !important is required because inline styles otherwise always win over an external stylesheet
+   rule regardless of specificity — the same reason .shell-sidebar's responsive clamps use it.
+   Only the badge/avatar/bubble/chip/bg rules apply under Aanuj's flat-red palette (assistantStyles
+   no longer uses color-mix for the launcher/panel/header/composer base colors) — kept here anyway
+   since these specific classNames (the restored header badge, avatar, sparkle chips) still do. */
+[data-theme="light"] .nf-ai-header {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 32%, var(--raised)) 0%, var(--raised) 72%) !important;
+}
+[data-theme="light"] .nf-ai-badge {
+  background: color-mix(in srgb, var(--brand) 30%, var(--panel)) !important;
+}
+[data-theme="light"] .nf-ai-badge-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand-bright) 55%, transparent) 0%, transparent 72%) !important;
+}
+[data-theme="light"] .nf-ai-avatar {
+  background: color-mix(in srgb, var(--brand) 26%, var(--panel)) !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+[data-theme="light"] .nf-ai-bubble-user {
+  background: color-mix(in srgb, var(--brand) 16%, var(--panel)) !important;
+  border-color: color-mix(in srgb, var(--brand) 38%, transparent) !important;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+[data-theme="light"] .nf-ai-chip-solid {
+  background: color-mix(in srgb, var(--brand) 18%, transparent) !important;
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent) !important;
+}
+[data-theme="light"] .nf-ai-chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--brand) 20%, transparent) !important;
+  border-color: color-mix(in srgb, var(--brand) 42%, transparent) !important;
+}
+[data-theme="light"] .nf-ai-bg {
+  background-image:
+    radial-gradient(260px circle at 100% 0%, color-mix(in srgb, var(--brand) 24%, transparent) 0%, transparent 72%),
+    radial-gradient(300px circle at 0% 100%, color-mix(in srgb, var(--brand) 16%, transparent) 0%, transparent 72%),
+    radial-gradient(circle, color-mix(in srgb, var(--brand) 16%, transparent) 1px, transparent 1.6px) !important;
+}
+[data-theme="light"] .nf-ai-launcher-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand-bright) 65%, transparent) 0%, transparent 70%) !important;
+}
 @keyframes nf-toast-in { from { opacity: 0; transform: translateY(-6px) scale(.97) } to { opacity: 1; transform: none } }
 @keyframes nf-hero-pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
@@ -622,7 +727,7 @@ input[type="date"] {
     max-height: 60vh;
     -webkit-overflow-scrolling: touch;
   }
-  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; }
+  .nf-doc-table-scroll table { width: auto !important; min-width: 100%; table-layout: auto !important; }
   .nf-doc-table-scroll th, .nf-doc-table-scroll td { white-space: nowrap; }
 }
 
@@ -880,30 +985,331 @@ input[type="date"] {
    Two rules only; everything else about the assistant is inline styles over the
    same CSS custom properties every other page uses (see assistantStyles.ts).
 
-   The panel is a floating card on desktop and a full-screen sheet on phones —
-   a 396px card at 360px viewport width would either overflow or leave no room
-   to read an answer. Height uses var(--app-height) rather than bare 100dvh, for
-   the same iOS Safari reason the rest of this file does: the browser chrome
-   changes 100dvh mid-scroll and the composer ends up under the address bar.
+   The panel stays the same floating card at every viewport width, phones
+   included — it only shrinks to fit, via width/max-height min()s against the
+   viewport, rather than switching to an edge-to-edge full-screen sheet. Height
+   uses var(--app-height) rather than bare 100dvh, for the same iOS Safari
+   reason the rest of this file does: the browser chrome changes 100dvh
+   mid-scroll and the composer would otherwise end up under the address bar.
 
    The launcher sits at z-index 80, below the mobile nav scrim at 90, so the
    off-canvas menu covers it instead of leaving a button floating over the
-   overlay. It also shifts up on phones to clear the thumb zone. */
+   overlay. Both the launcher's and the panel's right/bottom here are only the
+   *default* position — once dragged (AssistantLauncher.tsx/AssistantPanel.tsx
+   both drag via an inline left/top), that takes over. `left` is deliberately
+   left unset by this rule, not forced to `auto !important`: an `!important`
+   on `left` would beat the inline drag position outright, in the cascade,
+   before layout even gets to CSS's own over-constraint resolution (which is
+   what lets an inline left quietly win over a merely-cascade-winning right).
+   Leaving `left` alone here keeps it exactly what panelStyle/launcherStyle
+   already make it undragged (unset, i.e. auto) while still letting a drag's
+   inline left apply. */
 @media (max-width: 767px) {
   .nf-assistant-panel {
-    right: 0 !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    max-height: var(--app-height, 100dvh) !important;
-    height: var(--app-height, 100dvh) !important;
-    border-radius: 0 !important;
-    border-left: none !important;
-    border-right: none !important;
-    border-bottom: none !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    width: min(360px, calc(100vw - 24px)) !important;
+    max-height: min(72vh, calc(var(--app-height, 100dvh) - 88px)) !important;
+    height: auto !important;
   }
   .nf-assistant-launcher {
     right: 16px !important;
     bottom: 16px !important;
   }
+}
+
+/* Leave & Holidays header -> stack title above the Request Leave button on mobile,
+   button goes full width, matching the Policies & Announcements header pattern. */
+@media (max-width: 767px) {
+  .nf-leave-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .nf-leave-header button {
+    width: 100%;
+    justify-content: center;
+  }
+  .nf-leave-filter-bar { width: 100%; }
+  .nf-leave-filter-bar > * { flex: 1 1 auto; }
+}
+
+/* Leave & Holidays — balance ring cards (hover lift) and request-table rows (hover tint) */
+.nf-leave-balance-card { transition: border-color .15s, transform .15s; }
+.nf-leave-balance-card:hover { border-color: var(--line2); transform: translateY(-1px); }
+.nf-leave-row { transition: background-color .12s; }
+.nf-leave-row:hover { background: var(--raised); }
+
+/* Subtle zebra striping + row hover for dense data tables (Attendance Log) ->
+   improves scannability on long lists without changing row height/columns. */
+.nf-zebra-table tbody tr:nth-of-type(even) td { background: color-mix(in srgb, var(--txt-dim) 4%, transparent); }
+.nf-zebra-table tbody tr:hover td { background: color-mix(in srgb, var(--brand) 6%, transparent); }
+
+/* ============================================================
+   Attendance module — "Workforce Intelligence" redesign.
+   Presentational-only additions: progress ring, entrance motion,
+   calendar cell polish, sticky log header. No business logic here.
+   ============================================================ */
+
+@keyframes nf-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes nf-ring-in { from { stroke-dashoffset: var(--nf-ring-circumference, 251); } to { stroke-dashoffset: var(--nf-ring-offset, 0); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .nf-section-enter { animation: nf-fade-up 360ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-ring-progress { animation: nf-ring-in 700ms cubic-bezier(.22,.61,.36,1) both; }
+}
+
+/* Radial progress ring — draws an SVG circle via stroke-dasharray/offset set inline;
+   this class only opts it into the entrance animation above. */
+.nf-ring-progress { transition: stroke-dashoffset .5s cubic-bezier(.22,.61,.36,1); }
+
+/* Attendance hero — today's status card */
+.nf-hero-status-dot { animation: glow-pulse 2.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .nf-hero-status-dot { animation: none; } }
+
+/* Insight tiles — hover lift, subtle */
+.nf-insight-tile { transition: border-color .15s, transform .15s, background .15s; }
+.nf-insight-tile:hover { border-color: var(--line2); transform: translateY(-1px); }
+
+/* Calendar day cells — refined hover/focus, scoped so it never fights the inline
+   selected/today/disabled styles already set per-cell. */
+.nf-cal-cell:not(:disabled):hover { border-color: var(--brand) !important; transform: translateY(-1px); }
+.nf-cal-cell { transition: border-color .15s, transform .15s, background .15s, box-shadow .15s; }
+/* Day-cell status pill — the grid tracks are minmax(0, 1fr), so the pill is capped to its cell
+   instead of widening the column past the panel (which clipped the calendar via overflow:
+   hidden). It wraps only at spaces/hyphens ("Weekly-/off", "Partial/Day"); a single word too
+   long for the cell ("Regularization") is truncated, never broken mid-word. The pills set
+   white-space: nowrap inline, hence !important. */
+.nf-month-cal { container-type: inline-size; }
+.nf-cal-badge { display: flex; min-width: 0; }
+.nf-cal-badge > span { max-width: 100%; min-width: 0; white-space: normal !important; overflow: hidden; text-overflow: ellipsis; }
+/* Too narrow for any label (cells under ~70px — tablet/phone): each pill becomes a slim colour
+   bar in its own status colour, matching the legend above the grid (the same idea as the
+   compact rail calendar's dots). The label text stays in the DOM for screen readers. */
+@container (max-width: 559px) {
+  .nf-cal-badge > span {
+    font-size: 0 !important; padding: 0 !important; height: 5px; width: 100%; border-radius: 3px;
+    background: currentColor !important; border: none !important; opacity: .8;
+  }
+  .nf-cal-badge > span > span { display: none; }
+}
+
+/* Attendance Log — sticky header while the table body scrolls */
+.nf-sticky-thead th { position: sticky; top: 0; z-index: 2; }
+
+/* Segmented tab bar — active pill slide-in */
+.nf-seg-tab { transition: background .15s, color .15s, box-shadow .15s; }
+
+/* Attendance Log — table vs. card view. The table uses table-layout:fixed with percentage
+   columns so it never exceeds its container's width (no horizontal scrollbar by construction);
+   below 900px a 6-column row can't stay legible even compacted, so it switches to one compact
+   card per day instead. Exactly one of the two is ever in the layout (not just hidden), so the
+   card list's own rows never affect the table's height or vice versa. */
+.nf-log-table-view { display: block; }
+.nf-log-card-view { display: none; }
+@media (max-width: 899px) {
+  .nf-log-table-view { display: none; }
+  .nf-log-card-view { display: block; }
+}
+.nf-log-card {
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+  background: var(--panel); transition: border-color .15s;
+}
+.nf-log-card + .nf-log-card { margin-top: 10px; }
+.nf-log-card:hover { border-color: var(--line2); }
+
+/* Quick Actions (Attendance) — top-right beside the Today hero on desktop. Once the page grid
+   stacks (<=1024px, same breakpoint as .nf-grid-proportional-collapse) the card spans the full
+   width, so its action buttons flow into columns instead of one long full-width list. */
+@media (max-width: 1024px) {
+  .nf-quick-actions { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  .nf-quick-actions > :first-child { grid-column: 1 / -1; }
+}
+
+/* Attendance request forms (Regularization, WFH/Partial Day, Web Clock-In, Overtime) — the
+   Cancel/Submit row sticks to the bottom of the modal's own scroll area, so on a short viewport a
+   long form never pushes Submit out of sight. The negative margins let the bar span the modal
+   body's padding (--nf-modal-pad, default 20px) with an opaque background. */
+.nf-modal-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  margin: 4px calc(-1 * var(--nf-modal-pad, 20px)) calc(-1 * var(--nf-modal-pad, 20px));
+  padding: 12px var(--nf-modal-pad, 20px) var(--nf-modal-pad, 20px);
+  background: var(--panel); border-top: 1px solid var(--line);
+}
+
+/* Overtime Requests — row "⋮" action button + menu (OvertimeActionMenu). The menu is portaled to
+   <body> with position: fixed (top/left set inline), so no table/panel overflow can clip it.
+   z-index sits above page content but below modal overlays (500). */
+.nf-ot-menu-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--raised); color: var(--txt-mut); border: 1px solid var(--line2); border-radius: 7px;
+  cursor: pointer; transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.nf-ot-menu-btn:hover { background: var(--raised2); border-color: var(--txt-dim); color: var(--txt); }
+.nf-ot-menu-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--brand) 10%, var(--raised)); border-color: color-mix(in srgb, var(--brand) 45%, var(--line2));
+  color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+.nf-ot-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.nf-ot-menu {
+  position: fixed; z-index: 450; min-width: 172px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 28px -6px rgba(0,0,0,.35);
+}
+.nf-ot-menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: none; border-radius: 6px;
+  background: transparent; color: var(--txt); font-size: 12.5px; font-weight: 500; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.nf-ot-menu-item svg { flex-shrink: 0; color: var(--txt-dim); }
+.nf-ot-menu-item:hover, .nf-ot-menu-item:focus-visible { background: var(--raised2); outline: none; }
+.nf-ot-menu-item--approve, .nf-ot-menu-item--approve svg { color: var(--ok); }
+.nf-ot-menu-item--approve:hover, .nf-ot-menu-item--approve:focus-visible { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.nf-ot-menu-item--reject, .nf-ot-menu-item--reject svg { color: var(--risk); }
+.nf-ot-menu-item--reject:hover, .nf-ot-menu-item--reject:focus-visible { background: color-mix(in srgb, var(--risk) 12%, transparent); }
+.nf-ot-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+/* Touch screens: larger button and rows for a comfortable tap target. */
+@media (pointer: coarse) {
+  .nf-ot-menu-btn { width: 36px; height: 36px; }
+  .nf-ot-menu-item { padding: 11px 12px; font-size: 13px; }
+}
+
+/* Attendance Requests / Overtime Requests tables — same table-vs-card idea as the Attendance
+   Log above, but keyed to the table's own container width (they sit in the page's left column,
+   so the viewport says little about how much room they get). Wide enough: a fixed-layout table
+   (see reqTableStyle in AttendancePage.tsx). Narrower: each row restacks into a card whose
+   cells are labelled from their data-label, so every column and action stays visible without
+   any sideways scrolling or mid-word breaking. */
+.nf-req-wrap { container-type: inline-size; }
+/* Table mode: outer columns get the same 12px inset as the Attendance Log's cells (thStyle/
+   tdStyle), so every Logs & Requests tab shares one left/right content edge. */
+@container (min-width: 780px) {
+  .nf-req-table th:first-child, .nf-req-table td:first-child { padding-left: 12px !important; }
+  .nf-req-table th:last-child, .nf-req-table td:last-child { padding-right: 12px !important; }
+}
+@container (max-width: 779px) {
+  .nf-req-table, .nf-req-table tbody, .nf-req-table thead, .nf-req-table thead tr { display: block; }
+  .nf-req-table colgroup, .nf-req-table thead th { display: none; }
+  /* ...except Pending Approvals' select-all checkbox, kept reachable as its own row. */
+  .nf-req-table thead th.nf-req-select:not(:empty) {
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px !important;
+  }
+  .nf-req-table thead th.nf-req-select:not(:empty)::after { content: 'Select all on this page'; }
+  .nf-req-table tr {
+    position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-auto-flow: row dense; gap: 12px 16px; padding: 14px 16px; border-bottom: 1px solid var(--line);
+  }
+  .nf-req-table tr:last-child { border-bottom: none; }
+  .nf-req-table td { display: block; min-width: 0; padding: 0 !important; border: none !important; }
+  /* e.g. the Action cell of a non-pending request — no label for nothing. */
+  .nf-req-table td:empty { display: none; }
+  .nf-req-table td::before {
+    content: attr(data-label); display: block; margin-bottom: 3px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim);
+  }
+  .nf-req-table td[data-label="Reason"], .nf-req-table td[data-label="Comments"] { grid-column: span 2; }
+  /* Bulk-select checkbox: pinned to the card's top-right corner rather than taking a grid cell. */
+  .nf-req-table td.nf-req-select { position: absolute; top: 12px; right: 14px; }
+  .nf-req-table td.nf-req-select::before { content: none; }
+}
+
+/* Logs & Requests tab bar — the four tabs (Attendance Log/Calendar/Attendance Requests/
+   Overtime Requests) don't fit their container's natural width below ~900px (same tier the
+   Attendance Log itself switches to cards at), one step earlier than the generic
+   .nf-tab-scroll rule's 767px breakpoint used elsewhere in the app — without this the tab row
+   overflowed the page horizontally at 768–899px even though nothing else on the page did. */
+@media (max-width: 899px) {
+  .nf-log-tabs {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nf-log-tabs > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* DetailDrawer — subtle slide-in from the right, the one consistent detail-view shell used
+   across Today, Attendance Health, the KPI tiles, and the Attendance Log. */
+@keyframes nf-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: no-preference) {
+  .nf-drawer-panel { animation: nf-drawer-in 220ms cubic-bezier(.22,.61,.36,1) both; }
+}
+
+/* Generic "this reveals more detail on click" affordance — used on Today's sub-rows,
+   Attendance Health's Me/Team tiles, and each Attendance Log cell. Kept separate from
+   .nf-insight-tile (which already has its own hover) so a plain inline element (a table cell,
+   a text row) can opt into the same discoverable hover/focus treatment without inheriting
+   card-style border/background changes that don't make sense inline. */
+.nf-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color .15s, box-shadow .15s;
+}
+.nf-clickable:hover { background-color: color-mix(in srgb, var(--brand) 6%, transparent); }
+.nf-clickable:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* Today hero's "Keep going" note — only shown where there's genuinely room for a third
+   column beside the ring and the working-progress bar; below this it would just crowd them. */
+@media (max-width: 1300px) {
+  .nf-hero-keepgoing { display: none !important; }
+}
+
+/* Today hero — subtle "workflow" filler beside the (now compact) Working Progress bar, so the
+   leftover row space reads as an intentional detail instead of dead air. Hidden once the row is
+   narrow enough that it would otherwise get squeezed against its neighbors. */
+@media (max-width: 900px) {
+  .nf-workprogress-flow { display: none !important; }
+}
+.nf-flow-dot {
+  position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ok); transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: filter .15s;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nf-flow-dot { animation: nf-flow-move 4.8s ease-in-out infinite; }
+  .nf-flow-dot-1 { animation-delay: 0s; }
+  .nf-flow-dot-2 { animation-delay: 1.6s; }
+  .nf-flow-dot-3 { animation-delay: 3.2s; }
+}
+@keyframes nf-flow-move {
+  0%   { left: 0%;   opacity: 0; }
+  8%   { opacity: .85; }
+  50%  { opacity: .85; }
+  92%  { opacity: 0; }
+  100% { left: 100%; opacity: 0; }
+}
+.nf-flow-track:hover .nf-flow-dot { filter: brightness(1.35); }
+
+/* ============================================================
+   Organization Masters — presentational polish only.
+   Tab icon badges (per-tab accent), row icon badges, and a
+   lightweight section-loading state. No data/validation/CRUD
+   logic here.
+   ============================================================ */
+
+.nf-org-tab-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
+  color: var(--txt-mut); background: transparent;
+  transition: background .15s, color .15s;
+}
+.nf-org-tab[aria-selected="true"] .nf-org-tab-icon {
+  background: color-mix(in srgb, var(--tab-accent, var(--brand)) 20%, transparent);
+  color: var(--tab-accent, var(--brand-bright));
+}
+.nf-org-tab:hover:not([aria-selected="true"]) .nf-org-tab-icon {
+  background: var(--raised2); color: var(--txt);
+}
+
+.nf-org-icon-badge {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--badge-accent, var(--txt-mut)) 22%, transparent);
+}
+
+@keyframes nf-org-spin { to { transform: rotate(360deg); } }
+.nf-org-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--line2); border-top-color: var(--brand-bright);
+  animation: nf-org-spin .7s linear infinite;
 }
