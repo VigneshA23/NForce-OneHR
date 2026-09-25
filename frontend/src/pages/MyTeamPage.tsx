@@ -2374,15 +2374,17 @@ function PeersView({ token }: { token: string }) {
 }
 
 /* ══ Regularize & Cancel Penalties ══ */
-const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED'];
+const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED', 'NOT_PENALIZED'];
 const PENALTY_STATUS_LABEL: Record<AttendancePenaltyStatus, string> = {
   PENDING_REVIEW: 'Pending Review', APPLIED: 'Applied', CANCELLED: 'Cancelled', REVERSED: 'Reversed',
+  NOT_PENALIZED: 'Not Penalized',
 };
 const PENALTY_STATUS_STYLE: Record<AttendancePenaltyStatus, { bg: string; fg: string }> = {
   PENDING_REVIEW: { bg: 'rgba(224,169,59,.16)', fg: 'var(--warn)' },
   APPLIED: { bg: 'rgba(228,55,61,.15)', fg: 'var(--risk)' },
   CANCELLED: { bg: 'var(--raised2)', fg: 'var(--txt-dim)' },
   REVERSED: { bg: 'rgba(76,141,214,.16)', fg: 'var(--info)' },
+  NOT_PENALIZED: { bg: 'var(--raised2)', fg: 'var(--txt-mut)' },
 };
 
 function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
@@ -2395,8 +2397,8 @@ function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
   );
 }
 
-// Approved discrepancy/anomaly identifiers (ExceptionType constants) — not every one has a
-// detector wired up yet, but all six are valid values a future policy engine may produce.
+// Discrepancy identifiers (ExceptionType constants). Late Arrival, Early Departure and Missing
+// Punch rows also appear un-penalized (status NOT_PENALIZED) — see AttendancePenaltyService#list.
 const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH'];
 const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
   NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
@@ -2544,7 +2546,7 @@ function PenaltiesTab({ token }: { token: string }) {
     <div style={panelStyle}>
       <div style={panelHeadStyle}>
         <span style={panelTitleStyle}>Regularize &amp; Cancel Penalties</span>
-        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'penalty' : 'penalties'}</span>
+        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'record' : 'records'}</span>
       </div>
 
       <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -2622,7 +2624,7 @@ function PenaltiesTab({ token }: { token: string }) {
             {loading ? (
               <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties found for the selected filters.</td></tr>
+              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties or incidents found for the selected filters.</td></tr>
             ) : rows.map(r => (
               <tr key={r.id}>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>

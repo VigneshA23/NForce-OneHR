@@ -6,14 +6,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
+import com.nforce.onehr.entity.AttendanceException;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.AttendanceRequest;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.ExceptionType;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.AttendancePenaltySpecifications;
 import com.nforce.onehr.repository.AttendanceRequestRepository;
@@ -48,8 +51,10 @@ import java.util.stream.Collectors;
 
 /**
  * Manager: Regularize & Cancel Penalties. {@link #list} returns whatever {@code ExceptionService}
- * has produced via {@link AttendancePenaltyEvaluationService} — an empty list is expected and
- * correct whenever no configured Penalization Policy section matches anything in range, not a bug.
+ * has produced via {@link AttendancePenaltyEvaluationService}, plus every detected late arrival,
+ * early departure and missing punch that no penalty was created for (status
+ * {@link #NOT_PENALIZED}) — so those filters show the actual incidents, not only the ones a
+ * configured Penalization Policy section happened to penalize.
  */
 @Service
 @RequiredArgsConstructor
@@ -71,8 +76,14 @@ public class AttendancePenaltyService {
     // saw an empty penalty list and could cancel nothing, despite being authorized at the controller.
     private static final Set<String> HR_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
+    // Row status for a detected incident with no penalty behind it (see #notPenalizedIncidents) —
+    // a list/filter value only, never stored on AttendancePenalty.
+    static final String NOT_PENALIZED = "NOT_PENALIZED";
+    private static final Set<String> NOT_PENALIZED_INCIDENT_TYPES = Set.of(
+            ExceptionType.LATE_ARRIVAL, ExceptionType.EARLY_DEPARTURE, ExceptionType.MISSING_PUNCH);
 
     private final AttendancePenaltyRepository attendancePenaltyRepository;
+    private final AttendanceExceptionRepository attendanceExceptionRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
     private final RegularizationRequestRepository regularizationRequestRepository;
@@ -122,25 +133,60 @@ public class AttendancePenaltyService {
                 .and(AttendancePenaltySpecifications.incidentDateBetween(from, to))
                 .and(AttendancePenaltySpecifications.statusEquals(status))
                 .and(AttendancePenaltySpecifications.discrepancyTypeEquals(discrepancyType));
-        List<AttendancePenalty> penalties = attendancePenaltyRepository.findAll(spec);
-        if (penalties.isEmpty()) {
+        List<AttendancePenaltyResponse> rows = new ArrayList<>();
+        attendancePenaltyRepository.findAll(spec).forEach(p -> rows.add(toResponse(p, employeesById.get(p.getEmployeeUserId()))));
+        if (isNotPenalizedIncidentWanted(status, discrepancyType)) {
+            rows.addAll(notPenalizedIncidents(scopedIds, from, to, discrepancyType, employeesById));
+        }
+        if (rows.isEmpty()) {
             return List.of();
         }
 
         // Bulk cross-reference against active regularizations, approved Partial Day requests and
         // approved Leave — one query each for the whole scoped range, not one lookup per penalty
-        // row. A penalty is only a genuine, unresolved discrepancy when none of the three cover
+        // row. A row is only a genuine, unresolved discrepancy when none of the three cover
         // its employee+incidentDate.
         Set<String> activeRegularizationKeys = activeRegularizationKeys(reportIds, from, to);
         Set<String> approvedPartialDayKeys = approvedPartialDayKeys(reportIds, from, to);
         Set<String> approvedLeaveKeys = approvedLeaveKeys(reportIds, from, to);
 
-        return penalties.stream()
-                .filter(p -> !activeRegularizationKeys.contains(dayKey(p.getEmployeeUserId(), p.getIncidentDate())))
-                .filter(p -> !approvedPartialDayKeys.contains(dayKey(p.getEmployeeUserId(), p.getIncidentDate())))
-                .filter(p -> !approvedLeaveKeys.contains(dayKey(p.getEmployeeUserId(), p.getIncidentDate())))
-                .map(p -> toResponse(p, employeesById.get(p.getEmployeeUserId())))
+        return rows.stream()
+                .filter(r -> !activeRegularizationKeys.contains(dayKey(r.getEmployeeUserId(), r.getIncidentDate())))
+                .filter(r -> !approvedPartialDayKeys.contains(dayKey(r.getEmployeeUserId(), r.getIncidentDate())))
+                .filter(r -> !approvedLeaveKeys.contains(dayKey(r.getEmployeeUserId(), r.getIncidentDate())))
                 .sorted(Comparator.comparing(AttendancePenaltyResponse::getIncidentDate).reversed())
+                .toList();
+    }
+
+    private boolean isNotPenalizedIncidentWanted(String status, String discrepancyType) {
+        boolean statusMatches = status == null || status.isBlank() || NOT_PENALIZED.equals(status);
+        boolean typeMatches = discrepancyType == null || discrepancyType.isBlank()
+                || NOT_PENALIZED_INCIDENT_TYPES.contains(discrepancyType);
+        return statusMatches && typeMatches;
+    }
+
+    /**
+     * Late arrivals, early departures and missing punches that {@code ExceptionService} detected
+     * but that never became an {@link AttendancePenalty} of the same type — e.g. still within the
+     * policy's exempt count, the section is disabled, or (Early Departure) no policy section
+     * covers it at all. Listed so the manager sees every such incident, not only penalized ones;
+     * never cancellable, since there's no penalty to cancel.
+     */
+    private List<AttendancePenaltyResponse> notPenalizedIncidents(List<UUID> scopedIds, LocalDate from, LocalDate to,
+                                                                  String discrepancyType, Map<UUID, Employee> employeesById) {
+        Set<String> penalizedKeys = attendancePenaltyRepository.findAll(Specification
+                        .where(AttendancePenaltySpecifications.employeeUserIdIn(scopedIds))
+                        .and(AttendancePenaltySpecifications.incidentDateBetween(from, to)))
+                .stream()
+                .map(p -> dayKey(p.getEmployeeUserId(), p.getIncidentDate()) + "|" + p.getDiscrepancyType())
+                .collect(Collectors.toSet());
+        return attendanceExceptionRepository
+                .findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(scopedIds, from, to)
+                .stream()
+                .filter(e -> NOT_PENALIZED_INCIDENT_TYPES.contains(e.getExceptionType()))
+                .filter(e -> discrepancyType == null || discrepancyType.isBlank() || discrepancyType.equals(e.getExceptionType()))
+                .filter(e -> !penalizedKeys.contains(dayKey(e.getEmployeeUserId(), e.getExceptionDate()) + "|" + e.getExceptionType()))
+                .map(e -> toResponse(e, employeesById.get(e.getEmployeeUserId())))
                 .toList();
     }
 
@@ -391,6 +437,21 @@ public class AttendancePenaltyService {
                 .discrepancyType(penalty.getDiscrepancyType())
                 .deductionDays(penalty.getDeductionDays())
                 .cancellable(CANCELLABLE_STATUSES.contains(penalty.getStatus()))
+                .build();
+    }
+
+    private AttendancePenaltyResponse toResponse(AttendanceException incident, Employee employee) {
+        return AttendancePenaltyResponse.builder()
+                .id(incident.getId())
+                .employeeUserId(incident.getEmployeeUserId())
+                .fullName(employee != null ? employee.getFullName() : null)
+                .employeeCode(employee != null ? employee.getEmployeeCode() : null)
+                .incidentDate(incident.getExceptionDate())
+                .status(NOT_PENALIZED)
+                .locationName(employee != null && employee.getLocation() != null ? employee.getLocation().getName() : null)
+                .departmentName(employee != null && employee.getDepartment() != null ? employee.getDepartment().getName() : null)
+                .discrepancyType(incident.getExceptionType())
+                .cancellable(false)
                 .build();
     }
 
