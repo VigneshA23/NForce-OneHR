@@ -59,6 +59,30 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
   );
 }
 
+// ── Announcement View Modal ───────────────────────────────
+
+function AnnouncementModal({ announcement, onClose }: { announcement: Announcement; onClose(): void }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{announcement.title}</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--txt-dim)' }}>
+          {announcement.publishedAt && `Published ${new Date(announcement.publishedAt).toLocaleDateString()} · `}Audience: {announcement.audience}
+        </p>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+          {announcement.body}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose}
+            style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────
 
 export default function DocumentsPage() {
@@ -75,6 +99,7 @@ export default function DocumentsPage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [ackTarget, setAckTarget] = useState<Policy | null>(null);
   const [viewTarget, setViewTarget] = useState<Policy | null>(null);
+  const [viewAnnouncement, setViewAnnouncement] = useState<Announcement | null>(null);
   const [policiesLoading, setPoliciesLoading] = useState(true);
   const loading = docsLoading || policiesLoading;
 
@@ -226,11 +251,20 @@ export default function DocumentsPage() {
             <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>{q ? 'No announcements match your search.' : 'No announcements yet.'}</p>
           )}
           {filteredAnnouncements.map(a => (
-            <div key={a.id} style={{ ...card, padding: 20 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
-              <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6 }}>{a.body}</p>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
-                {a.publishedAt && `Published ${new Date(a.publishedAt).toLocaleDateString()}`} · Audience: {a.audience}
+            <div key={a.id} style={{ ...card, padding: 20, display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
+                {/* Preview only — the full announcement opens via View. */}
+                <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{a.body}</p>
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+                  {a.publishedAt && `Published ${new Date(a.publishedAt).toLocaleDateString()}`} · Audience: {a.audience}
+                </div>
+              </div>
+              <div style={{ flexShrink: 0 }}>
+                <button onClick={() => setViewAnnouncement(a)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                  <Eye size={14} /> View
+                </button>
               </div>
             </div>
           ))}
@@ -246,6 +280,8 @@ export default function DocumentsPage() {
       )}
 
       {viewTarget && <AcknowledgeModal policy={viewTarget} onClose={() => setViewTarget(null)} />}
+
+      {viewAnnouncement && <AnnouncementModal announcement={viewAnnouncement} onClose={() => setViewAnnouncement(null)} />}
     </div>
   );
 }
