@@ -180,6 +180,20 @@ class DocumentServiceTest {
         verify(docRepo, never()).save(any(EmployeeDocument.class));
     }
 
+    @Test
+    void uploadDocument_typeNotApplicableToEmployeeLocation_isRejected() {
+        docType.setApplicableEmploymentTypes("FULL_TIME");
+        docType.setApplicableLocations("Vishakhapatnam");
+        Employee emp = Employee.builder().userId(employeeId).employmentType("FULL_TIME")
+                .location(com.nforce.onehr.entity.Location.builder().name("Hyderabad").build()).build();
+        when(employeeRepo.findById(employeeId)).thenReturn(Optional.of(emp));
+
+        MockMultipartFile file = new MockMultipartFile("file", "pan.pdf", "application/pdf", "bytes".getBytes());
+        assertThrows(IllegalArgumentException.class,
+                () -> documentService.uploadDocument(EMPLOYEE_EMAIL, 1, file, null, null));
+        verify(docRepo, never()).save(any(EmployeeDocument.class));
+    }
+
     // ── withdrawDocument (Pending Review only) ───────────────────────────────
 
     @Test

@@ -1894,9 +1894,9 @@ function ReportsTab({ token }: { token: string }) {
 }
 
 /* ── "Appreciate your lead" / peer kudos (ONEHR-73) ── */
-interface KudosTarget { userId: string; name: string; }
+export interface KudosTarget { userId: string; name: string; }
 
-function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
+export function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
   const small = size === 'small';
   return (
     <button onClick={onClick} style={{
@@ -1913,7 +1913,7 @@ function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; 
 
 const KUDOS_CATEGORIES = ['Great Work', 'Teamwork', 'Leadership', 'Extra Mile'];
 
-function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
+export function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
   const { showToast } = useToast();
   const [category, setCategory] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -2007,6 +2007,7 @@ function PeersView({ token }: { token: string }) {
 
   const [search, setSearch] = useState('');
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
+  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'onTime' | 'late' | 'wfh' | 'remote'>(null);
@@ -2015,6 +2016,10 @@ function PeersView({ token }: { token: string }) {
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
+    directoryApi.myManager(token)
+      // No manager comes back as an empty 200 body (→ {}), not just 204/null — hence `m?.userId`.
+      .then(m => setManager(m?.userId ? { userId: m.userId, name: m.fullName } : null))
+      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -2108,6 +2113,18 @@ function PeersView({ token }: { token: string }) {
 
   return (
     <div>
+      {/* Reporting manager — "Appreciate your lead" */}
+      {manager && (
+        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Avatar userId={manager.userId} name={manager.name} size={38} />
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{manager.name}</div>
+          </div>
+          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
+        </div>
+      )}
+
       {/* Who's on leave / Not in yet */}
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
@@ -2357,15 +2374,17 @@ function PeersView({ token }: { token: string }) {
 }
 
 /* ══ Regularize & Cancel Penalties ══ */
-const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED'];
+const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED', 'NOT_PENALIZED'];
 const PENALTY_STATUS_LABEL: Record<AttendancePenaltyStatus, string> = {
   PENDING_REVIEW: 'Pending Review', APPLIED: 'Applied', CANCELLED: 'Cancelled', REVERSED: 'Reversed',
+  NOT_PENALIZED: 'Not Penalized',
 };
 const PENALTY_STATUS_STYLE: Record<AttendancePenaltyStatus, { bg: string; fg: string }> = {
   PENDING_REVIEW: { bg: 'rgba(224,169,59,.16)', fg: 'var(--warn)' },
   APPLIED: { bg: 'rgba(228,55,61,.15)', fg: 'var(--risk)' },
   CANCELLED: { bg: 'var(--raised2)', fg: 'var(--txt-dim)' },
   REVERSED: { bg: 'rgba(76,141,214,.16)', fg: 'var(--info)' },
+  NOT_PENALIZED: { bg: 'var(--raised2)', fg: 'var(--txt-mut)' },
 };
 
 function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
@@ -2378,8 +2397,8 @@ function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
   );
 }
 
-// Approved discrepancy/anomaly identifiers (ExceptionType constants) — not every one has a
-// detector wired up yet, but all six are valid values a future policy engine may produce.
+// Discrepancy identifiers (ExceptionType constants). Late Arrival, Early Departure and Missing
+// Punch rows also appear un-penalized (status NOT_PENALIZED) — see AttendancePenaltyService#list.
 const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH'];
 const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
   NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
@@ -2527,7 +2546,7 @@ function PenaltiesTab({ token }: { token: string }) {
     <div style={panelStyle}>
       <div style={panelHeadStyle}>
         <span style={panelTitleStyle}>Regularize &amp; Cancel Penalties</span>
-        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'penalty' : 'penalties'}</span>
+        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'record' : 'records'}</span>
       </div>
 
       <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -2605,7 +2624,7 @@ function PenaltiesTab({ token }: { token: string }) {
             {loading ? (
               <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties found for the selected filters.</td></tr>
+              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties or incidents found for the selected filters.</td></tr>
             ) : rows.map(r => (
               <tr key={r.id}>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>

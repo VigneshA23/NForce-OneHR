@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Upload, AlertTriangle, Search } from 'lucide-react';
-import { type EmployeeDocument, type DocumentType, type RequiredDocument } from '../../api/documents';
+import { type EmployeeDocument, type RequiredDocument } from '../../api/documents';
 import { card, thS, tdS, StatusBadge, UploadModal, ViewButton, WithdrawButton, bucketRequiredDocuments } from './shared';
 
 type Section = 'verified' | 'pending' | 'rejected' | 'missing';
@@ -8,16 +8,15 @@ type Section = 'verified' | 'pending' | 'rejected' | 'missing';
 // The actual "My Documents" document list — sub-tabs (Pending Review / Verified / Not
 // Submitted), search, table, upload/re-upload/view actions. Shared verbatim by DocumentsPage
 // (the standalone "My Documents & Policies" page) and the My Profile Documents tab, so there is
-// exactly one implementation of document upload/status behavior, not two. Data (required/myDocs/
-// docTypes) is owned by the caller via useMyDocumentsData — this component only renders it —
+// exactly one implementation of document upload/status behavior, not two. Data (required/myDocs)
+// is owned by the caller via useMyDocumentsData — this component only renders it —
 // so each page keeps a single fetch and its own KPI tiles (if any) never go stale after an
 // upload here.
 export function MyDocumentsSection({
-  required, myDocs, docTypes, setRequired, setMyDocs, search: controlledSearch, onSearchChange,
+  required, myDocs, setRequired, setMyDocs, search: controlledSearch, onSearchChange,
 }: {
   required: RequiredDocument[];
   myDocs: EmployeeDocument[];
-  docTypes: DocumentType[];
   setRequired: React.Dispatch<React.SetStateAction<RequiredDocument[]>>;
   setMyDocs: React.Dispatch<React.SetStateAction<EmployeeDocument[]>>;
   // Optional controlled search — DocumentsPage shares one search box across its Docs/
@@ -30,7 +29,7 @@ export function MyDocumentsSection({
   const [localSearch, setLocalSearch] = useState('');
   const search = controlledSearch ?? localSearch;
   const setSearch = onSearchChange ?? setLocalSearch;
-  const [uploadTarget, setUploadTarget] = useState<{ type: RequiredDocument | DocumentType; existing: EmployeeDocument | null } | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<{ type: RequiredDocument; existing: EmployeeDocument | null } | null>(null);
 
   function docForType(typeId: number): EmployeeDocument | null {
     return myDocs.find(d => d.documentTypeId === typeId) ?? null;
@@ -141,27 +140,9 @@ export function MyDocumentsSection({
         </div>
       </div>
 
-      {/* Upload from docTypes for any not in required list */}
-      {docTypes.length > required.length && (
-        <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Upload additional document:</span>
-          <select onChange={e => {
-            const dt = docTypes.find(d => d.id === Number(e.target.value));
-            if (dt) setUploadTarget({ type: dt, existing: myDocs.find(d => d.documentTypeId === dt.id) ?? null });
-            e.target.value = '';
-          }} defaultValue=""
-            style={{ padding: '6px 10px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', fontSize: 12, cursor: 'pointer' }}>
-            <option value="" disabled>Select document type…</option>
-            {docTypes.filter(dt => !required.find(r => r.documentTypeId === dt.id)).map(dt => (
-              <option key={dt.id} value={dt.id}>{dt.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
       {uploadTarget && (
         <UploadModal
-          key={`${(uploadTarget.type as any).id ?? (uploadTarget.type as any).documentTypeId}-${Date.now()}`}
+          key={`${uploadTarget.type.documentTypeId}-${Date.now()}`}
           docType={uploadTarget.type}
           existing={uploadTarget.existing}
           onClose={() => setUploadTarget(null)}
