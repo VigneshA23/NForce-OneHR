@@ -58,6 +58,9 @@ const CATEGORY_BY_TYPE: Record<string, NotificationCategory> = {
   HELPDESK_TICKET_CLOSED:            'Helpdesk',
   // Recognition
   KUDOS:                             'Recognition',
+  BIRTHDAY:                          'Recognition',
+  BIRTHDAY_WISH:                     'Recognition',
+  BIRTHDAY_TODAY_HR:                 'Recognition',
   // Account & Security
   ACCOUNT:                           'Account & Security',
   SECURITY:                          'Account & Security',

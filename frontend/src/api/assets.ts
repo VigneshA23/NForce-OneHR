@@ -58,6 +58,7 @@ export interface AssetRequestResponse {
   categoryId: number;
   categoryName: string;
   reason: string;
+  requiredByDate: string | null;
   status: string;
   managerDecidedByName: string | null;
   managerDecidedAt: string | null;
@@ -97,11 +98,14 @@ export const assetsApi = {
   acknowledge: (id: number, token: string) =>
     fetch(`${BASE}/assignments/${id}/acknowledge`, { method: 'POST', headers: authHeaders(token) }).then(handle<AssetAssignmentResponse>),
 
-  submitRequest: (payload: { categoryId: number; reason: string }, token: string) =>
+  submitRequest: (payload: { categoryId: number; reason: string; requiredByDate?: string }, token: string) =>
     fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<AssetRequestResponse>),
 
   myRequests: (token: string) =>
     fetch(`${BASE}/requests/mine`, { headers: authHeaders(token) }).then(handle<AssetRequestResponse[]>),
+
+  withdrawRequest: (id: number, token: string) =>
+    fetch(`${BASE}/requests/${id}/withdraw`, { method: 'POST', headers: authHeaders(token) }).then(handle<AssetRequestResponse>),
 
   pendingApprovals: (token: string) =>
     fetch(`${BASE}/requests/pending`, { headers: authHeaders(token) }).then(handle<AssetRequestResponse[]>),

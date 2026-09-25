@@ -3,16 +3,17 @@ package com.nforce.onehr.controller;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.onboarding.OnboardingChecklistDetailDto;
 import com.nforce.onehr.dto.onboarding.OnboardingChecklistSummaryDto;
+import com.nforce.onehr.dto.onboarding.OnboardingStatsDto;
 import com.nforce.onehr.dto.onboarding.StartOnboardingRequest;
 import com.nforce.onehr.service.OnboardingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -23,14 +24,30 @@ public class OnboardingController {
 
     private final OnboardingService service;
 
+    // status: IN_PROGRESS (Onboarding Started tab) or COMPLETED (Successfully Onboarded tab).
     @GetMapping
-    public List<OnboardingChecklistSummaryDto> queue(Principal principal) {
-        return service.listQueue(principal.getName());
+    public Page<OnboardingChecklistSummaryDto> queue(
+            @RequestParam String status,
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Principal principal) {
+        return service.searchQueue(principal.getName(), status, search, page, size);
+    }
+
+    // Aggregate KPI cards — independent of the queue/eligible-employees tabs' pagination.
+    @GetMapping("/stats")
+    public OnboardingStatsDto stats(Principal principal) {
+        return service.stats(principal.getName());
     }
 
     @GetMapping("/eligible-employees")
-    public List<EmployeeResponse> eligibleEmployees(Principal principal) {
-        return service.eligibleEmployees(principal.getName());
+    public Page<EmployeeResponse> eligibleEmployees(
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Principal principal) {
+        return service.eligibleEmployeesPaged(principal.getName(), search, page, size);
     }
 
     @PostMapping
@@ -47,5 +64,10 @@ public class OnboardingController {
     @PatchMapping("/{id}/items/{itemId}")
     public OnboardingChecklistDetailDto toggleItem(@PathVariable UUID id, @PathVariable UUID itemId, Principal principal) {
         return service.toggleItem(id, itemId, principal.getName());
+    }
+
+    @PostMapping("/{id}/complete")
+    public OnboardingChecklistDetailDto complete(@PathVariable UUID id, Principal principal) {
+        return service.completeOnboarding(id, principal.getName());
     }
 }

@@ -51,8 +51,15 @@ public class AssistantDataService {
      * <p>Not a performance guard. Each provider is a real query returning real employee data into a
      * prompt that leaves the building, so the number that can fire on one question is capped
      * deliberately rather than left to however many modules happened to match.
+     *
+     * <p>Raised from 3 to 4 (ONEHR - a "do I have any penalties" question was answered as "no
+     * penalties" for an employee with a real active one, reproduced live on the Attendance page).
+     * Raising it was not enough on its own: on the Attendance page four families match, so every
+     * slot goes in the first round and the attendance family never gets a second one. That is why
+     * the caller's log, exceptions and penalties are one provider ({@code attendance.my-history})
+     * rather than three - a question about late days and penalties together only needs one slot.
      */
-    private static final int MAX_PROVIDERS_PER_TURN = 3;
+    private static final int MAX_PROVIDERS_PER_TURN = 4;
 
     /**
      * How relevant the page the user is looking at counts as.
@@ -70,7 +77,8 @@ public class AssistantDataService {
      * @param knowledge what retrieval matched, which is what drives selection
      */
     public LiveData fetch(AssistantRequestContext context, List<RetrievalResult> knowledge) {
-        Map<String, Double> moduleRelevance = moduleRelevance(context, knowledge);
+        Map<String, Double> knowledgeRelevance = knowledgeRelevance(knowledge);
+        Map<String, Double> moduleRelevance = withCurrentPage(context, knowledgeRelevance);
         if (moduleRelevance.isEmpty()) return LiveData.empty();
 
         List<AssistantDataProvider> eligible = providers.stream()
@@ -78,12 +86,12 @@ public class AssistantDataService {
                 .filter(provider -> relevance(provider, moduleRelevance) > 0)
                 .toList();
 
-        List<AssistantDataProvider> candidates = selectDiverse(eligible, moduleRelevance);
+        List<AssistantDataProvider> candidates = selectDiverse(eligible, moduleRelevance, knowledgeRelevance);
 
         List<Section> sections = new ArrayList<>();
         for (AssistantDataProvider provider : candidates) {
             fetchSafely(provider, context).ifPresent(body ->
-                    sections.add(new Section(provider.id(), provider.title(), body)));
+                    sections.add(new Section(provider.id(), provider.title(), provider.scope(), body)));
         }
 
         if (!sections.isEmpty()) {
@@ -98,28 +106,38 @@ public class AssistantDataService {
      * Orders providers so that record-type diversity wins over raw score once every relevant
      * family has had a turn.
      *
-     * <p>Round-robin: each family's own candidates are ranked internally by relevance (ties by id,
-     * same rule as before), and families are visited in order of their own best candidate's score.
-     * One candidate is taken from each family per pass; a family only contributes a second candidate
-     * once every other relevant family has contributed its first. The cap still applies to the total
-     * — this changes which providers fill it, not how many.
+     * <p>Round-robin: each family's own candidates are ranked internally by relevance, and families
+     * are visited in order of their own best candidate's score. One candidate is taken from each
+     * family per pass; a family only contributes a second candidate once every other relevant family
+     * has contributed its first. The cap still applies to the total — this changes which providers
+     * fill it, not how many.
+     *
+     * <p>Ties are broken by how well the provider's own modules matched <em>retrieved knowledge</em>,
+     * before falling back to the id. Sitting on a page gives every provider tagged with that page's
+     * module the same {@link #CURRENT_PAGE_RELEVANCE}, so on the Attendance page a dozen providers
+     * tie; ranking that tie alphabetically meant "what time did I check in today" could lose its one
+     * family slot to whichever sibling's id sorted first. A provider the question actually retrieved
+     * knowledge for now wins that tie, even when the match scored below the page's own weight.
      */
-    private List<AssistantDataProvider> selectDiverse(
-            List<AssistantDataProvider> eligible, Map<String, Double> moduleRelevance) {
+    private List<AssistantDataProvider> selectDiverse(List<AssistantDataProvider> eligible,
+                                                      Map<String, Double> moduleRelevance,
+                                                      Map<String, Double> knowledgeRelevance) {
         if (eligible.isEmpty()) return List.of();
+
+        Comparator<AssistantDataProvider> bestFirst = Comparator
+                .comparingDouble((AssistantDataProvider p) -> relevance(p, moduleRelevance)).reversed()
+                .thenComparing(Comparator.comparingDouble(
+                        (AssistantDataProvider p) -> relevance(p, knowledgeRelevance)).reversed())
+                .thenComparing(AssistantDataProvider::id);
 
         Map<String, List<AssistantDataProvider>> byFamily = eligible.stream()
                 .collect(Collectors.groupingBy(AssistantDataService::family));
         for (List<AssistantDataProvider> members : byFamily.values()) {
-            members.sort(Comparator.comparingDouble((AssistantDataProvider p) -> relevance(p, moduleRelevance))
-                    .reversed()
-                    .thenComparing(AssistantDataProvider::id));
+            members.sort(bestFirst);
         }
 
         List<String> familyOrder = byFamily.keySet().stream()
-                .sorted(Comparator.comparingDouble(
-                                (String family) -> relevance(byFamily.get(family).get(0), moduleRelevance))
-                        .reversed()
+                .sorted(Comparator.comparing((String family) -> byFamily.get(family).get(0), bestFirst)
                         .thenComparing(Comparator.naturalOrder()))
                 .toList();
 
@@ -169,13 +187,13 @@ public class AssistantDataService {
     }
 
     /**
-     * Best retrieval score per module, plus the current page.
+     * Best retrieval score per module.
      *
      * <p>Keyed on the score rather than on mere presence so that a question whose top hit is an
      * expense chunk prefers the expense provider over one matched by a chunk that scraped in at the
      * bottom of the result set.
      */
-    private Map<String, Double> moduleRelevance(AssistantRequestContext context, List<RetrievalResult> knowledge) {
+    private Map<String, Double> knowledgeRelevance(List<RetrievalResult> knowledge) {
         Map<String, Double> relevance = new HashMap<>();
         if (knowledge != null) {
             for (RetrievalResult result : knowledge) {
@@ -183,6 +201,12 @@ public class AssistantDataService {
                 relevance.merge(result.getModule(), result.getScore(), Math::max);
             }
         }
+        return relevance;
+    }
+
+    /** {@link #knowledgeRelevance} plus the page the user is on. */
+    private Map<String, Double> withCurrentPage(AssistantRequestContext context, Map<String, Double> knowledgeRelevance) {
+        Map<String, Double> relevance = new HashMap<>(knowledgeRelevance);
         if (context.getCurrentModule() != null) {
             relevance.merge(context.getCurrentModule(), CURRENT_PAGE_RELEVANCE, Math::max);
         }
@@ -206,7 +230,7 @@ public class AssistantDataService {
     }
 
     /** One provider's contribution. */
-    public record Section(String providerId, String title, String body) {}
+    public record Section(String providerId, String title, DataScope scope, String body) {}
 
     /** Everything fetched for one turn. */
     @Data

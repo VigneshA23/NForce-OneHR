@@ -15,7 +15,8 @@ import {
   type PenaltyRow, type PenaltyFilters, type AttendancePenaltyStatus, type RegularizationRecord,
 } from '../api/attendance';
 import { KebabMenu } from '../components/KebabMenu';
-import { leaveApi, type LeaveRequestRecord } from '../api/leave';
+import { leaveApi, type LeaveBalance, type LeaveRequestRecord } from '../api/leave';
+import { attendanceRequestApi, type AttendanceRequestRecord } from '../api/attendanceRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { approvalCenterApi, type ApprovalItem } from '../api/approvalCenter';
 import {
@@ -91,6 +92,9 @@ function fmtEffectiveDate(iso: string) {
 }
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEK_CHIPS = ['M', 'T', 'W', 'T', 'F'];
+// Team calendar rows per page — a full month's daily indicators makes each row wide, so a large
+// team (30+ direct reports) otherwise turns the calendar into an unbroken multi-screen scroll.
+const TEAM_CALENDAR_PAGE_SIZE = 15;
 
 /* ── Shared style constants (matching ApprovalsPage.tsx / LeavePage.tsx exactly) ── */
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
@@ -522,14 +526,61 @@ function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React
 }
 
 /* ── Calendar day-cell classification ── */
-type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing';
-const DAY_COLORS: Record<Exclude<DayCategory, 'plain'>, string> = {
+type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing' | 'not-joined';
+const DAY_COLORS: Record<Exclude<DayCategory, 'plain' | 'not-joined'>, string> = {
   holiday: '#2FA36B',
   'weekly-off': '#D4922E',
   leave: '#818CF8',
   wfh: 'var(--info)',
   missing: 'var(--risk)',
 };
+
+/* ── WFH / On duty: driven by APPROVED WFH requests only ──
+ * Never by the employee's profile work mode (a HYBRID/REMOTE employee who didn't raise a WFH
+ * request is not WFH that day) nor by a Web Clock-In (that has its own "Remote clock-ins" card).
+ * There is no separate On Duty request type in the schema, so WFH is the only source. */
+function wfhPeopleFrom(requests: AttendanceRequestRecord[]): { userId: string; fullName: string }[] {
+  const seen = new Set<string>();
+  const list: { userId: string; fullName: string }[] = [];
+  requests.forEach(r => {
+    if (r.status === 'APPROVED' && r.requestType === 'WFH' && !seen.has(r.employeeUserId)) {
+      seen.add(r.employeeUserId);
+      list.push({ userId: r.employeeUserId, fullName: r.employeeName });
+    }
+  });
+  return list;
+}
+
+function formatDays(n: number): string {
+  const v = Number(n);
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/** Roster card's current-year leave balance, one entry per paid leave type (`null` = loading). */
+function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
+  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span style={labelStyle}>Leave balance</span>
+      {balances === null ? (
+        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Loading…</span>
+      ) : balances.length === 0 ? (
+        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No balance on file</span>
+      ) : balances.map(b => (
+        <span key={b.leaveTypeCode} style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+          {b.leaveTypeName}: <strong style={{ color: 'var(--txt)' }}>{formatDays(b.remainingDays)}</strong> of {formatDays(b.totalDays)} days remaining
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** `${employeeUserId}:${requestDate}` keys for approved WFH requests — calendar day-cell lookup. */
+function wfhDayKeysFrom(requests: AttendanceRequestRecord[]): Set<string> {
+  return new Set(requests
+    .filter(r => r.status === 'APPROVED' && r.requestType === 'WFH')
+    .map(r => `${r.employeeUserId}:${r.requestDate}`));
+}
 
 /* ── Shared: date-range control for the leaderboard/negligence tabs ── */
 function DateRangeControl({ from, to, onFrom, onTo }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void }) {
@@ -1843,9 +1894,9 @@ function ReportsTab({ token }: { token: string }) {
 }
 
 /* ── "Appreciate your lead" / peer kudos (ONEHR-73) ── */
-interface KudosTarget { userId: string; name: string; }
+export interface KudosTarget { userId: string; name: string; }
 
-function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
+export function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
   const small = size === 'small';
   return (
     <button onClick={onClick} style={{
@@ -1862,7 +1913,7 @@ function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; 
 
 const KUDOS_CATEGORIES = ['Great Work', 'Teamwork', 'Leadership', 'Extra Mile'];
 
-function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
+export function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
   const { showToast } = useToast();
   const [category, setCategory] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -1950,15 +2001,25 @@ function PeersView({ token }: { token: string }) {
   const [monthAttendance, setMonthAttendance] = useState<AttendanceRecord[]>([]);
   const [monthLeave, setMonthLeave] = useState<LeaveRequestRecord[]>([]);
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  // See the manager-facing Team calendar's own note on TEAM_CALENDAR_PAGE_SIZE — same reasoning,
+  // just for the project-team roster instead of direct reports.
+  const [calendarPage, setCalendarPage] = useState(0);
 
   const [search, setSearch] = useState('');
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
+  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'onTime' | 'late' | 'wfh' | 'remote'>(null);
+  const [todayWfh, setTodayWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [monthWfh, setMonthWfh] = useState<AttendanceRequestRecord[]>([]);
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
+    directoryApi.myManager(token)
+      // No manager comes back as an empty 200 body (→ {}), not just 204/null — hence `m?.userId`.
+      .then(m => setManager(m?.userId ? { userId: m.userId, name: m.fullName } : null))
+      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -1967,6 +2028,10 @@ function PeersView({ token }: { token: string }) {
 
   useEffect(() => {
     leaveApi.peers(today, today, token).then(setTodayLeave).catch(() => setTodayLeave([]));
+  }, [token, today]);
+
+  useEffect(() => {
+    attendanceRequestApi.peerApprovedWfh(today, today, token).then(setTodayWfh).catch(() => setTodayWfh([]));
   }, [token, today]);
 
   useEffect(() => {
@@ -1980,7 +2045,8 @@ function PeersView({ token }: { token: string }) {
     Promise.all([
       attendanceApi.peersMonth(from, to, token).catch(() => []),
       leaveApi.peers(from, to, token).catch(() => []),
-    ]).then(([att, lv]) => { setMonthAttendance(att); setMonthLeave(lv); });
+      attendanceRequestApi.peerApprovedWfh(from, to, token).catch(() => []),
+    ]).then(([att, lv, wfh]) => { setMonthAttendance(att); setMonthLeave(lv); setMonthWfh(wfh); });
   }, [token, viewDate]);
 
   const attendanceByEmployee = useMemo(() => new Map(todayRecords.map(r => [r.employeeUserId, r])), [todayRecords]);
@@ -2001,17 +2067,7 @@ function PeersView({ token }: { token: string }) {
   const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
-  const wfhOnDutyEmployees = useMemo(() => {
-    const seen = new Set<string>();
-    const list: { userId: string; fullName: string }[] = [];
-    todayRecords.forEach(r => {
-      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
-        seen.add(r.employeeUserId);
-        list.push({ userId: r.employeeUserId, fullName: r.fullName });
-      }
-    });
-    return list;
-  }, [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => wfhPeopleFrom(todayWfh), [todayWfh]);
   const onTimeCount = onTimeEmployees.length;
   const lateCount = lateEmployees.length;
   const remoteClockInCount = remoteClockInEmployees.length;
@@ -2033,22 +2089,42 @@ function PeersView({ token }: { token: string }) {
     monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
     return m;
   }, [monthAttendance]);
+  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
 
   function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
     if (onLeave) return 'leave';
+    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
     const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return (record.workMode && record.workMode !== 'ONSITE') || record.source === 'WEB_REMOTE' ? 'wfh' : 'plain';
+    if (record) return 'plain';
     if (iso >= today) return 'plain';
     return 'missing';
   }
 
   const OVERFLOW_LIMIT = 6;
 
+  // Team calendar pagination — see the manager-facing view's own comment on TEAM_CALENDAR_PAGE_SIZE.
+  const calendarTotalPages = Math.max(1, Math.ceil(peers.length / TEAM_CALENDAR_PAGE_SIZE));
+  const calendarPageSafe = Math.min(calendarPage, calendarTotalPages - 1);
+  const pagedPeers = peers.slice(
+    calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE, calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + TEAM_CALENDAR_PAGE_SIZE);
+
   return (
     <div>
+      {/* Reporting manager — "Appreciate your lead" */}
+      {manager && (
+        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Avatar userId={manager.userId} name={manager.name} size={38} />
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{manager.name}</div>
+          </div>
+          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
+        </div>
+      )}
+
       {/* Who's on leave / Not in yet */}
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
@@ -2154,7 +2230,11 @@ function PeersView({ token }: { token: string }) {
       <div style={{ ...panelStyle, marginBottom: 16 }}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Team calendar</span>
-          <span style={panelCountStyle}>{peers.length} {peers.length === 1 ? 'person' : 'people'} · project team</span>
+          <span style={panelCountStyle}>
+            {calendarTotalPages > 1
+              ? `${calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + 1}–${Math.min(peers.length, (calendarPageSafe + 1) * TEAM_CALENDAR_PAGE_SIZE)} of ${peers.length} · project team`
+              : `${peers.length} ${peers.length === 1 ? 'person' : 'people'} · project team`}
+          </span>
         </div>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 8, padding: 4 }}>
@@ -2188,7 +2268,7 @@ function PeersView({ token }: { token: string }) {
               </tr>
             </thead>
             <tbody>
-              {peers.map(p => (
+              {pagedPeers.map(p => (
                 <tr key={p.userId} style={inactiveDimStyle(p.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2207,8 +2287,8 @@ function PeersView({ token }: { token: string }) {
                         <div style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: (category === 'plain' || category === 'not-joined') ? 'transparent' : DAY_COLORS[category],
+                          color: (category === 'plain' || category === 'not-joined') ? 'var(--txt-dim)' : '#fff',
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
                           {d}
@@ -2221,6 +2301,13 @@ function PeersView({ token }: { token: string }) {
             </tbody>
           </table>
         </div>
+        {calendarTotalPages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
+            <button onClick={() => setCalendarPage(p => Math.max(0, p - 1))} disabled={calendarPageSafe === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe === 0 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe === 0 ? 0.5 : 1 }}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {calendarPageSafe + 1} of {calendarTotalPages}</span>
+            <button onClick={() => setCalendarPage(p => Math.min(calendarTotalPages - 1, p + 1))} disabled={calendarPageSafe >= calendarTotalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe >= calendarTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe >= calendarTotalPages - 1 ? 0.5 : 1 }}>Next →</button>
+          </div>
+        )}
       </div>
 
       {/* Peer directory grid — same information density as DirectoryPage.tsx's detail drawer
@@ -2287,15 +2374,17 @@ function PeersView({ token }: { token: string }) {
 }
 
 /* ══ Regularize & Cancel Penalties ══ */
-const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED'];
+const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED', 'NOT_PENALIZED'];
 const PENALTY_STATUS_LABEL: Record<AttendancePenaltyStatus, string> = {
   PENDING_REVIEW: 'Pending Review', APPLIED: 'Applied', CANCELLED: 'Cancelled', REVERSED: 'Reversed',
+  NOT_PENALIZED: 'Not Penalized',
 };
 const PENALTY_STATUS_STYLE: Record<AttendancePenaltyStatus, { bg: string; fg: string }> = {
   PENDING_REVIEW: { bg: 'rgba(224,169,59,.16)', fg: 'var(--warn)' },
   APPLIED: { bg: 'rgba(228,55,61,.15)', fg: 'var(--risk)' },
   CANCELLED: { bg: 'var(--raised2)', fg: 'var(--txt-dim)' },
   REVERSED: { bg: 'rgba(76,141,214,.16)', fg: 'var(--info)' },
+  NOT_PENALIZED: { bg: 'var(--raised2)', fg: 'var(--txt-mut)' },
 };
 
 function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
@@ -2308,8 +2397,8 @@ function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
   );
 }
 
-// Approved discrepancy/anomaly identifiers (ExceptionType constants) — not every one has a
-// detector wired up yet, but all six are valid values a future policy engine may produce.
+// Discrepancy identifiers (ExceptionType constants). Late Arrival, Early Departure and Missing
+// Punch rows also appear un-penalized (status NOT_PENALIZED) — see AttendancePenaltyService#list.
 const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH'];
 const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
   NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
@@ -2457,7 +2546,7 @@ function PenaltiesTab({ token }: { token: string }) {
     <div style={panelStyle}>
       <div style={panelHeadStyle}>
         <span style={panelTitleStyle}>Regularize &amp; Cancel Penalties</span>
-        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'penalty' : 'penalties'}</span>
+        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'record' : 'records'}</span>
       </div>
 
       <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -2535,7 +2624,7 @@ function PenaltiesTab({ token }: { token: string }) {
             {loading ? (
               <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties found for the selected filters.</td></tr>
+              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties or incidents found for the selected filters.</td></tr>
             ) : rows.map(r => (
               <tr key={r.id}>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
@@ -2647,6 +2736,10 @@ export default function MyTeamPage() {
   const [viewDate, setViewDate] = useState(() => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1); });
   const [monthAttendance, setMonthAttendance] = useState<AttendanceRecord[]>([]);
   const [monthLeave, setMonthLeave] = useState<LeaveRequestRecord[]>([]);
+  // Team calendar pagination — a large team's calendar (one row per report, one column per day of
+  // the month) otherwise renders every report at once with no way to jump to a specific person
+  // without scrolling past dozens of rows first.
+  const [calendarPage, setCalendarPage] = useState(0);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'IN' | 'OUT' | 'NOT_IN_YET' | 'LEAVE'>(() => {
@@ -2657,6 +2750,9 @@ export default function MyTeamPage() {
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'teamSize' | 'onTime' | 'late' | 'wfh' | 'remote' | 'attention'>(null);
+  const [todayWfh, setTodayWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [monthWfh, setMonthWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [teamBalances, setTeamBalances] = useState<LeaveBalance[] | null>(null);
   // Separate from `viewing`/EmployeeDetailModal (the main roster's "View" button, unchanged) —
   // avatars inside the "Not in yet today" card open employment details instead.
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
@@ -2720,6 +2816,16 @@ export default function MyTeamPage() {
     leaveApi.team(today, today, token).then(setTodayLeave).catch(() => setTodayLeave([]));
   }, [token, today, isEmployee]);
 
+  useEffect(() => {
+    if (isEmployee) return;
+    attendanceRequestApi.teamApprovedWfh(today, today, token).then(setTodayWfh).catch(() => setTodayWfh([]));
+  }, [token, today, isEmployee]);
+
+  useEffect(() => {
+    if (isEmployee) return;
+    leaveApi.listTeamBalances(token).then(setTeamBalances).catch(() => setTeamBalances([]));
+  }, [token, isEmployee]);
+
   const weekStart = useMemo(() => mondayOf(new Date()), []);
   const weekEnd = useMemo(() => addDays(weekStart, 4), [weekStart]);
 
@@ -2746,12 +2852,23 @@ export default function MyTeamPage() {
     Promise.all([
       attendanceApi.teamMonth(from, to, token).catch(() => []),
       leaveApi.team(from, to, token).catch(() => []),
-    ]).then(([att, lv]) => { setMonthAttendance(att); setMonthLeave(lv); });
+      attendanceRequestApi.teamApprovedWfh(from, to, token).catch(() => []),
+    ]).then(([att, lv, wfh]) => { setMonthAttendance(att); setMonthLeave(lv); setMonthWfh(wfh); });
   }, [token, viewDate, isEmployee]);
 
   const attendanceByEmployee = useMemo(() => new Map(todayRecords.map(r => [r.employeeUserId, r])), [todayRecords]);
   const directoryByEmployee = useMemo(() => new Map(directory.map(d => [d.userId, d])), [directory]);
   const onLeaveToday = useMemo(() => new Map(todayLeave.map(l => [l.employeeUserId, l])), [todayLeave]);
+  const balancesByEmployee = useMemo(() => {
+    const m = new Map<string, LeaveBalance[]>();
+    (teamBalances ?? []).forEach(b => {
+      if (!b.employeeUserId) return;
+      const arr = m.get(b.employeeUserId) ?? [];
+      arr.push(b);
+      m.set(b.employeeUserId, arr);
+    });
+    return m;
+  }, [teamBalances]);
   const attentionItems = useMemo(() => pendingItems.filter(i => i.requestType === 'LEAVE' || i.requestType === 'REGULARIZATION'), [pendingItems]);
   const requestsByEmployee = useMemo(() => {
     const m = new Map<string, ApprovalItem[]>();
@@ -2781,17 +2898,7 @@ export default function MyTeamPage() {
   const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
-  const wfhOnDutyEmployees = useMemo(() => {
-    const seen = new Set<string>();
-    const list: { userId: string; fullName: string }[] = [];
-    todayRecords.forEach(r => {
-      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
-        seen.add(r.employeeUserId);
-        list.push({ userId: r.employeeUserId, fullName: r.fullName });
-      }
-    });
-    return list;
-  }, [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => wfhPeopleFrom(todayWfh), [todayWfh]);
   const onTimeCount = onTimeEmployees.length;
   const lateCount = lateEmployees.length;
   const remoteClockInCount = remoteClockInEmployees.length;
@@ -2829,20 +2936,31 @@ export default function MyTeamPage() {
     monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
     return m;
   }, [monthAttendance]);
+  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
 
-  function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
+  function classifyDay(iso: string, dow: number, employeeUserId: string, joiningDate?: string | null): DayCategory {
+    if (joiningDate && iso < joiningDate) return 'not-joined';
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
     if (onLeave) return 'leave';
+    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
     const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return (record.workMode && record.workMode !== 'ONSITE') || record.source === 'WEB_REMOTE' ? 'wfh' : 'plain';
+    if (record) return 'plain';
     if (iso >= today) return 'plain';
     return 'missing';
   }
 
   // ── Out this week ──
   const weekDayDates = [0, 1, 2, 3, 4].map(i => addDays(weekStart, i));
+
+  // Team calendar pagination — clamped rather than reset outright, so switching months doesn't
+  // quietly bounce someone mid-team back to page 1; it only steps back when the current page no
+  // longer exists at all (e.g. the team shrank).
+  const calendarTotalPages = Math.max(1, Math.ceil(directReports.length / TEAM_CALENDAR_PAGE_SIZE));
+  const calendarPageSafe = Math.min(calendarPage, calendarTotalPages - 1);
+  const pagedDirectReports = directReports.slice(
+    calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE, calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + TEAM_CALENDAR_PAGE_SIZE);
 
   return (
     <div>
@@ -3004,7 +3122,11 @@ export default function MyTeamPage() {
       <div style={{ ...panelStyle, marginBottom: 16 }}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Team calendar</span>
-          <span style={panelCountStyle}>{directReports.length} {directReports.length === 1 ? 'person' : 'people'}</span>
+          <span style={panelCountStyle}>
+            {calendarTotalPages > 1
+              ? `${calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + 1}–${Math.min(directReports.length, (calendarPageSafe + 1) * TEAM_CALENDAR_PAGE_SIZE)} of ${directReports.length}`
+              : `${directReports.length} ${directReports.length === 1 ? 'person' : 'people'}`}
+          </span>
         </div>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 8, padding: 4 }}>
@@ -3038,7 +3160,7 @@ export default function MyTeamPage() {
               </tr>
             </thead>
             <tbody>
-              {directReports.map(dr => (
+              {pagedDirectReports.map(dr => (
                 <tr key={dr.userId} style={inactiveDimStyle(dr.active)}>
                   <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3050,18 +3172,19 @@ export default function MyTeamPage() {
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
                     const iso = toISODate(year, month, d);
                     const dow = new Date(year, month, d).getDay();
-                    const category = classifyDay(iso, dow, dr.userId);
+                    const category = classifyDay(iso, dow, dr.userId, dr.joiningDate);
                     const isToday = iso === today;
                     return (
                       <td key={d} style={{ padding: 3, textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
-                        <div style={{
+                        <div title={category === 'not-joined' ? 'Not yet joined' : undefined} style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: category === 'plain' || category === 'not-joined' ? 'transparent' : DAY_COLORS[category],
+                          color: category === 'not-joined' ? 'var(--txt-dim)' : category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          opacity: category === 'not-joined' ? 0.35 : 1,
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
-                          {d}
+                          {category === 'not-joined' ? '' : d}
                         </div>
                       </td>
                     );
@@ -3071,6 +3194,13 @@ export default function MyTeamPage() {
             </tbody>
           </table>
         </div>
+        {calendarTotalPages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
+            <button onClick={() => setCalendarPage(p => Math.max(0, p - 1))} disabled={calendarPageSafe === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe === 0 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe === 0 ? 0.5 : 1 }}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {calendarPageSafe + 1} of {calendarTotalPages}</span>
+            <button onClick={() => setCalendarPage(p => Math.min(calendarTotalPages - 1, p + 1))} disabled={calendarPageSafe >= calendarTotalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe >= calendarTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe >= calendarTotalPages - 1 ? 0.5 : 1 }}>Next →</button>
+          </div>
+        )}
       </div>
 
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
@@ -3121,6 +3251,7 @@ export default function MyTeamPage() {
                     <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{row.leaveTypeName}</span>
                   )}
                 </div>
+                <LeaveBalanceLine balances={teamBalances === null ? null : balancesByEmployee.get(row.dr.userId) ?? []} />
                 {row.requests.length > 0 && (
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                     {groupRequestsByType(row.requests).map(({ type, count }) => (

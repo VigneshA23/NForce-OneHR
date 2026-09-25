@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, MoreVertical, XCircle } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, MoreVertical, XCircle, Mountain, MapPin, type LucideIcon } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -339,11 +339,11 @@ const MONTH_NAMES = [
 ];
 
 const STATUS_COLORS: Record<AttendanceStatus, string> = {
-  PRESENT: '#2FB67C',
-  LATE: '#E0A93B',
-  HALF_DAY: '#4C8DD6',
-  ABSENT: '#E4373D',
-  MISSING_CHECKOUT: '#E4373D',
+  PRESENT: 'var(--ok)',
+  LATE: 'var(--warn)',
+  HALF_DAY: 'var(--info)',
+  ABSENT: 'var(--risk)',
+  MISSING_CHECKOUT: 'var(--risk)',
   // Deliberately not the red used for ABSENT/MISSING_CHECKOUT: approved leave is an accounted-for
   // day, and colouring it like a no-show is what made HR chase people who did nothing wrong.
   ON_LEAVE: '#8B7BD6',
@@ -359,7 +359,7 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
 };
 
 const REGULARIZATION_STATUS_COLOR: Record<string, string> = {
-  PENDING: '#E0A93B', PARTIALLY_APPROVED: '#3B82C4', APPROVED: '#2FB67C', REJECTED: '#E4373D',
+  PENDING: 'var(--warn)', PARTIALLY_APPROVED: 'var(--info)', APPROVED: 'var(--ok)', REJECTED: 'var(--risk)',
 };
 
 /**
@@ -394,8 +394,19 @@ const tdStyle: React.CSSProperties = {
   padding: '10px 12px', fontSize: 12, color: 'var(--txt-mut)',
   borderBottom: '1px solid var(--line)', verticalAlign: 'middle',
 };
+// Attendance Requests / Overtime Requests tables (className "nf-req-table", inside an
+// "nf-req-wrap" container). They sit in the page's left column (~620px at a 1280px viewport,
+// ~790px at 1440px), so — same approach as the Attendance Log — they use `table-layout: fixed` +
+// a percentage colgroup (ReqColGroup) to honor the panel's width instead of sizing to content,
+// with headers allowed to wrap. When the container is too narrow for the columns to stay
+// legible, a container query in index.css restacks each row into a labelled card (every td
+// carries its column name in data-label), so nothing needs sideways scrolling.
+const reqTableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' };
+const reqThStyle: React.CSSProperties = { ...thStyle, padding: '9px 8px', whiteSpace: 'normal', verticalAlign: 'bottom', lineHeight: 1.35 };
+const reqTdStyle: React.CSSProperties = { ...tdStyle, padding: '10px 8px', overflowWrap: 'break-word' };
 const panelStyle: React.CSSProperties = {
   background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden',
+  boxShadow: '0 1px 2px rgba(0,0,0,.06), 0 8px 20px -12px rgba(0,0,0,.25)',
 };
 const dateInputStyle: React.CSSProperties = {
   background: 'var(--raised)', color: 'var(--txt)', border: '1px solid var(--line2)',
@@ -427,15 +438,34 @@ function useCloseOnOutsideClick(ref: React.RefObject<HTMLElement | null>, onOuts
   }, [ref]);
 }
 
+/** Pulsing placeholder rows for a panel mid-fetch — reuses the existing nf-hero-pulse keyframe
+ * (AttendanceHeroBanner's own skeleton) instead of a plain "Loading…" string, so the layout
+ * doesn't visibly pop in once data arrives. */
+function PanelSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0' }}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} style={{
+          height: 14, borderRadius: 4, background: 'var(--raised2)',
+          width: i === rows - 1 ? '60%' : '100%',
+          animation: 'nf-hero-pulse 1.4s ease-in-out infinite',
+        }} />
+      ))}
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: AttendanceStatus | null }) {
   if (!status) return dash;
   const color = STATUS_COLORS[status] ?? 'var(--txt-mut)';
   return (
     <span style={{
-      fontSize: 10, fontWeight: 600, color,
-      background: 'var(--raised)', border: '1px solid var(--line)',
-      borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap',
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      fontSize: 10.5, fontWeight: 700, color,
+      background: `color-mix(in srgb, ${color} 14%, var(--raised))`, border: `1px solid color-mix(in srgb, ${color} 30%, var(--line))`,
+      borderRadius: 5, padding: '2.5px 7px', whiteSpace: 'nowrap',
     }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
       {STATUS_LABELS[status] ?? status}
     </span>
   );
@@ -479,9 +509,17 @@ function LateBadge({ minutes, checkInAt, shiftStartAt, graceMinutes, workedMinut
 }
 
 function RegularizationStatusPill({ status }: { status: string }) {
+  const color = REGULARIZATION_STATUS_COLOR[status] ?? 'var(--txt-mut)';
   return (
-    <span style={{ fontSize: 10, fontWeight: 600, color: REGULARIZATION_STATUS_COLOR[status] ?? '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 6px' }}>
-      {status}
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      fontSize: 10.5, fontWeight: 700, color,
+      background: `color-mix(in srgb, ${color} 14%, var(--raised))`, border: `1px solid color-mix(in srgb, ${color} 30%, var(--line))`,
+      borderRadius: 5, padding: '2.5px 7px',
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      {/* Zero-width space after "_" gives e.g. PARTIALLY_APPROVED a wrap point in a narrow table column. */}
+      {status.replace(/_/g, '_​')}
     </span>
   );
 }
@@ -497,7 +535,7 @@ function RegularizationStatusPill({ status }: { status: string }) {
  * alone never change when a new punch happens today, so without it this list would only ever
  * reflect whatever was on file when the panel first mounted, not the punch that just happened.
  */
-function PunchHistoryList({ date, token, refreshKey }: { date: string; token: string; refreshKey?: unknown }) {
+function PunchHistoryList({ date, token, refreshKey, isPreviewMode = false }: { date: string; token: string; refreshKey?: unknown; isPreviewMode?: boolean }) {
   const [punches, setPunches] = useState<Punch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -505,11 +543,18 @@ function PunchHistoryList({ date, token, refreshKey }: { date: string; token: st
     let cancelled = false;
     setPunches(null);
     setError(null);
+    if (isPreviewMode) {
+      // Mirrors mockPunchesFor's "2 days ago" lunch-break split for a live demo; every other day
+      // (including today's still-open session) is a single session, so this list stays empty
+      // (a single session adds nothing beyond the bookends already shown above — see below).
+      setPunches(daysAgoFromToday(date) === 2 ? mockPunchesFor(mockAttendanceRecord(date, { checkInAt: `${date}T09:05:00` })) : []);
+      return;
+    }
     attendanceApi.punches(date, token)
       .then((p) => { if (!cancelled) setPunches(p); })
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load punch history'); });
     return () => { cancelled = true; };
-  }, [date, token, refreshKey]);
+  }, [date, token, refreshKey, isPreviewMode]);
 
   if (error) {
     return <div style={{ fontSize: 11, color: 'var(--risk)' }}>Punch history: {error}</div>;
@@ -569,6 +614,63 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
       <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
+  );
+}
+
+/**
+ * ONE consistent detail-interaction shell for the Attendance dashboard — a right-side sliding
+ * drawer, used by every "click for more detail" interaction added across Today, Attendance
+ * Health, the KPI tiles, and the Attendance Log (replacing what used to be several different
+ * centered modals for the same kind of read-only detail view). Action forms (Regularize, Web
+ * Clock-In, Partial Day, etc.) are unaffected — those keep the existing centered `overlayStyle`/
+ * `modalStyle` modal, since they're a different interaction (a submission, not a detail read).
+ * Reuses `.nf-drawer-responsive` (already defined for other drawers in the app) so it goes
+ * near-full-width on mobile without introducing a new breakpoint convention.
+ */
+function DetailDrawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  // Portaled straight to document.body: several ancestors up the Attendance dashboard carry a
+  // `.nf-section-enter` entrance animation, and a completed CSS animation that touched
+  // `transform` leaves a resolved (identity) transform on the element — which, per the CSS
+  // spec, makes that ancestor a new containing block for `position: fixed` descendants. Nested
+  // normally, the drawer would render clipped to wherever it was mounted instead of the actual
+  // viewport edge. Portaling escapes that entirely, the same way the page's own hover tooltip
+  // (TimelineBar) already does.
+  return createPortal(
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 500 }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="nf-drawer-panel nf-drawer-responsive"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0, width: 420, maxWidth: '94vw',
+          background: 'var(--panel)', borderLeft: '1px solid var(--line)',
+          boxShadow: '-16px 0 44px rgba(0,0,0,.4)', display: 'flex', flexDirection: 'column',
+          zIndex: 501, overflowY: 'auto',
+        }}
+      >
+        <ModalHeader title={title} onClose={onClose} />
+        <div style={{ padding: '6px 22px 24px', flex: 1 }}>{children}</div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -664,6 +766,11 @@ function Tooltip({ content, children }: { content: React.ReactNode; children: Re
       )}
     </>
   );
+}
+
+/** Column widths for a fixed-layout request table — see reqTableStyle. */
+function ReqColGroup({ widths }: { widths: string[] }) {
+  return <colgroup>{widths.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>;
 }
 
 /** Single-line, ellipsis-truncated text with a hover tooltip revealing the full content. */
@@ -942,7 +1049,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             {submitAttempted && !reason.trim() && <div style={fieldErrorStyle}>Note is required.</div>}
           </Field>
 
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', ['--nf-modal-pad' as string]: '24px' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
             {/* Never disabled for dateAlreadyApproved/beforeJoiningDate/dateOutsideWindow — those
                 are policy violations surfaced only after a Request click (see submitAttempted),
@@ -1343,17 +1450,195 @@ function RosterTable({ rows, loading, emptyMessage }: {
 }
 
 // ─── Month summary tile ────────────────────────────────────────────────────────
-function MonthStatTile({ label, value, hint }: { label: string; value: string; hint: string }) {
+/**
+ * Clickable when `onClick` is given (every KPI tile on the Attendance dashboard) — renders as a
+ * real <button> in that case so it's keyboard-accessible, otherwise a plain div (no dashboard
+ * caller currently omits onClick, but the prop stays optional so the component isn't forced to
+ * always be interactive).
+ */
+/** % change vs. the previous calendar month — real data (prevMonthRecords, fetched the same
+ * way as the current month's), never a placeholder. Null when there's nothing to compare
+ * against (previous month had zero of whatever's being measured). */
+function monthDeltaPct(current: number, prev: number): number | null {
+  if (prev <= 0) return current > 0 ? 100 : null;
+  return Math.round(((current - prev) / prev) * 100);
+}
+
+/** Tiny bar sparkline — one bar per day already in `monthRecords`, height proportional to that
+ * day's value out of the month's max. Purely a compact rendering of real per-day data already
+ * fetched for the KPI row's own metric (present/worked-minutes/late-minutes/absent/leave), never
+ * a separate call or a fabricated series. */
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  const max = Math.max(...values, 1);
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: '14px 16px' }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 7 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 5 }}>{hint}</div>
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 22 }}>
+      {values.map((v, i) => (
+        <div
+          key={i}
+          style={{
+            width: 3, borderRadius: 1, flexShrink: 0,
+            height: `${Math.max(8, (v / max) * 100)}%`,
+            background: v > 0 ? color : 'var(--raised2)',
+          }}
+        />
+      ))}
     </div>
+  );
+}
+
+function MonthStatTile({ label, value, hint, icon: Icon, accent = 'var(--brand)', onClick, delta, trend }: {
+  label: string; value: string; hint: string; icon: LucideIcon; accent?: string; onClick?: () => void;
+  /** `goodDirection: 'up'` means a higher number is the good outcome (e.g. Days Present) —
+   * flips the up/down color so a metric like Late Arrivals still shows red when it rises. */
+  delta?: { pct: number; goodDirection: 'up' | 'down' };
+  /** Per-day values for the month (same order as monthRecords), rendered as a tiny sparkline. */
+  trend?: number[];
+}) {
+  const Tag = onClick ? 'button' : 'div';
+  const deltaUp = delta ? delta.pct >= 0 : false;
+  const deltaGood = delta ? (delta.goodDirection === 'up' ? deltaUp : !deltaUp) : false;
+  const deltaColor = delta ? (delta.pct === 0 ? 'var(--txt-dim)' : deltaGood ? 'var(--ok)' : 'var(--risk)') : undefined;
+  return (
+    <Tag
+      onClick={onClick}
+      className="nf-insight-tile nf-section-enter"
+      style={{
+        background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: '14px 16px',
+        display: 'flex', flexDirection: 'column', gap: 7, textAlign: 'left', width: '100%',
+        font: 'inherit', cursor: onClick ? 'pointer' : 'default',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+          {label}
+        </div>
+        <div style={{
+          width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          background: `color-mix(in srgb, ${accent} 14%, var(--raised))`,
+        }}>
+          <Icon size={13} style={{ color: accent }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: 23, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>
+          {value}
+        </span>
+        {delta && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, color: deltaColor }}>
+            {delta.pct === 0 ? null : deltaUp ? <ArrowUpRight size={12} /> : <ArrowDownLeft size={12} />}
+            {Math.abs(delta.pct)}%
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{hint}</span>
+        {onClick && <ChevronRight size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} />}
+      </div>
+      {trend && trend.length > 1 && <Sparkline values={trend} color={accent} />}
+    </Tag>
+  );
+}
+
+type KpiKind = 'PRESENT' | 'WORKED_HOURS' | 'LATE' | 'ABSENT' | 'LEAVE_HOLIDAY';
+
+/**
+ * Detail drawer opened by clicking a KPI tile — every field here is read straight off data the
+ * dashboard already fetched (monthRecords/holidayByDate/leaveByDate), just filtered per-kind and
+ * listed out; no new API calls, no new business logic. In preview mode the same mock
+ * monthRecords/holiday/leave maps MyAttendance already builds are passed straight through.
+ */
+function KpiDetailModal({ kind, monthLabel, monthRecords, leaveHolidayEntries, config, onClose }: {
+  kind: KpiKind;
+  monthLabel: string;
+  monthRecords: AttendanceRecord[];
+  leaveHolidayEntries: { iso: string; label: string; kind: 'Holiday' | 'Leave' }[];
+  config: AttendanceConfig | null;
+  onClose: () => void;
+}) {
+  const { formatTime, formatDuration } = useTimeFormat();
+
+  const TITLES: Record<KpiKind, string> = {
+    PRESENT: 'Days Present', WORKED_HOURS: 'Worked Hours', LATE: 'Late Arrivals',
+    ABSENT: 'Absent Days', LEAVE_HOLIDAY: 'Leave & Holidays',
+  };
+
+  const sorted = [...monthRecords].sort((a, b) => b.workDate.localeCompare(a.workDate));
+  const presentRecords = sorted.filter((r) => r.checkInAt);
+  const lateRecords = sorted.filter((r) => r.status === 'LATE');
+  const absentRecords = sorted.filter((r) => r.status === 'ABSENT');
+  const workedTotal = presentRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
+
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '9px 0', borderTop: '1px solid var(--line)' };
+  const emptyStyle: React.CSSProperties = { padding: '18px 0', textAlign: 'center', fontSize: 12.5, color: 'var(--txt-dim)' };
+
+  let body: React.ReactNode;
+  if (kind === 'PRESENT' || kind === 'WORKED_HOURS') {
+    const list = presentRecords;
+    body = (
+      <>
+        {kind === 'WORKED_HOURS' && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+            <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>Total this month</span>
+            <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif' }}>{formatDuration(workedTotal) ?? '0m'}</span>
+          </div>
+        )}
+        {list.length === 0 ? <div style={emptyStyle}>No present days recorded for {monthLabel}.</div> : list.map((r) => (
+          <div key={r.workDate} style={rowStyle}>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{formatDay(r.workDate)}</div>
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
+                {formatTime(r.checkInAt) ?? dash} – {formatTime(r.checkOutAt) ?? dash}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{formatDuration(r.workedMinutes) ?? dash}</div>
+              <div style={{ marginTop: 3 }}><StatusPill status={r.status} /></div>
+            </div>
+          </div>
+        ))}
+      </>
+    );
+  } else if (kind === 'LATE') {
+    body = lateRecords.length === 0 ? <div style={emptyStyle}>No late arrivals in {monthLabel}.</div> : lateRecords.map((r) => (
+      <div key={r.workDate} style={rowStyle}>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{formatDay(r.workDate)}</div>
+          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
+            Checked in {formatTime(r.checkInAt) ?? dash}{config?.shiftStart ? ` · expected ${formatTime(`${r.workDate}T${config.shiftStart}`)}` : ''}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#E0A93B', fontSize: 12, fontWeight: 700 }}>
+          <Turtle size={14} /> {formatDuration(r.lateByMinutes) ?? dash} late
+        </div>
+      </div>
+    ));
+  } else if (kind === 'ABSENT') {
+    body = absentRecords.length === 0 ? <div style={emptyStyle}>No absences in {monthLabel}.</div> : absentRecords.map((r) => (
+      <div key={r.workDate} style={rowStyle}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{formatDay(r.workDate)}</div>
+        <StatusPill status={r.status} />
+      </div>
+    ));
+  } else {
+    body = leaveHolidayEntries.length === 0 ? <div style={emptyStyle}>No leave or holidays in {monthLabel}.</div> : leaveHolidayEntries.map((e) => (
+      <div key={e.iso} style={rowStyle}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{formatDay(e.iso)}</div>
+        <span style={{
+          ...DAY_TAG_STYLE, marginTop: 0,
+          background: e.kind === 'Holiday' ? 'rgba(76,141,214,.15)' : 'rgba(47,182,124,.15)',
+          color: e.kind === 'Holiday' ? '#4C8DD6' : '#2FB67C',
+        }}>
+          {e.kind === 'Holiday' ? e.label : e.label}
+        </span>
+      </div>
+    ));
+  }
+
+  return (
+    <DetailDrawer title={TITLES[kind]} onClose={onClose}>
+      <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 4 }}>{monthLabel}</div>
+      {body}
+    </DetailDrawer>
   );
 }
 
@@ -1422,8 +1707,32 @@ function DayCellBadge({ info }: { info: DayInfo }) {
   return <>{primaryDayBadge(info)}</>;
 }
 
+/** Same precedence as primaryDayBadge, just the color — used by MonthCalendar's `compact` mode
+ * (a small status dot instead of a labelled pill), so a narrow rail widget doesn't overflow. */
+function primaryDayColor(info: DayInfo): string | null {
+  if (info.holidayName) return '#4C8DD6';
+  if (info.leaveTypeName) return '#2FB67C';
+  if (info.regularization) return '#2FB67C';
+  if (info.attendanceRequest) return info.attendanceRequest.requestType === 'WFH' ? '#4C8DD6' : '#E0A93B';
+  if (info.record?.status) return STATUS_COLORS[info.record.status] ?? null;
+  if (info.isWeekend) return '#9BA1AC';
+  return null;
+}
+
+/** Legend swatches for the calendar's day-cell badge colors — same colors as primaryDayBadge/
+ * InlineDayBadge, just surfaced once above the grid instead of only inferable from cell tags. */
+const CALENDAR_LEGEND: { label: string; color: string }[] = [
+  { label: 'Present', color: STATUS_COLORS.PRESENT },
+  { label: 'Late', color: STATUS_COLORS.LATE },
+  { label: 'Half Day', color: STATUS_COLORS.HALF_DAY },
+  { label: 'Absent', color: STATUS_COLORS.ABSENT },
+  { label: 'Holiday', color: '#4C8DD6' },
+  { label: 'Leave', color: '#2FB67C' },
+  { label: 'Weekly-off', color: '#9BA1AC' },
+];
+
 function MonthCalendar({
-  year, month, dayInfo, selectedDate, onSelect, onPrev, onNext,
+  year, month, dayInfo, selectedDate, onSelect, onPrev, onNext, onToday, compact = false,
 }: {
   year: number; month: number;
   dayInfo: (day: number) => DayInfo;
@@ -1431,56 +1740,101 @@ function MonthCalendar({
   onSelect: (iso: string) => void;
   onPrev: () => void;
   onNext: () => void;
+  /** Jumps straight back to the current month — omitted for the compact mini-calendar, where
+   * the header has no room for a third control. */
+  onToday?: () => void;
+  /** Smaller cells with a status dot instead of a labelled pill — for the Attendance Log's
+   * persistent mini-calendar rail, where a full-size pill would overflow a narrow column.
+   * Same underlying data/precedence as the full calendar (primaryDayColor mirrors
+   * primaryDayBadge) — purely a smaller rendering, no behavior change. */
+  compact?: boolean;
 }) {
   const cells = useMemo(() => buildCalendarCells(year, month), [year, month]);
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
 
   return (
-    <div style={panelStyle}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--txt)' }}>
+    <div className={compact ? 'nf-section-enter' : 'nf-section-enter nf-month-cal'} style={panelStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: compact ? '10px 14px' : '12px 16px', borderBottom: '1px solid var(--line)' }}>
+        <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: compact ? 12.5 : 14, color: 'var(--txt)' }}>
           {calendarMonthLabel(year, month)}
         </span>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={onPrev} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+          {onToday && (
+            <button
+              onClick={onToday}
+              disabled={isCurrentMonth}
+              aria-label="Jump to current month"
+              style={{
+                background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '4px 10px',
+                cursor: isCurrentMonth ? 'default' : 'pointer', color: isCurrentMonth ? 'var(--txt-dim)' : 'var(--txt-mut)',
+                fontSize: 11, fontWeight: 600, opacity: isCurrentMonth ? 0.6 : 1,
+              }}
+            >
+              Today
+            </button>
+          )}
+          <button onClick={onPrev} aria-label="Previous month" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
             <ChevronLeft size={14} />
           </button>
-          <button onClick={onNext} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
+          <button onClick={onNext} aria-label="Next month" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
             <ChevronRight size={14} />
           </button>
         </div>
       </div>
-      <div style={{ padding: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5, marginBottom: 5 }}>
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-            <div key={d} style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', textAlign: 'center', letterSpacing: '.05em' }}>
+      {!compact && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
+          {CALENDAR_LEGEND.map((l) => (
+            <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--txt-dim)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: l.color, flexShrink: 0 }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ padding: compact ? 10 : 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: compact ? 3 : 5, marginBottom: 5 }}>
+          {(compact ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']).map((d, i) => (
+            <div key={i} style={{ fontSize: compact ? 9 : 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', textAlign: 'center', letterSpacing: '.05em' }}>
               {d}
             </div>
           ))}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: compact ? 3 : 5 }}>
           {cells.map((day, i) => {
             if (day == null) return <div key={i} />;
             const info = dayInfo(day);
             const selected = selectedDate === info.iso;
             const disabled = info.isFuture || info.isBeforeJoining;
+            const dotColor = compact ? primaryDayColor(info) : null;
             return (
               <button
                 key={i}
+                className="nf-cal-cell"
                 onClick={() => !disabled && onSelect(info.iso)}
                 disabled={disabled}
                 style={{
-                  minHeight: 58, borderRadius: 6, padding: '5px 5px', textAlign: 'left',
-                  background: selected ? 'rgba(177,17,22,.10)' : 'var(--raised)',
-                  border: info.isToday ? '1.5px solid var(--brand)' : selected ? '1px solid var(--brand)' : '1px solid var(--line)',
+                  minHeight: compact ? 30 : 58, borderRadius: compact ? 6 : 8, padding: compact ? '4px 2px' : '6px 6px',
+                  textAlign: compact ? 'center' : 'left',
+                  background: selected
+                    ? 'color-mix(in srgb, var(--brand) 12%, var(--raised))'
+                    : info.isWeekend ? 'color-mix(in srgb, var(--txt-dim) 6%, var(--raised))' : 'var(--raised)',
+                  border: info.isToday
+                    ? '1.5px solid var(--brand)'
+                    : selected ? '1px solid var(--brand)' : '1px solid var(--line)',
+                  boxShadow: info.isToday ? '0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent)' : 'none',
                   cursor: disabled ? 'default' : 'pointer',
                   opacity: disabled ? 0.45 : 1,
-                  display: 'flex', flexDirection: 'column', gap: 2,
+                  display: 'flex', flexDirection: compact ? 'column' : 'column', alignItems: compact ? 'center' : 'stretch', gap: 2,
+                  minWidth: 0,
                 }}
               >
-                <span style={{ fontSize: 11, fontWeight: 600, color: info.isWeekend ? 'var(--txt-dim)' : 'var(--txt)' }}>
+                <span style={{ fontSize: compact ? 10 : 11.5, fontWeight: 600, color: info.isWeekend ? 'var(--txt-dim)' : 'var(--txt)' }}>
                   {day}
                 </span>
-                {!info.isBeforeJoining && <DayCellBadge info={info} />}
+                {compact
+                  ? (!info.isBeforeJoining && dotColor && <span style={{ width: 5, height: 5, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />)
+                  : (!info.isBeforeJoining && <span className="nf-cal-badge"><DayCellBadge info={info} /></span>)}
               </button>
             );
           })}
@@ -1847,6 +2201,13 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     // whole monthly cap (e.g. 200 minutes against a 120-minute allowance) through untouched.
     // Mirrors the hard check AttendanceRequestService.submit enforces server-side.
     const partialDayLimitMinutes = PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60;
+    // Checked independently of remainingMinutes/balance (which may still be loading or have
+    // failed to load) so an absurd value (e.g. 999999999999) is rejected immediately client-side
+    // instead of only being caught once the request round-trips to the server.
+    if (requestType === 'PARTIAL_DAY' && Number(partialDayMinutes) > partialDayLimitMinutes) {
+      setError(`You are not allowed to raise a request for more than ${partialDayLimitMinutes} minutes.`);
+      return;
+    }
     if (requestType === 'PARTIAL_DAY' && remainingMinutes != null && Number(partialDayMinutes) > remainingMinutes) {
       // Only claim the allowance is "used up" when it actually is (remainingMinutes <= 0) —
       // e.g. 0/120 used, requesting 200 minutes in one shot isn't "you've used your 120
@@ -1874,7 +2235,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   // Balance is intentionally not part of this — insufficient balance never disables Submit,
   // it's confirmed at click time instead (see handleSubmit).
   const canSubmit = !!reason.trim() && !submitting
-    && (requestType !== 'PARTIAL_DAY' || (!timeRequiredError && Number(partialDayMinutes) > 0));
+    && (requestType !== 'PARTIAL_DAY' || (!timeRequiredError && Number(partialDayMinutes) > 0
+      && Number(partialDayMinutes) <= PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60));
 
   return (
     <div style={overlayStyle}>
@@ -2040,7 +2402,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                 <Field label={partialDayModeLabel}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input
-                      type="number" min="1" step="1" inputMode="numeric" value={partialDayMinutes}
+                      type="number" min="1" max={PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60} step="1" inputMode="numeric" value={partialDayMinutes}
                       // Digits only — `type="number"` still lets the browser accept a typed "."
                       // (e.g. "120.333"), so decimals are stripped here rather than relying on
                       // step="1" alone, which only rounds spinner clicks, not free-typed input.
@@ -2057,6 +2419,9 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                     />
                     <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>minutes</span>
                   </div>
+                  {Number(partialDayMinutes) > PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60 && (
+                    <div style={fieldErrorStyle}>You are not allowed to raise a request for more than {PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60} minutes.</div>
+                  )}
                 </Field>
               )}
               {computedMessage && (
@@ -2110,12 +2475,12 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
             />
           </Field>
           <NotifyEmployeeField token={token} value={notifyEntry} onChange={setNotifyEntry} />
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+          <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              style={{ background: canSubmit ? 'var(--brand)' : 'var(--raised2)', color: canSubmit ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, fontWeight: 600, cursor: !canSubmit ? 'not-allowed' : 'pointer' }}
+              style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, fontWeight: 600, cursor: !canSubmit ? 'not-allowed' : 'pointer', opacity: canSubmit ? 1 : 0.55 }}
             >
               {submitting ? 'Submitting…' : 'Submit for Approval'}
             </button>
@@ -2129,10 +2494,56 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
 // ─── Attendance Stats: Me vs My Team ───────────────────────────────────────────
 type StatsRange = 'WEEK' | 'MONTH';
 
-function AttendanceStatsPanel({ token }: { token: string }) {
+/** Small inline ring used inside the Attendance Health panel — same draw mechanics as the Today
+ * hero's ring (see RING_RADIUS/RING_CIRCUMFERENCE above), just scaled down and single-purpose. */
+function MiniRing({ pct, color, size = 40, stroke = 5 }: { pct: number; color: string; size?: number; stroke?: number }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - Math.max(0, Math.min(100, pct)) / 100);
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--raised2)" strokeWidth={stroke} />
+      <circle className="nf-ring-progress" cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={offset} />
+    </svg>
+  );
+}
+
+/**
+ * "Attendance Health" — same AttendanceStats data/range toggle as before (attendanceApi.stats,
+ * WEEK/MONTH), just presented as scannable insight tiles (on-time ring + avg-hours comparison)
+ * instead of a plain Me/Team table. No new metrics — everything here already existed in `stats`.
+ */
+/** One row of the Attendance Health breakdown list — a colored dot, a label, and a count,
+ * mirroring the calendar/log's own status colors (STATUS_COLORS, DAY_TAG_STYLE) so "Present" or
+ * "Holiday" here means the same color everywhere else on the page. */
+function HealthBreakdownRow({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--txt-mut)' }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
+        {label}
+      </span>
+      <span style={{ fontWeight: 700, color: 'var(--txt)' }}>{value}</span>
+    </div>
+  );
+}
+
+function AttendanceStatsPanel({
+  token, isPreviewMode = false, presentDaysCount, lateCount, absentCount, weeklyOffCount, holidayCount, consideredDaysCount,
+}: {
+  token: string; isPreviewMode?: boolean;
+  /** Selected-month counts already computed in MyAttendance from monthRecords/getDayInfo — same
+   * numbers the KPI tiles and calendar show, just summarized here as one glanceable breakdown. */
+  presentDaysCount: number; lateCount: number; absentCount: number; weeklyOffCount: number; holidayCount: number;
+  /** Non-future, non-before-joining days elapsed so far this month — the denominator for the
+   * ring's Present %. */
+  consideredDaysCount: number;
+}) {
   const [range, setRange] = useState<StatsRange>('WEEK');
   const [stats, setStats] = useState<AttendanceStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statsDrawer, setStatsDrawer] = useState<'ME' | 'TEAM' | null>(null);
+  const presentPct = consideredDaysCount > 0 ? Math.round((presentDaysCount / consideredDaysCount) * 100) : 0;
 
   useEffect(() => {
     // Guards against a slower, earlier request (e.g. a stale MONTH fetch from before the user
@@ -2140,6 +2551,11 @@ function AttendanceStatsPanel({ token }: { token: string }) {
     // range's data — same cancellation pattern used by every other fetch effect on this page.
     let cancelled = false;
     setLoading(true);
+    if (isPreviewMode) {
+      setStats(MOCK_STATS);
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
     const to = todayIsoDate();
     const from = range === 'WEEK' ? isoDaysAgo(6) : isoDaysAgo(29);
     attendanceApi.stats(from, to, token)
@@ -2147,61 +2563,135 @@ function AttendanceStatsPanel({ token }: { token: string }) {
       .catch(() => { if (!cancelled) setStats(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [range, token]);
+  }, [range, token, isPreviewMode]);
 
-  // Header and both data rows share this exact [flex:1 name][84px][100px] composition so the
-  // Avg hrs/day and On-time % columns line up vertically — a data row using justify-content:
-  // space-between here would distribute space differently than the header's flex:1 spacer and
-  // throw the columns out of alignment.
-  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' };
-  const nameStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 0, fontSize: 12, color: 'var(--txt)', fontWeight: 600 };
+  const meOnTime = stats?.me.onTimeArrivalPercent ?? null;
+  const meAvg = stats?.me.avgHoursPerDay ?? null;
+  const teamAvg = stats?.team.avgHoursPerDay ?? null;
 
   return (
-    <div style={{ ...panelStyle, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Attendance Stats</span>
+    <div className="nf-section-enter" style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em' }}>
+          <ShieldCheck size={12} style={{ color: 'var(--info)' }} /> Attendance Health
+        </span>
         <select value={range} onChange={(e) => setRange(e.target.value as StatsRange)} style={{ ...inputStyle, width: 'auto', padding: '3px 7px', fontSize: 11 }}>
           <option value="WEEK">Last Week</option>
           <option value="MONTH">Last 30 Days</option>
         </select>
       </div>
+      {/* Present-% ring + a Present/Late/Absent/Weekly-Off/Holiday breakdown — the same counts
+          the KPI tiles and calendar already show, just gathered into one glanceable summary,
+          matching the reference's Attendance Health composition. Not its own click target:
+          Present/Late/Absent already open their own detail drawer via the KPI tiles below. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <MiniRing pct={presentPct} color="var(--ok)" size={76} stroke={8} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{presentPct}%</span>
+            <span style={{ fontSize: 9, color: 'var(--txt-dim)', marginTop: 2 }}>Present</span>
+          </div>
+        </div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
+          <HealthBreakdownRow color="var(--ok)" label="Present" value={presentDaysCount} />
+          <HealthBreakdownRow color="var(--warn)" label="Late" value={lateCount} />
+          <HealthBreakdownRow color="var(--risk)" label="Absent" value={absentCount} />
+          <HealthBreakdownRow color="#9BA1AC" label="Weekly Off" value={weeklyOffCount} />
+          <HealthBreakdownRow color="#4C8DD6" label="Holiday" value={holidayCount} />
+        </div>
+      </div>
+
       {loading ? (
-        <div style={{ color: 'var(--txt-dim)', fontSize: 12, padding: '10px 0' }}>Loading…</div>
+        <PanelSkeleton rows={1} />
       ) : !stats ? (
         <div style={{ color: 'var(--txt-dim)', fontSize: 12, padding: '10px 0' }}>Stats unavailable right now.</div>
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-            <span style={{ flex: 1, minWidth: 0 }} />
-            <span style={{ width: 84, textAlign: 'right' }}>Avg hrs/day</span>
-            <span style={{ width: 100, textAlign: 'right' }}>On-time %</span>
-          </div>
-          <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
-            <span style={nameStyle}>
-              <User size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} /> Me
-            </span>
-            <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
-              {stats.me.avgHoursPerDay != null ? `${stats.me.avgHoursPerDay}h` : dash}
-            </span>
-            <span style={{ width: 100, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
-              {stats.me.onTimeArrivalPercent != null ? `${stats.me.onTimeArrivalPercent}%` : dash}
-            </span>
-          </div>
-          <div style={{ ...rowStyle, borderTop: '1px solid var(--line)' }}>
-            <span style={nameStyle}>
-              <Users size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} /> My Team
-            </span>
-            <span style={{ width: 84, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
-              {stats.team.avgHoursPerDay != null ? `${stats.team.avgHoursPerDay}h` : dash}
-            </span>
-            <span style={{ width: 100, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
-              {stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash}
-            </span>
+          {/* Me/Team avg-hours + on-time comparison — kept, but as a slim secondary strip
+              (fixed small height) below the main breakdown, not the panel's main focus. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+            <button
+              type="button"
+              className="nf-clickable"
+              onClick={() => setStatsDrawer('ME')}
+              aria-label="View my average working-hours and on-time details"
+              style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', background: 'none', border: 'none', font: 'inherit', textAlign: 'left' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                <User size={10} style={{ color: 'var(--brand)' }} /> Me
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
+                {meAvg != null ? `${meAvg}h` : dash} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--txt-dim)' }}>· {meOnTime != null ? `${meOnTime}%` : dash} on-time</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="nf-clickable"
+              onClick={() => setStatsDrawer('TEAM')}
+              aria-label="View my team's average working-hours and on-time details"
+              style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', background: 'none', border: 'none', borderLeft: '1px solid var(--line)', font: 'inherit', textAlign: 'left' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                <Users size={10} style={{ color: 'var(--txt-dim)' }} /> Team
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
+                {teamAvg != null ? `${teamAvg}h` : dash} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--txt-dim)' }}>· {stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash} on-time</span>
+              </span>
+            </button>
           </div>
           {stats.teamSize === 0 && (
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 4 }}>No peers on record under your current manager yet.</div>
+            <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>No peers on record under your current manager yet.</div>
           )}
         </>
+      )}
+
+      {statsDrawer && stats && (
+        <DetailDrawer title={statsDrawer === 'ME' ? 'My Attendance Summary' : 'Team Attendance Comparison'} onClose={() => setStatsDrawer(null)}>
+          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 14 }}>
+            {range === 'WEEK' ? 'Last 7 days' : 'Last 30 days'}
+          </div>
+          {statsDrawer === 'ME' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <MiniRing pct={meOnTime ?? 0} color="var(--ok)" size={56} stroke={6} />
+                <div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{meOnTime != null ? `${meOnTime}%` : dash}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 3 }}>On-time arrivals</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Average hours / day</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{meAvg != null ? `${meAvg}h` : dash}</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Team size</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{stats.teamSize}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Team on-time arrivals</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Team avg hours / day</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{teamAvg != null ? `${teamAvg}h` : dash}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>My on-time arrivals</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{meOnTime != null ? `${meOnTime}%` : dash}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>My avg hours / day</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{meAvg != null ? `${meAvg}h` : dash}</span>
+              </div>
+              {stats.teamSize === 0 && (
+                <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No peers on record under your current manager yet.</div>
+              )}
+            </div>
+          )}
+        </DetailDrawer>
       )}
     </div>
   );
@@ -2217,12 +2707,31 @@ function AttendanceStatsPanel({ token }: { token: string }) {
 // own per-shift breakMinutes is a separate, admin-metadata concept — not an org-wide live budget).
 // Break used time itself (real, computed from actual punch gaps) is still shown, just without a
 // target/percentage to compare it against.
+//
+// Presentational-only redesign: same inputs/derivations as before (fullDayTargetMinutesFor,
+// progressPct, breakUsed/breakBudget), rendered as a large radial-progress "Today" hero instead
+// of two thin bars, per the Attendance UI/UX redesign brief. `checkInAt`/`checkedOut` below are
+// read straight off the same `today` prop every other Actions/Log component already reads.
+const RING_RADIUS = 42;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+/** Converts a UTC epoch back into the same zone-less "wall clock" ISO shape formatTime expects
+ * (mirrors wallClockMs's own Date.UTC reference frame, just run in reverse). */
+function wallClockIsoFromMs(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}T${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+}
+
 function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
   today: TodayAttendance | null;
   config: AttendanceConfig | null;
   workedMinutesToday: number | null;
 }) {
   const { formatTime, formatDuration } = useTimeFormat();
+  // Every sub-row below opens the same "Today's Attendance" detail — they're all facets of the
+  // one `today` record already on hand, so one drawer with the full breakdown is more honest
+  // than fragmenting it into several drawers that would just repeat each other's data.
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const fullDayTargetMinutes = fullDayTargetMinutesFor(config);
   const progressPct = fullDayTargetMinutes && workedMinutesToday != null
@@ -2230,36 +2739,228 @@ function TodaysTimingsPanel({ today, config, workedMinutesToday }: {
     : 0;
   const breakUsed = today?.breakUsedMinutes;
 
+  const checkInAt = today?.record?.checkInAt ?? null;
+  const checkedOut = !!today?.record?.checkOutAt;
+
+  const statusLabel = !checkInAt
+    ? 'Not checked in yet'
+    : checkedOut
+      ? 'Day complete'
+      : progressPct >= 100
+        ? 'Full day reached'
+        : 'Working normally';
+  // Teal-green throughout while checked in (matches the reference's progress ring/bar) — only
+  // "not checked in yet" falls back to a neutral dim color. Late/at-risk states are already
+  // called out separately via LateBadge (warn/orange), so this ring never needs to carry that.
+  const statusColor = !checkInAt ? 'var(--txt-dim)' : 'var(--ok)';
+
+  const expectedOut = checkInAt && fullDayTargetMinutes != null && !checkedOut
+    ? formatTime(wallClockIsoFromMs(wallClockMs(checkInAt) + fullDayTargetMinutes * 60000))
+    : null;
+  const remainingMinutes = fullDayTargetMinutes != null && workedMinutesToday != null && !checkedOut
+    ? Math.max(0, fullDayTargetMinutes - workedMinutesToday)
+    : null;
+  const workMode = today?.record?.workMode;
+  const workModeLabel = workMode === 'REMOTE' ? 'Remote' : workMode === 'HYBRID' ? 'Hybrid' : workMode === 'ONSITE' ? 'Office' : null;
+
+  const ringOffset = RING_CIRCUMFERENCE * (1 - progressPct / 100);
+
   return (
-    <div style={{ ...panelStyle, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Today's Timings</span>
-      {/* config.shiftStart is null for a NO_SHIFT_ASSIGNED employee (a valid, permanent state —
-          no Shift is ever auto-assigned at creation, and a freshly-picked one isn't effective
-          until the employee's next working day) — guarded here exactly like
-          AttendanceHeroBanner's own shiftInfo, so this line is simply omitted rather than
-          rendering a garbled "Shift starts  · grace 0m" from formatTime failing to parse a null
-          time. Never fabricates a 07:00 (or any other) fallback start time. */}
+    <div className="nf-section-enter" style={{
+      ...panelStyle, position: 'relative', overflow: 'hidden',
+      background: 'linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, var(--brand) 5%, var(--panel)) 100%)',
+      borderTop: '2px solid var(--brand)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12,
+    }}>
+      <button
+        type="button"
+        className="nf-clickable"
+        onClick={() => setDetailOpen(true)}
+        aria-label="View today's check-in status details"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', padding: '4px 6px', margin: '-4px -6px', textAlign: 'left', font: 'inherit' }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em' }}>
+          <Clock size={12} style={{ color: 'var(--brand)' }} /> Today
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: statusColor }}>
+          <span className={checkInAt && !checkedOut ? 'nf-hero-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+          {statusLabel}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        className="nf-clickable"
+        onClick={() => setDetailOpen(true)}
+        aria-label="View today's working-progress breakdown"
+        style={{ display: 'flex', alignItems: 'center', gap: 16, background: 'none', border: 'none', padding: '4px 6px', margin: '-4px -6px', textAlign: 'left', font: 'inherit', cursor: 'pointer' }}
+      >
+        <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
+          <svg width={96} height={96} viewBox="0 0 96 96" style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx={48} cy={48} r={RING_RADIUS} fill="none" stroke="var(--raised2)" strokeWidth={8} />
+            <circle
+              className="nf-ring-progress"
+              cx={48} cy={48} r={RING_RADIUS} fill="none" stroke={statusColor} strokeWidth={8} strokeLinecap="round"
+              strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={ringOffset}
+            />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{progressPct}%</span>
+            <span style={{ fontSize: 9, color: 'var(--txt-dim)', marginTop: 2 }}>of day</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1.1 }}>
+              {formatTime(checkInAt) ?? dash}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>Check-in</div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
+            <span style={{ fontWeight: 700, color: 'var(--txt)' }}>{formatDuration(workedMinutesToday) ?? dash}</span>
+            {fullDayTargetMinutes != null && <> / {formatDuration(fullDayTargetMinutes)}</>}
+          </div>
+          {workModeLabel && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--txt-dim)' }}>
+              <MapPin size={11} /> {workModeLabel}
+            </div>
+          )}
+        </div>
+      </button>
+
+      {/* Working-progress bar (same progressPct as the ring, just a second at-a-glance read) +
+          a small "keep going" note — purely presentational, derived from data already above;
+          hidden below ~1300px where there isn't room for a third column without crowding. */}
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ flex: '0 1 320px', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 7, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)' }}>Working Progress</span>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>
+              {formatDuration(workedMinutesToday) ?? dash}{fullDayTargetMinutes != null && <span style={{ color: 'var(--txt-dim)', fontWeight: 500 }}> / {formatDuration(fullDayTargetMinutes)}</span>}
+            </span>
+          </div>
+          <div style={{ height: 8, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--ok)', borderRadius: 4, transition: 'width .4s' }} />
+          </div>
+          <div style={{ textAlign: 'right', fontSize: 11, fontWeight: 700, color: 'var(--ok)' }}>{progressPct}%</div>
+        </div>
+
+        {/* Fills the leftover row space next to the now-compact progress tile with a subtle,
+            purely decorative "workflow" cue — a thin line with a few dots drifting along it —
+            instead of leaving it visually empty. No data, no interactivity; respects
+            prefers-reduced-motion via the same convention as the rest of the page's motion. */}
+        <div className="nf-workprogress-flow" style={{ flex: '1 1 60px', minWidth: 40, display: 'flex', alignItems: 'center' }}>
+          <div className="nf-flow-track" style={{ position: 'relative', width: '100%', height: 6 }}>
+            <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 2, background: 'var(--line2)', transform: 'translateY(-50%)', borderRadius: 1 }} />
+            <span className="nf-flow-dot nf-flow-dot-1" />
+            <span className="nf-flow-dot nf-flow-dot-2" />
+            <span className="nf-flow-dot nf-flow-dot-3" />
+          </div>
+        </div>
+
+        <div
+          className="nf-hero-keepgoing"
+          style={{ flex: '0 0 150px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 5, padding: '8px 14px', borderLeft: '1px solid var(--line)' }}
+        >
+          <Mountain size={20} style={{ color: 'var(--ok)' }} />
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt)' }}>{progressPct >= 100 ? 'Great job!' : 'Keep going!'}</div>
+          <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', lineHeight: 1.3 }}>You're on track for today's goal.</div>
+        </div>
+      </div>
+
+      {/* config.shiftStart is null for a NO_SHIFT_ASSIGNED employee (a valid, permanent state) —
+          omitted rather than rendering a garbled "Shift starts  · grace 0m"; never fabricates a
+          fallback start time. */}
       {config?.shiftStart && (
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>
+        <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
           {config.shiftEnd
             ? <>Shift {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} – {formatTime(`${todayIsoDate()}T${config.shiftEnd}`)} · grace {config.lateGraceMinutes}m</>
             : <>Shift starts {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} · grace {config.lateGraceMinutes}m</>}
         </div>
       )}
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--txt-dim)', marginBottom: 4 }}>
-          <span>Progress toward shift end</span>
-          <span>{formatDuration(workedMinutesToday) ?? dash}</span>
-        </div>
-        <div style={{ height: 7, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--brand)', borderRadius: 4, transition: 'width .3s' }} />
-        </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+        <button
+          type="button"
+          className="nf-clickable"
+          onClick={() => setDetailOpen(true)}
+          aria-label="View today's break details"
+          style={{ background: 'none', border: 'none', padding: '4px 6px', margin: '-4px -6px', textAlign: 'left', font: 'inherit' }}
+        >
+          <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Break used</div>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt)' }}>{breakUsed != null ? `${breakUsed}m` : dash}</span>
+        </button>
+        <button
+          type="button"
+          className="nf-clickable"
+          onClick={() => setDetailOpen(true)}
+          aria-label="View today's remaining working time"
+          style={{ background: 'none', border: 'none', padding: '4px 6px', margin: '-4px -6px', textAlign: 'center', font: 'inherit' }}
+        >
+          <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Remaining</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>{remainingMinutes != null ? formatDuration(remainingMinutes) : dash}</div>
+        </button>
+        <button
+          type="button"
+          className="nf-clickable"
+          onClick={() => setDetailOpen(true)}
+          aria-label="View today's expected checkout details"
+          style={{ background: 'none', border: 'none', padding: '4px 6px', margin: '-4px -6px', textAlign: 'right', font: 'inherit' }}
+        >
+          <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Expected out</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)' }}>{expectedOut ?? dash}</div>
+        </button>
       </div>
-      {breakUsed != null && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--txt-dim)' }}>
-          <span>Break used</span>
-          <span>{breakUsed} min</span>
-        </div>
+
+      {detailOpen && (
+        <DetailDrawer title="Today's Attendance" onClose={() => setDetailOpen(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{statusLabel}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Check-in</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{formatTime(checkInAt) ?? dash}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Check-out</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{formatTime(today?.record?.checkOutAt ?? null) ?? dash}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Worked so far</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{formatDuration(workedMinutesToday) ?? dash}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Target</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{fullDayTargetMinutes != null ? formatDuration(fullDayTargetMinutes) : dash}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Break used</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{breakUsed != null ? `${breakUsed}m` : dash}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Remaining</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{remainingMinutes != null ? formatDuration(remainingMinutes) : dash}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Expected out</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{expectedOut ?? dash}</div>
+              </div>
+            </div>
+            {today?.record?.lateByMinutes != null && (
+              <LateBadge minutes={today.record.lateByMinutes} graceMinutes={config?.lateGraceMinutes} workedMinutes={workedMinutesToday} config={config} />
+            )}
+            {config?.shiftStart && (
+              <div style={{ fontSize: 12, color: 'var(--txt-mut)', paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+                {config.shiftName && <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 3 }}>{config.shiftName}</div>}
+                {config.shiftEnd
+                  ? <>Shift {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} – {formatTime(`${todayIsoDate()}T${config.shiftEnd}`)} · grace {config.lateGraceMinutes}m</>
+                  : <>Shift starts {formatTime(`${todayIsoDate()}T${config.shiftStart}`)} · grace {config.lateGraceMinutes}m</>}
+              </div>
+            )}
+          </div>
+        </DetailDrawer>
       )}
     </div>
   );
@@ -2324,13 +3025,14 @@ function CheckInAction({ actionStyle, today, loading, submitting, onCheckIn, onC
   return (
     <>
       <button
+        className="nf-insight-tile"
         onClick={handlePrimaryClick}
         disabled={disablePrimary}
         style={{ ...actionStyle, opacity: disablePrimary ? 0.6 : 1, cursor: disablePrimary ? 'default' : 'pointer' }}
       >
         <Laptop size={14} style={{ color: 'var(--brand)' }} /> {loading ? 'Check-in' : label}
       </button>
-      {confirmingCheckout && (
+      {confirmingCheckout && createPortal(
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 380 }}>
             <ModalHeader title="Check out?" onClose={() => setConfirmingCheckout(false)} />
@@ -2356,8 +3058,8 @@ function CheckInAction({ actionStyle, today, loading, submitting, onCheckIn, onC
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+      document.body)}
     </>
   );
 }
@@ -2494,13 +3196,14 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   return (
     <>
       <button
+        className="nf-insight-tile"
         onClick={() => (isFirstCycleToday ? setOpen(true) : submitReason(undefined))}
         disabled={disabled || busy}
         style={{ ...actionStyle, opacity: (disabled || busy) ? 0.6 : 1, cursor: (disabled || busy) ? 'default' : 'pointer' }}
       >
         <Wifi size={14} style={{ color: 'var(--brand)' }} /> {busy ? 'Checking in…' : 'Web Check-In'}
       </button>
-      {open && (
+      {open && createPortal(
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 480 }}>
             <ModalHeader title='Web Clock-In Request' onClose={() => !busy && setOpen(false)} />
@@ -2521,7 +3224,7 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
                   {reason.length} / 1024
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => setOpen(false)}
                   disabled={busy}
@@ -2539,8 +3242,8 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+      document.body)}
     </>
   );
 }
@@ -2558,34 +3261,43 @@ function QuickActionsPanel({ token, today, todayLoading, submitting, onCheckIn, 
 
   const actionStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8, background: 'var(--raised)', border: '1px solid var(--line2)',
-    borderRadius: 7, padding: '8px 11px', fontSize: 12, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600, width: '100%',
-    textAlign: 'left' as const,
+    borderRadius: 7, padding: '9px 11px', fontSize: 12.5, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600, width: '100%',
+    textAlign: 'left' as const, transition: 'border-color .15s, background .15s, transform .1s',
   };
 
   return (
-    <div style={{ ...panelStyle, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>Actions</span>
+    <div className="nf-section-enter nf-quick-actions" style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 2 }}>
+        <ShieldCheck size={12} style={{ color: 'var(--ok)' }} /> Quick Actions
+      </span>
       <CheckInAction actionStyle={actionStyle} today={today} loading={todayLoading} submitting={submitting} onCheckIn={onCheckIn} onCheckOut={onCheckOut} />
       <WebCheckInAction token={token} actionStyle={actionStyle} today={today} loading={todayLoading} onSubmitted={onWebCheckInSubmitted} />
-      <button style={actionStyle} onClick={() => setModal('WFH')}>
+      <button className="nf-insight-tile" style={actionStyle} onClick={() => setModal('WFH')}>
         <Home size={14} style={{ color: 'var(--brand)' }} /> Work From Home
       </button>
-      <button style={actionStyle} onClick={() => setModal('PARTIAL_DAY')}>
+      <button className="nf-insight-tile" style={actionStyle} onClick={() => setModal('PARTIAL_DAY')}>
         <Sun size={14} style={{ color: 'var(--brand)' }} /> Partial Day Request
       </button>
-      <button style={actionStyle} onClick={() => setModal('POLICY')}>
+      <button className="nf-insight-tile" style={actionStyle} onClick={() => setModal('POLICY')}>
         <FileText size={14} style={{ color: 'var(--brand)' }} /> Attendance Policy
       </button>
-      {(modal === 'WFH' || modal === 'PARTIAL_DAY') && (
+      {/* Portaled to document.body, like DetailDrawer: this panel carries `.nf-section-enter`
+          (its finished transform animation makes it the containing block for position: fixed
+          descendants) and overflow: hidden, so nested here the modals rendered inside the panel
+          and were clipped — hiding their Submit/Cancel buttons. Web Check-In/Check-Out's own
+          modals (WebCheckInAction/CheckInAction) are portaled the same way. */}
+      {(modal === 'WFH' || modal === 'PARTIAL_DAY') && createPortal(
         <AttendanceRequestModal
           presetType={modal}
           token={token}
           onClose={() => setModal(null)}
           onSaved={() => { /* toast already shown by the modal itself */ }}
-        />
+        />,
+        document.body,
       )}
-      {modal === 'POLICY' && (
-        <AttendancePolicyModal token={token} onClose={() => setModal(null)} />
+      {modal === 'POLICY' && createPortal(
+        <AttendancePolicyModal token={token} onClose={() => setModal(null)} />,
+        document.body,
       )}
     </div>
   );
@@ -2726,6 +3438,9 @@ function BreakTimelineMarker({ breakStart, breakEnd, leftPct, widthPct }: {
 
   const label = `Break ${formatTime(breakStart) ?? '—'} - ${formatTime(breakEnd) ?? '—'}`;
 
+  // Fluid width (fills whatever the cell/card gives it) instead of a fixed 140–220px — the
+  // table/card layouts below size this column themselves, and a fixed min-width was exactly
+  // what forced horizontal scrolling on narrower viewports.
   return (
     <>
       <div
@@ -2822,11 +3537,6 @@ function ShiftBoundaryMarker({ label, leftPct }: { label: string; leftPct: numbe
 }
 
 /** Compact, column-filling 24-hour presence timeline. Bars are proportional to actual login/logout duration; hovering a bar shows a small tooltip (see TimelineBar). No day-details content lives here — that's behind the row's View button. */
-// Width pinned via ATTENDANCE_VISUAL_COL_WIDTH (the <th>/<td> below) so every row in the column
-// — bars or placeholder text — occupies the same footprint and lines up under the "Attendance
-// Visual" header, and the same font size as the rest of the table's cells (tdStyle) rather than
-// a smaller one-off size.
-const ATTENDANCE_VISUAL_COL_WIDTH = 200;
 // Compact overall track height — keep every element below (placeholder text, the hour-tick
 // axis, the track bar, and the session/break markers) sized off this one constant so they
 // all stay vertically centered and in proportion if it ever changes again.
@@ -3061,7 +3771,10 @@ function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] 
     return <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>No punches recorded for this day.</div>;
   }
 
-  const officeSessions = sessions.filter((s) => s.source !== 'WEB_REMOTE');
+  // Explicitly oldest-first (ascending checkInAt) so the previous/older cycle always renders
+  // above the latest one — Web Check-In/Out's own ordering/logic below is untouched.
+  const officeSessions = sessions.filter((s) => s.source !== 'WEB_REMOTE')
+    .sort((a, b) => a.checkInAt.localeCompare(b.checkInAt));
   const webSessions = sessions.filter((s) => s.source === 'WEB_REMOTE');
 
   return (
@@ -3203,14 +3916,9 @@ function DayDetailsModal({ info, config, punches, workedMinutesToday, businessTo
   onApplyPartialDay: () => void;
 }) {
   return (
-    <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 420 }}>
-        <ModalHeader title="Attendance Details" onClose={onClose} />
-        <div style={{ padding: 24 }}>
-          <DayDetailsBody info={info} config={config} punches={punches} workedMinutesToday={workedMinutesToday} businessTodayIso={businessTodayIso} webSessions={webSessions} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
-        </div>
-      </div>
-    </div>
+    <DetailDrawer title="Attendance Details" onClose={onClose}>
+      <DayDetailsBody info={info} config={config} punches={punches} workedMinutesToday={workedMinutesToday} businessTodayIso={businessTodayIso} webSessions={webSessions} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
+    </DetailDrawer>
   );
 }
 
@@ -3253,6 +3961,32 @@ function InlineDayBadge({ info }: { info: DayInfo }) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(155,161,172,.15)', color: '#9BA1AC' }}>W-OFF</span>;
   }
   return null;
+}
+
+/**
+ * Wraps a table cell's (or card field's) content in a real, focusable button that opens that
+ * row's day-detail drawer — every Attendance Log cell shares this same target/content (the day
+ * doesn't have per-field detail endpoints beyond what DayDetailsBody already shows), so each
+ * cell gets its own discoverable hover/focus affordance without pretending to show different
+ * data per cell. The explicit "Log" View button stays as its own separate control alongside.
+ */
+function LogCellButton({ onClick, ariaLabel, children, block = false }: {
+  onClick: () => void; ariaLabel: string; children: React.ReactNode; block?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="nf-clickable"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      style={{
+        ...(block ? tdStyle : {}), width: '100%', background: 'none', border: 'none',
+        textAlign: 'left', font: 'inherit', display: 'block', cursor: 'pointer', padding: block ? tdStyle.padding : 0,
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 
 function EffectiveHoursCell({ metrics }: { metrics: RowMetrics }) {
@@ -3300,30 +4034,34 @@ function ArrivalCell({ record, graceMinutes, config }: {
 // lives in sibling components with their own state.
 export type LogsTab = 'ATTENDANCE_LOG' | 'CALENDAR' | 'ATTENDANCE_REQUESTS' | 'OVERTIME';
 
-const LOGS_TABS: { value: LogsTab; label: string }[] = [
-  { value: 'ATTENDANCE_LOG', label: 'Attendance Log' },
-  { value: 'CALENDAR', label: 'Calendar' },
-  { value: 'ATTENDANCE_REQUESTS', label: 'Attendance Requests' },
-  { value: 'OVERTIME', label: 'Overtime Requests' },
+const LOGS_TABS: { value: LogsTab; label: string; icon: LucideIcon }[] = [
+  { value: 'ATTENDANCE_LOG', label: 'Attendance Log', icon: FileText },
+  { value: 'CALENDAR', label: 'Calendar', icon: CalendarDays },
+  { value: 'ATTENDANCE_REQUESTS', label: 'Attendance Requests', icon: Pencil },
+  { value: 'OVERTIME', label: 'Overtime Requests', icon: Clock },
 ];
 
 function LogsTabBar({ value, onChange }: { value: LogsTab; onChange: (v: LogsTab) => void }) {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+    <div className="nf-tab-scroll nf-log-tabs" style={{ display: 'flex', gap: 3, background: 'var(--raised2)', border: '1px solid var(--line)', borderRadius: 9, padding: 4, width: '100%', maxWidth: 'fit-content' }}>
       {LOGS_TABS.map((t) => {
         const active = t.value === value;
+        const Icon = t.icon;
         return (
           <button
             key={t.value}
+            className="nf-seg-tab"
             onClick={() => onChange(t.value)}
             style={{
-              background: active ? 'var(--raised)' : 'transparent',
-              border: `1px solid ${active ? 'var(--line2)' : 'transparent'}`,
-              borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600,
-              color: active ? 'var(--txt)' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: active ? 'var(--brand)' : 'transparent',
+              border: `1px solid ${active ? 'var(--brand)' : 'transparent'}`,
+              boxShadow: active ? '0 2px 8px color-mix(in srgb, var(--brand) 35%, transparent)' : 'none',
+              borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600,
+              color: active ? '#fff' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >
-            {t.label}
+            <Icon size={12.5} style={{ opacity: active ? 1 : 0.75 }} /> {t.label}
           </button>
         );
       })}
@@ -3356,6 +4094,152 @@ function TimeFormatToggle() {
   );
 }
 
+// ─── UI Preview mode — mock data ───────────────────────────────────────────────
+// Temporary, review-only: active ONLY when the URL is /attendance?uiPreview=true (see
+// PreviewGuard in App.tsx, and AttendancePageInner's isPreviewMode below). Never touches the
+// real attendanceApi/regularizationApi/etc. calls or authentication — every effect that would
+// normally hit the network is short-circuited to one of these canned values instead. Mirrors the
+// same uiPreview convention already used by DashboardPage.tsx / ApprovalsPage.tsx.
+
+/** Days between `iso` and today (browser-local calendar), positive when `iso` is in the past. */
+function daysAgoFromToday(iso: string): number {
+  const [y1, m1, d1] = todayIsoDate().split('-').map(Number);
+  const [y2, m2, d2] = iso.split('-').map(Number);
+  return Math.round((Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2)) / 86400000);
+}
+
+const MOCK_JOINING_DATE = '2022-01-10';
+
+const MOCK_CONFIG: AttendanceConfig = {
+  shiftName: 'General Shift',
+  shiftStart: '09:00:00',
+  shiftEnd: '18:00:00',
+  lateGraceMinutes: 10,
+  halfDayMaxHours: 4,
+  weeklyOffDays: ['SATURDAY', 'SUNDAY'],
+};
+
+const MOCK_STATS: AttendanceStats = {
+  me: { presentDays: 18, avgHoursPerDay: 8.2, onTimeArrivalPercent: 82, expectedHoursPerDay: 9 },
+  team: { presentDays: 18, avgHoursPerDay: 7.9, onTimeArrivalPercent: 74, expectedHoursPerDay: 9 },
+  teamSize: 6,
+};
+
+function mockAttendanceRecord(iso: string, overrides: Partial<AttendanceRecord>): AttendanceRecord {
+  return {
+    id: `mock-${iso}`, employeeUserId: 'mock-me', employeeCode: 'EMP001', fullName: 'Preview User',
+    workDate: iso, checkInAt: null, checkOutAt: null, sessionStartedAt: null,
+    workedMinutes: null, status: null, lateByMinutes: null,
+    source: 'SYSTEM', workMode: 'ONSITE', timezone: 'Asia/Kolkata',
+    shiftStartAt: `${iso}T09:00:00`, shiftEndAt: `${iso}T18:00:00`, workdayStartAt: null, workdayEndAt: null, penalized: false,
+    ...overrides,
+  };
+}
+
+/** Today's record — still checked in (open session), so the live elapsed-timer UI is exercised. */
+function mockTodayAttendance(): TodayAttendance {
+  const iso = todayIsoDate();
+  return {
+    workDate: iso,
+    serverNow: new Date().toISOString().replace('Z', ''),
+    canCheckIn: false,
+    canCheckOut: true,
+    record: mockAttendanceRecord(iso, { checkInAt: `${iso}T09:05:00`, sessionStartedAt: `${iso}T09:05:00`, lateByMinutes: 0 }),
+    breakUsedMinutes: 15,
+  };
+}
+
+/** One month of realistic mock attendance — mostly present, with a late day, a half day, an
+ * absent day, and a two-session (lunch-break) day so the Attendance Log's timeline/break math
+ * has something real to render. Days reserved for the mock holiday/leave/WFH/regularization
+ * below are left without a plain attendance record, same as a real employee's month would be. */
+function buildMockMonthRecords(year: number, month: number): AttendanceRecord[] {
+  const total = daysInMonth(year, month);
+  const todayIso = todayIsoDate();
+  const out: AttendanceRecord[] = [];
+  for (let d = 1; d <= total; d++) {
+    const iso = isoOf(year, month, d);
+    if (iso > todayIso) continue; // never future
+    const dow = new Date(year, month, d).getDay();
+    if (dow === 0 || dow === 6) continue; // weekend — Weekly-off badge covers it
+    const ago = daysAgoFromToday(iso);
+    if (ago === 6 || ago === 7 || ago === 8 || ago === 9) continue; // reserved: holiday/leave/WFH/regularization
+
+    if (ago === 0) {
+      out.push(mockTodayAttendance().record!);
+    } else if (ago === 5) {
+      // Absent — no punches at all.
+      out.push(mockAttendanceRecord(iso, { status: 'ABSENT' }));
+    } else if (ago === 3) {
+      out.push(mockAttendanceRecord(iso, {
+        checkInAt: `${iso}T09:34:00`, sessionStartedAt: `${iso}T09:34:00`, checkOutAt: `${iso}T18:02:00`,
+        workedMinutes: 508, status: 'LATE', lateByMinutes: 24,
+      }));
+    } else if (ago === 4) {
+      out.push(mockAttendanceRecord(iso, {
+        checkInAt: `${iso}T09:10:00`, sessionStartedAt: `${iso}T09:10:00`, checkOutAt: `${iso}T13:25:00`,
+        workedMinutes: 255, status: 'HALF_DAY', lateByMinutes: 0,
+      }));
+    } else {
+      // A normal, fully-present day (day #2-ago also gets a lunch-break split — see mockPunchesFor).
+      out.push(mockAttendanceRecord(iso, {
+        checkInAt: `${iso}T09:02:00`, sessionStartedAt: `${iso}T09:02:00`, checkOutAt: `${iso}T18:08:00`,
+        workedMinutes: 546, status: 'PRESENT', lateByMinutes: 0,
+      }));
+    }
+  }
+  return out;
+}
+
+/** Per-day punch sessions for the Attendance Log's timeline column — a single session mirroring
+ * the day's own check-in/out, except the "2 days ago" day which gets a lunch-break split so the
+ * multi-segment timeline and break-time math both have something to show. */
+function mockPunchesFor(record: AttendanceRecord): Punch[] {
+  if (!record.checkInAt) return [];
+  if (daysAgoFromToday(record.workDate) === 2) {
+    return [
+      { id: `${record.id}-1`, checkInAt: `${record.workDate}T09:05:00`, checkOutAt: `${record.workDate}T13:00:00`, source: 'SYSTEM', note: null },
+      { id: `${record.id}-2`, checkInAt: `${record.workDate}T13:45:00`, checkOutAt: `${record.workDate}T18:20:00`, source: 'SYSTEM', note: null },
+    ];
+  }
+  return [{ id: `${record.id}-1`, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: 'SYSTEM', note: null }];
+}
+
+function mockHolidays(): HolidayRow[] {
+  return [{ id: 'mock-holiday-1', holidayName: 'Company Foundation Day', holidayDate: isoDaysAgo(6), locationId: 'mock-loc', locationName: 'Head Office', active: true }];
+}
+
+function mockLeaves(): LeaveRequestRecord[] {
+  const iso = isoDaysAgo(7);
+  return [{
+    id: 'mock-leave-1', employeeUserId: 'mock-me', employeeName: 'Preview User', employeeCode: null, leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', leaveTypeClassification: 'PAID',
+    startDate: iso, endDate: iso, halfDay: false, totalDays: 1, status: 'APPROVED',
+    employeeReason: 'Personal work', decisionReason: null, decidedByName: 'Priya Sharma', decidedAt: `${iso}T10:00:00+05:30`, createdAt: `${iso}T08:00:00+05:30`,
+  }];
+}
+
+function mockAttendanceRequests(): AttendanceRequestRecord[] {
+  const iso = isoDaysAgo(8);
+  return [{
+    id: 'mock-wfh-1', employeeUserId: 'mock-me', employeeName: 'Preview User', employeeEmail: 'preview@nforceone.com', departmentName: 'Engineering',
+    requestType: 'WFH', requestDate: iso, partialDayHours: null, partialDayMode: null, wfhDayFraction: 1, reason: 'Working from home',
+    status: 'APPROVED', assignedApproverId: 'mock-manager', assignedApproverName: 'Priya Sharma', notifyUserId: null, notifyUserName: null,
+    reviewedByName: 'Priya Sharma', reviewedAt: `${iso}T09:00:00+05:30`, reviewComment: null, createdAt: `${iso}T08:00:00+05:30`,
+  }];
+}
+
+function mockRegularizations(): RegularizationRecord[] {
+  const iso = isoDaysAgo(9);
+  return [{
+    id: 'mock-reg-1', employeeUserId: 'mock-me', employeeName: 'Preview User', employeeEmail: 'preview@nforceone.com', departmentName: 'Engineering',
+    attendanceDate: iso, requestedCheckIn: `${iso}T09:00:00`, requestedCheckOut: `${iso}T18:00:00`,
+    reason: 'Forgot to check in', status: 'APPROVED', assignedApproverId: 'mock-manager', assignedApproverName: 'Priya Sharma',
+    totalMinutes: 540, reviewedByName: 'Priya Sharma', reviewedAt: `${iso}T11:00:00+05:30`, reviewComment: 'Approved',
+    approvedByName: 'Priya Sharma', approvedAt: `${iso}T11:00:00+05:30`, finalApprovedByName: 'Priya Sharma', finalApprovedAt: `${iso}T11:00:00+05:30`,
+    createdAt: `${iso}T08:30:00+05:30`, approvalHistory: [],
+  }];
+}
+
 export interface MyAttendanceHandle {
   exportMonth: () => void;
 }
@@ -3366,7 +4250,10 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   onLogsTabChange: (tab: LogsTab) => void;
   /** Attendance Requests / Overtime Requests content — owned by sibling components in the page, rendered in this same box when their tab is active. */
   otherTabContent: React.ReactNode;
-}>(function MyAttendance({ isSuperAdmin, logsTab, onLogsTabChange, otherTabContent }, ref) {
+  /** /attendance?uiPreview=true only — see the "UI Preview mode" mock-data section above. Every
+   * network-backed effect below short-circuits to canned mock data instead of calling the API. */
+  isPreviewMode?: boolean;
+}>(function MyAttendance({ isSuperAdmin, logsTab, onLogsTabChange, otherTabContent, isPreviewMode = false }, ref) {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
@@ -3390,8 +4277,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
 
   useEffect(() => {
+    if (isPreviewMode) { setConfig(MOCK_CONFIG); return; }
     attendanceApi.config(token).then(setConfig).catch(() => setConfig(null));
-  }, [token]);
+  }, [token, isPreviewMode]);
 
   // Bumped on every successful punch — PunchHistoryList's own fetch is keyed on [date, token],
   // neither of which changes on a punch, so without this it never re-fetches until something
@@ -3431,6 +4319,11 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   // Holidays / leaves / regularizations / attendance requests are fetched once — the calendar
   // filters them per month.
   useEffect(() => {
+    if (isPreviewMode) {
+      setHolidays(mockHolidays()); setLeaves(mockLeaves()); setRegularizations(mockRegularizations()); setAttendanceRequests(mockAttendanceRequests());
+      setJoiningDate(MOCK_JOINING_DATE);
+      return;
+    }
     Promise.all([
       holidaysApi.listForMyLocation(token).catch(() => []),
       leaveApi.listMine(token).catch(() => []),
@@ -3440,7 +4333,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       setHolidays(h); setLeaves(l); setRegularizations(r); setAttendanceRequests(ar);
     });
     profileApi.get(token).then((p) => setJoiningDate(p.joiningDate)).catch(() => setJoiningDate(null));
-  }, [token]);
+  }, [token, isPreviewMode]);
 
   // AttendancePage has no leave-apply UI of its own (leave is only submitted from LeavePage), so
   // `leaves` can only go stale here, never be optimistically patched on submit. Mirror LeavePage's
@@ -3476,13 +4369,18 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
   const refreshMonth = useCallback(() => {
     setMonthLoading(true);
+    if (isPreviewMode) {
+      setMonthRecords(buildMockMonthRecords(viewYear, viewMonth));
+      setMonthLoading(false);
+      return Promise.resolve();
+    }
     const from = isoOf(viewYear, viewMonth, 1);
     const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
     return attendanceApi.myHistory(from, to, token)
       .then((r) => setMonthRecords(r))
       .catch(() => setMonthRecords([]))
       .finally(() => setMonthLoading(false));
-  }, [viewYear, viewMonth, token]);
+  }, [viewYear, viewMonth, token, isPreviewMode]);
 
   // Exposed to the page header's "Export selected month" button — same XLSX pattern
   // already used by DirectoryPage.tsx, reusing the month's already-fetched records.
@@ -3506,6 +4404,11 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   useEffect(() => {
     let cancelled = false;
     setMonthLoading(true);
+    if (isPreviewMode) {
+      setMonthRecords(buildMockMonthRecords(viewYear, viewMonth));
+      setMonthLoading(false);
+      return () => { cancelled = true; };
+    }
     const from = isoOf(viewYear, viewMonth, 1);
     const to = isoOf(viewYear, viewMonth, daysInMonth(viewYear, viewMonth));
     attendanceApi.myHistory(from, to, token)
@@ -3513,7 +4416,27 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       .catch(() => { if (!cancelled) setMonthRecords([]); })
       .finally(() => { if (!cancelled) setMonthLoading(false); });
     return () => { cancelled = true; };
-  }, [viewYear, viewMonth, token]);
+  }, [viewYear, viewMonth, token, isPreviewMode]);
+
+  // Previous calendar month's records — fetched purely to give the KPI row a real "vs last
+  // month" comparison (same attendanceApi.myHistory call as monthRecords above, just for the
+  // month before). Never shown on its own, never used for anything but that one delta.
+  const [prevMonthRecords, setPrevMonthRecords] = useState<AttendanceRecord[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const prevMonth = viewMonth === 0 ? 11 : viewMonth - 1;
+    const prevYear = viewMonth === 0 ? viewYear - 1 : viewYear;
+    if (isPreviewMode) {
+      setPrevMonthRecords(buildMockMonthRecords(prevYear, prevMonth));
+      return () => { cancelled = true; };
+    }
+    const from = isoOf(prevYear, prevMonth, 1);
+    const to = isoOf(prevYear, prevMonth, daysInMonth(prevYear, prevMonth));
+    attendanceApi.myHistory(from, to, token)
+      .then((r) => { if (!cancelled) setPrevMonthRecords(r); })
+      .catch(() => { if (!cancelled) setPrevMonthRecords([]); });
+    return () => { cancelled = true; };
+  }, [viewYear, viewMonth, token, isPreviewMode]);
 
   const recordByDate = useMemo(() => {
     const map = new Map<string, AttendanceRecord>();
@@ -3553,12 +4476,25 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   const monthPrefix = `${viewYear}-${pad2(viewMonth + 1)}`;
   const presentDaysCount = monthRecords.filter((r) => r.checkInAt).length;
   const workedMinutesTotal = monthRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
-  const leaveHolidayCount = useMemo(() => {
-    let count = 0;
-    for (const iso of holidayByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
-    for (const iso of leaveByDate.keys()) if (iso.startsWith(monthPrefix)) count++;
-    return count;
+  // Same aggregation pattern as presentDaysCount above — plain counts of an already-fetched
+  // field (AttendanceRecord.status), not a new metric: every row already renders this status
+  // via StatusPill, this just tallies it for the dashboard's KPI row.
+  const lateCount = monthRecords.filter((r) => r.status === 'LATE').length;
+  const prevPresentDaysCount = prevMonthRecords.filter((r) => r.checkInAt).length;
+  const prevWorkedMinutesTotal = prevMonthRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
+  const prevLateCount = prevMonthRecords.filter((r) => r.status === 'LATE').length;
+  const prevAbsentCount = prevMonthRecords.filter((r) => r.status === 'ABSENT').length;
+  const absentCount = monthRecords.filter((r) => r.status === 'ABSENT').length;
+  // Backs both the "Leave / Holidays" KPI tile's count and its detail modal's list — one
+  // derivation instead of two, so they can never disagree.
+  const leaveHolidayEntries = useMemo(() => {
+    const entries: { iso: string; label: string; kind: 'Holiday' | 'Leave' }[] = [];
+    holidayByDate.forEach((name, iso) => { if (iso.startsWith(monthPrefix)) entries.push({ iso, label: name, kind: 'Holiday' }); });
+    leaveByDate.forEach((name, iso) => { if (iso.startsWith(monthPrefix)) entries.push({ iso, label: name, kind: 'Leave' }); });
+    return entries.sort((a, b) => b.iso.localeCompare(a.iso));
   }, [holidayByDate, leaveByDate, monthPrefix]);
+  const leaveHolidayCount = leaveHolidayEntries.length;
+  const [kpiModal, setKpiModal] = useState<KpiKind | null>(null);
 
   const getDayInfo = useCallback((day: number): DayInfo => {
     const iso = isoOf(viewYear, viewMonth, day);
@@ -3618,6 +4554,11 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     }
     return rows.reverse();
   }, [viewYear, viewMonth, getDayInfo]);
+  // Attendance Health's ring denominator/breakdown — same logRows every other section already
+  // derives from, just two more plain counts (weekly-off days, holiday days) for that summary.
+  const consideredDaysCount = logRows.length;
+  const weeklyOffCount = logRows.filter((r) => r.isWeekend).length;
+  const holidayCount = leaveHolidayEntries.filter((e) => e.kind === 'Holiday').length;
 
   // Reset to page 1 whenever the month changes (new row set) — mirrors RosterTable's own
   // page-reset-on-new-rows behavior.
@@ -3665,6 +4606,17 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       .map((info) => info.iso);
     if (datesNeeded.length === 0) return;
     let cancelled = false;
+    if (isPreviewMode) {
+      setPunchesByDate((prev) => {
+        const next = new Map(prev);
+        datesNeeded.forEach((iso) => {
+          const record = logRows.find((r) => r.iso === iso)?.record;
+          next.set(iso, record ? mockPunchesFor(record) : []);
+        });
+        return next;
+      });
+      return () => { cancelled = true; };
+    }
     Promise.all(datesNeeded.map((iso) =>
       attendanceApi.punches(iso, token)
         .then((p) => [iso, p] as const)
@@ -3681,7 +4633,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     // punchesByDate is read only to skip already-cached dates — omitted from deps deliberately,
     // since including it would make this effect re-run every time it updates its own state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logRows, token]);
+  }, [logRows, token, isPreviewMode]);
 
   const selectedInfo = useMemo(() => {
     if (!selectedDate) return null;
@@ -3692,6 +4644,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
   useEffect(() => {
     let cancelled = false;
+    if (isPreviewMode) {
+      const t = mockTodayAttendance();
+      serverOffsetMs.current = 0;
+      setToday(t);
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
     attendanceApi.today(token)
       .then((t) => {
         if (cancelled) return;
@@ -3704,7 +4663,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       .finally(() => { if (!cancelled) setLoading(false); });
     webClockInApi.mine(token).then((list) => { if (!cancelled) setWebRecords(list); }).catch(() => {});
     return () => { cancelled = true; };
-  }, [token, showToast]);
+  }, [token, showToast, isPreviewMode]);
 
   // Today's punches (already fetched for Punch History via the same /attendance/punches endpoint
   // — reused here as-is, never re-fetched or recomputed differently) — the exact input
@@ -3751,6 +4710,12 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   // every consumer of `today` (Today's Timings, the calendar's Today's-workday panel, and the
   // Actions panel) ends up looking at the exact same state instead of each keeping its own.
   const refreshTodayAndMonth = useCallback(async () => {
+    // Preview mode never calls the real API — `today` is only ever updated locally by punch()
+    // below, so this just re-signals dependents (PunchHistoryList's refreshKey) without a fetch.
+    if (isPreviewMode) {
+      setPunchVersion((v) => v + 1);
+      return today ?? mockTodayAttendance();
+    }
     const [refreshed] = await Promise.all([
       attendanceApi.today(token),
       refreshMonth(),
@@ -3770,13 +4735,44 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     // history — see webRecords' own comment.
     webClockInApi.mine(token).then(setWebRecords).catch(() => {});
     return refreshed;
-  }, [token, refreshMonth]);
+  }, [token, refreshMonth, isPreviewMode, today]);
 
   async function punch(kind: 'in' | 'out') {
     if (punchInFlightRef.current) return;
     punchInFlightRef.current = true;
     setSubmitting(true);
     try {
+      if (isPreviewMode) {
+        // Simulated locally — no network call, no real attendance data touched.
+        const nowIso = new Date().toISOString().replace('Z', '');
+        setToday((prev) => {
+          const base = prev ?? mockTodayAttendance();
+          if (kind === 'in') {
+            return {
+              ...base, canCheckIn: false, canCheckOut: true,
+              record: { ...(base.record ?? mockTodayAttendance().record!), checkInAt: base.record?.checkInAt ?? nowIso, sessionStartedAt: nowIso, checkOutAt: null, status: null, workedMinutes: null },
+            };
+          }
+          return {
+            ...base, canCheckIn: false, canCheckOut: false,
+            record: base.record ? { ...base.record, checkOutAt: nowIso, status: 'PRESENT', workedMinutes: base.record.workedMinutes ?? 480 } : base.record,
+          };
+        });
+        setMonthRecords((prev) => {
+          const todayIso = todayIsoDate();
+          const idx = prev.findIndex((r) => r.workDate === todayIso);
+          const nowRecord = mockAttendanceRecord(todayIso, kind === 'in'
+            ? { checkInAt: nowIso, sessionStartedAt: nowIso }
+            : { checkInAt: prev[idx]?.checkInAt ?? nowIso, checkOutAt: nowIso, status: 'PRESENT', workedMinutes: prev[idx]?.workedMinutes ?? 480 });
+          if (idx === -1) return [nowRecord, ...prev];
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...nowRecord };
+          return next;
+        });
+        setPunchVersion((v) => v + 1);
+        showToast('success', `Checked ${kind} (preview)`);
+        return;
+      }
       const record = kind === 'in'
         ? await attendanceApi.checkIn(token)
         : await attendanceApi.checkOut(token);
@@ -3807,28 +4803,61 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* Attendance Stats / Today's Timings / Quick Actions */}
-      {/* minmax floor is 260px, not 280px: at a common "zoomed in a bit" width (~1164px
-          effective, e.g. a 1280px display at 110% browser zoom) the grid needed 868px to hold
-          Attendance Stats/Today's Timings/Actions in one row at 280px each but only had ~861px
-          — a ~7px shortfall that silently dropped Actions to its own row and read as a
-          role-specific layout bug. Same knife's-edge pattern as the header button fix above;
-          verified this reflow happens identically for every role at that width, since all roles
-          render this exact same grid. 260px still comfortably fits each card's content. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
-        <AttendanceStatsPanel token={token} />
-        <TodaysTimingsPanel today={today} config={config} workedMinutesToday={workedMinutesToday} />
-        <QuickActionsPanel
-          token={token}
-          today={today}
-          todayLoading={loading}
-          submitting={submitting}
-          onCheckIn={() => punch('in')}
-          onCheckOut={() => punch('out')}
-          onWebCheckInSubmitted={refreshTodayAndMonth}
-        />
-      </div>
+    <>
+    <div
+      className="nf-grid-proportional-collapse"
+      style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '18px 16px' }}
+    >
+      {/* Row 1 — Today hero beside Quick Actions (top-right, level with the hero; both cells
+          stretch to the row's height so their edges line up). Row 2 — KPI row + Logs & Requests
+          workspace beside the sticky Attendance Health / mini-calendar rail. Below 1024px
+          (.nf-grid-proportional-collapse) the four cells stack in this same DOM order, so Quick
+          Actions stays right under Today instead of dropping below the whole workspace. */}
+      <TodaysTimingsPanel today={today} config={config} workedMinutesToday={workedMinutesToday} />
+      <QuickActionsPanel
+        token={token}
+        today={today}
+        todayLoading={loading}
+        submitting={submitting}
+        onCheckIn={() => punch('in')}
+        onCheckOut={() => punch('out')}
+        onWebCheckInSubmitted={refreshTodayAndMonth}
+      />
+
+      {/* LEFT column (row 2) — KPI row, then the Logs & Requests workspace. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
+        {/* Insight row — plain counts already carried by monthRecords/holiday+leave maps for the
+            selected calendar month, surfaced once here instead of only inside the Calendar tab. */}
+        <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+          <MonthStatTile
+            label="Days Present" value={monthLoading ? '—' : String(presentDaysCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
+            icon={CheckCircle2} accent="var(--ok)" onClick={() => setKpiModal('PRESENT')}
+            delta={!monthLoading ? { pct: monthDeltaPct(presentDaysCount, prevPresentDaysCount) ?? 0, goodDirection: 'up' } : undefined}
+            trend={monthRecords.map((r) => (r.checkInAt ? 1 : 0))}
+          />
+          <MonthStatTile
+            label="Worked Hours" value={monthLoading ? '—' : (formatDuration(workedMinutesTotal) ?? '0m')} hint={calendarMonthLabel(viewYear, viewMonth)}
+            icon={Clock} accent="var(--brand)" onClick={() => setKpiModal('WORKED_HOURS')}
+            delta={!monthLoading ? { pct: monthDeltaPct(workedMinutesTotal, prevWorkedMinutesTotal) ?? 0, goodDirection: 'up' } : undefined}
+            trend={monthRecords.map((r) => r.workedMinutes ?? 0)}
+          />
+          <MonthStatTile
+            label="Late Arrivals" value={monthLoading ? '—' : String(lateCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
+            icon={Turtle} accent="var(--warn)" onClick={() => setKpiModal('LATE')}
+            delta={!monthLoading ? { pct: monthDeltaPct(lateCount, prevLateCount) ?? 0, goodDirection: 'down' } : undefined}
+            trend={monthRecords.map((r) => (r.status === 'LATE' ? (r.lateByMinutes ?? 1) : 0))}
+          />
+          <MonthStatTile
+            label="Absent Days" value={monthLoading ? '—' : String(absentCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
+            icon={X} accent="var(--risk)" onClick={() => setKpiModal('ABSENT')}
+            delta={!monthLoading ? { pct: monthDeltaPct(absentCount, prevAbsentCount) ?? 0, goodDirection: 'down' } : undefined}
+            trend={monthRecords.map((r) => (r.status === 'ABSENT' ? 1 : 0))}
+          />
+          <MonthStatTile
+            label="Leave / Holidays" value={String(leaveHolidayCount)} hint={calendarMonthLabel(viewYear, viewMonth)} icon={CalendarDays} accent="var(--info)" onClick={() => setKpiModal('LEAVE_HOLIDAY')}
+            trend={monthRecords.map((r) => (leaveByDate.has(r.workDate) || holidayByDate.has(r.workDate) ? 1 : 0))}
+          />
+        </div>
 
       {/* Logs & Requests — Keka-style 4-tab bar (nforceone.keka.com/#/me/attendance/logs).
           Calendar/Attendance Log render inline below since they share this component's state;
@@ -3843,33 +4872,37 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
         {logsTab === 'CALENDAR' && (
         <div style={{ marginTop: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 9, marginBottom: 14 }}>
-          <MonthStatTile label="Present Days" value={monthLoading ? '—' : String(presentDaysCount)} hint="Selected month" />
-          <MonthStatTile label="Worked Hours" value={monthLoading ? '—' : (formatDuration(workedMinutesTotal) ?? '0m')} hint="Selected month" />
-          <MonthStatTile label="Leave / Holidays" value={String(leaveHolidayCount)} hint="Selected month" />
-        </div>
+        {/* Wrapping flex split rather than a fixed 2fr/1fr grid: this sits in the page's left
+            column (~620px at a 1280px viewport), where 2/3 of it left the 7-column calendar too
+            narrow for its day pills. The calendar keeps a legible basis and the day-detail panel
+            wraps below it until there's room for both side by side. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+          <div style={{ flex: '2 1 580px', minWidth: 0 }}>
+            <MonthCalendar
+              year={viewYear}
+              month={viewMonth}
+              dayInfo={getDayInfo}
+              selectedDate={selectedDate}
+              onSelect={setSelectedDate}
+              onPrev={goToPrevMonth}
+              onNext={goToNextMonth}
+              onToday={() => goToMonth(now.getFullYear(), now.getMonth())}
+            />
+          </div>
 
-        <div className="nf-grid-proportional-collapse" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
-          <MonthCalendar
-            year={viewYear}
-            month={viewMonth}
-            dayInfo={getDayInfo}
-            selectedDate={selectedDate}
-            onSelect={setSelectedDate}
-            onPrev={goToPrevMonth}
-            onNext={goToNextMonth}
-          />
-
-          <div style={{ ...panelStyle, padding: '16px 18px' }}>
+          <div style={{ ...panelStyle, padding: '16px 18px', flex: '1 1 240px', minWidth: 0 }}>
             {!selectedInfo ? (
-              <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Pick a day on the calendar to see its details.</div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '20px 0', color: 'var(--txt-dim)' }}>
+                <CalendarDays size={22} />
+                <span style={{ fontSize: 12.5 }}>Pick a day on the calendar to see its details.</span>
+              </div>
             ) : selectedInfo.isToday ? (
               // Today's workday — merged from the old standalone punch card, now living
               // in the calendar's side panel with the exact same today/punch() state.
               <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Today's workday</div>
                 {loading ? (
-                  <div style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div>
+                  <PanelSkeleton rows={3} />
                 ) : !today ? (
                   <div style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Attendance unavailable right now.</div>
                 ) : (
@@ -3937,7 +4970,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                     {/* PunchHistoryList (not DayPunchIntervals) here specifically — it self-fetches
                         with a refreshKey, so today's list updates immediately after a punch instead
                         of showing whatever punchesByDate cached before the punch happened. */}
-                    <PunchHistoryList date={selectedInfo.iso} token={token} refreshKey={punchVersion} />
+                    <PunchHistoryList date={selectedInfo.iso} token={token} refreshKey={punchVersion} isPreviewMode={isPreviewMode} />
                   </>
                 )}
               </div>
@@ -3974,54 +5007,151 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
               />
             </label>
           </div>
-          <div style={panelStyle}>
+          {/* Attendance Log — full width. Quick Actions lives permanently in the top dashboard
+              row instead (beside the Today hero), not duplicated down here. */}
+          <div className="nf-section-enter" style={panelStyle}>
             {monthLoading ? (
-              <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div>
+              <div style={{ padding: 20 }}><PanelSkeleton rows={5} /></div>
             ) : logRows.length === 0 ? (
-              <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>No days to show for this month.</div>
+              <div style={{ padding: 40, textAlign: 'center' }}>
+                <CalendarDays size={22} style={{ color: 'var(--txt-dim)', marginBottom: 8 }} />
+                <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No days to show for this month.</div>
+              </div>
             ) : (
               <>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>{['Date', 'Attendance Visual', 'Effective Hours', 'Break Taken', 'Gross Hours', 'Arrival', 'Log'].map((h) => (
-                      <th key={h} style={h === 'Attendance Visual' ? { ...thStyle, width: ATTENDANCE_VISUAL_COL_WIDTH, minWidth: ATTENDANCE_VISUAL_COL_WIDTH } : thStyle}>{h}</th>
-                    ))}</tr>
-                  </thead>
-                  <tbody>
-                    {logPaged.map((info) => {
-                      const punches = punchesByDate.get(info.iso);
-                      const punchesLoading = !!info.record?.checkInAt && !punches;
-                      const metrics = computeRowMetrics(info, punches, workedMinutesToday, today?.workDate);
-                      return (
-                        <tr key={info.iso} style={{ background: attendanceRowTint(info) }}>
-                          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{formatDay(info.iso)}</span>
+                {/* Desktop/tablet table — `table-layout: fixed` + percentage colgroup so the
+                    table strictly respects the panel's own width (never grows past it) instead
+                    of sizing to content and forcing a horizontal scrollbar. The Attendance
+                    Visual column is the one that actually shrinks/grows; everything else is a
+                    fixed share. Hidden below 900px in favor of the card list underneath —
+                    a 7-column row simply can't stay legible in the ~500px a phone/narrow-tablet
+                    viewport leaves once the sidebar is accounted for. */}
+                <div className="nf-log-table-view">
+                  <table className="nf-zebra-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '22%' }} />
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '14%' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>{['Date', 'Attendance Visual', 'In / Out', 'Hours', 'Arrival', 'Log'].map((h) => <th key={h} style={{ ...thStyle, background: 'var(--panel)' }}>{h}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {logPaged.map((info) => {
+                        const punches = punchesByDate.get(info.iso);
+                        const punchesLoading = !!info.record?.checkInAt && !punches;
+                        const metrics = computeRowMetrics(info, punches, workedMinutesToday, today?.workDate);
+                        const dayLabel = formatDay(info.iso);
+                        return (
+                          <tr key={info.iso} style={{ background: attendanceRowTint(info) }}>
+                            <td style={{ padding: 0 }}>
+                              <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View attendance details for ${dayLabel}`}>
+                                <div style={{ color: 'var(--txt)', fontWeight: 600 }}>{dayLabel}</div>
+                                <div style={{ marginTop: 3 }}><InlineDayBadge info={info} /></div>
+                              </LogCellButton>
+                            </td>
+                            <td style={{ padding: 0 }}>
+                              <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View punch timeline for ${dayLabel}`}>
+                                <AttendanceTimeline info={info} punches={punches} punchesLoading={punchesLoading} />
+                              </LogCellButton>
+                            </td>
+                            <td style={{ padding: 0 }}>
+                              <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View check-in and check-out details for ${dayLabel}`}>
+                                <div style={{ fontSize: 11.5 }}>{formatTime(info.record?.checkInAt ?? null) ?? dash}</div>
+                                <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 }}>{formatTime(info.record?.checkOutAt ?? null) ?? dash}</div>
+                              </LogCellButton>
+                            </td>
+                            <td style={{ padding: 0 }}>
+                              <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View hours breakdown for ${dayLabel}`}>
+                                <EffectiveHoursCell metrics={metrics} />
+                                <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 3 }}>
+                                  {formatDuration(metrics.grossMinutes) ?? dash}{metrics.grossMinutes != null && metrics.openSession ? ' +' : ''} gross · {formatDuration(metrics.breakMinutes) ?? '0m'} break
+                                </div>
+                              </LogCellButton>
+                            </td>
+                            <td style={{ padding: 0 }}>
+                              <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View arrival status for ${dayLabel}`}>
+                                <ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} config={config} />
+                              </LogCellButton>
+                            </td>
+                            <td style={tdStyle}>
+                              <button
+                                onClick={() => setViewDetailsIso(info.iso)}
+                                title="View details"
+                                aria-label={`View full attendance details for ${dayLabel}`}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 8px', fontSize: 10.5, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
+                              >
+                                <Eye size={11} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Narrow (<900px) fallback — every field the table shows, restacked into a
+                    compact card per day, no reliance on the View button to see the basics.
+                    Same per-field click-for-detail affordance as the table, via LogCellButton. */}
+                <div className="nf-log-card-view" style={{ padding: 10 }}>
+                  {logPaged.map((info) => {
+                    const punches = punchesByDate.get(info.iso);
+                    const punchesLoading = !!info.record?.checkInAt && !punches;
+                    const metrics = computeRowMetrics(info, punches, workedMinutesToday, today?.workDate);
+                    const dayLabel = formatDay(info.iso);
+                    const openDetail = () => setViewDetailsIso(info.iso);
+                    return (
+                      <div key={info.iso} className="nf-log-card">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <LogCellButton onClick={openDetail} ariaLabel={`View attendance details for ${dayLabel}`}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                              <span style={{ color: 'var(--txt)', fontWeight: 700, fontSize: 12.5 }}>{dayLabel}</span>
                               <InlineDayBadge info={info} />
-                            </span>
-                          </td>
-                          <td style={tdStyle}>
+                            </div>
+                          </LogCellButton>
+                          <button
+                            onClick={openDetail}
+                            aria-label={`View full attendance details for ${dayLabel}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}
+                          >
+                            <Eye size={10.5} /> View
+                          </button>
+                        </div>
+                        <LogCellButton onClick={openDetail} ariaLabel={`View punch timeline for ${dayLabel}`}>
+                          <div style={{ marginTop: 8 }}>
                             <AttendanceTimeline info={info} punches={punches} punchesLoading={punchesLoading} />
-                          </td>
-                          <td style={tdStyle}><EffectiveHoursCell metrics={metrics} /></td>
-                          <td style={tdStyle}>{formatDuration(metrics.breakMinutes) ?? dash}</td>
-                          <td style={tdStyle}>{formatDuration(metrics.grossMinutes) ?? dash}{metrics.grossMinutes != null && metrics.openSession ? ' +' : ''}</td>
-                          <td style={tdStyle}><ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} config={config} /></td>
-                          <td style={tdStyle}>
-                            <button
-                              onClick={() => setViewDetailsIso(info.iso)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '3px 9px', fontSize: 10, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
-                            >
-                              <Eye size={10.5} /> View
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          </div>
+                        </LogCellButton>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2px 14px', marginTop: 10 }}>
+                          <LogCellButton onClick={openDetail} ariaLabel={`View check-in and check-out for ${dayLabel}`}>
+                            <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Check-in / out</div>
+                            <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600, marginTop: 2 }}>
+                              {formatTime(info.record?.checkInAt ?? null) ?? dash} – {formatTime(info.record?.checkOutAt ?? null) ?? dash}
+                            </div>
+                          </LogCellButton>
+                          <LogCellButton onClick={openDetail} ariaLabel={`View arrival status for ${dayLabel}`}>
+                            <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Arrival</div>
+                            <div style={{ marginTop: 2 }}><ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} config={config} /></div>
+                          </LogCellButton>
+                          <LogCellButton onClick={openDetail} ariaLabel={`View effective hours for ${dayLabel}`}>
+                            <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Effective</div>
+                            <div style={{ marginTop: 2 }}><EffectiveHoursCell metrics={metrics} /></div>
+                          </LogCellButton>
+                          <LogCellButton onClick={openDetail} ariaLabel={`View gross hours and break for ${dayLabel}`}>
+                            <div style={{ fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Gross · Break</div>
+                            <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600, marginTop: 2 }}>
+                              {formatDuration(metrics.grossMinutes) ?? dash}{metrics.grossMinutes != null && metrics.openSession ? ' +' : ''} · {formatDuration(metrics.breakMinutes) ?? '0m'}
+                            </div>
+                          </LogCellButton>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
               {logTotalPages > 1 && (
                 <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -4068,6 +5198,40 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           <div style={{ marginTop: 14 }}>{otherTabContent}</div>
         )}
       </div>
+      </div>
+
+      {/* RIGHT column (row 2) — Attendance Health and a glanceable mini calendar (same
+          year/month/selection state as the Calendar tab); Quick Actions moved up to row 1. The
+          outer grid doesn't set alignItems: 'start', so this cell stretches to match the
+          (usually much taller) left column's height; the inner `position: sticky` wrapper then
+          pins its actual content near the top of the viewport while scrolling, instead of
+          leaving a large dead gap once the uncapped Attendance Log makes the left column tall. */}
+      <div style={{ minWidth: 0 }}>
+      <div style={{ position: 'sticky', top: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <AttendanceStatsPanel
+          token={token}
+          isPreviewMode={isPreviewMode}
+          presentDaysCount={presentDaysCount}
+          lateCount={lateCount}
+          absentCount={absentCount}
+          weeklyOffCount={weeklyOffCount}
+          holidayCount={holidayCount}
+          consideredDaysCount={consideredDaysCount}
+        />
+        <MonthCalendar
+          year={viewYear}
+          month={viewMonth}
+          dayInfo={getDayInfo}
+          selectedDate={selectedDate}
+          onSelect={setSelectedDate}
+          onPrev={goToPrevMonth}
+          onNext={goToNextMonth}
+          onToday={() => goToMonth(now.getFullYear(), now.getMonth())}
+          compact
+        />
+      </div>
+      </div>
+    </div>
 
       {viewDetailsIso && (() => {
         const viewInfo = logRows.find((r) => r.iso === viewDetailsIso);
@@ -4107,7 +5271,18 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           onSaved={(r) => { setAttendanceRequests((prev) => [r, ...prev]); setPartialDayDate(null); }}
         />
       )}
-    </div>
+
+      {kpiModal && (
+        <KpiDetailModal
+          kind={kpiModal}
+          monthLabel={calendarMonthLabel(viewYear, viewMonth)}
+          monthRecords={monthRecords}
+          leaveHolidayEntries={leaveHolidayEntries}
+          config={config}
+          onClose={() => setKpiModal(null)}
+        />
+      )}
+    </>
   );
 });
 
@@ -4306,7 +5481,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
       {/* My Regularization Requests — month filter only, grouped by month within that filter */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-          <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>My Requests</h3>
+          <SectionHeading title="My Requests" />
           <MonthFilter month={selectedMonth} onChange={setSelectedMonth} />
         </div>
         {loading ? (
@@ -4322,21 +5497,25 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
             <div key={monthKey}>
               <MonthGroupHeading monthKey={monthKey} />
               <div style={panelStyle}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>{['Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+                  <table className="nf-req-table" style={reqTableStyle}>
+                    <ReqColGroup widths={['13%', '11%', '9%', '16%', '14%', '14%', '13%', '10%']} />
+                    <thead><tr>{['Date', 'Requested In / Out', 'Total Hours', 'Reason', 'Status', 'Approver / Reviewer', 'Comments', 'Action'].map(h => <th key={h} style={reqThStyle}>{h}</th>)}</tr></thead>
                     <tbody>
                       {rows.map(r => (
                         <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
-                          <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
-                          <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
-                          <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
-                          <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
-                          <td style={{ ...tdStyle, maxWidth: 200 }}><TruncatedText text={r.reason} /></td>
-                          <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                          <td style={tdStyle}><ReviewerCell r={r} /></td>
-                          <td style={{ ...tdStyle, maxWidth: 180 }}><TruncatedText text={r.reviewComment} /></td>
-                          <td style={tdStyle}>
+                          <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.attendanceDate}</td>
+                          {/* In / Out stacked in one cell — same pattern as the Attendance Log's "In / Out" column. */}
+                          <td data-label="Requested In / Out" style={reqTdStyle}>
+                            <div>{formatTime(r.requestedCheckIn) ?? dash}</div>
+                            <div style={{ color: 'var(--txt-dim)', marginTop: 2 }}>{formatTime(r.requestedCheckOut) ?? dash}</div>
+                          </td>
+                          <td data-label="Total Hours" style={reqTdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                          <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                          <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                          <td data-label="Approver / Reviewer" style={reqTdStyle}><ReviewerCell r={r} /></td>
+                          <td data-label="Comments" style={reqTdStyle}><TruncatedText text={r.reviewComment} /></td>
+                          <td data-label="Action" style={reqTdStyle}>
                             {r.status === 'PENDING' && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); setEditing(r); }}
@@ -4365,7 +5544,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
       {canApprove && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-            <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>Pending Approvals</h3>
+            <SectionHeading title="Pending Approvals" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--txt-mut)' }}>
                 Date
@@ -4414,11 +5593,12 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
             const someSelected = !allSelected && selectableIds.some(id => selectedIds.has(id));
             return (
             <div style={panelStyle}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+                <table className="nf-req-table" style={reqTableStyle}>
+                  <ReqColGroup widths={['5%', '16%', '12%', '10%', '9%', '11%', '14%', '12%', '11%']} />
                   <thead>
                     <tr>
-                      <th style={{ ...thStyle, width: 34 }}>
+                      <th className="nf-req-select" style={reqThStyle}>
                         {selectableIds.length > 0 && (
                           <input
                             type="checkbox"
@@ -4433,13 +5613,13 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                           />
                         )}
                       </th>
-                      {['Employee', 'Date', 'Requested In', 'Requested Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                      {['Employee', 'Date', 'Requested In / Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={reqThStyle}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {approvalsPaged.map(r => (
                       <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
-                        <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                        <td className="nf-req-select" data-label="" style={reqTdStyle} onClick={e => e.stopPropagation()}>
                           {isActionableRequest(r, isManager) && (
                             <input
                               type="checkbox"
@@ -4452,20 +5632,22 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                             />
                           )}
                         </td>
-                        <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                        <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                           {r.employeeName}
-                          <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
+                          <TruncatedText text={r.employeeEmail} style={{ fontSize: 10, fontWeight: 400, color: 'var(--txt-dim)' }} />
                         </td>
-                        <td style={tdStyle}>{r.attendanceDate}</td>
-                        <td style={tdStyle}>{formatTime(r.requestedCheckIn) ?? dash}</td>
-                        <td style={tdStyle}>{formatTime(r.requestedCheckOut) ?? dash}</td>
-                        <td style={tdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
-                        <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                        <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                        <td style={tdStyle}><ReviewerCell r={r} /></td>
-                        <td style={tdStyle}>
+                        <td data-label="Date" style={reqTdStyle}>{r.attendanceDate}</td>
+                        <td data-label="Requested In / Out" style={reqTdStyle}>
+                          <div>{formatTime(r.requestedCheckIn) ?? dash}</div>
+                          <div style={{ color: 'var(--txt-dim)', marginTop: 2 }}>{formatTime(r.requestedCheckOut) ?? dash}</div>
+                        </td>
+                        <td data-label="Total Hours" style={reqTdStyle}>{formatDuration(r.totalMinutes) ?? dash}</td>
+                        <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                        <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                        <td data-label="Reviewer" style={reqTdStyle}><ReviewerCell r={r} /></td>
+                        <td data-label="Actions" style={reqTdStyle}>
                           {isActionableRequest(r, isManager) ? (
-                            <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} onClick={e => e.stopPropagation()}>
                               <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
                               <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
                             </div>
@@ -4707,11 +5889,14 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {groups.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Nothing to show.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+            <table className="nf-req-table" style={reqTableStyle}>
+              <ReqColGroup widths={showActions
+                ? ['13.5%', '10.9%', '9.2%', '11.2%', '10.4%', '12.5%', '12.2%', '12.2%', '7.9%']
+                : ['17%', '11%', '13%', '14%', '13%', '12%', '11.5%', '8.5%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={reqThStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {groups.map((group) => {
@@ -4726,21 +5911,21 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                     : dash;
                   return (
                     <tr key={first.id}>
-                      {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{first.employeeName}</td>}
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
+                      {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{first.employeeName}</td>}
+                      <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <Home size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} />
                           <span>{formatWfhRange(group)}</span>
                         </div>
                       </td>
-                      <td style={tdStyle}>Work From Home</td>
-                      <td style={tdStyle}>
+                      <td data-label="Request Type" style={reqTdStyle}>Work From Home</td>
+                      <td data-label="Requested On" style={reqTdStyle}>
                         <div>{formatDay(first.createdAt.slice(0, 10))}</div>
                         <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>by {first.employeeName}</div>
                       </td>
-                      <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={first.reason} /></td>
-                      <td style={tdStyle}><RegularizationStatusPill status={status} /></td>
-                      <td style={tdStyle}>
+                      <td data-label="Reason" style={reqTdStyle}><TruncatedText text={first.reason} /></td>
+                      <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={status} /></td>
+                      <td data-label="Last Action By" style={reqTdStyle}>
                         {lastAction ? (
                           <>
                             {lastAction.reviewedByName}
@@ -4748,8 +5933,8 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                           </>
                         ) : dash}
                       </td>
-                      <td style={tdStyle}>{nextApprover}</td>
-                      <td style={tdStyle}>
+                      <td data-label="Next Approver" style={reqTdStyle}>{nextApprover}</td>
+                      <td data-label="Actions" style={reqTdStyle}>
                         <WfhActionMenu
                           group={group}
                           canApprove={showActions && canApprove}
@@ -4775,8 +5960,11 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {rows.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Nothing to show.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+            <table className="nf-req-table" style={reqTableStyle}>
+              <ReqColGroup widths={showActions
+                ? ['14%', '15%', '12%', '9%', '13%', '13%', '14%', '10%']
+                : ['18%', '14%', '10%', '19%', '15%', '14%', '10%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — in "My Requests"
                     every row is the viewer's own, so the name would be redundant. Mirrors
@@ -4784,21 +5972,21 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
                     Pending Approvals table for the same reason. The Actions column, unlike
                     Employee, is unconditional — every row (own or pending-approval) can at least
                     be viewed, matching renderWfhTable. */}
-                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Mode', 'Hours', 'Reason', 'Approver', 'Status', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Mode', 'Hours', 'Reason', 'Approver', 'Status', 'Actions'].map((h) => <th key={h} style={reqThStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
-                    <td style={tdStyle}>{partialDayModeLabel(r)}</td>
+                    {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
+                    <td data-label="Mode" style={reqTdStyle}>{partialDayModeLabel(r)}</td>
                     {/* partialDayHours is a decimal (e.g. 3.33 for 3h 20m) — round-trip through
                         minutes for a precise "3h 20m" instead of that raw fraction. */}
-                    <td style={tdStyle}>{r.partialDayHours != null ? formatDuration(Math.round(r.partialDayHours * 60)) ?? dash : dash}</td>
-                    <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                    <td style={tdStyle}>{r.assignedApproverName ?? dash}</td>
-                    <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                    <td style={tdStyle}>
+                    <td data-label="Hours" style={reqTdStyle}>{r.partialDayHours != null ? formatDuration(Math.round(r.partialDayHours * 60)) ?? dash : dash}</td>
+                    <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                    <td data-label="Approver" style={reqTdStyle}>{r.assignedApproverName ?? dash}</td>
+                    <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    <td data-label="Actions" style={reqTdStyle}>
                       <PartialDayActionMenu
                         request={r}
                         canApprove={showActions && canApprove}
@@ -4839,12 +6027,12 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {canApprove && (
           <div>
             <SectionHeading title="Pending Approvals — Work From Home" />
-            {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhPending, true)}
+            {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhPending, true)}
           </div>
         )}
         <div>
           <SectionHeading title="My Work From Home Requests" />
-          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhMyRequests, false)}
+          {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderWfhTable(wfhMyRequests, false)}
         </div>
       </div>
 
@@ -4853,12 +6041,12 @@ function AttendanceRequestsSection({ token, canApprove }: { token: string; canAp
         {canApprove && (
           <div>
             <SectionHeading title="Pending Approvals — Partial Day" />
-            {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayPending, true)}
+            {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayPending, true)}
           </div>
         )}
         <div>
           <SectionHeading title="My Partial Day Requests" />
-          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayMyRequests, false)}
+          {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderPartialDayTable(partialDayMyRequests, false)}
         </div>
       </div>
 
@@ -4935,56 +6123,94 @@ function OvertimeActionMenu({ request, canApprove, onView, onApprove, onReject }
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // null until measured — the menu renders hidden for one layout pass so its real size is known.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      // The menu is portaled out of `ref`, so a click inside it must not count as "outside".
+      const t = e.target as Node;
+      if (ref.current && !ref.current.contains(t) && !menuRef.current?.contains(t)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { setOpen(false); buttonRef.current?.focus(); }
     }
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  // Portaled to document.body with position: fixed (same approach as DetailDrawer/Tooltip): the
+  // table sits inside the .nf-req-wrap overflow-x scroller (which also clips vertically) within an
+  // overflow: hidden panel, so an absolutely-positioned menu was cut off — fully hidden on the last
+  // rows. Placement: below the button, right-aligned to it; flips above when there isn't room
+  // below; always kept 8px inside the viewport. Re-measured on scroll/resize so it stays anchored.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return; }
+    function place() {
+      const b = buttonRef.current?.getBoundingClientRect();
+      const m = menuRef.current;
+      if (!b || !m) return;
+      const GAP = 4, EDGE = 8;
+      const w = m.offsetWidth, h = m.offsetHeight;
+      let top = b.bottom + GAP;
+      if (top + h > window.innerHeight - EDGE) {
+        const above = b.top - GAP - h;
+        top = above >= EDGE ? above : Math.max(EDGE, window.innerHeight - EDGE - h);
+      }
+      const left = Math.min(Math.max(b.right - w, EDGE), window.innerWidth - EDGE - w);
+      setPos({ top, left });
+    }
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
   }, [open]);
 
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+    <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       <button
+        ref={buttonRef}
+        className="nf-ot-menu-btn"
         onClick={() => setOpen((o) => !o)}
         aria-label="Actions"
-        style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
-        <MoreVertical size={14} />
+        <MoreVertical size={15} />
       </button>
-      {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 40, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.35)', minWidth: 150, overflow: 'hidden' }}>
-          <button
-            onClick={() => { setOpen(false); onView(); }}
-            style={dropdownMenuItemStyle}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            View Request
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          className="nf-ot-menu"
+          style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? 'visible' : 'hidden' }}
+        >
+          <button role="menuitem" className="nf-ot-menu-item" onClick={() => { setOpen(false); onView(); }}>
+            <Eye size={13} /> View Request
           </button>
           {canApprove && request.status === 'PENDING' && (
             <>
-              <button
-                onClick={() => { setOpen(false); onApprove(); }}
-                style={{ ...dropdownMenuItemStyle, color: '#2FB67C' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                Approve
+              <div className="nf-ot-menu-sep" role="separator" />
+              <button role="menuitem" className="nf-ot-menu-item nf-ot-menu-item--approve" onClick={() => { setOpen(false); onApprove(); }}>
+                <CheckCircle2 size={13} /> Approve
               </button>
-              <button
-                onClick={() => { setOpen(false); onReject(); }}
-                style={{ ...dropdownMenuItemStyle, color: '#E4373D' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                Reject
+              <button role="menuitem" className="nf-ot-menu-item nf-ot-menu-item--reject" onClick={() => { setOpen(false); onReject(); }}>
+                <XCircle size={13} /> Reject
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -5534,21 +6760,24 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
         {rows.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Nothing to show.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
+            <table className="nf-req-table" style={reqTableStyle}>
+              <ReqColGroup widths={showApprovalActions
+                ? ['14%', '14%', '12%', '12%', '13%', '13%', '12%', '10%']
+                : ['17%', '12%', '19%', '14%', '14%', '14%', '10%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showApprovalActions) — see the same
                     reasoning in AttendanceRequestsSection.renderTable. The "..." Actions column is
                     always present (every row can at least be viewed), unlike the old Approve/
                     Reject buttons that only appeared in the approvals table. */}
-                <tr>{[...(showApprovalActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{[...(showApprovalActions ? ['Employee'] : []), 'Date', 'Overtime Hours', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={reqThStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showApprovalActions && <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
-                    <td style={tdStyle}>
+                    {showApprovalActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
+                    <td data-label="Overtime Hours" style={reqTdStyle}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         {formatDuration(r.requestedMinutes) ?? dash}
                         {/* Opens the same detail drawer's Applied/Approved hours breakdown —
@@ -5563,11 +6792,11 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
                         </button>
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, maxWidth: 220 }}><TruncatedText text={r.reason} /></td>
-                    <td style={tdStyle}><RegularizationStatusPill status={r.status} /></td>
-                    <td style={tdStyle}><OvertimeLastActionCell r={r} /></td>
-                    <td style={tdStyle}><OvertimeNextApproverCell r={r} /></td>
-                    <td style={tdStyle}>
+                    <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
+                    <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
+                    <td data-label="Last Action By" style={reqTdStyle}><OvertimeLastActionCell r={r} /></td>
+                    <td data-label="Next Approver" style={reqTdStyle}><OvertimeNextApproverCell r={r} /></td>
+                    <td data-label="Actions" style={reqTdStyle}>
                       <OvertimeActionMenu
                         request={r}
                         canApprove={showApprovalActions && canApprove}
@@ -5591,7 +6820,7 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
       {canApprove && (
         <div>
           <SectionHeading title="Pending Approvals — Overtime" />
-          {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderTable(pending, true)}
+          {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderTable(pending, true)}
         </div>
       )}
       <div>
@@ -5607,7 +6836,7 @@ function OvertimeRequestsSection({ token, canApprove }: { token: string; canAppr
             </button>
           </div>
         </div>
-        {loading ? <div style={{ color: 'var(--txt-dim)', padding: 18, fontSize: 12 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
+        {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
       </div>
       {showRequest && (
         <OvertimeRequestModal
@@ -5888,7 +7117,7 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
             />
           </Field>
           <NotifyEmployeeField token={token} value={notifyEntry} onChange={setNotifyEntry} />
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+          <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
             <button
               onClick={handleSubmit}
@@ -5987,6 +7216,10 @@ function AttendancePageInner() {
     searchParams.get('tab') === 'calendar' ? 'CALENDAR' : 'ATTENDANCE_LOG');
   const [requestsSubTab, setRequestsSubTab] = useState<AttendanceRequestsSubTab>('REGULARIZATION');
   const pendingOpenRequest = useRef(false);
+  // /attendance?uiPreview=true — temporary, review-only mock-data mode (see PreviewGuard in
+  // App.tsx, which is what actually allows this route through without a real login). Mirrors
+  // the same convention already used by DashboardPage.tsx / ApprovalsPage.tsx.
+  const isPreviewMode = searchParams.get('uiPreview') === 'true';
 
   // The header's "Request Regularization" button may be clicked while a different tab is
   // active (RegularizationSection unmounted, ref not yet attached) — switch tabs first, then
@@ -6000,7 +7233,7 @@ function AttendancePageInner() {
 
   return (
     <div>
-      <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+      <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', paddingBottom: 20, marginBottom: 22, borderBottom: '1px solid var(--line)' }}>
         {/* flex-basis is an explicit 300px, not left as content-driven "auto": the subtitle text
             length differs by role (Employee's is one short sentence, Manager/HR Admin/Super
             Admin's are longer), and an auto-width flex item claims only as much row space as its
@@ -6016,17 +7249,30 @@ function AttendancePageInner() {
             width, wrapping them onto separate lines where they used to sit side by side. Without
             grow, title only ever claims its basis (or less, via shrink, on very narrow screens),
             leaving all spare width for the buttons, matching the original layout's intent. */}
-        <div style={{ flex: '0 1 300px', maxWidth: 560 }}>
-          <h1 style={{
-            fontFamily: 'Inter, sans-serif', fontSize: 18, fontWeight: 700,
-            color: 'var(--txt)', margin: 0,
-          }}>My Attendance</h1>
-          {/* minHeight reserves 2 lines regardless of role: the subtitle text length varies by
-              role (Employee's is one line, Manager/HR Admin/Super Admin's wrap to two), and
-              without a reserved height the header block's total height — and therefore the
-              vertical start of the stats row below it — shifted per role, reading as
-              inconsistent alignment across roles even though it's the same shared component. */}
-          <p style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--txt-mut)', marginTop: 4, minHeight: 'calc(13px * 1.5 * 2)' }}>{subtitle}</p>
+        <div style={{ flex: '0 1 300px', maxWidth: 560, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'color-mix(in srgb, var(--brand) 14%, var(--raised))', border: '1px solid color-mix(in srgb, var(--brand) 26%, var(--line))',
+          }}>
+            <Clock size={18} style={{ color: 'var(--brand)' }} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{
+              fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700,
+              color: 'var(--txt)', margin: 0, letterSpacing: '-.01em',
+            }}>My Attendance</h1>
+            <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--txt-mut)', marginTop: 4, minHeight: 'calc(13px * 1.5 * 2)' }}>{subtitle}</p>
+            {isPreviewMode && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 8,
+                padding: '5px 10px', borderRadius: 6,
+                background: 'rgba(99,102,241,.10)', border: '1px solid rgba(99,102,241,.25)',
+                fontSize: 11.5, fontWeight: 600, color: '#8183f4',
+              }}>
+                🔍 UI PREVIEW — Mock Data (Not Real)
+              </div>
+            )}
+          </div>
         </div>
         {/* width is computed explicitly (2x the button clamp formula from index.css, + the 10px
             gap) rather than left as "auto": a flex container's own auto/shrink-to-fit width, when
@@ -6057,7 +7303,7 @@ function AttendancePageInner() {
                 setRequestsSubTab('REGULARIZATION');
               }
             }}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 8px color-mix(in srgb, var(--brand) 35%, transparent)' }}
           >
             <CalendarPlus className="nf-attendance-action-icon" size={14} />
             <span className="nf-attendance-action-label">Request Regularization</span>
@@ -6071,6 +7317,7 @@ function AttendancePageInner() {
           isSuperAdmin={role === 'Super Admin'}
           logsTab={logsTab}
           onLogsTabChange={setLogsTab}
+          isPreviewMode={isPreviewMode}
           otherTabContent={
             logsTab === 'ATTENDANCE_REQUESTS' ? (
               <div>

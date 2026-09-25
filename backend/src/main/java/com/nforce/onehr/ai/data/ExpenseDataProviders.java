@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * The caller's own expense claims.
@@ -33,6 +32,7 @@ public final class ExpenseDataProviders {
         private final ExpenseService expenseService;
 
         @Override public String id() { return "expense.my-claims"; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your recent expense claims"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
         @Override public Set<String> modules() { return Set.of("assets", "requests"); }
@@ -42,29 +42,37 @@ public final class ExpenseDataProviders {
             List<ExpenseClaimResponse> claims = expenseService.myClaims(context.getActorEmail());
             if (claims == null || claims.isEmpty()) return Optional.empty();
 
-            return Optional.of(claims.stream()
-                    .limit(MAX_ROWS)
-                    .map(MyClaims::describe)
-                    .collect(Collectors.joining("\n")));
+            return Optional.of(LiveDataText.cappedList(claims, MAX_ROWS, "expense claim(s) raised by you", "most recent",
+                    MyClaims::describe));
         }
 
         /**
-         * One claim as a line.
+         * One claim as a line, through both approval stages.
          *
-         * <p>Names the decision-maker where there is one, because "who is it with" is the real
-         * question behind "why hasn't it been paid". A rejection reason is included since that is
-         * the whole answer when a claim was refused, and the employee wrote it about their own
-         * claim — but it is free text, so it reaches the prompt fenced like any other data.
+         * <p>Names each decision-maker, because "who is it with" is the real question behind "why
+         * hasn't it been paid". A rejection reason is included since that is the whole answer when a
+         * claim was refused - from whichever stage refused it; an HR-stage rejection used to lose its
+         * reason here entirely - but it is free text, so it reaches the prompt fenced like any other
+         * data. The receipt (a base64 data URI) is never read.
          */
         private static String describe(ExpenseClaimResponse claim) {
-            StringBuilder line = new StringBuilder("- %s, %s on %s: %s".formatted(
+            StringBuilder line = new StringBuilder("%s, %s on %s: %s".formatted(
                     claim.getCategoryName(), claim.getAmount(), claim.getExpenseDate(), claim.getStatus()));
 
             if (claim.getManagerDecidedByName() != null) {
-                line.append(" (manager: ").append(claim.getManagerDecidedByName()).append(')');
+                line.append(" (manager stage: ").append(claim.getManagerDecidedByName()).append(')');
             }
             if (claim.getManagerRejectionReason() != null && !claim.getManagerRejectionReason().isBlank()) {
-                line.append(" - reason given: ").append(claim.getManagerRejectionReason().trim());
+                line.append(" - manager's reason: ").append(claim.getManagerRejectionReason().trim());
+            }
+            if (claim.getFinalDecidedByName() != null) {
+                line.append(" (final stage: ").append(claim.getFinalDecidedByName()).append(')');
+            }
+            if (claim.getFinalRejectionReason() != null && !claim.getFinalRejectionReason().isBlank()) {
+                line.append(" - final approver's reason: ").append(claim.getFinalRejectionReason().trim());
+            }
+            if (claim.getPaidAt() != null) {
+                line.append(" - paid on ").append(claim.getPaidAt().atZone(java.time.ZoneOffset.UTC).toLocalDate());
             }
             return line.toString();
         }
@@ -80,6 +88,7 @@ public final class ExpenseDataProviders {
         private final ExpenseService expenseService;
 
         @Override public String id() { return "expense.pending-approvals"; }
+        @Override public DataScope scope() { return DataScope.APPROVALS; }
         @Override public String title() { return "Expense claims waiting for your decision"; }
 
         @Override
@@ -91,16 +100,28 @@ public final class ExpenseDataProviders {
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
-            List<ExpenseClaimResponse> pending = expenseService.pendingForManager(context.getActorEmail());
+            // The same branch the Approval Center takes (ApprovalCenterService): an HR Admin or Super
+            // Admin decides claims at both stages, organisation-wide, while a Manager sees only their
+            // reports' SUBMITTED claims. Reading pendingForManager for everyone under-reported the
+            // admin queue - it missed every claim already past the manager stage.
+            boolean finalApprover = context.getAudiences().contains(AudienceBucket.HR)
+                    || context.getAudiences().contains(AudienceBucket.ADMIN);
+            List<ExpenseClaimResponse> pending = finalApprover
+                    ? expenseService.pendingForFinalApprover(context.getActorEmail())
+                    : expenseService.pendingForManager(context.getActorEmail());
             if (pending == null || pending.isEmpty()) return Optional.empty();
 
-            String rows = pending.stream()
-                    .limit(MAX_ROWS)
-                    .map(c -> "- %s: %s, %s on %s".formatted(
-                            c.getEmployeeName(), c.getCategoryName(), c.getAmount(), c.getExpenseDate()))
-                    .collect(Collectors.joining("\n"));
-
-            return Optional.of("%d awaiting your decision.\n%s".formatted(pending.size(), rows));
+            String header = "%d awaiting your decision, totalling %s.".formatted(pending.size(),
+                    pending.stream().map(ExpenseClaimResponse::getAmount).filter(java.util.Objects::nonNull)
+                            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add));
+            if (finalApprover) {
+                long managerStage = pending.stream().filter(c -> "SUBMITTED".equals(c.getStatus())).count();
+                header += " %d still at the manager stage (SUBMITTED), %d approved by a manager and awaiting final clearance (MANAGER_APPROVED)."
+                        .formatted(managerStage, pending.size() - managerStage);
+            }
+            return Optional.of(header + "\n" + LiveDataText.cappedList(pending, MAX_ROWS, "claim(s)", "first",
+                    c -> "%s: %s, %s on %s (%s)".formatted(c.getEmployeeName(), c.getCategoryName(), c.getAmount(),
+                            c.getExpenseDate(), c.getStatus())));
         }
     }
 }

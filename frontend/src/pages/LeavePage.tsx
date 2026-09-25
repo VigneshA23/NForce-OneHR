@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarPlus, X } from 'lucide-react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Search,
+  Sparkles, Wallet, X,
+} from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
-import { PieHoverTooltip } from '../components/PieHoverTooltip';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
+import { roundDays } from '../utils/leaveDays';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
 // mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
@@ -24,6 +26,9 @@ const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color
 
 // Primary add-action button for this page — "Request Leave".
 const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
+
+const PAGE_SIZE = 5;
+const BALANCE_ACCENTS = ['var(--brand)', 'var(--info)', 'var(--ok)', 'var(--warn)'];
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
@@ -46,113 +51,97 @@ function isAnnualBalanceLeaveType(code: string): boolean {
   return ANNUAL_BALANCE_GROUP_CODES.has(code);
 }
 
-const STATUS_COLOR: Record<string, string> = { PENDING: '#E0A93B', APPROVED: '#2FB67C', REJECTED: '#E4373D' };
+const STATUS_COLOR: Record<string, string> = { PENDING: 'var(--warn)', APPROVED: 'var(--ok)', REJECTED: 'var(--risk)' };
 
 function StatusBadge({ status }: { status: string }) {
+  const color = STATUS_COLOR[status] ?? 'var(--txt-dim)';
   return (
-    <span style={{ fontSize: 11, fontWeight: 600, color: STATUS_COLOR[status] ?? '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color,
+      background: `color-mix(in srgb, ${color} 13%, var(--raised))`, border: `1px solid color-mix(in srgb, ${color} 30%, var(--line))`,
+      borderRadius: 20, padding: '3px 9px 3px 7px', textTransform: 'uppercase', letterSpacing: '.03em',
+    }}>
+      <span className={status === 'PENDING' ? 'nf-hero-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
       {status}
     </span>
   );
 }
 
-// Same recharts primitives as DashboardPage's LeaveBalancePanel donut (a PieChart + an
-// absolutely-positioned center-label overlay), applied to a single balance: two slices
-// (Available vs Consumed/Reserved) summing to that leave type's annual quota. The backend
-// (LeaveService#availableBalance) is the sole source of truth for both numbers — this component
-// only visualizes remainingDays/totalDays as returned by GET /api/leave/balances; it never
-// recomputes or re-derives the balance itself.
-//
-// Dark/light brand-red pair (not the green/amber pair used elsewhere) so the chart reads as
-// professional and on-brand: Available gets the darker, more prominent shade since it's the
-// actionable number; Consumed/Reserved gets the lighter tint since it's already spent. The same
-// two colors double as the swatches in the Available/Consumed line above the chart, so that line
-// also serves as the chart's legend.
-const BALANCE_DONUT_COLORS = { available: '#7A0C10', consumed: '#E8B4B6' };
+function KpiTile({ icon: Icon, label, value, sub, accent }: {
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  label: string; value: string; sub?: string; accent: string;
+}) {
+  return (
+    <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
+        <div style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: `color-mix(in srgb, ${accent} 14%, var(--raised))` }}>
+          <Icon size={13} style={{ color: accent }} />
+        </div>
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{sub}</div>}
+    </div>
+  );
+}
 
-function LeaveBalanceDonut({ balance }: { balance: LeaveBalance }) {
+// Radial-progress balance card — draws an SVG circle via stroke-dasharray/offset, reusing the
+// same .nf-ring-progress/.nf-section-enter entrance animation already defined in index.css for
+// the Attendance "Today" ring (both already respect prefers-reduced-motion, see index.css). The
+// backend (LeaveService#availableBalance) is the sole source of truth for both numbers — this
+// component only visualizes remainingDays/totalDays as returned by GET /api/leave/balances; it
+// never recomputes or re-derives the balance itself (same total/available/consumed values the
+// previous donut used).
+const RING_RADIUS = 30;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; accent: string }) {
   const total = Number(balance.totalDays);
   const available = Math.max(0, Number(balance.remainingDays));
-  const consumed = Math.max(0, total - available);
-  const data = [
-    { name: 'Available', value: available },
-    { name: 'Consumed/Reserved', value: consumed },
-  ];
+  // roundDays strips the IEEE-754 noise this subtraction can reintroduce even on two already-exact
+  // BigDecimal-derived values (e.g. 15 - 13.7 rendering as 1.3000000000000007) - see utils/leaveDays.ts.
+  const consumed = roundDays(Math.max(0, total - available));
   const isEmptyQuota = total <= 0;
-  const donutRef = useRef<HTMLDivElement>(null);
+  const availablePct = isEmptyQuota ? 0 : Math.min(100, Math.round((available / total) * 100));
+  const ringOffset = RING_CIRCUMFERENCE * (1 - availablePct / 100);
+  const ringColor = isEmptyQuota ? 'var(--line2)' : availablePct <= 15 ? 'var(--risk)' : accent;
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', justifyContent: 'center', boxSizing: 'border-box' }}>
-      {/* Content is capped/centered, not stretched — the outer card fills its grid track (so the
-          section uses the page's available width instead of leaving a blank gap), but the
-          heading/legend/chart/quota stack stays compact instead of sprawling on wide screens. */}
-      <div style={{ width: '100%', maxWidth: 260 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'center', marginBottom: 10 }}>
+    <div className="nf-section-enter nf-leave-balance-card" style={{
+      background: `linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, ${accent} 5%, var(--panel)) 100%)`,
+      border: '1px solid var(--line)', borderTop: `2px solid ${ringColor}`, borderRadius: 10,
+      padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 16,
+    }}>
+      <div style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
+        <svg width={72} height={72} viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx={36} cy={36} r={RING_RADIUS} fill="none" stroke="var(--raised2)" strokeWidth={7} />
+          {!isEmptyQuota && (
+            <circle className="nf-ring-progress" cx={36} cy={36} r={RING_RADIUS} fill="none" stroke={ringColor} strokeWidth={7} strokeLinecap="round" strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={ringOffset} />
+          )}
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{available}</span>
+          <span style={{ fontSize: 8.5, color: 'var(--txt-dim)', marginTop: 1 }}>of {total}d</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={balance.leaveTypeName}>
           {balance.leaveTypeName}
         </div>
-
-        {/* Available/Consumed — sits above the chart and doubles as its legend (color swatches
-            match the Cell fills below), per the requested Available/Consumed-then-chart order. */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', columnGap: 16, rowGap: 4, marginBottom: 10, fontSize: 12, color: 'var(--txt-mut)' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.available, flexShrink: 0 }} />
-            Available: <b style={{ color: 'var(--txt)', fontWeight: 700 }}>{available}</b> day{available === 1 ? '' : 's'}
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: BALANCE_DONUT_COLORS.consumed, flexShrink: 0 }} />
-            Consumed: <b style={{ color: 'var(--txt)', fontWeight: 700 }}>{consumed}</b> day{consumed === 1 ? '' : 's'}
-          </span>
-        </div>
-
-        {/* aspect-ratio + ResponsiveContainer (percentage cx/cy/radii), not a fixed pixel
-            PieChart — scales with the card instead of relying on a small fixed size, and the 8%
-            margin between outerRadius and the container edge means the ring is never clipped. */}
-        <div style={{ position: 'relative', width: '100%', maxWidth: 150, aspectRatio: '1 / 1', margin: '0 auto' }} ref={donutRef}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={isEmptyQuota ? [{ name: 'No quota', value: 1 }] : data}
-                cx="50%"
-                cy="50%"
-                innerRadius="58%"
-                outerRadius="92%"
-                dataKey="value"
-                startAngle={90}
-                endAngle={-270}
-                strokeWidth={0}
-              >
-                {isEmptyQuota
-                  ? <Cell fill="var(--line2)" />
-                  : data.map((d, i) => (
-                      <Cell key={d.name} fill={i === 0 ? BALANCE_DONUT_COLORS.available : BALANCE_DONUT_COLORS.consumed} />
-                    ))}
-              </Pie>
-              {!isEmptyQuota && (
-                <Tooltip
-                  /* See DashboardPage's LeaveBalancePanel donut — same left/right-aware custom
-                     content, needed because Recharts' own positioning always offsets to the right. */
-                  content={props => (
-                    <PieHoverTooltip
-                      {...props}
-                      containerRef={donutRef}
-                      formatter={(val, name) => [`${val} day${val === 1 ? '' : 's'}`, name]}
-                    />
-                  )}
-                  allowEscapeViewBox={{ x: true, y: true }}
-                />
-              )}
-            </PieChart>
-          </ResponsiveContainer>
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', lineHeight: 1 }}>{available}</span>
-          </div>
-        </div>
-
-        {/* Annual Quota — below the chart, set off by a divider + brand-colored value so it reads
-            as distinct from the Available/Consumed legend above while matching the page's palette. */}
-        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--line)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)' }}>
-          Annual Quota: <span style={{ color: 'var(--brand)', fontWeight: 700 }}>{total}</span> day{total === 1 ? '' : 's'}
-        </div>
+        {isEmptyQuota ? (
+          <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No quota assigned</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: ringColor, flexShrink: 0 }} />
+              Available <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{available}d</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)' }}>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--line2)', flexShrink: 0 }} />
+              Consumed <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{consumed}d</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -181,6 +170,13 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     : (new Date(effectiveEndDate).getTime() - new Date(form.startDate).getTime()) / 86400000 + 1;
   const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && requestedDays > selectedBalance.remainingDays;
 
+  // Early-UX only, mirroring the backend's own classification-based rule (LeaveService#submitRequest)
+  // — the backend independently re-validates against ALL of the employee's paid balances regardless
+  // of what's checked here, so this can never be relied on to enforce the rule by itself.
+  const selectedType = types.find(t => t.code === form.leaveTypeCode);
+  const hasAnyPaidBalance = balances.some(b => b.remainingDays > 0);
+  const blockedUnpaidWithPaidBalance = selectedType?.classification === 'UNPAID' && hasAnyPaidBalance;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.reason.trim()) { setError('A reason is required.'); return; }
@@ -189,6 +185,10 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
     if (exceedsBalance && selectedBalance) {
       setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${selectedBalance.remainingDays} days.`);
+      return;
+    }
+    if (blockedUnpaidWithPaidBalance) {
+      setError('You cannot apply for unpaid leave while you have an available paid leave balance.');
       return;
     }
     setSubmitting(true); setError(null);
@@ -222,6 +222,11 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
                 {exceedsBalance && ' — this request exceeds your available balance'}
               </div>
             )}
+            {blockedUnpaidWithPaidBalance && (
+              <div style={{ fontSize: 11.5, color: 'var(--risk)', marginTop: 5 }}>
+                You cannot apply for unpaid leave while you have an available paid leave balance.
+              </div>
+            )}
           </div>
           <Field label="Start Date *">
             <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
@@ -240,7 +245,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
           </div>
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || exceedsBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
+            <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
           </div>
         </form>
       </div>
@@ -331,14 +336,56 @@ export default function LeavePage() {
     await refreshLeaveData();
   }
 
+  // ── History filters — presentation-only, operate on the `requests` array already loaded
+  // above via the existing leaveApi.listMine()/refreshLeaveData() calls; no new API calls. ──
+  const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+
+  // ── Own-leave KPIs — derived client-side from `balances`/`requests` already loaded above. ──
+  const totalAvailable = useMemo(() => balances.reduce((s, b) => s + Math.max(0, Number(b.remainingDays)), 0), [balances]);
+  const totalUsed = useMemo(() => balances.reduce((s, b) => s + Math.max(0, Number(b.usedDays)), 0), [balances]);
+  const myPendingCount = useMemo(() => requests.filter(r => r.status === 'PENDING').length, [requests]);
+  const todayIso = useMemo(() => { const n = new Date(); return toISODate(n.getFullYear(), n.getMonth(), n.getDate()); }, []);
+  const upcoming = useMemo(
+    () => requests.filter(r => r.status === 'APPROVED' && r.startDate >= todayIso).sort((a, b) => a.startDate.localeCompare(b.startDate))[0],
+    [requests, todayIso]
+  );
+
+  const filteredRequests = useMemo(() => requests.filter(r => {
+    if (typeFilter && r.leaveTypeCode !== typeFilter) return false;
+    if (statusFilter && r.status !== statusFilter) return false;
+    if (search.trim() && !r.employeeReason.toLowerCase().includes(search.trim().toLowerCase()) && !r.leaveTypeName.toLowerCase().includes(search.trim().toLowerCase())) return false;
+    return true;
+  }), [requests, typeFilter, statusFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages);
+  const pageRows = filteredRequests.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
+
+  function updateFilterAndResetPage(setter: (v: string) => void, value: string) { setter(value); setPage(1); }
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 22 }}>
-        <div>
-          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Leave</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>View your balance, request leave, and track approvals.</p>
+      <div className="nf-section-enter nf-leave-header" style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 22,
+        background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '18px 22px',
+        backgroundImage: 'linear-gradient(120deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 55%)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+          <div style={{
+            width: 42, height: 42, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'linear-gradient(155deg, var(--brand) 0%, var(--brand-deep) 100%)', boxShadow: '0 4px 14px rgba(177,17,22,.28)',
+          }}>
+            <Sparkles size={19} color="#fff" />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Leave</h1>
+            <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>View your balance, request leave, and track approvals.</p>
+          </div>
         </div>
-        <button onClick={() => setShowRequest(true)} disabled={types.length === 0} style={{ ...primaryButtonStyle, cursor: types.length === 0 ? 'not-allowed' : 'pointer', opacity: types.length === 0 ? 0.6 : 1 }}>
+        <button onClick={() => setShowRequest(true)} disabled={types.length === 0} style={{ ...primaryButtonStyle, padding: '10px 18px', cursor: types.length === 0 ? 'not-allowed' : 'pointer', opacity: types.length === 0 ? 0.6 : 1, boxShadow: types.length === 0 ? 'none' : '0 2px 10px rgba(177,17,22,.25)' }}>
           <CalendarPlus size={14} /> Request Leave
         </button>
       </div>
@@ -350,21 +397,69 @@ export default function LeavePage() {
       )}
 
       {!loading && (
-        // auto-fit + 1fr (same responsive-card-row convention as AuditStatCards) — a single
-        // balance card fills the row instead of leaving a blank gap beside it, and any future
-        // additional balance types would wrap into an even multi-column row instead of overflowing.
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 22 }}>
-          {balances.map(b => <LeaveBalanceDonut key={b.leaveTypeCode} balance={b} />)}
+        <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+          <KpiTile icon={Wallet} label="Available Leave" value={`${totalAvailable}d`} sub="Across all leave types" accent="var(--ok)" />
+          <KpiTile icon={CheckCircle2} label="Used This Year" value={`${totalUsed}d`} sub="Approved & consumed" accent="var(--info)" />
+          <KpiTile icon={Hourglass} label="Pending Requests" value={String(myPendingCount)} sub={myPendingCount === 0 ? 'All caught up' : 'Awaiting a decision'} accent="var(--warn)" />
+          <KpiTile
+            icon={CalendarClock} label="Upcoming Leave"
+            value={upcoming ? new Date(upcoming.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
+            sub={upcoming ? upcoming.leaveTypeName : 'Nothing scheduled'} accent="var(--brand)"
+          />
         </div>
       )}
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      {!loading && (
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Leave Balances</div>
+          {balances.length === 0 ? (
+            <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 40, textAlign: 'center' }}>
+              <Wallet size={26} style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
+              <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No leave balances configured.</div>
+            </div>
+          ) : (
+            <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+              {balances.map((b, i) => <LeaveBalanceRingCard key={b.leaveTypeCode} balance={b} accent={BALANCE_ACCENTS[i % BALANCE_ACCENTS.length]} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Leave History</div>
+        {!loading && requests.length > 0 && (
+          <div className="nf-leave-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative' }}>
+              <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)' }} />
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search reason or type…" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px 7px 28px', fontSize: 12.5, color: 'var(--txt)', width: 190 }} />
+            </div>
+            <select value={typeFilter} onChange={e => updateFilterAndResetPage(setTypeFilter, e.target.value)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}>
+              <option value="">All Types</option>
+              {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => updateFilterAndResetPage(setStatusFilter, e.target.value)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}>
+              <option value="">All Statuses</option>
+              <option value="PENDING">Pending</option>
+              <option value="APPROVED">Approved</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : requests.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
+            <CalendarPlus size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>No leave requests yet</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Click "Request Leave" to submit your first request.</div>
+          </div>
+        ) : filteredRequests.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <Search size={24} style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
+            <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No requests match your filters.</div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -375,8 +470,8 @@ export default function LeavePage() {
                 </tr>
               </thead>
               <tbody>
-                {requests.map(r => (
-                  <tr key={r.id}>
+                {pageRows.map(r => (
+                  <tr key={r.id} className="nf-leave-row">
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                       {r.leaveTypeName}
                       {r.leaveTypeClassification === 'UNPAID' && (
@@ -416,6 +511,18 @@ export default function LeavePage() {
                 ))}
               </tbody>
             </table>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--txt-dim)' }}>
+              <span>Showing {(pageSafe - 1) * PAGE_SIZE + 1}–{Math.min(pageSafe * PAGE_SIZE, filteredRequests.length)} of {filteredRequests.length}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1} aria-label="Previous page" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: pageSafe <= 1 ? 'not-allowed' : 'pointer', color: 'var(--txt-mut)', opacity: pageSafe <= 1 ? 0.5 : 1 }}>
+                  <ChevronLeft size={13} />
+                </button>
+                <span style={{ fontWeight: 600, color: 'var(--txt-mut)' }}>Page {pageSafe} of {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages} aria-label="Next page" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: pageSafe >= totalPages ? 'not-allowed' : 'pointer', color: 'var(--txt-mut)', opacity: pageSafe >= totalPages ? 0.5 : 1 }}>
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -17,9 +17,7 @@
 #
 # `placeholder: true` marks a roadmap item that renders the "Ships in Phase 2" placeholder rather
 # than a real page. These are described so the assistant can explain them, but NavigationValidator
-# refuses to emit them as targets. Note `reports` is a placeholder in the nav even though
-# ReportsController and ReportsService are fully implemented - that functionality is surfaced
-# inside My Team, not at a /reports page, so it is still not navigable.
+# refuses to emit them as targets.
 
 pages:
 
@@ -240,6 +238,14 @@ pages:
         label: "Reports & Analytics"
         route: /reports
         description: "Company-wide headcount, today's attendance breakdown (present/late/absent/on leave/not checked in) and approved leave for a selected period, with charts, tables and an Export to Excel button. The separate attendance-request reporting library (regularization, web clock-in, overtime, partial day, WFH) still lives inside My Team, not here."
+
+  - pageId: api-usage
+    module: api-usage
+    variants:
+      - roles: [SUPER_ADMIN]
+        label: "API Usage"
+        route: /api-usage
+        description: "The AI assistant's own usage and cost: requests, tokens, errors and latency over time, this month's estimated spend against the monthly budget, and the Re-index now button that rebuilds the assistant's knowledge base after it changes."
 
   # ---------------------------------------------------------------- reachable, but not nav items
 

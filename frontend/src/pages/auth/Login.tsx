@@ -136,11 +136,37 @@ function ImageLogin({
   password, setPassword, passId, showPass, setShowPass, submitting, locked, onSubmit,
 }: ImageLoginProps) {
   const bannerMessage = lockedMessage ?? (hasError ? error : null);
-  // Shared by the password input and its show/hide toggle button so the two sit on one
-  // continuous background instead of the toggle's own fixed shade showing as a seam.
+  // Shared by the password input AND its show/hide toggle button so the whole row — input plus
+  // toggle — reads as one continuous field with a single background, never as the toggle sitting
+  // in its own separate-colored box next to the input. (An earlier version sized this fill to
+  // hug just the typed text instead of the full field; that saved a little empty space but left
+  // a visible gap — and a disconnected-looking toggle button — once the fill no longer reached
+  // that far right. Full-field-width, one color, wins over that.)
   const passwordFieldBg = password ? 'rgb(16,28,38)' : 'transparent';
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100dvh', overflow: 'hidden', background: '#060608' }}>
+      {/* Chrome (and other Chromium browsers) paints its OWN pale-blue background across an
+          autofilled input via an internal UA mechanism that overrides any background set through
+          inline styles or normal CSS — it sits on top of the backing fill div below and hides it
+          entirely, which is what actually produced the wide, mismatched-color block after
+          browser autofill (not our own fill-width logic, which already works correctly for
+          manually-typed input). The standard fix is this same-origin override: force the
+          autofilled state back to our own field color via the -webkit-box-shadow inset trick,
+          the only mechanism that can override it. */}
+      <style>{`
+        .nf-login-email-input:-webkit-autofill,
+        .nf-login-email-input:-webkit-autofill:hover,
+        .nf-login-email-input:-webkit-autofill:focus,
+        .nf-login-password-input:-webkit-autofill,
+        .nf-login-password-input:-webkit-autofill:hover,
+        .nf-login-password-input:-webkit-autofill:focus {
+          -webkit-text-fill-color: #fff;
+          caret-color: #fff;
+          -webkit-box-shadow: 0 0 0 1000px rgb(16,28,38) inset;
+          box-shadow: 0 0 0 1000px rgb(16,28,38) inset;
+          transition: background-color 9999s ease-in-out 0s;
+        }
+      `}</style>
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div
           className="nf-login-frame"
@@ -177,6 +203,7 @@ function ImageLogin({
             <label htmlFor={emailId} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Email</label>
             <input
               ref={emailRef} id={emailId} type="text" inputMode="email" autoComplete="email" placeholder=""
+              className="nf-login-email-input"
               value={email} onChange={(e) => setEmail(e.target.value)}
               disabled={locked}
               aria-invalid={hasError} aria-describedby={bannerMessage ? errorId : undefined}
@@ -184,8 +211,9 @@ function ImageLogin({
                 ...rectStyle(FIELD_RECT.email),
                 // The field's placeholder icon/text are baked into the reference art and show
                 // through this transparent input while empty; once real text is entered, an
-                // opaque fill (colour-matched to the art's own field interior) masks that
-                // baked-in placeholder so the two don't overlap/garble.
+                // opaque fill spanning the FULL field (colour-matched to the art's own field
+                // interior) masks that baked-in placeholder — one consistent color across the
+                // entire field, not just behind the typed text, so it reads as a single field.
                 background: email ? 'rgb(16,28,38)' : 'transparent',
                 border: 'none', outline: 'none', boxSizing: 'border-box',
                 // Percentage padding always resolves against the containing block's width (this
@@ -206,6 +234,7 @@ function ImageLogin({
             <label htmlFor={passId} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Password</label>
             <input
               id={passId} type={showPass ? 'text' : 'password'} autoComplete="current-password" placeholder=""
+              className="nf-login-password-input"
               value={password} onChange={(e) => setPassword(e.target.value)}
               disabled={locked}
               aria-invalid={hasError} aria-describedby={bannerMessage ? errorId : undefined}

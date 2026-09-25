@@ -154,7 +154,10 @@ public class ApprovalRuleService {
                 .ifPresent(other -> {
                     other.setActive(false);
                     other.setUpdatedBy(actor.getId());
-                    ruleRepository.save(other);
+                    // Flush now: Hibernate orders UPDATEs by load order, and `rule` was loaded
+                    // first — without this, its active=true write would hit the DB before this
+                    // active=false one and violate idx_approval_rules_one_active_per_type.
+                    ruleRepository.saveAndFlush(other);
                     log.info("Approval rule {} auto-deactivated: superseded by newly-activated rule {} for requestType={}",
                             other.getId(), id, requestType);
                 });

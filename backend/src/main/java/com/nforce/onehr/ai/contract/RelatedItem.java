@@ -5,19 +5,19 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** A pointer to further OneHR knowledge the user may want next. Purely informational. */
+/**
+ * A follow-up question the user may want to ask next. Purely informational.
+ *
+ * <p>Label only. It used to carry a {@code type} and a {@code refId} - the internal knowledge id -
+ * which nothing on the frontend read, and which put implementation identifiers in every response
+ * (ONEHR - chatbot exposed internal provider and action ids).
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class RelatedItem {
 
-    /** The kind of thing referenced, as a {@link KnowledgeType} name. */
-    private String type;
-
-    /** The referenced knowledge/page/action id. */
-    private String refId;
-
-    /** Human-readable label. */
+    /** Human-readable label, asked verbatim when clicked. */
     private String label;
 }

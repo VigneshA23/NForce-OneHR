@@ -1,0 +1,658 @@
+# Live data the assistant can read - one unit per question family.
+#
+# These exist for retrieval, not for prose. A live-data provider only runs when retrieval matched
+# knowledge in one of its modules (see AssistantDataService), so a question like "how many active
+# users are there" returned nothing at all while no unit described that data: the Super Admin got
+# "I cannot determine the number of active users" although User Management shows it on screen.
+#
+# Rules for every unit here:
+#   - `module` is the provider's specific module (users, team-leave, attendance-history, ...), not
+#     the page's generic one. That is what lets the right provider win its turn over the dozen
+#     others that share a page - see the tie-break note on AssistantDataService#selectDiverse.
+#   - `audience` matches the provider's audiences exactly. A unit a role can retrieve but whose data
+#     that role cannot read would only produce "I don't have that" answers.
+#   - `synonyms` are the real phrasings people use; they are embedded with the title and body.
+#   - The body says what the figures mean and where the same figures appear on screen, so the
+#     model can explain a number, not just repeat it.
+
+knowledge:
+
+  # ---------------------------------------------------------------- your own records (everyone)
+
+  - knowledgeId: data.self.profile
+    type: FAQ
+    module: my-profile
+    pageId: profile
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Your employment details - employee code, designation, department, manager and joining date
+    synonyms:
+      - what is my employee code
+      - what is my employee id
+      - who is my manager
+      - who do I report to
+      - who is my reporting manager
+      - what is my designation
+      - which department am I in
+      - what is my department
+      - when did I join
+      - what is my joining date
+      - where is my work location
+      - what is my business unit
+      - what is my employment type
+      - am I still on probation
+      - when does my probation end
+      - what is my confirmation date
+      - what is my work mode
+    body: |
+      The assistant can read your own employment record: your employee code, role, designation,
+      department, business unit, location, employment type, work mode, joining date, probation end
+      date, confirmation date and your current reporting manager.
+
+      These are the same work details shown on My Profile. They are maintained by HR, so if one is
+      wrong the fix is to ask HR rather than to edit it yourself.
+
+  - knowledgeId: data.self.attendance-today
+    type: FAQ
+    module: attendance-today
+    pageId: attendance
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Your attendance today - check-in time, clocked-in status and hours worked so far
+    synonyms:
+      - what time did I check in today
+      - when did I clock in today
+      - am I clocked in
+      - am I checked in right now
+      - have I checked out
+      - how long have I worked today
+      - how many hours have I worked today
+      - did my check in register
+      - was I late today
+      - my attendance status today
+    body: |
+      For today's work date the assistant can read whether you are currently clocked in, your first
+      check-in time, your last check-out, how many check-in sessions you have made, the hours worked
+      so far (including a session that is still open), the day's status and whether you arrived late.
+
+      Late follows the same rule as My Attendance: a check-in counts as late only when it is more
+      than your shift's grace period after the shift start.
+
+  - knowledgeId: data.self.attendance-history
+    type: FAQ
+    module: attendance-history
+    pageId: attendance
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Your attendance history - check-in and check-out times, hours worked and late days
+    synonyms:
+      - what time did I check in yesterday
+      - what time did I check in on Monday
+      - how many hours did I work last week
+      - how many hours did I work this week
+      - how many days was I present this month
+      - how many days was I late this month
+      - my check in and check out times
+      - my attendance history
+      - my attendance log
+      - what were my working hours
+      - my average working hours
+      - which days did I work
+    body: |
+      The assistant can read your attendance log for the last 30 days - the same rows My Attendance
+      shows: each day's status, first check-in, last check-out, hours worked and lateness - plus
+      totals and averages across the period, every attendance exception in it, and which of those
+      exceptions carry an active penalty (shown as PENALIZED on My Attendance).
+
+      A date with no row has no attendance record at all: a weekly off, a holiday, a leave day, or a
+      day not worked.
+
+  - knowledgeId: data.self.shift
+    type: FAQ
+    module: shift
+    pageId: attendance
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Your shift timings, late grace period, half-day threshold and weekly offs
+    synonyms:
+      - what is my shift
+      - what time does my shift start
+      - what time does my shift end
+      - my shift timings
+      - what is my grace period
+      - how late can I come
+      - what are my weekly offs
+      - which days are my weekly off
+      - what is the half day threshold
+      - which days do I work
+    body: |
+      The assistant can read the shift assigned to you today with its start and end times, the late
+      grace period that shift allows, the half-day threshold, and your weekly-off days.
+
+      Grace is configured per shift, so colleagues on different shifts can have different
+      allowances. Shifts and weekly-off policies are assigned by HR.
+
+  - knowledgeId: data.self.holidays
+    type: FAQ
+    module: holidays
+    pageId: leave
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Upcoming holidays for your location
+    synonyms:
+      - when is the next holiday
+      - upcoming holidays
+      - holiday list
+      - holidays this year
+      - how many holidays are left this year
+      - is there a holiday next week
+      - is tomorrow a holiday
+      - public holidays
+      - company holiday calendar
+    body: |
+      The assistant can read the holiday calendar for your own location - the next holiday, every
+      upcoming holiday and how many remain this year - the same calendar shown on Leave & Holidays.
+
+      Holidays are configured per location, so offices in different locations can have different
+      holidays.
+
+  - knowledgeId: data.self.notifications
+    type: FAQ
+    module: notifications
+    pageId: notifications
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Your unread notifications
+    synonyms:
+      - do I have any notifications
+      - unread notifications
+      - my notifications
+      - any new alerts
+      - how many notifications do I have
+    body: |
+      The assistant can read how many unread notifications you have and the most recent ones - the
+      same items as the bell in the top bar: decisions on your requests, items awaiting your
+      approval, document expiry reminders and announcements.
+
+  - knowledgeId: data.self.documents
+    type: FAQ
+    module: my-documents
+    pageId: my-documents
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Your required documents and compliance status
+    synonyms:
+      - which documents am I missing
+      - what is my document status
+      - are my documents verified
+      - which documents do I need to upload
+      - my required documents
+      - my compliance status
+      - are any of my documents expiring
+    body: |
+      The assistant can read which documents you are required to provide, whether each is uploaded,
+      verified, pending HR verification, rejected or missing, which are expiring soon, and how many
+      required policies still await your acknowledgement - the same checklist as My Documents &
+      Policies and the compliance banner.
+
+  - knowledgeId: data.self.policies
+    type: FAQ
+    module: policies
+    pageId: my-documents
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Company policies and your acknowledgements
+    synonyms:
+      - which policies do I need to acknowledge
+      - pending policy acknowledgement
+      - have I acknowledged all policies
+      - company policies list
+      - which policies are required
+    body: |
+      The assistant can read the policies published to your role and whether you have acknowledged
+      each one, including which required policies are still waiting for you. Acknowledging a policy
+      is a one-time action on My Documents & Policies and cannot be undone.
+
+  - knowledgeId: data.self.assets
+    type: FAQ
+    module: my-assets
+    pageId: assets
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Company assets assigned to you
+    synonyms:
+      - what assets do I have
+      - which laptop is assigned to me
+      - assets assigned to me
+      - my company assets
+      - my asset tag
+      - what equipment do I have
+    body: |
+      The assistant can read the company assets currently assigned to you - asset tag, category,
+      brand and model, since when, the recorded condition and whether you have acknowledged
+      receipt - as listed under your assets on Assets & Expenses.
+
+  - knowledgeId: data.self.tickets
+    type: FAQ
+    module: helpdesk
+    pageId: help
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: HR service requests (tickets) you raised
+    synonyms:
+      - what is the status of my ticket
+      - my HR tickets
+      - tickets I raised
+      - has my ticket been resolved
+      - my helpdesk tickets
+      - my HR query status
+      - who is handling my ticket
+    body: |
+      The assistant can read the HR service requests you have raised - ticket number, category,
+      status (OPEN, IN_PROGRESS, RESOLVED or CLOSED), priority, who it is assigned to and when it was
+      last updated. Tickets are raised and followed up from Help & Guidance.
+
+  # ---------------------------------------------------------------- shared with everyone
+
+  - knowledgeId: data.shared.announcements
+    type: FAQ
+    module: announcements
+    pageId: my-documents
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Latest company announcements
+    synonyms:
+      - latest announcements
+      - any new announcements
+      - company announcements
+      - what was announced recently
+      - notice board
+      - recent circulars
+    body: |
+      The assistant can read the most recent published announcements - title, publish date and the
+      start of the text - the same list shown on My Documents & Policies.
+
+  - knowledgeId: data.shared.directory
+    type: FAQ
+    module: directory
+    pageId: directory
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: People Directory headcount by department, location and work mode
+    synonyms:
+      - how many employees are there
+      - how many people work here
+      - how many people are in each department
+      - how many people work in engineering
+      - how many employees are in each location
+      - how many people work remotely
+      - company size
+    body: |
+      The assistant can count the people listed in the People Directory - how many are active, and
+      how the active people split by department, location and work mode. It sees counts only, the
+      same set of people the directory shows every employee.
+
+  - knowledgeId: data.shared.birthdays
+    type: FAQ
+    module: birthdays
+    pageId: dashboard
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Colleagues' birthdays today and this week
+    synonyms:
+      - whose birthday is today
+      - any birthdays today
+      - upcoming birthdays
+      - birthdays this week
+    body: |
+      The assistant can read whose birthday is today and whose falls in the next seven days - the
+      same list as the birthday card on Home.
+
+  # ---------------------------------------------------------------- your project team (peers)
+
+  - knowledgeId: data.peers.team
+    type: FAQ
+    module: peers
+    pageId: my-team
+    version: 1
+    audience: [EMPLOYEE]
+    title: Your project team - who is in today and who is on leave
+    synonyms:
+      - is anyone from my team on leave today
+      - who in my team is on leave tomorrow
+      - which of my teammates are on leave this week
+      - is my team in the office today
+      - who from my team has checked in
+      - my teammates
+      - who is in my team
+    body: |
+      Your project team is everyone who shares your reporting manager, you included - the same
+      group My Team shows you. The assistant can read who in that group has checked in today, who is
+      on approved leave today and who has approved leave in the next two weeks.
+
+  # ---------------------------------------------------------------- awaiting your decision
+
+  - knowledgeId: data.approvals.pending
+    type: FAQ
+    module: approvals
+    pageId: approvals
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: How many requests are waiting for your approval, by type
+    synonyms:
+      - how many requests are waiting for my approval
+      - what is waiting for me to approve
+      - do I have anything to approve
+      - how many pending approvals do I have
+      - what needs my approval
+      - how many leave requests do I need to approve
+      - pending items in the approval center
+    body: |
+      Managers, HR Admins and Super Admins can ask how many requests are waiting for their decision
+      and how they split by type - Leave, Regularization, Expense, Asset Request, Work From Home,
+      Partial Day, Overtime and Document Review - the same queue, and the same total, as the Approval
+      Center. A Manager's queue holds their direct reports' requests; an HR Admin's or Super Admin's
+      holds the whole organisation's.
+
+  # ---------------------------------------------------------------- a manager's team
+
+  - knowledgeId: data.team.members
+    type: FAQ
+    module: team
+    pageId: my-team
+    version: 1
+    audience: [MANAGER]
+    title: Your direct reports and recent team joiners
+    synonyms:
+      - who reports to me
+      - my direct reports
+      - how many people are in my team
+      - list my team members
+      - what is my team size
+      - who joined my team recently
+      - new joiners in my team
+    body: |
+      A manager can ask for their current direct reports - name, employee code, designation,
+      department and whether the account is active - and who joined their team recently. These are
+      the same people as the Manager Home and My Team.
+
+  - knowledgeId: data.team.attendance
+    type: FAQ
+    module: team-attendance
+    pageId: attendance
+    version: 1
+    audience: [MANAGER]
+    title: Your team's attendance today and late arrivals this week
+    synonyms:
+      - who in my team is late today
+      - is anyone in my team absent today
+      - my team's attendance today
+      - who from my team has not checked in
+      - how many of my team are present today
+      - who came late in my team this week
+      - team late arrivals
+    body: |
+      A manager can ask how many of their direct reports have checked in today and who they are,
+      who is late, who is on approved leave, who has not checked in yet, and who arrived late over
+      the past week. Present is counted exactly as the Manager Home's Present Today tile counts it:
+      anyone with a check-in today.
+
+      Not checked in yet is not the same as absent - it includes people on a weekly off or holiday
+      and people whose shift has not started.
+
+  - knowledgeId: data.team.leave
+    type: FAQ
+    module: team-leave
+    pageId: leave
+    version: 1
+    audience: [MANAGER]
+    title: Your team's approved leave today and over the next two weeks
+    synonyms:
+      - who in my team is on leave today
+      - which team members are on leave this week
+      - who is on leave in my team
+      - upcoming leave in my team
+      - my team's leave calendar
+    body: |
+      A manager can ask which direct reports are on approved leave today and which approved leave
+      falls in the next two weeks. Leave still awaiting a decision is not counted here - it is in
+      the Approval Center.
+
+  - knowledgeId: data.team.penalties
+    type: FAQ
+    module: team-penalties
+    pageId: attendance
+    version: 1
+    audience: [MANAGER]
+    title: Active attendance penalties across your team
+    synonyms:
+      - which of my team members were penalized
+      - penalties in my team
+      - team attendance penalties
+      - who in my team has a pending penalty
+    body: |
+      A manager can ask which of their direct reports have an active attendance
+      penalty, on which date, for which discrepancy and how much was deducted. A manager can cancel
+      a still-pending penalty from the Regularize & Cancel Penalties screen.
+
+  # ---------------------------------------------------------------- organisation (HR / Super Admin)
+
+  - knowledgeId: data.org.users
+    type: FAQ
+    module: users
+    pageId: access
+    version: 1
+    audience: [ADMIN]
+    title: User accounts - total, active and inactive users, by role and department
+    synonyms:
+      - how many users are there
+      - how many active users are there
+      - how many inactive users are there
+      - users with active status
+      - how many deactivated accounts
+      - how many users per role
+      - how many managers are there
+      - how many HR admins are there
+      - how many super admins are there
+      - total number of users
+      - which users are inactive
+      - users without a reporting manager
+      - how many users joined this month
+    body: |
+      A Super Admin can ask for the user accounts User Management lists: the total, how many are
+      active and inactive (deactivated), the split by role, department and location, who joined this
+      month, which active employees have no reporting manager, and who is inactive. Active means the
+      account is enabled - the same flag User Management and the Super Admin dashboard count.
+
+  - knowledgeId: data.org.headcount
+    type: FAQ
+    module: headcount
+    pageId: reports
+    version: 1
+    audience: [HR]
+    title: Organisation headcount - active employees by department, role and designation
+    synonyms:
+      - how many employees are there
+      - how many active employees
+      - how many active users are there
+      - what is our headcount
+      - headcount by department
+      - how many employees in each department
+      - new joiners this month
+      - how many people joined this year
+      - how many inactive employees
+    body: |
+      An HR Admin can ask for the organisation's headcount: how many employees are on record, how
+      many are active and inactive, the split by role, department and designation, and who has
+      joined recently - the same figures as the HR Home dashboard and Reports & Analytics.
+
+  - knowledgeId: data.org.attendance
+    type: FAQ
+    module: org-attendance
+    pageId: attendance
+    version: 1
+    audience: [HR, ADMIN]
+    title: Organisation attendance today - present, late, on leave and not checked in
+    synonyms:
+      - how many people are present today
+      - how many employees checked in today
+      - who is late today
+      - who has not checked in today
+      - who is absent today
+      - attendance across the company today
+      - late comers today
+    body: |
+      HR Admins and Super Admins can ask how many employees have checked in today and who, who is
+      late, who is on approved leave and who has not checked in yet. Present is counted exactly as
+      the Home dashboard's Present Today tile counts it: anyone with a check-in today, out of every
+      employee on the attendance roster.
+
+  - knowledgeId: data.org.leave
+    type: FAQ
+    module: org-leave
+    pageId: leave
+    version: 1
+    audience: [HR, ADMIN]
+    title: Who is on leave today and over the next two weeks, across the organisation
+    synonyms:
+      - who is on leave today
+      - how many people are on leave today
+      - who is off today
+      - employees on leave this week
+      - upcoming leave across the company
+    body: |
+      HR Admins and Super Admins can ask who is on approved leave today (the Home dashboard's On
+      Leave tile counts the same people) and which approved leave falls in the next two weeks.
+      Leave still awaiting a decision is in the Approval Center instead.
+
+  - knowledgeId: data.org.penalties
+    type: FAQ
+    module: org-penalties
+    pageId: attendance
+    version: 1
+    audience: [HR, ADMIN]
+    title: Active attendance penalties across the organisation
+    synonyms:
+      - how many penalties are pending
+      - who has been penalized
+      - attendance penalties this month
+      - penalties across the company
+      - pending penalty review
+    body: |
+      HR Admins and Super Admins can ask how many active attendance penalties exist
+      across the organisation over the last 30 days, by discrepancy type and by person - the same
+      list as the Regularize & Cancel Penalties screen.
+
+  - knowledgeId: data.org.structure
+    type: FAQ
+    module: organization
+    version: 1
+    audience: [HR, ADMIN]
+    title: Organisation structure - departments, designations, locations, business units and shifts
+    synonyms:
+      - how many departments are there
+      - list the departments
+      - how many locations do we have
+      - which shifts exist
+      - list the designations
+      - how many business units
+      - weekly off policies
+      - how many employees are in each department
+    body: |
+      HR Admins and Super Admins can ask about the organisation's master data - departments,
+      designations, locations, business units, shifts and weekly-off policies - including how many
+      are active and how many employees each one has. HR Admins maintain these on Organization
+      Structure; Super Admins on Organization Masters.
+
+  - knowledgeId: data.org.documents
+    type: FAQ
+    module: documents-admin
+    pageId: documents
+    version: 1
+    audience: [HR, ADMIN]
+    title: Document verification queue and outstanding policy acknowledgements
+    synonyms:
+      - how many documents are pending verification
+      - documents awaiting verification
+      - which documents are expiring
+      - documents expiring this month
+      - how many policy acknowledgements are pending
+    body: |
+      HR Admins and Super Admins can ask how many documents await HR verification and across how
+      many employees, how many expire within 30 days, how many documents are on file, and how many
+      required policy acknowledgements are still outstanding across the organisation.
+
+  - knowledgeId: data.org.helpdesk
+    type: FAQ
+    module: helpdesk-admin
+    pageId: requests
+    version: 1
+    audience: [HR, ADMIN]
+    title: The HR service request (ticket) queue
+    synonyms:
+      - how many open tickets are there
+      - open HR service requests
+      - tickets in progress
+      - unassigned tickets
+      - the helpdesk queue
+      - how many tickets are resolved
+    body: |
+      HR Admins and Super Admins can ask how many HR service requests are open, in progress,
+      resolved and closed, and which tickets are in the active queue - the same figures as the
+      HR Service Requests page.
+
+  - knowledgeId: data.org.onboarding
+    type: FAQ
+    module: onboarding
+    pageId: onboarding
+    version: 1
+    audience: [HR]
+    title: Onboarding progress in figures
+    synonyms:
+      - how many new joiners are onboarding
+      - onboarding in progress
+      - overdue onboarding
+      - pending onboarding checklists
+      - how many onboardings were completed this month
+    body: |
+      An HR Admin can ask how many onboarding checklists are pending, in progress, completed and
+      overdue, how many were completed this month and the average time to complete - the same
+      tiles as the Onboarding page.
+
+  - knowledgeId: data.org.assets
+    type: FAQ
+    module: assets-admin
+    pageId: assets
+    version: 1
+    audience: [HR, ADMIN]
+    title: Company asset inventory in figures
+    synonyms:
+      - how many assets do we have
+      - how many assets are available
+      - how many assets are assigned
+      - overdue asset returns
+      - asset requests awaiting fulfilment
+    body: |
+      HR Admins and Super Admins can ask how many assets are in the inventory, how many are
+      assigned and available, how many are overdue for return, and how many approved asset requests
+      still await fulfilment.
+
+  - knowledgeId: data.org.ai-usage
+    type: FAQ
+    module: api-usage
+    pageId: api-usage
+    version: 1
+    audience: [ADMIN]
+    title: AI assistant usage and estimated spend
+    synonyms:
+      - how many AI requests were made
+      - assistant usage this month
+      - how much have we spent on the AI assistant
+      - AI cost this month
+      - token usage
+      - how much of the AI budget is used
+    body: |
+      A Super Admin can ask how much the assistant has been used over the last 30 days - turns,
+      successes, errors, API requests, tokens and latency - and this month's estimated spend against
+      the monthly budget, the same figures as the API Usage page. The spend is estimated from
+      OneHR's own token logs, not taken from the provider's invoice.

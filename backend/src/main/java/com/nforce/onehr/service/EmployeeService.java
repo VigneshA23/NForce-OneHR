@@ -11,6 +11,8 @@ import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -198,6 +200,31 @@ public class EmployeeService {
         return staff.stream()
                 .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * HR Admin + Super Admin. Server-side searched/paginated EMPLOYEE-role staff who don't yet
+     * have an onboarding checklist — backs OnboardingService#eligibleEmployeesPaged (the
+     * Onboarding page's Pending tab, ONEHR-488/489). Kept here rather than in OnboardingService
+     * since it's fundamentally an Employee query + the same Employee->EmployeeResponse mapping
+     * listEmployees above already owns.
+     */
+    @Transactional(readOnly = true)
+    public Page<EmployeeResponse> listEligibleForOnboarding(String search, Pageable pageable) {
+        Page<Employee> page = employeeRepository.findEligibleForOnboarding(searchPattern(search), pageable);
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                findCurrentManagersBulk(page.getContent().stream().map(Employee::getUserId).toList());
+        return page.map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null));
+    }
+
+    /**
+     * "%term%", lowercased, or "%" (matches every row) — never null. findEligibleForOnboarding's
+     * LIKE parameter must always bind a concrete String: see OnboardingChecklistRepository
+     * #searchByStatus's comment for why a null "IS NULL" parameter breaks under Postgres once
+     * the query is promoted to a server-side prepared statement.
+     */
+    private static String searchPattern(String search) {
+        return (search == null || search.isBlank()) ? "%" : "%" + search.trim().toLowerCase() + "%";
     }
 
     /**
@@ -435,6 +462,22 @@ public class EmployeeService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Whether {@code userId}'s birthday falls on today (org-wide zone) — reuses this class's own
+     * leap-day-aware {@link #nextBirthdayOccurrence} rather than duplicating that math. Used by
+     * {@code BirthdayWishService} to keep "send a wish" restricted to someone's actual birthday;
+     * false (not an exception) for anyone with no {@code dateOfBirth} on file or no Employee row,
+     * matching {@link #listUpcomingBirthdays}'s own "just exclude them" handling of that case.
+     */
+    @Transactional(readOnly = true)
+    public boolean isBirthdayToday(UUID userId) {
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        return employeeRepository.findById(userId)
+                .map(Employee::getDateOfBirth)
+                .map(dob -> nextBirthdayOccurrence(dob.getMonthValue(), dob.getDayOfMonth(), today).equals(today))
+                .orElse(false);
+    }
+
     private BirthdayEntryDto toBirthdayEntry(Employee e, LocalDate today) {
         LocalDate dob = e.getDateOfBirth();
         int month = dob.getMonthValue();
@@ -445,6 +488,7 @@ public class EmployeeService {
                 .userId(e.getUserId().toString())
                 .fullName(e.getFullName())
                 .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
+                .designationName(e.getDesignation() != null ? e.getDesignation().getTitle() : null)
                 .birthdayMonth(month)
                 .birthdayDay(day)
                 .daysUntil(daysUntil)
@@ -509,6 +553,7 @@ public class EmployeeService {
                         .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                         .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                         .active(emp.getUser().isActive())
+                        .joiningDate(emp.getJoiningDate() != null ? emp.getJoiningDate().toString() : null)
                         .build())
                 .collect(Collectors.toList());
 
@@ -558,6 +603,7 @@ public class EmployeeService {
                         .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                         .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                         .active(emp.getUser().isActive())
+                        .joiningDate(emp.getJoiningDate() != null ? emp.getJoiningDate().toString() : null)
                         .roleCode(RoleUtils.primaryRoleCode(emp.getUser().getRoles(), "EMPLOYEE"))
                         .build())
                 .collect(Collectors.toList());

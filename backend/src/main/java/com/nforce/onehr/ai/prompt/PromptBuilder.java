@@ -5,10 +5,15 @@ import com.nforce.onehr.ai.contract.PageReference;
 import com.nforce.onehr.ai.contract.RetrievalResult;
 import com.nforce.onehr.ai.data.AssistantDataService;
 import com.nforce.onehr.ai.navigation.PageRegistry;
+import com.nforce.onehr.service.AttendanceRulesService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.TextStyle;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -32,6 +37,7 @@ import java.util.Optional;
 public class PromptBuilder {
 
     private final PageRegistry pageRegistry;
+    private final AttendanceRulesService attendanceRulesService;
 
     /** Builds the system prompt: standing policy, who is asking, what they can reach, what we know. */
     public String buildSystemPrompt(AssistantRequestContext context,
@@ -41,13 +47,14 @@ public class PromptBuilder {
     }
 
     /**
-     * Builds the system prompt including the caller's own live records.
+     * Builds the system prompt including the live data this caller is permitted to see.
      *
      * <p>Live data is fenced in its own tag rather than folded into KNOWLEDGE, because the two
      * are not the same kind of thing and the model must not treat them alike: knowledge says how
-     * OneHR behaves for everyone and was authored by us, while this says what is true for one
-     * person right now. Blurring them is how an assistant ends up stating somebody's leave
-     * balance as though it were a general rule.
+     * OneHR behaves for everyone and was authored by us, while this says what is true right now -
+     * for the caller, their team, or (for HR and admins) the organisation, as each block's scope
+     * states. Blurring them is how an assistant ends up stating somebody's leave balance as though
+     * it were a general rule, or an organisation headcount as though it were the caller's own.
      *
      * <p>It is also the first content here that an ordinary user can influence - an expense
      * rejection reason is free text typed by a manager - so it goes through the same fence
@@ -58,6 +65,23 @@ public class PromptBuilder {
                                     Optional<PageReference> currentPage,
                                     AssistantDataService.LiveData liveData) {
         StringBuilder sb = new StringBuilder(SystemPromptTemplate.POLICY);
+
+        // Without this, the model has no ground truth for "today" and falls back to whatever date
+        // its own training implies — observed producing a "yesterday" a full day off from the
+        // org's actual business date (ONEHR — chatbot misreads "yesterday"). Same zone as every
+        // other org-wide "business today" in the app (see AttendanceRulesService#getDefaultZoneId,
+        // used the same way by RegularizationService), so a date the assistant states matches what
+        // the rest of OneHR would show for the same moment.
+        ZoneId zone = attendanceRulesService.getDefaultZoneId();
+        LocalDateTime now = LocalDateTime.now(zone);
+        sb.append("\n\nCURRENT DATE & TIME\n");
+        sb.append("- Today: ").append(now.toLocalDate())
+                .append(" (").append(now.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH)).append(")\n");
+        sb.append("- Current time: ").append(String.format("%02d:%02d", now.getHour(), now.getMinute()))
+                .append(" (").append(zone.getId()).append(")\n");
+        sb.append("- Resolve every relative date or time reference (\"today\", \"yesterday\", ")
+                .append("\"tomorrow\", \"this week\", \"last week\", \"this month\", \"last month\") ")
+                .append("against this date and time. Never use any other notion of the current date.\n");
 
         sb.append("\n\nSIGNED-IN USER\n");
         sb.append("- Role: ").append(describeRole(context)).append('\n');
@@ -95,13 +119,21 @@ public class PromptBuilder {
         }
 
         if (liveData != null && !liveData.isEmpty()) {
-            sb.append("\nTHIS USER'S CURRENT RECORDS\n");
-            sb.append("Live values read from OneHR a moment ago, for this signed-in user only. ")
-                    .append("You may state these as fact. Do not infer any other figure, status or ")
-                    .append("date that is not written here - if it is not below, say where to look ")
-                    .append("instead of estimating.\n");
+            sb.append("\nLIVE ONEHR DATA\n");
+            sb.append("Values read from OneHR a moment ago, limited to what this signed-in user is ")
+                    .append("permitted to see. You may state these as fact. Each block's scope says whose ")
+                    .append("data it is: self = the signed-in user's own records; shared = organisation ")
+                    .append("content every employee can see (announcements, directory, birthdays); peers = ")
+                    .append("colleagues who share their manager; approvals = items awaiting their decision; ")
+                    .append("team = their direct reports; organisation = ")
+                    .append("organisation-wide. Do not infer any other figure, status, name or date that ")
+                    .append("is not written here - if it is not below, say where to look instead of ")
+                    .append("estimating.\n");
+            // No provider id and, below, no knowledge id or module: nothing reads them back, and
+            // the model printed them verbatim when asked for its "internal provider names" (ONEHR).
+            // It cannot disclose an identifier it was never given.
             for (AssistantDataService.Section section : liveData.getSections()) {
-                sb.append("<userdata id=\"").append(section.providerId()).append("\">\n");
+                sb.append("<userdata scope=\"").append(section.scope().code()).append("\">\n");
                 sb.append(fence(section.title())).append('\n');
                 sb.append(fence(section.body())).append('\n');
                 sb.append("</userdata>\n\n");
@@ -116,9 +148,7 @@ public class PromptBuilder {
             sb.append("(no OneHR knowledge was retrieved for this question; answer with type UNKNOWN)\n");
         } else {
             for (RetrievalResult k : knowledge) {
-                sb.append("<knowledge id=\"").append(k.getKnowledgeId()).append('"')
-                        .append(" type=\"").append(k.getType() == null ? "UNKNOWN" : k.getType().name()).append('"');
-                if (k.getModule() != null) sb.append(" module=\"").append(k.getModule()).append('"');
+                sb.append("<knowledge type=\"").append(k.getType() == null ? "UNKNOWN" : k.getType().name()).append('"');
                 if (k.getPageId() != null) sb.append(" pageId=\"").append(k.getPageId()).append('"');
                 sb.append(">\n");
                 if (k.getTitle() != null) sb.append(fence(k.getTitle())).append('\n');
