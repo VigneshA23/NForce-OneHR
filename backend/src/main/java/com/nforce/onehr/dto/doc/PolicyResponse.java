@@ -28,7 +28,7 @@ public class PolicyResponse {
         return new PolicyResponse(p.getId(), p.getTitle(), p.getVersion(), p.getDescription(),
                 p.getAudience(), p.isRequired(), p.getPublishedAt(), p.getPublishedBy(), p.isActive(),
                 acknowledged, acknowledgedAt, p.getVersionNumber(), p.getPreviousVersionId(),
-                p.getAttachmentFileName() != null, p.getAttachmentFileName());
+                p.getAttachmentData() != null, p.getAttachmentName());
     }
 
     public static PolicyResponse from(Policy p) {

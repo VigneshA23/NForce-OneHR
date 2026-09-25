@@ -120,6 +120,26 @@ public class PolicyService {
         return PolicyResponse.from(p);
     }
 
+    // ── HR/SA: attach a document (image/PDF/Word) to a policy ──
+    // Same validate-then-store pattern as HelpdeskService#applyAttachment (10MB/allow-list rule
+    // shared via AttachmentValidator) — a policy has at most one attachment, so a re-upload
+    // simply replaces it rather than versioning like EmployeeDocument does. Separate from
+    // publish()/publishNewVersion() (which also accept an attachment inline) so HR can attach or
+    // replace a document without republishing.
+
+    @Transactional
+    public PolicyResponse uploadAttachment(String actorEmail, Long policyId, MultipartFile file) throws IOException {
+        requireAdminRole(actorEmail);
+        Policy p = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+        AttachmentValidator.validate(file);
+        p.setAttachmentName(file.getOriginalFilename());
+        p.setAttachmentType(file.getContentType());
+        p.setAttachmentSize(file.getSize());
+        p.setAttachmentData(file.getBytes());
+        return PolicyResponse.from(policyRepo.save(p));
+    }
+
     // ── HR/SA: publish a substantive new version of an existing policy ──
     //
     // Separate from editPolicy (metadata-only, same version, acknowledgments untouched). This
@@ -165,7 +185,10 @@ public class PolicyService {
         } else {
             // No new file supplied — carry the previous version's attachment forward so it isn't
             // silently dropped when HR only changes text fields.
-            builder.attachmentFileName(current.getAttachmentFileName()).attachmentData(current.getAttachmentData());
+            builder.attachmentName(current.getAttachmentName())
+                    .attachmentType(current.getAttachmentType())
+                    .attachmentSize(current.getAttachmentSize())
+                    .attachmentData(current.getAttachmentData());
         }
         Policy p = builder.build();
         p = policyRepo.save(p);
@@ -223,7 +246,10 @@ public class PolicyService {
 
     private static void attachBuilder(Policy.PolicyBuilder builder, MultipartFile attachment) throws IOException {
         AttachmentValidator.validate(attachment);
-        builder.attachmentFileName(attachment.getOriginalFilename()).attachmentData(attachment.getBytes());
+        builder.attachmentName(attachment.getOriginalFilename())
+                .attachmentType(attachment.getContentType())
+                .attachmentSize(attachment.getSize())
+                .attachmentData(attachment.getBytes());
     }
 
     // ── Attachment download (any authenticated user who can see the policy) ──

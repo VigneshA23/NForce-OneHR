@@ -11,7 +11,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -66,6 +65,16 @@ public class PolicyController {
     public PolicyResponse edit(Principal principal, @PathVariable Long id,
                                @Valid @RequestBody UpdatePolicyRequest req) {
         return service.editPolicy(principal.getName(), id, req);
+    }
+
+    // Attach or replace a policy's document (image/PDF/Word) independently of publishing — e.g.
+    // adding one to a policy that was created without it. Same size/type rule as every other
+    // attachment in the app (see AttachmentValidator).
+    @PostMapping(value = "/{id}/attachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public PolicyResponse uploadAttachment(Principal principal, @PathVariable Long id,
+                                           @RequestParam MultipartFile file) throws IOException {
+        return service.uploadAttachment(principal.getName(), id, file);
     }
 
     @PostMapping(value = "/{id}/publish-version", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -128,22 +137,21 @@ public class PolicyController {
     }
 
     // ── All authenticated users: policy attachment download ──
+    // Any authenticated user in the policy's audience may view/download it — same visibility as
+    // the policy's own description text (myPolicies), not restricted to HR/SA.
 
     @GetMapping("/{id}/attachment")
     public ResponseEntity<byte[]> getAttachment(Principal principal, @PathVariable Long id) {
         Policy p = service.getAttachment(principal.getName(), id);
-        String ext = StringUtils.getFilenameExtension(p.getAttachmentFileName());
-        MediaType mediaType = switch (ext == null ? "" : ext.toLowerCase()) {
-            case "pdf" -> MediaType.APPLICATION_PDF;
-            case "png" -> MediaType.IMAGE_PNG;
-            case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
-            default -> MediaType.APPLICATION_OCTET_STREAM;
-        };
+        MediaType mediaType = p.getAttachmentType() != null
+                ? MediaType.parseMediaType(p.getAttachmentType())
+                : MediaType.APPLICATION_OCTET_STREAM;
         ContentDisposition cd = (mediaType == MediaType.APPLICATION_OCTET_STREAM)
-                ? ContentDisposition.attachment().filename(p.getAttachmentFileName()).build()
-                : ContentDisposition.inline().filename(p.getAttachmentFileName()).build();
+                ? ContentDisposition.attachment().filename(p.getAttachmentName()).build()
+                : ContentDisposition.inline().filename(p.getAttachmentName()).build();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .header("X-Content-Type-Options", "nosniff")
                 .contentType(mediaType)
                 .body(p.getAttachmentData());
     }

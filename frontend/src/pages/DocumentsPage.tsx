@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, AlertTriangle, Search, Eye } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search, Eye, Paperclip } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
-import { myPolicies, acknowledgePolicy, publishedAnnouncements, type Policy, type Announcement } from '../api/policies';
+import { myPolicies, acknowledgePolicy, publishedAnnouncements, fetchPolicyAttachment, type Policy, type Announcement } from '../api/policies';
 import { card, bucketRequiredDocuments } from './documents/shared';
 import { useMyDocumentsData } from './documents/useMyDocumentsData';
 import { MyDocumentsSection } from './documents/MyDocumentsSection';
@@ -16,13 +16,28 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
   onConfirm?(): Promise<void>;
   onClose(): void;
 }) {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
   const [checked, setChecked] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [attachmentLoading, setAttachmentLoading] = useState(false);
 
   async function submit() {
     if (!onConfirm) return;
     setLoading(true);
     try { await onConfirm(); } finally { setLoading(false); }
+  }
+
+  async function openAttachment() {
+    setAttachmentLoading(true);
+    try {
+      const url = await fetchPolicyAttachment(token, policy.id);
+      window.open(url, '_blank');
+    } catch {
+      showToast('error', 'Could not open attachment');
+    } finally {
+      setAttachmentLoading(false);
+    }
   }
 
   return (
@@ -33,6 +48,12 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
           {policy.description}
         </div>
+        {policy.hasAttachment && (
+          <button onClick={openAttachment} disabled={attachmentLoading}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', padding: '6px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, marginBottom: 18 }}>
+            <Paperclip size={12} /> {attachmentLoading ? 'Opening…' : (policy.attachmentFileName ?? 'View Attachment')}
+          </button>
+        )}
         {onConfirm && (
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
             <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
