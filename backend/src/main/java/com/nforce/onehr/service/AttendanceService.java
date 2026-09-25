@@ -907,6 +907,16 @@ public class AttendanceService {
     }
 
     /**
+     * The caller's current shift-relative work date - the same "today" the Attendance Log and
+     * {@link #getToday} use, so an overnight shift still reads as the day it started. A pure
+     * read, unlike {@link #getToday}, which also settles a stale open session as it goes.
+     */
+    @Transactional(readOnly = true)
+    public LocalDate currentWorkDate(String actorEmail) {
+        return defaultHistoryEnd(resolveEmployee(actorEmail));
+    }
+
+    /**
      * The caller's own punch for a single date, if any — backs the regularization request
      * form's auto-fill (Attendance Regularization spec scenarios 1/2: prefill whichever side
      * of the punch already exists so only the missing one needs to be entered). Null if the

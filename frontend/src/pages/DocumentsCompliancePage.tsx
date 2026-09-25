@@ -19,6 +19,7 @@ function StatusBadge({ status }: { status: string }) {
     VERIFIED: { label: 'Verified', color: '#22c55e' },
     PENDING_VERIFICATION: { label: 'Pending Review', color: '#eab308' },
     REJECTED: { label: 'Rejected', color: '#ef4444' },
+    WITHDRAWN: { label: 'Withdrawn', color: 'var(--txt-dim)' },
   };
   const cfg = map[status] ?? { label: status, color: 'var(--txt-dim)' };
   return (
@@ -507,7 +508,15 @@ export default function DocumentsCompliancePage() {
       {tab === 'pending' && (
         <div style={card}>
           <div className="nf-doc-table-scroll">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-doc-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '28%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: 48 }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th style={thS}>Employee</th>
@@ -526,12 +535,12 @@ export default function DocumentsCompliancePage() {
                 ) : filteredPending.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
+                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.documentTypeName}</td>
                     <td style={tdS}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
-                        <Eye size={12} /> {d.fileName}
+                      <span title={d.fileName} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
                       </span>
                     </td>
                     <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
@@ -553,7 +562,15 @@ export default function DocumentsCompliancePage() {
       {tab === 'verified' && (
         <div style={card}>
           <div className="nf-doc-table-scroll">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-doc-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '28%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: 48 }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th style={thS}>Employee</th>
@@ -572,12 +589,12 @@ export default function DocumentsCompliancePage() {
                 ) : filteredVerified.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
+                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.documentTypeName}</td>
                     <td style={tdS}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
-                        <Eye size={12} /> {d.fileName}
+                      <span title={d.fileName} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
                       </span>
                     </td>
                     <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '—'}</td>

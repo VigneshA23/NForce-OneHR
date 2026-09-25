@@ -19,7 +19,7 @@
     "@radix-ui/react-navigation-menu": "^1.2.22",
     "@radix-ui/react-popover": "^1.1.23",
     "framer-motion": "^12.42.2",
-    "html2canvas": "^1.4.1",
+    "html2canvas-pro": "^2.4.5",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.26.0",
     "react": "^19.2.7",

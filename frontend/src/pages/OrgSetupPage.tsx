@@ -1842,17 +1842,17 @@ export default function OrgSetupPage() {
       )}
 
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-        {/* Tab bar + search + add. flexWrap so the search/add block (fixed-width input + button,
-            never shrinks) drops to its own line once there isn't room for it alongside the tabs,
-            instead of squeezing the tabs' flex:1 box toward zero width — that squeeze is what
-            made the tab bar disappear before. justifyContent: flex-end keeps that block
-            right-aligned whether it's sharing the line with the tabs or sitting alone below. */}
-        <div className="nf-org-toolbar" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', borderBottom: '1px solid var(--line)', padding: '0 4px', alignItems: 'center' }}>
+        {/* Tab bar + search + add, always stacked as two distinct rows (not just wrapped when
+            tight on space) — the section tabs on their own row, the search/add controls on their
+            own row directly beneath with a divider and vertical breathing room. This guarantees
+            the two can never visually overlap/cover each other at any tab count or viewport
+            width, which a single wrapping flex row could still do at some intermediate widths. */}
+        <div className="nf-org-toolbar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', borderBottom: '1px solid var(--line)' }}>
           {/* minWidth: 0 lets this flex item actually shrink below its tabs' combined natural
               width instead of forcing the row wider than the panel — overflowX then scrolls the
               tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
               squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
-          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden' }}>
+          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', padding: '0 4px' }}>
             {(Object.keys(TABS) as OrgTab[])
               // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
               // load: unlike every other tab here (at least viewable via /organization by HR
@@ -1887,10 +1887,13 @@ export default function OrgSetupPage() {
           </div>
           {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
             && activeTab !== 'ai-assistant' && (
-            // 8px vertical padding (was 0) gives this block breathing room from the tabs above
-            // it on the narrow widths where flexWrap drops it to its own line; harmless on the
-            // shared line, where alignItems: center still governs its vertical position.
-            <div className="nf-org-toolbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+            // Its own row directly under the tabs, right-aligned, with a divider + vertical
+            // breathing room so it reads as a clearly separate toolbar strip rather than
+            // crowding — or at some widths visually overlapping — the section tabs above it.
+            <div className="nf-org-toolbar-actions" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+              padding: '10px 12px', borderTop: '1px solid var(--line)',
+            }}>
               <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
                 <Search size={12} aria-hidden="true" style={{
                   position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
@@ -1923,7 +1926,10 @@ export default function OrgSetupPage() {
               Rules manage their own add actions internally (see their own sections below). No
               shared search box here: the master-detail layout has its own, in the left panel. */}
           {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
-            <div className="nf-org-toolbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+            <div className="nf-org-toolbar-actions" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+              padding: '10px 12px', borderTop: '1px solid var(--line)',
+            }}>
               <button onClick={openAdd} aria-label="Add Shift" style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
                 background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,

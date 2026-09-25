@@ -67,6 +67,7 @@ class AssistantDataServiceTest {
 
         @Override public String id() { return id; }
         @Override public String title() { return "title of " + id; }
+        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public Set<AudienceBucket> audiences() { return audiences; }
         @Override public Set<String> modules() { return modules; }
 
@@ -196,25 +197,26 @@ class AssistantDataServiceTest {
                 knowledgeFrom("assets", 0.91)));
 
         // Caught against the real system: capping in iteration order silently dropped the only
-        // provider that mattered and kept three that did not.
+        // provider that mattered and kept others that did not.
         assertThat(data.providerIds()).contains("expense.my-claims");
-        assertThat(data.providerIds()).hasSizeLessThanOrEqualTo(3);
+        assertThat(data.providerIds()).hasSizeLessThanOrEqualTo(4);
     }
 
     @Test
-    @DisplayName("at most three providers may fire on one turn")
+    @DisplayName("at most four providers may fire on one turn")
     void personalDataPerTurnIsCapped() {
         List<AssistantDataProvider> many = List.of(
                 new SpyProvider("p1", Set.of(AudienceBucket.values()), Set.of("leave"), "a"),
                 new SpyProvider("p2", Set.of(AudienceBucket.values()), Set.of("leave"), "b"),
                 new SpyProvider("p3", Set.of(AudienceBucket.values()), Set.of("leave"), "c"),
                 new SpyProvider("p4", Set.of(AudienceBucket.values()), Set.of("leave"), "d"),
-                new SpyProvider("p5", Set.of(AudienceBucket.values()), Set.of("leave"), "e"));
+                new SpyProvider("p5", Set.of(AudienceBucket.values()), Set.of("leave"), "e"),
+                new SpyProvider("p6", Set.of(AudienceBucket.values()), Set.of("leave"), "f"));
         AssistantDataService service = new AssistantDataService(many);
 
         // A ceiling on how much of one person's record a single question can pull into a prompt
         // that goes to a third party.
-        assertThat(service.fetch(employee(), List.of(knowledgeFrom("leave"))).getSections()).hasSize(3);
+        assertThat(service.fetch(employee(), List.of(knowledgeFrom("leave"))).getSections()).hasSize(4);
     }
 
     @Test
@@ -264,6 +266,67 @@ class AssistantDataServiceTest {
         AssistantDataService.LiveData data = service.fetch(employee(), List.of(knowledgeFrom("leave", 0.9)));
 
         assertThat(data.providerIds()).containsExactlyInAnyOrder("leave.balances", "leave.my-requests");
+    }
+
+    @Test
+    @DisplayName("a specific module match lets the on-topic sibling win its family outright, regardless of how many other families tie generically")
+    void specificModuleMatchWinsWithinFamilyRegardlessOfPeripheralFamilyCount() {
+        // Reproduces the real bug and its actual fix. In production, being on the Attendance page
+        // alone gave attendance.my-exceptions, attendance.my-penalties, attendance-request.my-requests,
+        // overtime.my-requests, regularization.my-requests and even leave.balances the exact same
+        // generic "attendance" relevance - a tie that round-robin resolved by alphabetical id order
+        // within the family, so attendance.my-exceptions (not attendance.my-penalties) always won its
+        // family's one guaranteed slot, no matter how the cap was raised, because raising the cap
+        // only ever bought room for one more peripheral family to tie into the same round.
+        //
+        // The real fix: action.attendance.penalty now carries its own knowledge module ("penalties")
+        // instead of the generic "attendance" every sibling shares. A question that actually matches
+        // that knowledge gives attendance.my-penalties - the only provider that also declares
+        // "penalties" among its own modules - a higher score than its siblings, so it wins its
+        // family's first-round pick outright. This is asserted against six tied peripheral families,
+        // well beyond what any reasonable cap increase alone could have covered.
+        List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
+                new SpyProvider("attendance.my-exceptions", Set.of(AudienceBucket.values()), Set.of("attendance", "exceptions"), "a"),
+                new SpyProvider("attendance.my-penalties", Set.of(AudienceBucket.values()), Set.of("attendance", "penalties"), "b"),
+                new SpyProvider("attendance.today", Set.of(AudienceBucket.values()), Set.of("attendance"), "c")));
+        for (String peer : List.of("attendance-request", "overtime", "regularization", "leave", "expense", "asset")) {
+            providers.add(new SpyProvider(peer + ".my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "d"));
+        }
+        AssistantDataService service = new AssistantDataService(providers);
+
+        AssistantDataService.LiveData data = service.fetch(employee(),
+                List.of(knowledgeFrom("attendance", 0.75), knowledgeFrom("penalties", 0.9)));
+
+        assertThat(data.providerIds()).contains("attendance.my-penalties");
+        assertThat(data.providerIds()).doesNotContain("attendance.my-exceptions");
+    }
+
+    @Test
+    @DisplayName("on a crowded page, the provider the question actually retrieved wins its family's slot")
+    void pageTiesAreBrokenByWhatTheQuestionRetrieved() {
+        // Every provider here gets the same 0.75 from simply being on the Attendance page. Only
+        // attendance.today also matched retrieved knowledge - and at 0.65, below the page's own
+        // weight, so raw scores alone still tie. Alphabetically attendance.my-exceptions sorts
+        // first, and with three other page-tied families filling the cap it would take the
+        // attendance family's only slot: "what time did I check in today" answered from exceptions.
+        List<AssistantDataProvider> providers = List.of(
+                new SpyProvider("attendance.my-exceptions", Set.of(AudienceBucket.values()), Set.of("attendance", "exceptions"), "a"),
+                new SpyProvider("attendance.today", Set.of(AudienceBucket.values()), Set.of("attendance", "attendance-today"), "b"),
+                new SpyProvider("attendance-request.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "c"),
+                new SpyProvider("overtime.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "d"),
+                new SpyProvider("regularization.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "e"));
+        AssistantDataService service = new AssistantDataService(providers);
+
+        AssistantRequestContext onAttendancePage = AssistantRequestContext.builder()
+                .userId(UUID.randomUUID()).actorEmail("e@nforceone.com")
+                .primaryRoleCode("EMPLOYEE").shellRole(ShellRole.EMPLOYEE)
+                .audiences(Set.of(AudienceBucket.EMPLOYEE))
+                .currentPageId("attendance").currentModule("attendance")
+                .build();
+
+        AssistantDataService.LiveData data = service.fetch(onAttendancePage, List.of(knowledgeFrom("attendance-today", 0.65)));
+
+        assertThat(data.providerIds()).contains("attendance.today").doesNotContain("attendance.my-exceptions");
     }
 
     @Test

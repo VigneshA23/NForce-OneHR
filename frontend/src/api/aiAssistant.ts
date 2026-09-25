@@ -291,3 +291,25 @@ export async function updateBillingSettings(
   });
   return handle<AiBillingSettings>(res);
 }
+
+// ── Knowledge base re-index (Super Admin) ───────────────────────────────────
+//
+// The assistant answers from a vector index in Postgres, embedded from the YAML/Help Content
+// sources at the last reindex — editing a knowledge source has no effect on live answers until
+// this runs. There is no automatic trigger (see KnowledgeIndexingService's own Javadoc: a full
+// rebuild costs real embedding calls and briefly leaves the index inconsistent), so a content
+// change is only "live" once a Super Admin explicitly re-indexes from here.
+
+export interface KnowledgeIndexingReport {
+  documents: number;
+  chunks: number;
+  /** Stale rows deleted before the fresh chunks were written — 0 only ever means a from-empty index. */
+  removed: number;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export async function reindexKnowledge(token: string): Promise<KnowledgeIndexingReport> {
+  const res = await fetch(`${BASE}/admin/reindex`, { method: 'POST', headers: authHeaders(token) });
+  return handle<KnowledgeIndexingReport>(res);
+}
