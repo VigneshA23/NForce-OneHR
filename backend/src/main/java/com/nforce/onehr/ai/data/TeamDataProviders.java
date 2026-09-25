@@ -235,7 +235,7 @@ public final class TeamDataProviders {
         if (rows.isEmpty()) {
             out.append("\nApproved leave in the next %d days, today included (%s to %s): none.".formatted(windowDays, today, to));
         } else {
-            // Framed like MyExceptions' header: the window and its exact size stated up front, so a
+            // Framed like MyHistory's headers: the window and its exact size stated up front, so a
             // "next two weeks" answer that drops the leave already in progress today visibly
             // contradicts the data instead of quietly reading "next" as "starting later".
             out.append("\nApproved leave in the next %d days, today included (%s to %s): exactly %d request(s), every one of "

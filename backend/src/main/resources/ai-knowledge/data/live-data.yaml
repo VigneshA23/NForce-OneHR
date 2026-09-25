@@ -100,8 +100,9 @@ knowledge:
       - which days did I work
     body: |
       The assistant can read your attendance log for the last 30 days - the same rows My Attendance
-      shows: each day's status, first check-in, last check-out, hours worked, lateness and whether
-      the day is tagged PENALIZED - plus totals and averages across the period.
+      shows: each day's status, first check-in, last check-out, hours worked and lateness - plus
+      totals and averages across the period, every attendance exception in it, and which of those
+      exceptions carry an active penalty (shown as PENALIZED on My Attendance).
 
       A date with no row has no attendance record at all: a weekly off, a holiday, a leave day, or a
       day not worked.
@@ -430,7 +431,7 @@ knowledge:
       - team attendance penalties
       - who in my team has a pending penalty
     body: |
-      A manager can ask which of their direct reports have an active (PENDING_REVIEW) attendance
+      A manager can ask which of their direct reports have an active attendance
       penalty, on which date, for which discrepancy and how much was deducted. A manager can cancel
       a still-pending penalty from the Regularize & Cancel Penalties screen.
 
@@ -538,7 +539,7 @@ knowledge:
       - penalties across the company
       - pending penalty review
     body: |
-      HR Admins and Super Admins can ask how many active (PENDING_REVIEW) attendance penalties exist
+      HR Admins and Super Admins can ask how many active attendance penalties exist
       across the organisation over the last 30 days, by discrepancy type and by person - the same
       list as the Regularize & Cancel Penalties screen.
 

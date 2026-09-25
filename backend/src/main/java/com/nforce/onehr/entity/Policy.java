@@ -54,6 +54,9 @@ public class Policy {
     private Long previousVersionId;
 
     // Optional attachment (image/PDF/Word) — mirrors HelpdeskReply's inline attachment columns.
+    // Backed by V200__add_policy_attachment.sql (attachment_name/type/size/data); attachmentType
+    // and attachmentSize aren't exposed on the DTO (see PolicyResponse) but drive the correct
+    // Content-Type on download (see PolicyController#getAttachment).
     @Column(name = "attachment_name", length = 255)
     private String attachmentName;
 

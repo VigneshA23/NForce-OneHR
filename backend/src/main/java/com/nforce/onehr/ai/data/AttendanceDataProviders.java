@@ -8,7 +8,6 @@ import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
 import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
-import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.service.AttendanceRulesService;
@@ -123,12 +122,18 @@ public final class AttendanceDataProviders {
     }
 
     /**
-     * The caller's attendance log for the last 30 days, newest first - the same rows My Attendance
-     * shows, through the same read ({@code getMyHistory}).
+     * The caller's attendance record for the last 30 days in one block: the same daily rows My
+     * Attendance shows (through the same read, {@code getMyHistory}), every exception on those days,
+     * and which of those exceptions carries an active penalty.
      *
-     * <p>Answers "what time did I check in on Monday", "how many hours did I work last week" and
-     * "how many days was I late this month" - none of which the exceptions or penalties providers
-     * can, since those only hold days where something went wrong.
+     * <p>One provider, not three. Exceptions and penalties used to be separate providers, but every
+     * attendance provider shares one family and the selector gives each family one slot before any
+     * family gets a second - on My Attendance the regularization, overtime and request families took
+     * the rest (ONEHR - "how many days was I late in the last 30 days, and do I have any active
+     * penalties" got only the 7-day exceptions list: 3 late days where the page showed 7, and no
+     * penalty data at all). The exception-to-penalty join is done here too, on the (date, type) key
+     * the penalty engine writes a penalty against, so "which of these was I penalized for" is read
+     * off each line rather than cross-referenced by the model.
      */
     @Component
     @RequiredArgsConstructor
@@ -136,41 +141,109 @@ public final class AttendanceDataProviders {
 
         private static final int LOOKBACK_DAYS = 30;
 
+        /** An active penalty stays PENDING_REVIEW until someone resolves it, so it is looked for further back. */
+        private static final int PENALTY_LOOKBACK_DAYS = 90;
+
+        private static final String LATE_ARRIVAL = "LATE_ARRIVAL";
+
         private final AttendanceService attendanceService;
+        private final EmployeeRepository employeeRepository;
+        private final AttendancePenaltyRepository attendancePenaltyRepository;
 
         @Override public String id() { return "attendance.my-history"; }
         @Override public DataScope scope() { return DataScope.SELF; }
-        @Override public String title() { return "Your attendance log for the last 30 days"; }
+        @Override public String title() { return "Your attendance log, exceptions and active penalties"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
-        @Override public Set<String> modules() { return Set.of("attendance", "attendance-history"); }
+        @Override public Set<String> modules() { return Set.of("attendance", "attendance-history", "exceptions", "penalties"); }
+
+        private record Item(LocalDate date, String type, String detail) {}
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
             String email = context.getActorEmail();
             LocalDate to = attendanceService.currentWorkDate(email);
             LocalDate from = to.minusDays(LOOKBACK_DAYS - 1);
-            List<AttendanceResponse> rows = attendanceService.getMyHistory(email, from, to);
+            LocalDate penaltiesFrom = to.minusDays(PENALTY_LOOKBACK_DAYS - 1);
+            List<AttendanceResponse> rows = Objects.requireNonNullElse(attendanceService.getMyHistory(email, from, to), List.of());
+            List<AttendanceExceptionResponse> exceptions =
+                    Objects.requireNonNullElse(attendanceService.getMyExceptions(email, from, to), List.of());
             AttendanceConfigResponse config = attendanceService.getConfig(email);
+            // The same query and status filter historyFor uses for the page's PENALIZED badge, so
+            // this can never disagree with what the employee sees for the same date.
+            List<AttendancePenalty> penalties = employeeRepository.findByUser_Email(email)
+                    .map(e -> attendancePenaltyRepository.findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
+                            e.getUserId(), penaltiesFrom, to, AttendancePenaltyStatus.PENDING_REVIEW))
+                    .orElse(List.of()).stream()
+                    .sorted(Comparator.comparing(AttendancePenalty::getIncidentDate).reversed())
+                    .toList();
+
+            // One item per (date, type); two exceptions on one date are two items and each counts.
+            // Late arrivals come from the daily rows by the Arrival column's own rule, not from
+            // LATE_ARRIVAL exception rows, which lag the page: detection never covers today, and
+            // needs the day's status to still be LATE, which a short day relabelled HALF_DAY is not.
+            Map<String, Item> items = new LinkedHashMap<>();
+            for (AttendanceResponse r : rows) {
+                lateness(r, config).ifPresent(l ->
+                        items.put(r.getWorkDate() + "|" + LATE_ARRIVAL, new Item(r.getWorkDate(), LATE_ARRIVAL, "late by " + l)));
+            }
+            Set<LocalDate> regularized = rows.stream().filter(r -> "REGULARIZATION".equals(r.getSource()))
+                    .map(AttendanceResponse::getWorkDate).collect(Collectors.toSet());
+            for (AttendanceExceptionResponse e : exceptions) {
+                if (LATE_ARRIVAL.equals(e.getExceptionType())) continue;
+                items.putIfAbsent(e.getExceptionDate() + "|" + e.getExceptionType(), new Item(e.getExceptionDate(),
+                        e.getExceptionType(), regularized.contains(e.getExceptionDate()) ? "day since corrected by regularization" : null));
+            }
+            // A penalty is always listed against its exception, even one the rules above did not find.
+            Map<String, AttendancePenalty> penaltyByKey = new LinkedHashMap<>();
+            for (AttendancePenalty p : penalties) {
+                String key = p.getIncidentDate() + "|" + p.getDiscrepancyType();
+                penaltyByKey.putIfAbsent(key, p);
+                if (!p.getIncidentDate().isBefore(from)) items.putIfAbsent(key, new Item(p.getIncidentDate(), p.getDiscrepancyType(), null));
+            }
+            List<Item> ledger = items.values().stream().sorted(Comparator.comparing(Item::date).reversed()).toList();
 
             StringBuilder out = new StringBuilder("From %s to %s (today), newest first.".formatted(from, to));
-            if (rows == null || rows.isEmpty()) {
+            if (rows.isEmpty()) {
                 out.append("\nNo attendance records at all in that range.");
-                return Optional.of(out.toString());
+            } else {
+                long workedTotal = rows.stream().mapToLong(r -> r.getWorkedMinutes() == null ? 0 : r.getWorkedMinutes()).sum();
+                out.append("\nSummary: exactly %d day(s) with an attendance record; total worked %s (average %s per recorded day)."
+                        .formatted(rows.size(), LiveDataText.hoursMinutes(workedTotal), LiveDataText.hoursMinutes(workedTotal / rows.size())));
+                appendStatusCount(out, rows, "HALF_DAY");
+                appendStatusCount(out, rows, "MISSING_CHECKOUT");
             }
 
-            List<AttendanceResponse> late = rows.stream().filter(r -> lateness(r, config).isPresent()).toList();
-            long workedTotal = rows.stream().mapToLong(r -> r.getWorkedMinutes() == null ? 0 : r.getWorkedMinutes()).sum();
-            out.append("\nSummary: exactly %d day(s) with an attendance record; total worked %s (average %s per recorded day)."
-                    .formatted(rows.size(), LiveDataText.hoursMinutes(workedTotal), LiveDataText.hoursMinutes(workedTotal / rows.size())));
-            out.append("\nLate arrivals (%d): %s".formatted(late.size(),
-                    late.isEmpty() ? "none" : late.stream().map(r -> r.getWorkDate().toString()).collect(Collectors.joining(", "))));
-            appendStatusCount(out, rows, "HALF_DAY");
-            appendStatusCount(out, rows, "MISSING_CHECKOUT");
-            long penalized = rows.stream().filter(AttendanceResponse::isPenalized).count();
-            if (penalized > 0) out.append("\nDays tagged PENALIZED: ").append(penalized);
-            out.append("\nA date with no row below has no attendance record - a weekly off, holiday, leave day or a day "
-                    + "not worked. Do not call it absent unless the user's question establishes it was a working day.");
+            out.append(penalties.isEmpty()
+                    ? "\n\nActive penalties from %s to %s: none - you have no active attendance penalty.".formatted(penaltiesFrom, to)
+                    : "\n\nActive penalties from %s to %s, each shown as PENALIZED on My Attendance - exactly %d:"
+                            .formatted(penaltiesFrom, to, penalties.size()));
+            for (int i = 0; i < penalties.size(); i++) {
+                AttendancePenalty p = penalties.get(i);
+                out.append("\n%d. %s: %s%s".formatted(i + 1, p.getIncidentDate(), p.getDiscrepancyType(), deduction(p)));
+            }
 
+            out.append(ledger.isEmpty()
+                    ? "\n\nExceptions from %s to %s: none.".formatted(from, to)
+                    : ("\n\nExceptions from %s to %s - exactly %d, one per line. Two on the same date are separate exceptions "
+                            + "and each counts; each line says whether that exception is penalized:").formatted(from, to, ledger.size()));
+            Map<String, List<LocalDate>> byType = new LinkedHashMap<>();
+            for (int i = 0; i < ledger.size(); i++) {
+                Item item = ledger.get(i);
+                AttendancePenalty p = penaltyByKey.get(item.date() + "|" + item.type());
+                out.append("\n%d. %s: %s%s - %s".formatted(i + 1, item.date(), item.type(),
+                        item.detail() == null ? "" : " (" + item.detail() + ")",
+                        p == null ? "not penalized" : "PENALIZED" + deduction(p)));
+                byType.computeIfAbsent(item.type(), t -> new ArrayList<>()).add(item.date());
+            }
+            if (!ledger.isEmpty()) {
+                out.append("\nBy type (LATE_ARRIVAL is the late days, matching My Attendance's Arrival column):");
+                byType.forEach((type, dates) -> out.append("\n- %s (%d): %s".formatted(type, dates.size(),
+                        dates.stream().map(LocalDate::toString).collect(Collectors.joining(", ")))));
+            }
+
+            if (rows.isEmpty()) return Optional.of(out.toString());
+            out.append("\n\nA date with no row below has no attendance record - a weekly off, holiday, leave day or a day "
+                    + "not worked. Do not call it absent unless the user's question establishes it was a working day.");
             out.append("\nDaily rows:");
             for (AttendanceResponse r : rows) {
                 out.append("\n- %s (%s): %s, in %s, out %s, worked %s".formatted(
@@ -181,10 +254,13 @@ public final class AttendanceDataProviders {
                         LiveDataText.clock(r.getCheckOutAt()),
                         LiveDataText.hoursMinutes(r.getWorkedMinutes() == null ? 0 : r.getWorkedMinutes())));
                 lateness(r, config).ifPresent(l -> out.append(", late by ").append(l));
-                if (r.isPenalized()) out.append(", PENALIZED");
                 if ("REGULARIZATION".equals(r.getSource())) out.append(", corrected by regularization");
             }
             return Optional.of(out.toString());
+        }
+
+        private static String deduction(AttendancePenalty p) {
+            return p.getDeductionDays() == null ? "" : " (%s day(s) deducted)".formatted(p.getDeductionDays());
         }
 
         private static void appendStatusCount(StringBuilder out, List<AttendanceResponse> rows, String status) {
@@ -253,185 +329,5 @@ public final class AttendanceDataProviders {
         return employeeRepository.findByUser_Email(email)
                 .map(attendanceRulesService::resolveEmployeeZoneId)
                 .orElseGet(attendanceRulesService::getDefaultZoneId);
-    }
-
-    /** Recent attendance exceptions raised against the caller. */
-    @Component
-    @RequiredArgsConstructor
-    public static class MyExceptions implements AssistantDataProvider {
-
-        /**
-         * Matches the regularization lookback window, so the exceptions shown are the ones the
-         * person could still actually do something about. "7 days" here means the same thing the
-         * regularization knowledge article documents it meaning elsewhere in this app: seven
-         * calendar dates counting today, i.e. today and the six before it - not today-plus-seven.
-         */
-        private static final int LOOKBACK_DAYS = 7;
-
-        /**
-         * Headroom, not a display preference. A single day can carry more than one open exception
-         * (ONEHR - a real employee's 7-day window held a LATE_ARRIVAL and a WORK_HOURS_SHORTAGE on
-         * the same date, plus a MISSING_PUNCH alongside a LATE_ARRIVAL on another), so a 7-day
-         * window's true row count can run well past one-per-day. The previous cap of 5 silently
-         * dropped the two oldest rows of a real 7-row window before the model ever saw them, while
-         * the header still claimed "exactly 5" - the model then correctly and confidently reported a
-         * count that was already wrong at the data layer, which no prompt instruction can recover
-         * from. This is set high enough that truncation within this window should not happen in
-         * practice; the header below still tells the truth if it ever does.
-         */
-        private static final int MAX_ROWS = 20;
-
-        private final AttendanceService attendanceService;
-        private final EmployeeRepository employeeRepository;
-        private final AttendanceRulesService attendanceRulesService;
-
-        @Override public String id() { return "attendance.my-exceptions"; }
-        @Override public DataScope scope() { return DataScope.SELF; }
-        @Override public String title() { return "Your attendance exceptions in the last 7 days"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
-        @Override public Set<String> modules() { return Set.of("attendance", "exceptions"); }
-
-        @Override
-        public Optional<String> fetch(AssistantRequestContext context) {
-            // Was LocalDate.now() — the JVM/server's default zone, not the employee's (see
-            // AttendanceService#resolveZone for the same employee-then-org-default fallback chain
-            // used everywhere else "today" is computed). On a server not running in the org's own
-            // timezone this silently shifted the 7-day lookback window by whatever the offset is,
-            // same root cause as the "yesterday" date bug this was found alongside.
-            ZoneId zone = employeeRepository.findByUser_Email(context.getActorEmail())
-                    .map(attendanceRulesService::resolveEmployeeZoneId)
-                    .orElseGet(attendanceRulesService::getDefaultZoneId);
-            LocalDate today = LocalDate.now(zone);
-            LocalDate from = today.minusDays(LOOKBACK_DAYS - 1);
-            List<AttendanceExceptionResponse> exceptions = attendanceService.getMyExceptions(
-                    context.getActorEmail(), from, today);
-            if (exceptions == null || exceptions.isEmpty()) return Optional.empty();
-
-            // States the exact window this data covers, in the model's own words for "the last 7
-            // days" rather than leaving it to separately re-derive one from CURRENT DATE & TIME -
-            // two independent computations of the same "last N days" phrase is exactly how a turn
-            // ends up citing a window that doesn't match what was actually queried.
-            //
-            // The leading count and the numbered rows are both deliberate, not cosmetic: a plain
-            // bulleted list plus a general "don't drop rows" policy instruction was NOT enough in
-            // practice (ONEHR - chatbot dropped one matching exception from a "which days" answer
-            // despite it being present in exactly this list) - a model asked to enumerate a handful
-            // of items is measurably less likely to silently under-count when the source states its
-            // own total up front and numbers each item against it, since a 2-of-3 answer then
-            // visibly contradicts data the model was just given, rather than merely omitting an
-            // item nothing else calls attention to.
-            int total = exceptions.size();
-            List<AttendanceExceptionResponse> limited = exceptions.stream().limit(MAX_ROWS).toList();
-            String header = total <= limited.size()
-                    ? "From %s to %s (today), exactly %d exception(s) in that range - your answer must account for all %d:"
-                            .formatted(from, today, total, total)
-                    : "From %s to %s (today), %d exception(s) in that range - only the most recent %d are listed below, say so if asked for the full list:"
-                            .formatted(from, today, total, limited.size());
-
-            // Grouped by type, ahead of the full itemised list. A question like "which days did I
-            // come late" is really asking for a subset of this list filtered by type - and asking
-            // the model to do that filtering itself, by scanning a flat mixed-type list, reproduced
-            // the exact same silent-drop failure the numbered rows above were added to fix (ONEHR -
-            // a real 7-row window with LATE_ARRIVAL mixed among WORK_HOURS_SHORTAGE/NO_ATTENDANCE/
-            // MISSING_PUNCH still lost the oldest LATE_ARRIVAL from a "which days was I late"
-            // answer, even once every row was present in the numbered list). Pre-grouping turns that
-            // filter into a lookup: the model quotes the matching line instead of deriving it.
-            Map<String, List<LocalDate>> byType = new LinkedHashMap<>();
-            for (AttendanceExceptionResponse e : limited) {
-                byType.computeIfAbsent(e.getExceptionType(), t -> new ArrayList<>()).add(e.getExceptionDate());
-            }
-            StringBuilder grouped = new StringBuilder("By type:");
-            for (Map.Entry<String, List<LocalDate>> entry : byType.entrySet()) {
-                grouped.append("\n- %s (%d): %s".formatted(entry.getKey(), entry.getValue().size(),
-                        entry.getValue().stream().map(LocalDate::toString).collect(java.util.stream.Collectors.joining(", "))));
-            }
-
-            StringBuilder rows = new StringBuilder("Full detail:");
-            for (int i = 0; i < limited.size(); i++) {
-                AttendanceExceptionResponse e = limited.get(i);
-                rows.append("\n%d. %s: %s (%s)".formatted(i + 1, e.getExceptionDate(), e.getExceptionType(), e.getStatus()));
-            }
-            // Kept as a short trailing note, not folded into the header above: an earlier version
-            // appended this to the header sentence itself and that alone was enough to bring back the
-            // exact silent-drop failure the header's own wording was tuned to prevent - a longer,
-            // two-purpose opening sentence measurably diluted the "account for all N" instruction it
-            // used to state on its own. Separately: a broad "do I have penalties" question was
-            // answered from this exceptions section alone despite attendance.my-penalties being
-            // present in the same turn (ONEHR - exception-only dates were stated as penalized that a
-            // direct check of AttendancePenalty confirmed were never penalized at all), so the
-            // distinction still needs to live next to this data, just not inside its counting header.
-            String penaltyCaution = "\n\nNone of the above are penalties by themselves - see the separate "
-                    + "active-penalties record for which dates, if any, actually have one.";
-            return Optional.of(header + "\n\n" + grouped + "\n\n" + rows + penaltyCaution);
-        }
-    }
-
-    /**
-     * The caller's own active (PENDING_REVIEW) attendance penalties — deliberately the exact same
-     * repository query and status filter {@code AttendanceService#historyFor} uses to decide the
-     * Attendance Log's PENALIZED badge, so this can never disagree with what the employee sees on
-     * screen for the same date (ONEHR - chatbot could not identify a penalization date even though
-     * the Attendance Log clearly showed one). A separate concept from {@link MyExceptions}: an
-     * exception is a detected discrepancy, a penalty is the deduction OneHR actually applied
-     * because of one — "on which day was I penalized" needs this provider, not that one.
-     */
-    @Component
-    @RequiredArgsConstructor
-    public static class MyPenalties implements AssistantDataProvider {
-
-        /** Penalties are far less frequent than daily exceptions, so this looks back further. */
-        private static final int LOOKBACK_DAYS = 90;
-
-        /** See {@link MyExceptions#MAX_ROWS} for why this is headroom, not a display preference. */
-        private static final int MAX_ROWS = 20;
-
-        private final AttendancePenaltyRepository attendancePenaltyRepository;
-        private final EmployeeRepository employeeRepository;
-        private final AttendanceRulesService attendanceRulesService;
-
-        @Override public String id() { return "attendance.my-penalties"; }
-        @Override public DataScope scope() { return DataScope.SELF; }
-        @Override public String title() { return "Your active attendance penalties"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
-        @Override public Set<String> modules() { return Set.of("attendance", "penalties"); }
-
-        @Override
-        public Optional<String> fetch(AssistantRequestContext context) {
-            Optional<Employee> employee = employeeRepository.findByUser_Email(context.getActorEmail());
-            if (employee.isEmpty()) return Optional.empty();
-
-            ZoneId zone = attendanceRulesService.resolveEmployeeZoneId(employee.get());
-            LocalDate today = LocalDate.now(zone);
-            LocalDate from = today.minusDays(LOOKBACK_DAYS - 1);
-
-            // PENDING_REVIEW only — a CANCELLED or REVERSED penalty is exactly what the badge on
-            // the employee's own Attendance Log stops showing once it's resolved, so surfacing it
-            // here as still "penalized" would contradict what they see on screen.
-            List<AttendancePenalty> penalties = attendancePenaltyRepository
-                    .findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
-                            employee.get().getUserId(), from, today, AttendancePenaltyStatus.PENDING_REVIEW);
-            if (penalties == null || penalties.isEmpty()) return Optional.empty();
-
-            // Explicit count + numbered rows, matching MyExceptions' own anti-omission fix — see
-            // its comment for why a stated total measurably reduces a model silently under-listing.
-            int total = penalties.size();
-            List<AttendancePenalty> limited = penalties.stream()
-                    .sorted(Comparator.comparing(AttendancePenalty::getIncidentDate).reversed())
-                    .limit(MAX_ROWS)
-                    .toList();
-            String header = total <= limited.size()
-                    ? "From %s to %s (today), exactly %d active penalty(ies) in that range - your answer must account for all %d:"
-                            .formatted(from, today, total, total)
-                    : "From %s to %s (today), %d active penalty(ies) in that range - only the most recent %d are listed below, say so if asked for the full list:"
-                            .formatted(from, today, total, limited.size());
-            StringBuilder rows = new StringBuilder();
-            for (int i = 0; i < limited.size(); i++) {
-                AttendancePenalty p = limited.get(i);
-                rows.append("%d. %s: %s%s".formatted(i + 1, p.getIncidentDate(), p.getDiscrepancyType(),
-                        p.getDeductionDays() != null ? " (%s day(s) deducted)".formatted(p.getDeductionDays()) : ""));
-                if (i < limited.size() - 1) rows.append('\n');
-            }
-            return Optional.of(header + "\n" + rows);
-        }
     }
 }

@@ -129,9 +129,11 @@ public class PromptBuilder {
                     .append("organisation-wide. Do not infer any other figure, status, name or date that ")
                     .append("is not written here - if it is not below, say where to look instead of ")
                     .append("estimating.\n");
+            // No provider id and, below, no knowledge id or module: nothing reads them back, and
+            // the model printed them verbatim when asked for its "internal provider names" (ONEHR).
+            // It cannot disclose an identifier it was never given.
             for (AssistantDataService.Section section : liveData.getSections()) {
-                sb.append("<userdata id=\"").append(section.providerId())
-                        .append("\" scope=\"").append(section.scope().code()).append("\">\n");
+                sb.append("<userdata scope=\"").append(section.scope().code()).append("\">\n");
                 sb.append(fence(section.title())).append('\n');
                 sb.append(fence(section.body())).append('\n');
                 sb.append("</userdata>\n\n");
@@ -146,9 +148,7 @@ public class PromptBuilder {
             sb.append("(no OneHR knowledge was retrieved for this question; answer with type UNKNOWN)\n");
         } else {
             for (RetrievalResult k : knowledge) {
-                sb.append("<knowledge id=\"").append(k.getKnowledgeId()).append('"')
-                        .append(" type=\"").append(k.getType() == null ? "UNKNOWN" : k.getType().name()).append('"');
-                if (k.getModule() != null) sb.append(" module=\"").append(k.getModule()).append('"');
+                sb.append("<knowledge type=\"").append(k.getType() == null ? "UNKNOWN" : k.getType().name()).append('"');
                 if (k.getPageId() != null) sb.append(" pageId=\"").append(k.getPageId()).append('"');
                 sb.append(">\n");
                 if (k.getTitle() != null) sb.append(fence(k.getTitle())).append('\n');

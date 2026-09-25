@@ -1,4 +1,5 @@
 import { API_ORIGIN } from './config';
+export { validateAttachmentFile, ALLOWED_ATTACHMENT_EXTENSIONS } from './helpContent';
 const BASE_POLICIES = `${API_ORIGIN}/api/policies`;
 const BASE_ANNOUN = `${API_ORIGIN}/api/announcements`;
 
@@ -33,8 +34,8 @@ export interface Policy {
   acknowledgedAt: string | null;
   versionNumber: number;
   previousVersionId: number | null;
-  attachmentName: string | null;
-  attachmentUrl: string | null;
+  hasAttachment: boolean;
+  attachmentFileName: string | null;
 }
 
 export interface PolicyAcknowledgment {
@@ -90,10 +91,19 @@ export async function listAllPolicies(token: string): Promise<Policy[]> {
   return handle(await fetch(BASE_POLICIES, { headers: authHeaders(token) }));
 }
 
+function policyFormData(body: Record<string, string | number | boolean | undefined>, file?: File | null): FormData {
+  const form = new FormData();
+  Object.entries(body).forEach(([key, value]) => {
+    if (value !== undefined) form.append(key, String(value));
+  });
+  if (file) form.append('attachment', file);
+  return form;
+}
+
 export async function publishPolicy(token: string, body: {
   title: string; version: string; description: string; audience?: string; required?: boolean;
-}): Promise<Policy> {
-  return handle(await fetch(BASE_POLICIES, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(body) }));
+}, file?: File | null): Promise<Policy> {
+  return handle(await fetch(BASE_POLICIES, { method: 'POST', headers: authOnly(token), body: policyFormData(body, file) }));
 }
 
 // Images/PDF/Word — see AttachmentValidator on the backend for the enforced size/type rule.
@@ -118,8 +128,8 @@ export async function editPolicy(token: string, id: number, body: {
 
 export async function publishPolicyVersion(token: string, id: number, body: {
   title?: string; version?: string; description?: string; audience?: string; required?: boolean;
-}): Promise<Policy> {
-  return handle(await fetch(`${BASE_POLICIES}/${id}/publish-version`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(body) }));
+}, file?: File | null): Promise<Policy> {
+  return handle(await fetch(`${BASE_POLICIES}/${id}/publish-version`, { method: 'POST', headers: authOnly(token), body: policyFormData(body, file) }));
 }
 
 export async function policyVersionHistory(token: string, id: number): Promise<Policy[]> {
