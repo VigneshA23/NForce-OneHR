@@ -2287,8 +2287,8 @@ function PeersView({ token }: { token: string }) {
                         <div style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: (category === 'plain' || category === 'not-joined') ? 'transparent' : DAY_COLORS[category],
+                          color: (category === 'plain' || category === 'not-joined') ? 'var(--txt-dim)' : '#fff',
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
                           {d}
