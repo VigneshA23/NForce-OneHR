@@ -1044,6 +1044,53 @@ class AttendanceServiceTest {
         assertEquals(day, roster.get(0).getWorkDate());
     }
 
+    // ── Manager Board must not show an employee before their joining date (ONEHR-116) ──
+
+    @Test
+    void getDayForMyTeam_employeeJoinedAfterQueriedDay_excludedFromRoster() {
+        Employee notYetJoined = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).joiningDate(LocalDate.of(2026, 1, 20))
+                .user(User.builder().id(employeeId).active(true).build()).build();
+        UUID managerId = UUID.randomUUID();
+        String managerEmail = "manager@test.com";
+        Employee manager = Employee.builder().userId(managerId).employeeCode("M1").fullName("Manager")
+                .user(User.builder().id(managerId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(manager));
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(notYetJoined));
+
+        LocalDate day = LocalDate.of(2026, 1, 15); // before joiningDate
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(
+                List.of(employeeId), day.minusDays(1), day.plusDays(1)))
+                .thenReturn(List.of());
+
+        List<AttendanceResponse> roster = service.getDayForMyTeam(managerEmail, day);
+
+        assertEquals(0, roster.size(), "an employee must not appear in the roster for a date before their joiningDate");
+    }
+
+    @Test
+    void getDayForMyTeam_employeeJoinedOnQueriedDay_includedInRoster() {
+        LocalDate day = LocalDate.of(2026, 1, 15);
+        Employee joinedToday = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).joiningDate(day)
+                .user(User.builder().id(employeeId).active(true).build()).build();
+        UUID managerId = UUID.randomUUID();
+        String managerEmail = "manager@test.com";
+        Employee manager = Employee.builder().userId(managerId).employeeCode("M1").fullName("Manager")
+                .user(User.builder().id(managerId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(manager));
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(joinedToday));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(
+                List.of(employeeId), day.minusDays(1), day.plusDays(1)))
+                .thenReturn(List.of());
+
+        List<AttendanceResponse> roster = service.getDayForMyTeam(managerEmail, day);
+
+        assertEquals(1, roster.size(), "an employee must appear from their joiningDate onward, inclusive");
+    }
+
     // ── Phase 0.4 / Phase 1: concurrency race -> clean application response ──
 
     @Test
