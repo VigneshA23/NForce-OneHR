@@ -44,7 +44,9 @@ public class ExceptionService {
     // rows on the Exception Dashboard itself, per explicit request. Removing an entry here only
     // changes what getExceptionsForCaller returns, never what gets detected or penalized.
     private static final Set<String> HIDDEN_FROM_EXCEPTION_DASHBOARD = Set.of(
-            ExceptionType.NO_ATTENDANCE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
+            ExceptionType.NO_ATTENDANCE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
+            // Surfaced on Regularize & Cancel Penalties instead (see AttendancePenaltyService#list).
+            ExceptionType.EARLY_DEPARTURE);
 
     // Every exception type emailed exclusively by the scheduled job (notifyUnnotifiedExceptions),
     // never immediately on detection — see that method's own javadoc. LEAVE_ATTENDANCE_CONFLICT
@@ -118,22 +120,7 @@ public class ExceptionService {
      */
     @Transactional
     public List<ExceptionResponse> getExceptionsForCaller(String actorEmail, LocalDate from, LocalDate to) {
-        User actor = userRepository.findByEmail(actorEmail)
-                .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
-        Set<UUID> employeeRoleIds = userRepository.findEmployeeRoleUserIds();
-
-        List<UUID> scopeIds;
-        if (roleCodes.stream().anyMatch(HR_ROLES::contains)) {
-            scopeIds = new java.util.ArrayList<>(employeeRoleIds);
-        } else if (roleCodes.contains("MANAGER")) {
-            scopeIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
-                    .map(EmployeeManagerHistory::getEmployeeUserId)
-                    .filter(employeeRoleIds::contains)
-                    .collect(Collectors.toList());
-        } else {
-            throw new AccessDeniedException("Not authorized to view exceptions");
-        }
+        List<UUID> scopeIds = resolveCallerScopeIds(actorEmail);
 
         detectExceptions(scopeIds, from, to);
 
@@ -148,6 +135,35 @@ public class ExceptionService {
                 .thenComparing(ExceptionResponse::getDetectedAt)
                 .reversed());
         return responses;
+    }
+
+    /**
+     * Runs the same detection/evaluation pass {@link #getExceptionsForCaller} runs on every
+     * Exceptions dashboard load, for the same caller scope, without building the dashboard's
+     * response — used by Regularize &amp; Cancel Penalties so its list reflects the latest late
+     * arrivals / early departures / missing punches even when nobody has opened the Exceptions
+     * dashboard since they happened and the nightly job hasn't run yet.
+     */
+    @Transactional
+    public void detectForCaller(String actorEmail, LocalDate from, LocalDate to) {
+        detectExceptions(resolveCallerScopeIds(actorEmail), from, to);
+    }
+
+    private List<UUID> resolveCallerScopeIds(String actorEmail) {
+        User actor = userRepository.findByEmail(actorEmail)
+                .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
+        Set<UUID> employeeRoleIds = userRepository.findEmployeeRoleUserIds();
+
+        if (roleCodes.stream().anyMatch(HR_ROLES::contains)) {
+            return new java.util.ArrayList<>(employeeRoleIds);
+        } else if (roleCodes.contains("MANAGER")) {
+            return historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
+                    .map(EmployeeManagerHistory::getEmployeeUserId)
+                    .filter(employeeRoleIds::contains)
+                    .collect(Collectors.toList());
+        }
+        throw new AccessDeniedException("Not authorized to view exceptions");
     }
 
     /**
@@ -259,6 +275,25 @@ public class ExceptionService {
             if (isWorkingDay && record.isMissingCheckOut() && record.getWorkDate().isBefore(today)) {
                 upsertException(record, ExceptionType.MISSING_PUNCH,
                         null, record.getCheckInAt().toLocalTime(), null);
+            }
+            // Past days only, same as MISSING_PUNCH: today's check-out may still be followed by
+            // another session. Measured against THIS record's snapshotted shift, never the
+            // employee's current one; a legacy row with no snapshot can't be evaluated and is
+            // skipped rather than guessed at.
+            if (isWorkingDay && record.getCheckOutAt() != null && record.getWorkDate().isBefore(today)) {
+                resolveSnapshotShift(record)
+                        .map(shift -> shiftVersionResolver.resolve(shift, record.getWorkDate()))
+                        .ifPresent(version -> {
+                            // Overnight-aware, same rule as ShiftDayPolicy#shiftEndAt: an end not
+                            // after the start rolls into the next calendar day.
+                            LocalDate endDate = !version.getEndTime().isAfter(version.getStartTime())
+                                    ? record.getWorkDate().plusDays(1) : record.getWorkDate();
+                            LocalDateTime shiftEnd = LocalDateTime.of(endDate, version.getEndTime());
+                            if (record.getCheckOutAt().isBefore(shiftEnd)) {
+                                upsertException(record, ExceptionType.EARLY_DEPARTURE,
+                                        version.getEndTime(), record.getCheckOutAt().toLocalTime(), null);
+                            }
+                        });
             }
             if (record.getCheckInAt() != null && leaveCoveredDays.contains(record.getEmployeeUserId() + "|" + record.getWorkDate())) {
                 upsertException(record, ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
