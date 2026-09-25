@@ -64,7 +64,7 @@ export default function DocumentsPage() {
     return t === 'policies' || t === 'announcements' ? t : 'docs';
   });
   const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
-  const { required, myDocs, docTypes, loading: docsLoading, setRequired, setMyDocs } = useMyDocumentsData(token);
+  const { required, myDocs, loading: docsLoading, setRequired, setMyDocs } = useMyDocumentsData(token);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [ackTarget, setAckTarget] = useState<Policy | null>(null);
@@ -150,7 +150,7 @@ export default function DocumentsPage() {
       {/* ── My Documents Tab ── */}
       {tab === 'docs' && (
         <MyDocumentsSection
-          required={required} myDocs={myDocs} docTypes={docTypes}
+          required={required} myDocs={myDocs}
           setRequired={setRequired} setMyDocs={setMyDocs}
           search={search} onSearchChange={setSearch}
         />

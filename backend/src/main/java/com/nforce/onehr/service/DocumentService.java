@@ -95,6 +95,10 @@ public class DocumentService {
         if (!dt.isActive()) {
             throw new IllegalStateException("\"" + dt.getName() + "\" is no longer accepting uploads");
         }
+        // Same employment-type/location rule as the required-documents list.
+        if (!isApplicable(dt, employeeRepo.findById(actorId).orElse(null))) {
+            throw new IllegalArgumentException("\"" + dt.getName() + "\" does not apply to your employment type or location");
+        }
         if (dt.isRequiresExpiryDate() && expiryDate == null) {
             throw new IllegalArgumentException("Expiry date is required for " + dt.getName());
         }
