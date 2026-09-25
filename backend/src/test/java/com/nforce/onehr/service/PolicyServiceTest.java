@@ -21,6 +21,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
@@ -77,7 +78,7 @@ class PolicyServiceTest {
 
     @ParameterizedTest(name = "publish() routes {0} recipient to the shared self-service Policies tab")
     @ValueSource(strings = {"EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN"})
-    void publish_routesEveryRoleToSharedPoliciesTab(String recipientRoleCode) {
+    void publish_routesEveryRoleToSharedPoliciesTab(String recipientRoleCode) throws java.io.IOException {
         when(policyRepo.findByTitleOrderByPublishedAtDesc(anyString())).thenReturn(List.of());
         when(policyRepo.save(any(Policy.class))).thenAnswer(inv -> {
             Policy p = inv.getArgument(0);
@@ -102,7 +103,7 @@ class PolicyServiceTest {
         req.setAudience(recipientRoleCode);
         req.setRequired(true);
 
-        policyService.publish(ADMIN_EMAIL, req);
+        policyService.publish(ADMIN_EMAIL, req, null);
 
         verify(notificationService).send(eq(recipientUserId), eq("POLICY_PUBLISHED"), anyString(), anyString(), eq(POLICIES_TAB_LINK));
     }
@@ -140,7 +141,7 @@ class PolicyServiceTest {
     }
 
     @Test
-    void publishNewVersion_incrementsVersionAndDeactivatesPreviousWithoutMutatingIt() {
+    void publishNewVersion_incrementsVersionAndDeactivatesPreviousWithoutMutatingIt() throws java.io.IOException {
         Policy current = Policy.builder().id(10L).title("Leave Policy").version("1.0").versionNumber(1)
                 .description("Old content").audience("ALL").required(true).active(true).build();
         when(policyRepo.findById(10L)).thenReturn(Optional.of(current));
@@ -156,7 +157,7 @@ class PolicyServiceTest {
         req.setVersion("2.0");
         req.setDescription("New substantive content");
 
-        PolicyResponse resp = policyService.publishNewVersion(ADMIN_EMAIL, 10L, req);
+        PolicyResponse resp = policyService.publishNewVersion(ADMIN_EMAIL, 10L, req, null);
 
         // Previous version deactivated but its own content/version untouched (history preserved).
         assertFalse(current.isActive());
@@ -172,7 +173,7 @@ class PolicyServiceTest {
     }
 
     @Test
-    void publishNewVersion_seedsFreshPendingAcknowledgmentsForTargetEmployees() {
+    void publishNewVersion_seedsFreshPendingAcknowledgmentsForTargetEmployees() throws java.io.IOException {
         Policy current = Policy.builder().id(20L).title("IT Policy").version("1.0").versionNumber(1)
                 .description("Old").audience("ALL").required(true).active(true).build();
         when(policyRepo.findById(20L)).thenReturn(Optional.of(current));
@@ -191,7 +192,7 @@ class PolicyServiceTest {
         PublishPolicyVersionRequest req = new PublishPolicyVersionRequest();
         req.setDescription("New content");
 
-        policyService.publishNewVersion(ADMIN_EMAIL, 20L, req);
+        policyService.publishNewVersion(ADMIN_EMAIL, 20L, req, null);
 
         verify(ackRepo).save(argThat(a -> a.getEmployeeUserId().equals(employeeUserId) && a.getAcknowledgedAt() == null));
         verify(notificationService).send(eq(employeeUserId), eq("POLICY_PUBLISHED"), anyString(), anyString(), eq(POLICIES_TAB_LINK));
@@ -209,8 +210,75 @@ class PolicyServiceTest {
         PublishPolicyVersionRequest req = new PublishPolicyVersionRequest();
         req.setDescription("New content");
 
-        assertThrows(AccessDeniedException.class, () -> policyService.publishNewVersion(employeeEmail, 30L, req));
+        assertThrows(AccessDeniedException.class, () -> policyService.publishNewVersion(employeeEmail, 30L, req, null));
         verify(policyRepo, never()).save(any());
+    }
+
+    // ── ONEHR-462: Create Policy accepts Image/PDF/Word attachments ────────────────────────
+
+    @Test
+    void publish_withPdfAttachment_storesFileNameAndDataAndMarksHasAttachment() throws java.io.IOException {
+        when(policyRepo.findByTitleOrderByPublishedAtDesc(anyString())).thenReturn(List.of());
+        when(policyRepo.save(any(Policy.class))).thenAnswer(inv -> {
+            Policy p = inv.getArgument(0);
+            p.setId(50L);
+            return p;
+        });
+        when(employeeRepo.findAllActiveWithDetails()).thenReturn(List.of());
+
+        PublishPolicyRequest req = new PublishPolicyRequest();
+        req.setTitle("Remote Work Policy");
+        req.setVersion("1.0");
+        req.setDescription("See attached PDF.");
+        req.setAudience("ALL");
+        req.setRequired(true);
+
+        MockMultipartFile attachment = new MockMultipartFile(
+                "attachment", "remote-work.pdf", "application/pdf", "content".getBytes());
+
+        PolicyResponse resp = policyService.publish(ADMIN_EMAIL, req, attachment);
+
+        assertTrue(resp.isHasAttachment());
+        assertEquals("remote-work.pdf", resp.getAttachmentFileName());
+    }
+
+    @Test
+    void publish_withUnsupportedAttachmentType_throwsAndDoesNotSave() {
+        PublishPolicyRequest req = new PublishPolicyRequest();
+        req.setTitle("Bad Attachment Policy");
+        req.setVersion("1.0");
+        req.setDescription("desc");
+        req.setAudience("ALL");
+        req.setRequired(true);
+
+        MockMultipartFile attachment = new MockMultipartFile(
+                "attachment", "malware.exe", "application/octet-stream", "content".getBytes());
+
+        assertThrows(IllegalArgumentException.class, () -> policyService.publish(ADMIN_EMAIL, req, attachment));
+        verify(policyRepo, never()).save(any());
+    }
+
+    @Test
+    void publish_withNoAttachment_leavesHasAttachmentFalse() throws java.io.IOException {
+        when(policyRepo.findByTitleOrderByPublishedAtDesc(anyString())).thenReturn(List.of());
+        when(policyRepo.save(any(Policy.class))).thenAnswer(inv -> {
+            Policy p = inv.getArgument(0);
+            p.setId(51L);
+            return p;
+        });
+        when(employeeRepo.findAllActiveWithDetails()).thenReturn(List.of());
+
+        PublishPolicyRequest req = new PublishPolicyRequest();
+        req.setTitle("Text-Only Policy");
+        req.setVersion("1.0");
+        req.setDescription("desc");
+        req.setAudience("ALL");
+        req.setRequired(true);
+
+        PolicyResponse resp = policyService.publish(ADMIN_EMAIL, req, null);
+
+        assertFalse(resp.isHasAttachment());
+        assertNull(resp.getAttachmentFileName());
     }
 
     @Test

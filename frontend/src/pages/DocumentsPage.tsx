@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Upload, XCircle, AlertTriangle, Eye, Search } from 'lucide-react';
+import { CheckCircle, Clock, Upload, XCircle, AlertTriangle, Eye, Search, Paperclip } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
   myDocuments, myRequiredDocuments, uploadDocument, listActiveDocTypes, fetchDocumentFile,
   type EmployeeDocument, type RequiredDocument, type DocumentType,
 } from '../api/documents';
-import { myPolicies, acknowledgePolicy, publishedAnnouncements, type Policy, type Announcement } from '../api/policies';
+import { myPolicies, acknowledgePolicy, publishedAnnouncements, fetchPolicyAttachment, type Policy, type Announcement } from '../api/policies';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)' };
@@ -127,6 +127,8 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
   onConfirm(): Promise<void>;
   onClose(): void;
 }) {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
   const [checked, setChecked] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -135,11 +137,26 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
     try { await onConfirm(); } finally { setLoading(false); }
   }
 
+  async function openAttachment() {
+    try {
+      const url = await fetchPolicyAttachment(token, policy.id);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to open attachment');
+    }
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{policy.title}</h3>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--txt-dim)' }}>Version {policy.version} · Audience: {policy.audience} · Published {new Date(policy.publishedAt).toLocaleDateString()}</p>
+        {policy.hasAttachment && (
+          <button onClick={openAttachment} type="button"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginBottom: 14, padding: '6px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            <Paperclip size={13} /> View attachment{policy.attachmentFileName ? `: ${policy.attachmentFileName}` : ''}
+          </button>
+        )}
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
           {policy.description}
         </div>
@@ -212,6 +229,15 @@ export default function DocumentsPage() {
   const [uploadTarget, setUploadTarget] = useState<{ type: RequiredDocument | DocumentType; existing: EmployeeDocument | null } | null>(null);
   const [ackTarget, setAckTarget] = useState<Policy | null>(null);
   const [loading, setLoading] = useState(true);
+
+  async function openPolicyAttachment(id: number) {
+    try {
+      const url = await fetchPolicyAttachment(token, id);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to open attachment');
+    }
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -419,6 +445,12 @@ export default function DocumentsPage() {
                     <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{p.title}</span>
                     <span style={{ fontSize: 11, background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 8px', color: 'var(--txt-dim)' }}>v{p.version}</span>
                     {p.required && <span style={{ fontSize: 11, background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>Required</span>}
+                    {p.hasAttachment && (
+                      <button onClick={() => openPolicyAttachment(p.id)} type="button" title={p.attachmentFileName ?? 'Attachment'}
+                        style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)' }}>
+                        <Paperclip size={13} />
+                      </button>
+                    )}
                   </div>
                   <p style={{ fontSize: 12, color: 'var(--txt-dim)', margin: '0 0 10px', lineHeight: 1.6 }}>{p.description}</p>
                   <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>

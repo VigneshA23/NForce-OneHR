@@ -522,8 +522,8 @@ function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React
 }
 
 /* ── Calendar day-cell classification ── */
-type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing';
-const DAY_COLORS: Record<Exclude<DayCategory, 'plain'>, string> = {
+type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing' | 'not-joined';
+const DAY_COLORS: Record<Exclude<DayCategory, 'plain' | 'not-joined'>, string> = {
   holiday: '#2FA36B',
   'weekly-off': '#D4922E',
   leave: '#818CF8',
@@ -2829,7 +2829,8 @@ export default function MyTeamPage() {
     return m;
   }, [monthAttendance]);
 
-  function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
+  function classifyDay(iso: string, dow: number, employeeUserId: string, joiningDate?: string | null): DayCategory {
+    if (joiningDate && iso < joiningDate) return 'not-joined';
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
@@ -3049,18 +3050,19 @@ export default function MyTeamPage() {
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
                     const iso = toISODate(year, month, d);
                     const dow = new Date(year, month, d).getDay();
-                    const category = classifyDay(iso, dow, dr.userId);
+                    const category = classifyDay(iso, dow, dr.userId, dr.joiningDate);
                     const isToday = iso === today;
                     return (
                       <td key={d} style={{ padding: 3, textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
-                        <div style={{
+                        <div title={category === 'not-joined' ? 'Not yet joined' : undefined} style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: category === 'plain' || category === 'not-joined' ? 'transparent' : DAY_COLORS[category],
+                          color: category === 'not-joined' ? 'var(--txt-dim)' : category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          opacity: category === 'not-joined' ? 0.35 : 1,
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
-                          {d}
+                          {category === 'not-joined' ? '' : d}
                         </div>
                       </td>
                     );

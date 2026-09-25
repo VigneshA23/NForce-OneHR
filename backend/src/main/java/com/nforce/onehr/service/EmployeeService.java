@@ -509,6 +509,7 @@ public class EmployeeService {
                         .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                         .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                         .active(emp.getUser().isActive())
+                        .joiningDate(emp.getJoiningDate() != null ? emp.getJoiningDate().toString() : null)
                         .build())
                 .collect(Collectors.toList());
 
@@ -558,6 +559,7 @@ public class EmployeeService {
                         .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                         .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                         .active(emp.getUser().isActive())
+                        .joiningDate(emp.getJoiningDate() != null ? emp.getJoiningDate().toString() : null)
                         .roleCode(RoleUtils.primaryRoleCode(emp.getUser().getRoles(), "EMPLOYEE"))
                         .build())
                 .collect(Collectors.toList());

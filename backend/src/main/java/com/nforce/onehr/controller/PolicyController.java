@@ -1,13 +1,21 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.doc.*;
+import com.nforce.onehr.entity.Policy;
 import com.nforce.onehr.service.PolicyService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
@@ -45,11 +53,12 @@ public class PolicyController {
         return service.listAll(principal.getName());
     }
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
-    public PolicyResponse publish(Principal principal, @Valid @RequestBody PublishPolicyRequest req) {
-        return service.publish(principal.getName(), req);
+    public PolicyResponse publish(Principal principal, @Valid @ModelAttribute PublishPolicyRequest req,
+                                  @RequestParam(required = false) MultipartFile attachment) throws IOException {
+        return service.publish(principal.getName(), req, attachment);
     }
 
     @PatchMapping("/{id}")
@@ -59,11 +68,12 @@ public class PolicyController {
         return service.editPolicy(principal.getName(), id, req);
     }
 
-    @PostMapping("/{id}/publish-version")
+    @PostMapping(value = "/{id}/publish-version", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
     public PolicyResponse publishVersion(Principal principal, @PathVariable Long id,
-                                         @Valid @RequestBody PublishPolicyVersionRequest req) {
-        return service.publishNewVersion(principal.getName(), id, req);
+                                         @Valid @ModelAttribute PublishPolicyVersionRequest req,
+                                         @RequestParam(required = false) MultipartFile attachment) throws IOException {
+        return service.publishNewVersion(principal.getName(), id, req, attachment);
     }
 
     @GetMapping("/{id}/versions")
@@ -115,5 +125,26 @@ public class PolicyController {
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
     public long globalPendingAckCount() {
         return service.countAllPendingRequired();
+    }
+
+    // ── All authenticated users: policy attachment download ──
+
+    @GetMapping("/{id}/attachment")
+    public ResponseEntity<byte[]> getAttachment(Principal principal, @PathVariable Long id) {
+        Policy p = service.getAttachment(principal.getName(), id);
+        String ext = StringUtils.getFilenameExtension(p.getAttachmentFileName());
+        MediaType mediaType = switch (ext == null ? "" : ext.toLowerCase()) {
+            case "pdf" -> MediaType.APPLICATION_PDF;
+            case "png" -> MediaType.IMAGE_PNG;
+            case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
+            default -> MediaType.APPLICATION_OCTET_STREAM;
+        };
+        ContentDisposition cd = (mediaType == MediaType.APPLICATION_OCTET_STREAM)
+                ? ContentDisposition.attachment().filename(p.getAttachmentFileName()).build()
+                : ContentDisposition.inline().filename(p.getAttachmentFileName()).build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(mediaType)
+                .body(p.getAttachmentData());
     }
 }

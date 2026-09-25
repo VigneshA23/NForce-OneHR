@@ -52,4 +52,10 @@ public class Policy {
 
     @Column(name = "previous_version_id")
     private Long previousVersionId;
+
+    @Column(name = "attachment_file_name", length = 255)
+    private String attachmentFileName;
+
+    @Column(name = "attachment_data", columnDefinition = "BYTEA")
+    private byte[] attachmentData;
 }
