@@ -80,6 +80,14 @@ export const attendanceRequestApi = {
   pending: (token: string) =>
     fetch(`${BASE}/pending`, { headers: authHeaders(token) }).then(r => handle<AttendanceRequestRecord[]>(r)),
 
+  /** Approved WFH requests in [from, to] for the caller's direct reports — My Team. */
+  teamApprovedWfh: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/team/wfh?from=${from}&to=${to}`, { headers: authHeaders(token) }).then(r => handle<AttendanceRequestRecord[]>(r)),
+
+  /** Approved WFH requests in [from, to] for the caller's peers — My Team: Peers view. */
+  peerApprovedWfh: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/peers/wfh?from=${from}&to=${to}`, { headers: authHeaders(token) }).then(r => handle<AttendanceRequestRecord[]>(r)),
+
   approve: (id: string, token: string, comment?: string) =>
     fetch(`${BASE}/${id}/approve`, {
       method: 'PATCH', headers: authHeaders(token),

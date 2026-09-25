@@ -102,13 +102,40 @@ public class LeaveService {
         // only the ANNUAL row surfaces here, so the balance list/pie chart shows ONE Annual Leave
         // entry instead of three.
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
-                // Unpaid leave types (see LeaveType#isPaid) never deduct from/track a balance —
-                // see #submitRequest and #approve — so they have nothing meaningful to show here.
-                .filter(b -> b.getLeaveType().isPaid())
-                .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
-                        || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
+                .filter(this::isDisplayableBalance)
                 .map(this::toBalanceResponse)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Current-year leave balances for the caller's current direct reports — backs My Team's
+     * per-report "Leave balance" column. Same filtering as {@link #listMyBalances}, with each row
+     * tagged by employeeUserId so the frontend can group them per report.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveBalanceResponse> listTeamBalances(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        List<UUID> reportIds = historyRepository.findCurrentDirectReportIds(actor.getId());
+        if (reportIds.isEmpty()) {
+            return List.of();
+        }
+        int year = LocalDateTime.now().getYear();
+        return leaveBalanceRepository.findByEmployeeUserIdInAndYear(reportIds, year).stream()
+                .filter(this::isDisplayableBalance)
+                .map(b -> {
+                    LeaveBalanceResponse r = toBalanceResponse(b);
+                    r.setEmployeeUserId(b.getEmployeeUserId());
+                    return r;
+                })
+                .collect(Collectors.toList());
+    }
+
+    // Unpaid leave types (see LeaveType#isPaid) never deduct from/track a balance — see
+    // #submitRequest and #approve — so they have nothing meaningful to show here.
+    private boolean isDisplayableBalance(LeaveBalance b) {
+        return b.getLeaveType().isPaid()
+                && (!isAnnualBalanceLeaveType(b.getLeaveType())
+                        || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()));
     }
 
     /**

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, AlertTriangle, Search } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search, Eye } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { myPolicies, acknowledgePolicy, publishedAnnouncements, type Policy, type Announcement } from '../api/policies';
@@ -10,15 +10,17 @@ import { MyDocumentsSection } from './documents/MyDocumentsSection';
 
 // ── Policy Read-First Modal ───────────────────────────────
 
+// Without onConfirm the modal is read-only (view the policy, no acknowledgment step).
 function AcknowledgeModal({ policy, onConfirm, onClose }: {
   policy: Policy;
-  onConfirm(): Promise<void>;
+  onConfirm?(): Promise<void>;
   onClose(): void;
 }) {
   const [checked, setChecked] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function submit() {
+    if (!onConfirm) return;
     setLoading(true);
     try { await onConfirm(); } finally { setLoading(false); }
   }
@@ -31,21 +33,49 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
           {policy.description}
         </div>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
-          <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
-            style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0, cursor: 'pointer' }} />
-          <span style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>
-            I have read and understood this policy and agree to comply with its terms.
-          </span>
-        </label>
+        {onConfirm && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
+            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
+              style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0, cursor: 'pointer' }} />
+            <span style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>
+              I have read and understood this policy and agree to comply with its terms.
+            </span>
+          </label>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} disabled={loading}
             style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-            Cancel
+            {onConfirm ? 'Cancel' : 'Close'}
           </button>
-          <button onClick={submit} disabled={!checked || loading}
-            style={{ padding: '8px 20px', background: checked ? '#A01418' : 'var(--shell)', border: checked ? 'none' : '1px solid var(--line)', borderRadius: 6, color: checked ? '#fff' : 'var(--txt-dim)', cursor: checked ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600, transition: 'all .15s' }}>
-            {loading ? 'Saving…' : 'Confirm Acknowledgment'}
+          {onConfirm && (
+            <button onClick={submit} disabled={!checked || loading}
+              style={{ padding: '8px 20px', background: checked ? '#A01418' : 'var(--shell)', border: checked ? 'none' : '1px solid var(--line)', borderRadius: 6, color: checked ? '#fff' : 'var(--txt-dim)', cursor: checked ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600, transition: 'all .15s' }}>
+              {loading ? 'Saving…' : 'Confirm Acknowledgment'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Announcement View Modal ───────────────────────────────
+
+function AnnouncementModal({ announcement, onClose }: { announcement: Announcement; onClose(): void }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{announcement.title}</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--txt-dim)' }}>
+          {announcement.publishedAt && `Published ${new Date(announcement.publishedAt).toLocaleDateString()} · `}Audience: {announcement.audience}
+        </p>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+          {announcement.body}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose}
+            style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
+            Close
           </button>
         </div>
       </div>
@@ -64,10 +94,12 @@ export default function DocumentsPage() {
     return t === 'policies' || t === 'announcements' ? t : 'docs';
   });
   const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
-  const { required, myDocs, docTypes, loading: docsLoading, setRequired, setMyDocs } = useMyDocumentsData(token);
+  const { required, myDocs, loading: docsLoading, setRequired, setMyDocs } = useMyDocumentsData(token);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [ackTarget, setAckTarget] = useState<Policy | null>(null);
+  const [viewTarget, setViewTarget] = useState<Policy | null>(null);
+  const [viewAnnouncement, setViewAnnouncement] = useState<Announcement | null>(null);
   const [policiesLoading, setPoliciesLoading] = useState(true);
   const loading = docsLoading || policiesLoading;
 
@@ -150,7 +182,7 @@ export default function DocumentsPage() {
       {/* ── My Documents Tab ── */}
       {tab === 'docs' && (
         <MyDocumentsSection
-          required={required} myDocs={myDocs} docTypes={docTypes}
+          required={required} myDocs={myDocs}
           setRequired={setRequired} setMyDocs={setMyDocs}
           search={search} onSearchChange={setSearch}
         />
@@ -179,10 +211,10 @@ export default function DocumentsPage() {
                   </div>
                 </div>
                 <div style={{ flexShrink: 0 }}>
-                  {/* Acknowledgment wasn't enabled when this policy was published — it's viewable
-                      only, so no action is shown and it never counts as pending (see p.required
-                      gating on pendingPolicies above and the backend's countPendingRequired* queries). */}
-                  {p.required && (
+                  {/* Acknowledgment wasn't enabled when this policy was published — it's view-only
+                      (read-only modal, no acknowledgment step) and it never counts as pending (see
+                      p.required gating on pendingPolicies above and the backend's countPendingRequired* queries). */}
+                  {p.required ? (
                     p.acknowledged === false ? (
                       <button onClick={() => setAckTarget(p)}
                         style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
@@ -193,6 +225,11 @@ export default function DocumentsPage() {
                         <CheckCircle size={14} /> Acknowledged
                       </span>
                     )
+                  ) : (
+                    <button onClick={() => setViewTarget(p)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                      <Eye size={14} /> View
+                    </button>
                   )}
                 </div>
               </div>
@@ -214,11 +251,20 @@ export default function DocumentsPage() {
             <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>{q ? 'No announcements match your search.' : 'No announcements yet.'}</p>
           )}
           {filteredAnnouncements.map(a => (
-            <div key={a.id} style={{ ...card, padding: 20 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
-              <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6 }}>{a.body}</p>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
-                {a.publishedAt && `Published ${new Date(a.publishedAt).toLocaleDateString()}`} · Audience: {a.audience}
+            <div key={a.id} style={{ ...card, padding: 20, display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
+                {/* Preview only — the full announcement opens via View. */}
+                <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{a.body}</p>
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+                  {a.publishedAt && `Published ${new Date(a.publishedAt).toLocaleDateString()}`} · Audience: {a.audience}
+                </div>
+              </div>
+              <div style={{ flexShrink: 0 }}>
+                <button onClick={() => setViewAnnouncement(a)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                  <Eye size={14} /> View
+                </button>
               </div>
             </div>
           ))}
@@ -232,6 +278,10 @@ export default function DocumentsPage() {
           onClose={() => setAckTarget(null)}
         />
       )}
+
+      {viewTarget && <AcknowledgeModal policy={viewTarget} onClose={() => setViewTarget(null)} />}
+
+      {viewAnnouncement && <AnnouncementModal announcement={viewAnnouncement} onClose={() => setViewAnnouncement(null)} />}
     </div>
   );
 }

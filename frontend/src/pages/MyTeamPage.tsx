@@ -15,7 +15,8 @@ import {
   type PenaltyRow, type PenaltyFilters, type AttendancePenaltyStatus, type RegularizationRecord,
 } from '../api/attendance';
 import { KebabMenu } from '../components/KebabMenu';
-import { leaveApi, type LeaveRequestRecord } from '../api/leave';
+import { leaveApi, type LeaveBalance, type LeaveRequestRecord } from '../api/leave';
+import { attendanceRequestApi, type AttendanceRequestRecord } from '../api/attendanceRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { approvalCenterApi, type ApprovalItem } from '../api/approvalCenter';
 import {
@@ -525,14 +526,61 @@ function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React
 }
 
 /* ── Calendar day-cell classification ── */
-type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing';
-const DAY_COLORS: Record<Exclude<DayCategory, 'plain'>, string> = {
+type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing' | 'not-joined';
+const DAY_COLORS: Record<Exclude<DayCategory, 'plain' | 'not-joined'>, string> = {
   holiday: '#2FA36B',
   'weekly-off': '#D4922E',
   leave: '#818CF8',
   wfh: 'var(--info)',
   missing: 'var(--risk)',
 };
+
+/* ── WFH / On duty: driven by APPROVED WFH requests only ──
+ * Never by the employee's profile work mode (a HYBRID/REMOTE employee who didn't raise a WFH
+ * request is not WFH that day) nor by a Web Clock-In (that has its own "Remote clock-ins" card).
+ * There is no separate On Duty request type in the schema, so WFH is the only source. */
+function wfhPeopleFrom(requests: AttendanceRequestRecord[]): { userId: string; fullName: string }[] {
+  const seen = new Set<string>();
+  const list: { userId: string; fullName: string }[] = [];
+  requests.forEach(r => {
+    if (r.status === 'APPROVED' && r.requestType === 'WFH' && !seen.has(r.employeeUserId)) {
+      seen.add(r.employeeUserId);
+      list.push({ userId: r.employeeUserId, fullName: r.employeeName });
+    }
+  });
+  return list;
+}
+
+function formatDays(n: number): string {
+  const v = Number(n);
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/** Roster card's current-year leave balance, one entry per paid leave type (`null` = loading). */
+function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
+  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span style={labelStyle}>Leave balance</span>
+      {balances === null ? (
+        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Loading…</span>
+      ) : balances.length === 0 ? (
+        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No balance on file</span>
+      ) : balances.map(b => (
+        <span key={b.leaveTypeCode} style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
+          {b.leaveTypeName}: <strong style={{ color: 'var(--txt)' }}>{formatDays(b.remainingDays)}</strong> of {formatDays(b.totalDays)} days remaining
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** `${employeeUserId}:${requestDate}` keys for approved WFH requests — calendar day-cell lookup. */
+function wfhDayKeysFrom(requests: AttendanceRequestRecord[]): Set<string> {
+  return new Set(requests
+    .filter(r => r.status === 'APPROVED' && r.requestType === 'WFH')
+    .map(r => `${r.employeeUserId}:${r.requestDate}`));
+}
 
 /* ── Shared: date-range control for the leaderboard/negligence tabs ── */
 function DateRangeControl({ from, to, onFrom, onTo }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void }) {
@@ -1846,9 +1894,9 @@ function ReportsTab({ token }: { token: string }) {
 }
 
 /* ── "Appreciate your lead" / peer kudos (ONEHR-73) ── */
-interface KudosTarget { userId: string; name: string; }
+export interface KudosTarget { userId: string; name: string; }
 
-function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
+export function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; onClick: () => void; size?: 'normal' | 'small' }) {
   const small = size === 'small';
   return (
     <button onClick={onClick} style={{
@@ -1865,7 +1913,7 @@ function AppreciateButton({ label, onClick, size = 'normal' }: { label: string; 
 
 const KUDOS_CATEGORIES = ['Great Work', 'Teamwork', 'Leadership', 'Extra Mile'];
 
-function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
+export function KudosModal({ target, token, onClose }: { target: KudosTarget | null; token: string; onClose: () => void }) {
   const { showToast } = useToast();
   const [category, setCategory] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -1959,12 +2007,19 @@ function PeersView({ token }: { token: string }) {
 
   const [search, setSearch] = useState('');
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
+  const [manager, setManager] = useState<KudosTarget | null>(null);
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'onTime' | 'late' | 'wfh' | 'remote'>(null);
+  const [todayWfh, setTodayWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [monthWfh, setMonthWfh] = useState<AttendanceRequestRecord[]>([]);
 
   useEffect(() => {
     directoryApi.myPeers(token).then(setPeers).catch(() => setPeers([]));
+    directoryApi.myManager(token)
+      // No manager comes back as an empty 200 body (→ {}), not just 204/null — hence `m?.userId`.
+      .then(m => setManager(m?.userId ? { userId: m.userId, name: m.fullName } : null))
+      .catch(() => setManager(null));
   }, [token]);
 
   useEffect(() => {
@@ -1973,6 +2028,10 @@ function PeersView({ token }: { token: string }) {
 
   useEffect(() => {
     leaveApi.peers(today, today, token).then(setTodayLeave).catch(() => setTodayLeave([]));
+  }, [token, today]);
+
+  useEffect(() => {
+    attendanceRequestApi.peerApprovedWfh(today, today, token).then(setTodayWfh).catch(() => setTodayWfh([]));
   }, [token, today]);
 
   useEffect(() => {
@@ -1986,7 +2045,8 @@ function PeersView({ token }: { token: string }) {
     Promise.all([
       attendanceApi.peersMonth(from, to, token).catch(() => []),
       leaveApi.peers(from, to, token).catch(() => []),
-    ]).then(([att, lv]) => { setMonthAttendance(att); setMonthLeave(lv); });
+      attendanceRequestApi.peerApprovedWfh(from, to, token).catch(() => []),
+    ]).then(([att, lv, wfh]) => { setMonthAttendance(att); setMonthLeave(lv); setMonthWfh(wfh); });
   }, [token, viewDate]);
 
   const attendanceByEmployee = useMemo(() => new Map(todayRecords.map(r => [r.employeeUserId, r])), [todayRecords]);
@@ -2007,17 +2067,7 @@ function PeersView({ token }: { token: string }) {
   const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
-  const wfhOnDutyEmployees = useMemo(() => {
-    const seen = new Set<string>();
-    const list: { userId: string; fullName: string }[] = [];
-    todayRecords.forEach(r => {
-      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
-        seen.add(r.employeeUserId);
-        list.push({ userId: r.employeeUserId, fullName: r.fullName });
-      }
-    });
-    return list;
-  }, [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => wfhPeopleFrom(todayWfh), [todayWfh]);
   const onTimeCount = onTimeEmployees.length;
   const lateCount = lateEmployees.length;
   const remoteClockInCount = remoteClockInEmployees.length;
@@ -2039,14 +2089,16 @@ function PeersView({ token }: { token: string }) {
     monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
     return m;
   }, [monthAttendance]);
+  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
 
   function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
     if (onLeave) return 'leave';
+    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
     const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return (record.workMode && record.workMode !== 'ONSITE') || record.source === 'WEB_REMOTE' ? 'wfh' : 'plain';
+    if (record) return 'plain';
     if (iso >= today) return 'plain';
     return 'missing';
   }
@@ -2061,6 +2113,18 @@ function PeersView({ token }: { token: string }) {
 
   return (
     <div>
+      {/* Reporting manager — "Appreciate your lead" */}
+      {manager && (
+        <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Avatar userId={manager.userId} name={manager.name} size={38} />
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Your reporting manager</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{manager.name}</div>
+          </div>
+          <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
+        </div>
+      )}
+
       {/* Who's on leave / Not in yet */}
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
@@ -2223,8 +2287,8 @@ function PeersView({ token }: { token: string }) {
                         <div style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: (category === 'plain' || category === 'not-joined') ? 'transparent' : DAY_COLORS[category],
+                          color: (category === 'plain' || category === 'not-joined') ? 'var(--txt-dim)' : '#fff',
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
                           {d}
@@ -2310,15 +2374,17 @@ function PeersView({ token }: { token: string }) {
 }
 
 /* ══ Regularize & Cancel Penalties ══ */
-const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED'];
+const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED', 'NOT_PENALIZED'];
 const PENALTY_STATUS_LABEL: Record<AttendancePenaltyStatus, string> = {
   PENDING_REVIEW: 'Pending Review', APPLIED: 'Applied', CANCELLED: 'Cancelled', REVERSED: 'Reversed',
+  NOT_PENALIZED: 'Not Penalized',
 };
 const PENALTY_STATUS_STYLE: Record<AttendancePenaltyStatus, { bg: string; fg: string }> = {
   PENDING_REVIEW: { bg: 'rgba(224,169,59,.16)', fg: 'var(--warn)' },
   APPLIED: { bg: 'rgba(228,55,61,.15)', fg: 'var(--risk)' },
   CANCELLED: { bg: 'var(--raised2)', fg: 'var(--txt-dim)' },
   REVERSED: { bg: 'rgba(76,141,214,.16)', fg: 'var(--info)' },
+  NOT_PENALIZED: { bg: 'var(--raised2)', fg: 'var(--txt-mut)' },
 };
 
 function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
@@ -2331,8 +2397,8 @@ function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
   );
 }
 
-// Approved discrepancy/anomaly identifiers (ExceptionType constants) — not every one has a
-// detector wired up yet, but all six are valid values a future policy engine may produce.
+// Discrepancy identifiers (ExceptionType constants). Late Arrival, Early Departure and Missing
+// Punch rows also appear un-penalized (status NOT_PENALIZED) — see AttendancePenaltyService#list.
 const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH'];
 const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
   NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
@@ -2480,7 +2546,7 @@ function PenaltiesTab({ token }: { token: string }) {
     <div style={panelStyle}>
       <div style={panelHeadStyle}>
         <span style={panelTitleStyle}>Regularize &amp; Cancel Penalties</span>
-        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'penalty' : 'penalties'}</span>
+        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'record' : 'records'}</span>
       </div>
 
       <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -2558,7 +2624,7 @@ function PenaltiesTab({ token }: { token: string }) {
             {loading ? (
               <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties found for the selected filters.</td></tr>
+              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties or incidents found for the selected filters.</td></tr>
             ) : rows.map(r => (
               <tr key={r.id}>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
@@ -2684,6 +2750,9 @@ export default function MyTeamPage() {
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   const [kpiModal, setKpiModal] = useState<null | 'teamSize' | 'onTime' | 'late' | 'wfh' | 'remote' | 'attention'>(null);
+  const [todayWfh, setTodayWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [monthWfh, setMonthWfh] = useState<AttendanceRequestRecord[]>([]);
+  const [teamBalances, setTeamBalances] = useState<LeaveBalance[] | null>(null);
   // Separate from `viewing`/EmployeeDetailModal (the main roster's "View" button, unchanged) —
   // avatars inside the "Not in yet today" card open employment details instead.
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
@@ -2747,6 +2816,16 @@ export default function MyTeamPage() {
     leaveApi.team(today, today, token).then(setTodayLeave).catch(() => setTodayLeave([]));
   }, [token, today, isEmployee]);
 
+  useEffect(() => {
+    if (isEmployee) return;
+    attendanceRequestApi.teamApprovedWfh(today, today, token).then(setTodayWfh).catch(() => setTodayWfh([]));
+  }, [token, today, isEmployee]);
+
+  useEffect(() => {
+    if (isEmployee) return;
+    leaveApi.listTeamBalances(token).then(setTeamBalances).catch(() => setTeamBalances([]));
+  }, [token, isEmployee]);
+
   const weekStart = useMemo(() => mondayOf(new Date()), []);
   const weekEnd = useMemo(() => addDays(weekStart, 4), [weekStart]);
 
@@ -2773,12 +2852,23 @@ export default function MyTeamPage() {
     Promise.all([
       attendanceApi.teamMonth(from, to, token).catch(() => []),
       leaveApi.team(from, to, token).catch(() => []),
-    ]).then(([att, lv]) => { setMonthAttendance(att); setMonthLeave(lv); });
+      attendanceRequestApi.teamApprovedWfh(from, to, token).catch(() => []),
+    ]).then(([att, lv, wfh]) => { setMonthAttendance(att); setMonthLeave(lv); setMonthWfh(wfh); });
   }, [token, viewDate, isEmployee]);
 
   const attendanceByEmployee = useMemo(() => new Map(todayRecords.map(r => [r.employeeUserId, r])), [todayRecords]);
   const directoryByEmployee = useMemo(() => new Map(directory.map(d => [d.userId, d])), [directory]);
   const onLeaveToday = useMemo(() => new Map(todayLeave.map(l => [l.employeeUserId, l])), [todayLeave]);
+  const balancesByEmployee = useMemo(() => {
+    const m = new Map<string, LeaveBalance[]>();
+    (teamBalances ?? []).forEach(b => {
+      if (!b.employeeUserId) return;
+      const arr = m.get(b.employeeUserId) ?? [];
+      arr.push(b);
+      m.set(b.employeeUserId, arr);
+    });
+    return m;
+  }, [teamBalances]);
   const attentionItems = useMemo(() => pendingItems.filter(i => i.requestType === 'LEAVE' || i.requestType === 'REGULARIZATION'), [pendingItems]);
   const requestsByEmployee = useMemo(() => {
     const m = new Map<string, ApprovalItem[]>();
@@ -2808,17 +2898,7 @@ export default function MyTeamPage() {
   const onTimeEmployees = useMemo(() => todayRecords.filter(r => r.status === 'PRESENT').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const lateEmployees = useMemo(() => todayRecords.filter(r => r.status === 'LATE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
   const remoteClockInEmployees = useMemo(() => todayRecords.filter(r => r.source === 'WEB_REMOTE').map(r => ({ userId: r.employeeUserId, fullName: r.fullName })), [todayRecords]);
-  const wfhOnDutyEmployees = useMemo(() => {
-    const seen = new Set<string>();
-    const list: { userId: string; fullName: string }[] = [];
-    todayRecords.forEach(r => {
-      if (r.checkInAt && ((r.workMode && r.workMode !== 'ONSITE') || r.source === 'WEB_REMOTE') && !seen.has(r.employeeUserId)) {
-        seen.add(r.employeeUserId);
-        list.push({ userId: r.employeeUserId, fullName: r.fullName });
-      }
-    });
-    return list;
-  }, [todayRecords]);
+  const wfhOnDutyEmployees = useMemo(() => wfhPeopleFrom(todayWfh), [todayWfh]);
   const onTimeCount = onTimeEmployees.length;
   const lateCount = lateEmployees.length;
   const remoteClockInCount = remoteClockInEmployees.length;
@@ -2856,14 +2936,17 @@ export default function MyTeamPage() {
     monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
     return m;
   }, [monthAttendance]);
+  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
 
-  function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
+  function classifyDay(iso: string, dow: number, employeeUserId: string, joiningDate?: string | null): DayCategory {
+    if (joiningDate && iso < joiningDate) return 'not-joined';
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
     if (onLeave) return 'leave';
+    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
     const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return (record.workMode && record.workMode !== 'ONSITE') || record.source === 'WEB_REMOTE' ? 'wfh' : 'plain';
+    if (record) return 'plain';
     if (iso >= today) return 'plain';
     return 'missing';
   }
@@ -3089,18 +3172,19 @@ export default function MyTeamPage() {
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
                     const iso = toISODate(year, month, d);
                     const dow = new Date(year, month, d).getDay();
-                    const category = classifyDay(iso, dow, dr.userId);
+                    const category = classifyDay(iso, dow, dr.userId, dr.joiningDate);
                     const isToday = iso === today;
                     return (
                       <td key={d} style={{ padding: 3, textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
-                        <div style={{
+                        <div title={category === 'not-joined' ? 'Not yet joined' : undefined} style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: category === 'plain' || category === 'not-joined' ? 'transparent' : DAY_COLORS[category],
+                          color: category === 'not-joined' ? 'var(--txt-dim)' : category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          opacity: category === 'not-joined' ? 0.35 : 1,
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
-                          {d}
+                          {category === 'not-joined' ? '' : d}
                         </div>
                       </td>
                     );
@@ -3167,6 +3251,7 @@ export default function MyTeamPage() {
                     <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{row.leaveTypeName}</span>
                   )}
                 </div>
+                <LeaveBalanceLine balances={teamBalances === null ? null : balancesByEmployee.get(row.dr.userId) ?? []} />
                 {row.requests.length > 0 && (
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                     {groupRequestsByType(row.requests).map(({ type, count }) => (

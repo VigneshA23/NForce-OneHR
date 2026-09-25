@@ -1809,4 +1809,34 @@ class LeaveServiceTest {
         verify(leaveBalanceRepository, never()).save(any());
         verify(leaveRequestRepository, never()).save(any());
     }
+
+    @Test
+    void listTeamBalances_returnsDirectReportsAnnualBalance_taggedByEmployee_hidingVestigialAndUnpaidRows() {
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(historyRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        int year = LocalDate.now().getYear();
+        LeaveBalance annualRow = balanceOf(new BigDecimal("15"), new BigDecimal("3"));
+        LeaveBalance sickRow = LeaveBalance.builder().employeeUserId(employeeId).leaveType(sick)
+                .year(year).totalDays(new BigDecimal("20")).usedDays(BigDecimal.ZERO).build();
+        LeaveBalance lopRow = LeaveBalance.builder().employeeUserId(employeeId).leaveType(lossOfPay)
+                .year(year).totalDays(BigDecimal.ZERO).usedDays(BigDecimal.ZERO).build();
+        when(leaveBalanceRepository.findByEmployeeUserIdInAndYear(List.of(employeeId), year))
+                .thenReturn(List.of(annualRow, sickRow, lopRow));
+
+        var result = leaveService.listTeamBalances(managerEmail);
+
+        assertEquals(1, result.size());
+        assertEquals(employeeId, result.get(0).getEmployeeUserId());
+        assertEquals("ANNUAL", result.get(0).getLeaveTypeCode());
+        assertEquals(0, new BigDecimal("12").compareTo(result.get(0).getRemainingDays()));
+    }
+
+    @Test
+    void listTeamBalances_managerWithNoDirectReports_returnsEmptyWithoutQueryingBalances() {
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(historyRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of());
+
+        assertTrue(leaveService.listTeamBalances(managerEmail).isEmpty());
+        verify(leaveBalanceRepository, never()).findByEmployeeUserIdInAndYear(any(), any());
+    }
 }

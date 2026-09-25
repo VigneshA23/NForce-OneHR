@@ -310,6 +310,34 @@ public class AttendanceRequestService {
         return toResponseList(requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()));
     }
 
+    /**
+     * Approved WFH requests in [from, to] for the caller's current direct reports — backs My
+     * Team's "WFH / On duty" card and calendar, which must reflect actual approved requests
+     * rather than the employee's profile work mode (a HYBRID employee who came in is not WFH).
+     */
+    @Transactional(readOnly = true)
+    public List<AttendanceRequestResponse> listTeamApprovedWfh(String actorEmail, LocalDate from, LocalDate to) {
+        User actor = requireActor(actorEmail);
+        return approvedWfhFor(historyRepository.findCurrentDirectReportIds(actor.getId()), from, to);
+    }
+
+    /** Same as {@link #listTeamApprovedWfh}, scoped to the caller's peers (same manager, caller
+     * included) — My Team: Peers view. Empty if the caller has no manager. */
+    @Transactional(readOnly = true)
+    public List<AttendanceRequestResponse> listPeerApprovedWfh(String actorEmail, LocalDate from, LocalDate to) {
+        User actor = requireActor(actorEmail);
+        if (historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(actor.getId()).isEmpty()) {
+            return List.of();
+        }
+        return approvedWfhFor(historyRepository.findCurrentPeerIds(actor.getId()), from, to);
+    }
+
+    private List<AttendanceRequestResponse> approvedWfhFor(List<UUID> employeeIds, LocalDate from, LocalDate to) {
+        if (employeeIds.isEmpty()) return List.of();
+        return toResponseList(requestRepository.findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+                employeeIds, TYPE_WFH, STATUS_APPROVED, from, to));
+    }
+
     /** Manager sees only requests assigned to them; HR/Super Admin see all pending requests. */
     @Transactional(readOnly = true)
     public List<AttendanceRequestResponse> listPendingForApprover(String actorEmail) {

@@ -6,6 +6,7 @@ import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import { AppreciateButton, KudosModal, type KudosTarget } from './MyTeamPage';
 import './DirectoryPage.css';
 
 const PAGE_SIZE = 25;
@@ -70,7 +71,7 @@ function HeaderArt() {
 }
 
 /* ── Detail drawer ────────────────────────────────── */
-function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () => void }) {
+function DetailPanel({ entry, onClose, onAppreciate }: { entry: DirectoryEntry; onClose: () => void; onAppreciate?: () => void }) {
   const rows: [string, string | null | undefined][] = [
     ['Employee Code', entry.employeeCode],
     ['Work Email', entry.email],
@@ -106,6 +107,7 @@ function DetailPanel({ entry, onClose }: { entry: DirectoryEntry; onClose: () =>
             <StatusChip active={entry.active} />
           </div>
         </div>
+        {onAppreciate && <AppreciateButton label="Appreciate" onClick={onAppreciate} />}
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {rows.map(([label, value]) => (
             <div key={label}>
@@ -156,6 +158,11 @@ function exportToExcel(data: DirectoryEntry[]) {
 /* ── Main page ────────────────────────────────────── */
 export default function DirectoryPage() {
   const token = useAuthStore(s => s.token) ?? '';
+  const user = useAuthStore(s => s.user);
+  // HR/Super Admin can appreciate any active employee org-wide (KudosService#canAppreciate);
+  // everyone else keeps My Team's relationship-scoped Appreciate buttons.
+  const canAppreciateAnyone = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN';
+  const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [all, setAll]         = useState<DirectoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -477,9 +484,16 @@ export default function DirectoryPage() {
       {selected && (
         <>
           <div onClick={closeDetail} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 199 }} />
-          <DetailPanel entry={selected} onClose={closeDetail} />
+          <DetailPanel
+            entry={selected}
+            onClose={closeDetail}
+            onAppreciate={canAppreciateAnyone && selected.active && selected.email !== user?.email
+              ? () => setKudosTarget({ userId: selected.userId, name: selected.fullName })
+              : undefined}
+          />
         </>
       )}
+      <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
     </div>
   );
 }
