@@ -40,6 +40,7 @@ class AttendanceDataProvidersTest {
     @Mock private AttendanceService attendanceService;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private com.nforce.onehr.service.AttendanceStatsService attendanceStatsService;
 
     private static final String EMAIL = "employee@nforceone.com";
     private static final LocalDate TODAY = LocalDate.of(2026, 9, 25);
@@ -87,6 +88,28 @@ class AttendanceDataProvidersTest {
         assertThat(out).contains("1. 2026-09-25: LATE_ARRIVAL (late by 30m 0s) - not penalized");
     }
 
+    @Test
+    void averageHoursAreThePagesOwnFigureNeverAComputedOne() {
+        // ONEHR - "average working hours for the last 30 working days" came back as 2h 47m "per
+        // recorded day", averaged here over every row, open sessions included. My Attendance's
+        // Attendance Health panel shows AttendanceStatsService's figure instead; that is the one sent.
+        stubWindow(List.of(late(TODAY, 30 * 60, "LATE")), List.of(), List.of());
+        when(attendanceStatsService.getStats(EMAIL, TODAY.minusDays(6), TODAY)).thenReturn(stats(7.9, 5));
+        when(attendanceStatsService.getStats(EMAIL, TODAY.minusDays(29), TODAY)).thenReturn(stats(8.2, 18));
+
+        String out = provider().fetch(context()).orElseThrow();
+
+        assertThat(out).contains("- last 7 days (the Week view), 2026-09-19 to 2026-09-25: 7.9h per day (7h 54m) over 5 present day(s)")
+                .contains("- last 30 days (the Month view), 2026-08-27 to 2026-09-25: 8.2h per day (8h 12m) over 18 present day(s)")
+                .doesNotContain("per recorded day");
+    }
+
+    private static com.nforce.onehr.dto.attendance.AttendanceStatsResponse stats(double avg, int presentDays) {
+        return com.nforce.onehr.dto.attendance.AttendanceStatsResponse.builder()
+                .me(com.nforce.onehr.dto.attendance.AttendanceStatBucket.builder().avgHoursPerDay(avg).presentDays(presentDays).build())
+                .build();
+    }
+
     private void stubWindow(List<AttendanceResponse> rows, List<AttendanceExceptionResponse> exceptions,
                             List<AttendancePenalty> penalties) {
         LocalDate from = TODAY.minusDays(29);
@@ -101,7 +124,7 @@ class AttendanceDataProvidersTest {
     }
 
     private AttendanceDataProviders.MyHistory provider() {
-        return new AttendanceDataProviders.MyHistory(attendanceService, employeeRepository, attendancePenaltyRepository);
+        return new AttendanceDataProviders.MyHistory(attendanceService, employeeRepository, attendancePenaltyRepository, attendanceStatsService);
     }
 
     private static AttendanceResponse late(LocalDate date, int secondsLate, String status) {

@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -91,15 +92,20 @@ public class AssistantDataService {
      */
     public LiveData fetch(AssistantRequestContext context, List<RetrievalResult> knowledge, String question) {
         Map<String, Double> knowledgeRelevance = knowledgeRelevance(knowledge);
+        questionRelevance(question).forEach((module, score) -> knowledgeRelevance.merge(module, score, Math::max));
         Map<String, Double> moduleRelevance = withCurrentPage(context, knowledgeRelevance);
-        if (moduleRelevance.isEmpty()) return LiveData.empty();
 
         List<AssistantDataProvider> eligible = providers.stream()
+                .filter(provider -> !provider.consultedEveryTurn())
                 .filter(provider -> mayRun(provider, context))
                 .filter(provider -> relevance(provider, moduleRelevance) > 0)
                 .toList();
 
-        List<AssistantDataProvider> candidates = selectDiverse(eligible, moduleRelevance, knowledgeRelevance);
+        List<AssistantDataProvider> candidates = new ArrayList<>(selectDiverse(eligible, moduleRelevance, knowledgeRelevance));
+        providers.stream()
+                .filter(AssistantDataProvider::consultedEveryTurn)
+                .filter(provider -> mayRun(provider, context))
+                .forEach(candidates::add);
 
         List<Section> sections = new ArrayList<>();
         for (AssistantDataProvider provider : candidates) {
@@ -214,6 +220,35 @@ public class AssistantDataService {
                 relevance.merge(result.getModule(), result.getScore(), Math::max);
             }
         }
+        return relevance;
+    }
+
+    /**
+     * Wording that names a record type outright, mapped to the module of the one provider holding
+     * those rows. Retrieval ranks by similarity, and "show my previous 5 attendance records" scored
+     * closer to today's attendance than to the history - so the model got no rows and answered with
+     * directions (ONEHR), while "last 5" worked. Deterministic, the same way {@link MyTeamDateRange}
+     * reads a period: a question that says "records" or "rejected leave" gets those rows.
+     */
+    private static final Map<Pattern, String> QUESTION_MODULES = Map.of(
+            Pattern.compile("\\battendance\\s+(records?|history|log|rows?|entries)\\b"
+                    + "|\\b(last|previous|past|recent|prior)\\s+\\d+\\s+(attendance|records?|entries|days?)\\b"
+                    + "|\\b(present|absent)\\b", Pattern.CASE_INSENSITIVE), "attendance-history",
+            Pattern.compile("\\bleave\\s+(requests?|applications?|rejections?)\\b"
+                    + "|\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b.*\\bleaves?\\b"
+                    + "|\\bleaves?\\b.*\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b", Pattern.CASE_INSENSITIVE), "leave-requests",
+            Pattern.compile("\\b(employees|people|staff|department|how\\s+many)\\b.*\\b(absent|present|checked\\s+in|late|attendance)\\b",
+                    Pattern.CASE_INSENSITIVE), "org-attendance");
+
+    /** As strong as a direct retrieval hit: the question named the record type in so many words. */
+    private static final double QUESTION_RELEVANCE = 0.9;
+
+    private static Map<String, Double> questionRelevance(String question) {
+        if (question == null) return Map.of();
+        Map<String, Double> relevance = new HashMap<>();
+        QUESTION_MODULES.forEach((pattern, module) -> {
+            if (pattern.matcher(question).find()) relevance.put(module, QUESTION_RELEVANCE);
+        });
         return relevance;
     }
 

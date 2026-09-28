@@ -85,6 +85,13 @@ public class PromptBuilder {
 
         sb.append("\n\nSIGNED-IN USER\n");
         sb.append("- Role: ").append(describeRole(context)).append('\n');
+        // Lets the model recognise a first-name, nickname or third-person self-reference ("tell me
+        // about Praveen" asked by Praveen Gurram) as the caller themselves, rather than treating
+        // their own name as somebody else's (ONEHR - AI chatbot fails to handle duplicate employee
+        // names). Omitted, not a placeholder, when no employee record exists yet.
+        if (context.getActorName() != null && !context.getActorName().isBlank()) {
+            sb.append("- Name: ").append(context.getActorName()).append('\n');
+        }
         currentPage.ifPresent(page -> sb
                 .append("- Currently viewing: ").append(page.getLabel())
                 .append(" (pageId ").append(page.getPageId()).append(")\n")

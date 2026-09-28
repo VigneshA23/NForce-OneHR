@@ -24,6 +24,7 @@ import com.nforce.onehr.ai.response.ResponseValidator;
 import com.nforce.onehr.ai.response.UnknownResponses;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.service.AttendanceRulesService;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,7 @@ import static org.mockito.Mockito.when;
 class AiAssistantServiceTest {
 
     @Mock private UserRepository userRepository;
+    @Mock private EmployeeRepository employeeRepository;
     @Mock private KnowledgeRetriever retriever;
     @Mock private EmbeddingProvider embeddingProvider;
     @Mock private LlmProvider llmProvider;
@@ -101,7 +103,7 @@ class AiAssistantServiceTest {
         when(attendanceRulesService.getDefaultZoneId()).thenReturn(ZoneId.of("Asia/Kolkata"));
 
         service = new AiAssistantService(
-                userRepository, retriever, embeddingProvider, llmProvider,
+                userRepository, employeeRepository, retriever, embeddingProvider, llmProvider,
                 new PromptBuilder(registry, attendanceRulesService),
                 new ResponseValidator(navigationValidator, unknownResponses),
                 navigationValidator, unknownResponses, conversationService,
@@ -373,6 +375,20 @@ class AiAssistantServiceTest {
     }
 
     @Test
+    @DisplayName("\"what\", \"is\", \"my\" on their own are asked back, never sent to the model")
+    void fillerWordsAreAskedBack() {
+        // ONEHR - the model answered these with the internal-instructions refusal.
+        for (String word : List.of("what", "is", "my", "what is my?")) {
+            assertThat(service.chat(word, null, null, EMAIL).getAnswer()).startsWith("Could you please give a few more details");
+        }
+        verify(retriever, never()).retrieve(any());
+        verify(llmProvider, never()).complete(any());
+        assertThat(AiAssistantService.isOnlyFiller("leave")).isFalse();
+        assertThat(AiAssistantService.isOnlyFiller("balance")).isFalse();
+        assertThat(AiAssistantService.isOnlyFiller("who are you")).isFalse();
+    }
+
+    @Test
     @DisplayName("a decline before retrieval ever runs costs zero real requests")
     void earlyDecline_recordsZeroApiCallAttemptsAndNoEmbeddingTokens() {
         properties.getLimits().setMaxMessageChars(5);
@@ -384,6 +400,37 @@ class AiAssistantServiceTest {
         assertThat(turn.getValue().getApiCallAttempts()).isZero();
         assertThat(turn.getValue().getEmbeddingPromptTokens()).isNull();
         assertThat(turn.getValue().getErrorCode()).isEqualTo(AiInteractionLogger.MESSAGE_TOO_LONG);
+    }
+
+    @Test
+    @DisplayName("the caller's own name reaches the prompt, so a third-person self-reference can be recognised")
+    void actorNameReachesThePrompt() {
+        // ONEHR - AI chatbot fails to handle duplicate employee names: "tell me about Praveen" asked
+        // by Praveen himself needs his own name in the prompt to be recognised as a self-reference.
+        when(employeeRepository.findByUser_Email(EMAIL))
+                .thenReturn(Optional.of(com.nforce.onehr.entity.Employee.builder().fullName("Praveen Gurram").build()));
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        modelReturns("{\"type\":\"EXPLANATION\",\"answer\":\"You are Praveen Gurram.\",\"confidence\":\"HIGH\"}");
+
+        service.chat("Tell me about Praveen", null, null, EMAIL);
+
+        ArgumentCaptor<LlmRequest> request = ArgumentCaptor.forClass(LlmRequest.class);
+        verify(llmProvider).complete(request.capture());
+        assertThat(request.getValue().getSystemPrompt()).contains("- Name: Praveen Gurram");
+    }
+
+    @Test
+    @DisplayName("no employee record yet means no name line, not a placeholder")
+    void missingEmployeeRecordOmitsTheNameLine() {
+        when(employeeRepository.findByUser_Email(EMAIL)).thenReturn(Optional.empty());
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        modelReturns("{\"type\":\"HOW_TO\",\"answer\":\"Steps.\",\"confidence\":\"HIGH\"}");
+
+        service.chat("How do I apply for leave?", null, null, EMAIL);
+
+        ArgumentCaptor<LlmRequest> request = ArgumentCaptor.forClass(LlmRequest.class);
+        verify(llmProvider).complete(request.capture());
+        assertThat(request.getValue().getSystemPrompt()).doesNotContain("- Name:");
     }
 
     @Test
