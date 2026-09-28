@@ -52,6 +52,31 @@ knowledge:
       These are the same work details shown on My Profile. They are maintained by HR, so if one is
       wrong the fix is to ask HR rather than to edit it yourself.
 
+  - knowledgeId: data.people.named-lookup
+    type: FAQ
+    module: people
+    pageId: directory
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Asking about a specific person by name
+    synonyms:
+      - tell me about Alex
+      - tell me about myself
+      - who is Sam
+      - who am I
+      - what is Priya's designation
+      - which department is Rahul in
+      - give me Jordan's employee code
+      - give me my own details
+      - tell me about Praveen
+    body: |
+      "Tell me about <name>", "who is <name>" or "show details for <name>" is resolved against the
+      People Directory. When the name - or a shortened form of it, like "Praveen G." - is the
+      signed-in user's own, the answer is their own details. When several people share the name,
+      the assistant asks which one is meant, naming each with their department and designation.
+      For anyone else, only what the People Directory shows every employee is shared: name,
+      employee code, designation, department and reporting manager.
+
   - knowledgeId: data.self.attendance-today
     type: FAQ
     module: attendance-today

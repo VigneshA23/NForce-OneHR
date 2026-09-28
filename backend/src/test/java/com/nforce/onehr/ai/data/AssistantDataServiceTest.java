@@ -330,6 +330,70 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("a self-scoped question's own provider is never crowded out by a larger number of "
+            + "merely topic-adjacent team families")
+    void selfScopeWinsOverManyWeakerTeamFamilies() {
+        // Reproduces the real bug (ONEHR - My Team AI access): "give me my last 5 attendance
+        // records" is a self-scoped question that should win the "attendance" family's slot
+        // outright on its own strong retrieval match. My Team's five new provider families each
+        // topic-adjacent to "attendance" must not be able to push it out of the cap just by
+        // existing, however many of them also score.
+        SpyProvider selfHistory = new SpyProvider("attendance.my-history",
+                Set.of(AudienceBucket.values()), Set.of("attendance", "attendance-history"), "daily rows");
+        List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(selfHistory,
+                new SpyProvider("team-attendance.today", Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                        Set.of("team-attendance", "team", "attendance"), "team today")));
+        for (String family : List.of("my-team-effort", "my-team-negligence", "my-team-assignments",
+                "my-team-requests", "my-team-overview")) {
+            providers.add(new SpyProvider(family + ".x",
+                    Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                    Set.of(family, "team"), "team-ish data"));
+        }
+        AssistantDataService service = new AssistantDataService(providers);
+
+        // The self-scoped hit is the strongest match by far; every My Team family scrapes in weakly
+        // via the shared "team" module.
+        AssistantDataService.LiveData data = service.fetch(manager(), List.of(
+                knowledgeFrom("attendance-history", 0.82),
+                knowledgeFrom("team", 0.61)));
+
+        assertThat(data.providerIds()).contains("attendance.my-history");
+    }
+
+    @Test
+    @DisplayName("\"previous 5 attendance records\" gets the history's rows even when retrieval leaned towards today")
+    void recordsWordingPicksTheHistory() {
+        // ONEHR - "last 5" answered with rows, "previous 5" with directions: retrieval ranked today's
+        // attendance above the history, and with every slot taken in the first round only one
+        // attendance provider fit.
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        AssistantDataService service = new AssistantDataService(List.of(
+                new SpyProvider("attendance.today", all, Set.of("attendance", "attendance-today"), "today"),
+                new SpyProvider("attendance.my-history", all, Set.of("attendance", "attendance-history"), "rows"),
+                new SpyProvider("regularization.mine", all, Set.of("attendance"), "r"),
+                new SpyProvider("overtime.mine", all, Set.of("attendance"), "o"),
+                new SpyProvider("wfh.mine", all, Set.of("attendance"), "w")));
+
+        AssistantDataService.LiveData data = service.fetch(employee(),
+                List.of(knowledgeFrom("attendance", 0.8), knowledgeFrom("attendance-today", 0.8)), "Show my previous 5 attendance records");
+
+        assertThat(data.providerIds()).contains("attendance.my-history").doesNotContain("attendance.today");
+    }
+
+    @Test
+    @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
+    void everyTurnProviderRunsOutsideTheCap() {
+        AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),
+                Set.of("people-named"), "Praveen Gurram (this is you)") {
+            @Override public boolean consultedEveryTurn() { return true; }
+        };
+        AssistantDataService service = new AssistantDataService(List.of(named));
+
+        assertThat(service.fetch(employee(), List.of(knowledgeFrom("leave")), "tell me about Praveen").providerIds())
+                .containsExactly("people-named.matches");
+    }
+
+    @Test
     @DisplayName("the current page can make a provider relevant on its own")
     void currentPageContributesToSelection() {
         SpyProvider expenses = new SpyProvider("expense.my-claims",

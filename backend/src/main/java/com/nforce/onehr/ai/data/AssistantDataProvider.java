@@ -109,4 +109,14 @@ public interface AssistantDataProvider {
     default Optional<String> fetch(AssistantRequestContext context, String question) {
         return fetch(context);
     }
+
+    /**
+     * True for the rare provider that decides from the question itself whether it has anything to
+     * say - {@code PeopleDataProviders.NamedInQuestion}, which answers "who does this name refer
+     * to" for any question at all. Consulted on every turn, outside the per-turn cap and module
+     * selection, so it must return empty whenever it does not apply.
+     */
+    default boolean consultedEveryTurn() {
+        return false;
+    }
 }

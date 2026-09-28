@@ -23,7 +23,9 @@ import com.nforce.onehr.ai.prompt.PromptBuilder;
 import com.nforce.onehr.ai.response.ConfidentialityGuard;
 import com.nforce.onehr.ai.response.ResponseValidator;
 import com.nforce.onehr.ai.response.UnknownResponses;
+import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +61,7 @@ import java.util.UUID;
 public class AiAssistantService {
 
     private final UserRepository userRepository;
+    private final EmployeeRepository employeeRepository;
     private final KnowledgeRetriever retriever;
     private final EmbeddingProvider embeddingProvider;
     private final LlmProvider llmProvider;
@@ -90,6 +93,10 @@ public class AiAssistantService {
         if (question.isEmpty()) {
             return refuse(unknownResponses.notEnoughKnowledge(context), context, question,
                     AiInteractionLogger.EMPTY_MESSAGE, startedNanos);
+        }
+        if (isOnlyFiller(question)) {
+            return refuse(unknownResponses.needsMoreDetail(context), context, question,
+                    AiInteractionLogger.UNCLEAR_QUESTION, startedNanos);
         }
         int maxChars = properties.getLimits().getMaxMessageChars();
         if (question.length() > maxChars) {
@@ -138,6 +145,22 @@ public class AiAssistantService {
         AssistantResponse response = answer(question, enriched, currentPage, conversation, startedNanos);
         response.setConversationId(conversation.getId().toString());
         return response;
+    }
+
+    /** Words that carry no topic on their own; a message made only of them is not a question yet. */
+    private static final Set<String> FILLER = Set.of(
+            "what", "whats", "is", "are", "was", "were", "my", "me", "i", "the", "a", "an", "how", "why", "when",
+            "where", "who", "which", "can", "do", "does", "did", "to", "of", "in", "on", "for",
+            "and", "or", "please", "show", "tell", "give", "about");
+
+    /**
+     * "what", "is", "my", "what is my" - the model read these as probes of its instructions (ONEHR).
+     * Three words at most, and never "this"/"that"/"it", which point at the page the user is on.
+     */
+    static boolean isOnlyFiller(String question) {
+        List<String> words = java.util.Arrays.stream(question.toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}]+"))
+                .filter(w -> !w.isEmpty()).toList();
+        return !words.isEmpty() && words.size() <= 3 && FILLER.containsAll(words);
     }
 
     private AssistantResponse answer(String question,
@@ -282,10 +305,15 @@ public class AiAssistantService {
 
         String primaryRoleCode = RoleUtils.primaryRoleCode(actor.getRoles(), "EMPLOYEE");
         Set<AudienceBucket> audiences = AudienceBucket.from(RoleUtils.audienceBuckets(actor.getRoles()));
+        // Best-effort: an account with no employee record yet (HR has not completed onboarding)
+        // simply gets no name in the prompt, exactly like every other employee-sourced field here.
+        String actorName = employeeRepository.findByUser_Email(actor.getEmail())
+                .map(Employee::getFullName).orElse(null);
 
         return AssistantRequestContext.builder()
                 .userId(actor.getId())
                 .actorEmail(actor.getEmail())
+                .actorName(actorName)
                 .primaryRoleCode(primaryRoleCode)
                 .shellRole(ShellRole.fromPrimaryRoleCode(primaryRoleCode))
                 .audiences(audiences)
@@ -297,6 +325,7 @@ public class AiAssistantService {
         return AssistantRequestContext.builder()
                 .userId(context.getUserId())
                 .actorEmail(context.getActorEmail())
+                .actorName(context.getActorName())
                 .primaryRoleCode(context.getPrimaryRoleCode())
                 .shellRole(context.getShellRole())
                 .audiences(context.getAudiences())
