@@ -104,6 +104,21 @@ class AttendanceDataProvidersTest {
                 .doesNotContain("per recorded day");
     }
 
+    @Test
+    void aNamedPeriodIsReadExactly() {
+        LocalDate from = TODAY.minusDays(4);
+        when(attendanceService.currentWorkDate(EMAIL)).thenReturn(TODAY);
+        when(attendanceService.getMyHistory(EMAIL, from, TODAY)).thenReturn(List.of(late(TODAY, 30 * 60, "LATE")));
+        when(attendanceService.getMyExceptions(EMAIL, from, TODAY)).thenReturn(List.of());
+        when(attendanceService.getConfig(EMAIL)).thenReturn(AttendanceConfigResponse.builder().lateGraceMinutes(10).build());
+        when(employeeRepository.findByUser_Email(EMAIL)).thenReturn(Optional.of(employee));
+
+        String out = provider().fetch(context(), "show my attendance for the last 5 days").orElseThrow();
+
+        assertThat(out).startsWith("From 2026-09-21 to 2026-09-25 (today), newest first. This is exactly the period the question names")
+                .contains("- 2026-09-25 (Fri): LATE");
+    }
+
     private static com.nforce.onehr.dto.attendance.AttendanceStatsResponse stats(double avg, int presentDays) {
         return com.nforce.onehr.dto.attendance.AttendanceStatsResponse.builder()
                 .me(com.nforce.onehr.dto.attendance.AttendanceStatBucket.builder().avgHoursPerDay(avg).presentDays(presentDays).build())

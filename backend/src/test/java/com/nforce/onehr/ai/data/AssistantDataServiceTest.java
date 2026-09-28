@@ -381,6 +381,25 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("attendance for any named period gets the history, today alone does not")
+    void attendanceForAPeriodPicksTheHistory() {
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        AssistantDataService service = new AssistantDataService(List.of(
+                new SpyProvider("attendance.today", all, Set.of("attendance", "attendance-today"), "today"),
+                new SpyProvider("attendance.my-history", all, Set.of("attendance", "attendance-history"), "rows"),
+                new SpyProvider("regularization.mine", all, Set.of("attendance"), "r"),
+                new SpyProvider("overtime.mine", all, Set.of("attendance"), "o"),
+                new SpyProvider("wfh.mine", all, Set.of("attendance"), "w")));
+        List<RetrievalResult> leansToday = List.of(knowledgeFrom("attendance", 0.7), knowledgeFrom("attendance-today", 0.8));
+
+        for (String q : List.of("give me my attendance for the past week", "my attendance for the last 5 days",
+                "show my attendance from 01-09-2026 to 10-09-2026")) {
+            assertThat(service.fetch(employee(), leansToday, q).providerIds()).as(q).contains("attendance.my-history");
+        }
+        assertThat(service.fetch(employee(), leansToday, "my attendance today").providerIds()).contains("attendance.today");
+    }
+
+    @Test
     @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
     void everyTurnProviderRunsOutsideTheCap() {
         AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),
