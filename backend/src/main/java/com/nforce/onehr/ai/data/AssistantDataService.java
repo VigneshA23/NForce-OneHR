@@ -243,12 +243,20 @@ public class AssistantDataService {
     /** As strong as a direct retrieval hit: the question named the record type in so many words. */
     private static final double QUESTION_RELEVANCE = 0.9;
 
+    private static final Pattern ATTENDANCE = Pattern.compile("\\b(attendance|check[- ]?ins?|punch(es)?)\\b", Pattern.CASE_INSENSITIVE);
+
     private static Map<String, Double> questionRelevance(String question) {
         if (question == null) return Map.of();
         Map<String, Double> relevance = new HashMap<>();
         QUESTION_MODULES.forEach((pattern, module) -> {
             if (pattern.matcher(question).find()) relevance.put(module, QUESTION_RELEVANCE);
         });
+        // "my attendance for the past week", "... in August": any period but today alone is the
+        // history's, which reads exactly that period. Only presence matters here, so the JVM date is fine.
+        if (ATTENDANCE.matcher(question).find() && MyTeamDateRange.named(question, java.time.LocalDate.now())
+                .filter(r -> !"today".equals(r.label())).isPresent()) {
+            relevance.put("attendance-history", QUESTION_RELEVANCE);
+        }
         return relevance;
     }
 

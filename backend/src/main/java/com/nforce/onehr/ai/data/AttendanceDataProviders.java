@@ -170,12 +170,13 @@ public final class AttendanceDataProviders {
         }
 
         /**
-         * A period the question names that reaches outside the default 30 days ("August", "from
-         * 01-08-2026 to 15-08-2026") is read instead of them - otherwise the only honest answer was
-         * "I can only show the last 30 days" (ONEHR - "show my attendance for September, but only
-         * records from August"). A period inside the default window changes nothing: the default
-         * already covers it, and the model filters. Capped at {@link #MAX_NAMED_DAYS}, keeping the
-         * most recent end, so a "since January" cannot tip half a year of rows into one prompt.
+         * The period the question names ("the past week", "last 5 days", "August", "from
+         * 01-08-2026 to 15-08-2026") is read exactly, instead of the default 30 days - so the
+         * rows listed are the rows asked for, never 30 days for the model to filter, and never "I
+         * can only show the last 30 days" (ONEHR - "show my attendance for September, but only
+         * records from August"). Capped at {@link #MAX_NAMED_DAYS}, keeping the most recent end,
+         * so a "since January" cannot tip half a year of rows into one prompt; the header then
+         * says the list is only part of what was asked.
          */
         @Override
         public Optional<String> fetch(AssistantRequestContext context, String question) {
@@ -183,10 +184,12 @@ public final class AttendanceDataProviders {
             LocalDate today = attendanceService.currentWorkDate(email);
             LocalDate to = today;
             LocalDate from = to.minusDays(LOOKBACK_DAYS - 1);
+            boolean truncated = false;
             Optional<MyTeamDateRange.Range> named = MyTeamDateRange.named(question, today);
-            if (named.isPresent() && named.get().from().isBefore(from) && !named.get().from().isAfter(today)) {
+            if (named.isPresent() && !named.get().from().isAfter(today)) {
                 to = named.get().to().isAfter(today) ? today : named.get().to();
-                from = named.get().from().isBefore(to.minusDays(MAX_NAMED_DAYS - 1)) ? to.minusDays(MAX_NAMED_DAYS - 1) : named.get().from();
+                truncated = named.get().from().isBefore(to.minusDays(MAX_NAMED_DAYS - 1));
+                from = truncated ? to.minusDays(MAX_NAMED_DAYS - 1) : named.get().from();
             }
             LocalDate penaltiesFrom = today.minusDays(PENALTY_LOOKBACK_DAYS - 1);
             List<AttendanceResponse> rows = Objects.requireNonNullElse(attendanceService.getMyHistory(email, from, to), List.of());
@@ -228,7 +231,12 @@ public final class AttendanceDataProviders {
             List<Item> ledger = items.values().stream().sorted(Comparator.comparing(Item::date).reversed()).toList();
 
             StringBuilder out = new StringBuilder("From %s to %s%s, newest first.".formatted(from, to, to.equals(today) ? " (today)" : ""));
-            if (!from.equals(today.minusDays(LOOKBACK_DAYS - 1))) out.append(" This is the period the question itself names.");
+            if (named.isPresent()) {
+                out.append(truncated
+                        ? " The question names %s; only its most recent %d days are listed here - say the list is partial."
+                                .formatted(named.get().label(), MAX_NAMED_DAYS)
+                        : " This is exactly the period the question names (%s).".formatted(named.get().label()));
+            }
             if (rows.isEmpty()) {
                 out.append("\nNo attendance records at all in that range.");
             } else {
@@ -269,7 +277,9 @@ public final class AttendanceDataProviders {
             if (rows.isEmpty()) return Optional.of(out.toString());
             out.append("\n\nA date with no row below has no attendance record - a weekly off, holiday, leave day or a day "
                     + "not worked. Do not call it absent unless the user's question establishes it was a working day.");
-            out.append("\nDaily rows:");
+            // Not "Daily rows": the model quoted that label back as a section of My Attendance and
+            // gave directions to it instead of listing the rows (ONEHR - "previous 5 attendance records").
+            out.append("\nAttendance records in that range, one per day, newest first - list these rows themselves when asked for records:");
             for (AttendanceResponse r : rows) {
                 out.append("\n- %s (%s): %s, in %s, out %s, worked %s".formatted(
                         r.getWorkDate(),
