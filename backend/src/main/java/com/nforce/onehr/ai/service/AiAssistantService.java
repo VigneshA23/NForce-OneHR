@@ -184,7 +184,7 @@ public class AiAssistantService {
         // after retrieval has found something relevant, so an unrelated question never causes a
         // read of personal data - and never throws, so a failure here costs the live figure but
         // still leaves the static answer.
-        AssistantDataService.LiveData liveData = dataService.fetch(context, knowledge);
+        AssistantDataService.LiveData liveData = dataService.fetch(context, knowledge, question);
 
         String systemPrompt = promptBuilder.buildSystemPrompt(context, knowledge, currentPage, liveData);
         String userPrompt = promptBuilder.buildUserPrompt(

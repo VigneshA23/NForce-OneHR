@@ -77,6 +77,19 @@ public class AssistantDataService {
      * @param knowledge what retrieval matched, which is what drives selection
      */
     public LiveData fetch(AssistantRequestContext context, List<RetrievalResult> knowledge) {
+        return fetch(context, knowledge, null);
+    }
+
+    /**
+     * As {@link #fetch(AssistantRequestContext, List)}, additionally passing the raw question
+     * through to {@link AssistantDataProvider#fetch(AssistantRequestContext, String)} for the
+     * handful of providers that read a date range out of it (see that method's own Javadoc). The
+     * question never changes which providers are selected or what they are allowed to read -
+     * only, for those few, which dates within their already-authorised scope they read.
+     *
+     * @param question the user's question, verbatim - never itself a source of authorisation
+     */
+    public LiveData fetch(AssistantRequestContext context, List<RetrievalResult> knowledge, String question) {
         Map<String, Double> knowledgeRelevance = knowledgeRelevance(knowledge);
         Map<String, Double> moduleRelevance = withCurrentPage(context, knowledgeRelevance);
         if (moduleRelevance.isEmpty()) return LiveData.empty();
@@ -90,7 +103,7 @@ public class AssistantDataService {
 
         List<Section> sections = new ArrayList<>();
         for (AssistantDataProvider provider : candidates) {
-            fetchSafely(provider, context).ifPresent(body ->
+            fetchSafely(provider, context, question).ifPresent(body ->
                     sections.add(new Section(provider.id(), provider.title(), provider.scope(), body)));
         }
 
@@ -220,9 +233,9 @@ public class AssistantDataService {
      * before this feature existed and is still a useful answer. Turning that into an error would
      * trade a good answer for no answer.
      */
-    private Optional<String> fetchSafely(AssistantDataProvider provider, AssistantRequestContext context) {
+    private Optional<String> fetchSafely(AssistantDataProvider provider, AssistantRequestContext context, String question) {
         try {
-            return provider.fetch(context);
+            return provider.fetch(context, question);
         } catch (Exception e) {
             log.warn("Live data provider '{}' failed; continuing without it: {}", provider.id(), e.toString());
             return Optional.empty();

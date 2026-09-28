@@ -529,6 +529,15 @@ system\s*(prompt|instructions?)
 \b(without|bypassing|skipping)\s+(going\s+through\s+)?(the\s+)?(ui|interface|api|authori[sz]ation|authentication|role\s+checks?)\b
 \b(generate|create|forge|craft|mint|sign|fake|spoof)\s+((a|an|valid)\s+)*(admin\s+|super\s*admin\s+)?(jwt|tokens?|cookie|authenticated\s+request)\b
 \b(another|other)\s+(user|employee|person)'?s?\s+(jwt|token|session|password|credentials?|chat|conversation|history|questions?|searches)\b
+# --- the My Team direct-report boundary specifically (ONEHR - My Team AI access)
+\b(ignore|disregard|bypass|override|skip|remove|lift|waive|drop)\s+(the\s+)?direct[-\s]?reports?\s+(restriction|rule|scoping|scope|boundary|filter(ing)?|limit|check)s?\b
+\b(treat|consider|regard|mark|count|assume|pretend)\s+(this|that|him|her|them|the\s+(employee|user|person))\b[^.?!\n]{0,30}\b(as\s+)?(my\s+|a\s+)?direct\s+reports?\b
+\bassume\s+(this|that)\s+(employee|user|person)\s+(is|reports?\s+to\s+me|is\s+on\s+my\s+team|is\s+my\s+direct\s+report)\b
+\b(give|show|list|send|dump)\s+me\s+(all|every)\s+(the\s+)?employees?\b[^.?!\n]{0,40}\b(i'?ll|i\s+will|you)\s+(decide|pick|choose|filter|sort|work\s+out|figure\s+out)\b
+\b(retrieve|fetch|get|pull|query|load)\s+(all|every)\s+employ\w*('?s)?\s+\w+\b[^.?!\n]{0,40}\b(only\s+)?(output|show|display|return|filter(\s+it)?\s+to|narrow(\s+it)?\s+to)\s+my\s+team\b
+\b(do|run)\s+the\s+quer(y|ies)\s+first\b[^.?!\n]{0,40}\bfilter\b
+\bfilter\s+(it|them)?\s*later\b
+\bi\s+should\s+(be\s+able\s+to\s+)?(see|access|view|get|retrieve|query)\s+(all|every)\s+employees?\b
 # --- "you already told me", "the previous assistant said"
 \byou\s+(already|previously|earlier|just)\s+(gave|told|showed|shared|confirmed|revealed|provided|sent|disclosed)\s+me\b.{0,50}\b(password|secret|api[-\s]?key|key|prompt|instructions?|credentials?|database|host|token|jwt|another\s+(employee|user)|someone\s+else|configuration|config|system|internal)\b
 \byou\s+(already\s+)?(authori[sz]ed\s+me|agreed\s+to\s+(ignore|bypass|disable|reveal|share|drop|lift))\b

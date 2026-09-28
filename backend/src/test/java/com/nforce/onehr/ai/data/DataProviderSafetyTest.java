@@ -36,7 +36,10 @@ class DataProviderSafetyTest {
     private static final Set<String> FORBIDDEN_CALLS = Set.of(
             "listorgleave", "listallassets", "listallholidays", "findall", "listall",
             "getdayforall", "listusers", "getorgdashboard", "listemployees", "listpotentialmanagers",
-            "countallpendingrequired", "getadminkpis", "hrtilesummary", "countassets", "listqueue");
+            "countallpendingrequired", "getadminkpis", "hrtilesummary", "countassets", "listqueue",
+            // Widens to the whole organisation for HR_ADMIN/SUPER_ADMIN - the My Team AI providers
+            // must reach only its never-widening counterpart, getAttendanceRequestReportForDirectReports.
+            "getattendancerequestreport");
 
     /**
      * Team reads - actor-scoped, but about the caller's direct reports rather than the caller. Only
@@ -44,7 +47,9 @@ class DataProviderSafetyTest {
      */
     private static final Set<String> TEAM_CALLS = Set.of(
             "listteamleave", "getdayformyteam", "getmonthformyteam", "getmanagerdashboard",
-            "teamassignments", "teamrequests", "allteamclaims", "getteameffort", "getteampunctuality");
+            "teamassignments", "teamrequests", "allteamclaims", "getteameffort", "getteampunctuality",
+            "listfordirectreports", "getteamnegligence", "listteamapprovedwfh", "listteambalances",
+            "getattendancerequestreportfordirectreports");
 
     /** Peer-group reads - actor-scoped, about everyone who shares the caller's manager. */
     private static final Set<String> PEER_CALLS = Set.of(
@@ -117,8 +122,12 @@ class DataProviderSafetyTest {
                 "PendingApprovals", "PendingForManager", "PendingRegularizations",
                 "PendingWfhAndPartialDay", "PendingOvertime", "PendingAssetRequests",
                 "ApprovalSummaryProvider",
-                // team - Manager only
+                // team - Manager, HR Admin and Super Admin, whoever has direct reports
                 "TeamMembers", "TeamAttendance", "TeamLeave", "TeamPenalties",
+                "TeamExpenseClaims", "TeamAssetRequests", "TeamAssetAssignments",
+                // my-team - Efforts/Punctuality, Negligence, Time Assignments, Attendance Request
+                // Reports, and the Overview gaps: same direct-report-only audience as "team" above
+                "MyTeamEffort", "MyTeamNegligence", "MyTeamAssignments", "MyTeamRequestReports", "MyTeamOverviewExtras",
                 // organisation - HR/Admin only, audiences mirroring each screen's @PreAuthorize
                 "UserAccounts", "Headcount", "OrgAttendanceToday", "OrgLeave", "OrgPenalties",
                 "OrgStructure", "OrgDocumentCompliance", "HelpdeskQueue", "OnboardingSummary",
@@ -135,7 +144,29 @@ class DataProviderSafetyTest {
         assertThat(invokedOwnerQualifiedNames(OrganisationDataProviders.UserAccounts.class))
                 .contains("usermanagementservice.listusers");
         assertThat(invokedOwnerQualifiedNames(TeamDataProviders.TeamPenalties.class))
-                .contains("attendancepenaltyservice.list");
+                .contains("attendancepenaltyservice.listfordirectreports");
+        assertThat(invokedOwnerQualifiedNames(MyTeamDataProviders.MyTeamRequestReports.class))
+                .contains("reportsservice.getattendancerequestreportfordirectreports");
+    }
+
+    @Test
+    @DisplayName("the My Team AI providers reach only the direct-report-only entry point, never the "
+            + "org-widening one a same-named sibling method exists for")
+    void myTeamProvidersNeverReachTheWideningEntryPoint() throws Exception {
+        // TeamPenalties is deliberately not checked here: it shares an enclosing class with
+        // OrganisationDataProviders' own activePenalties helper, which legitimately calls the
+        // widening attendancepenaltyservice.list for its own ORGANISATION-scope caller - the
+        // bytecode scan attributes that shared enclosing class's calls to every nested provider,
+        // TeamPenalties included, so this specific check would be a false positive for it. Its own
+        // positive assertion above (it calls listForDirectReports) is the real guarantee there.
+        for (Class<?> type : List.of(
+                MyTeamDataProviders.MyTeamEffort.class, MyTeamDataProviders.MyTeamNegligence.class,
+                MyTeamDataProviders.MyTeamAssignments.class, MyTeamDataProviders.MyTeamRequestReports.class,
+                MyTeamDataProviders.MyTeamOverviewExtras.class)) {
+            assertThat(invokedOwnerQualifiedNames(type)).as(type.getSimpleName())
+                    .doesNotContain("attendancepenaltyservice.list")
+                    .doesNotContain("reportsservice.getattendancerequestreport");
+        }
     }
 
     @Test
