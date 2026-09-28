@@ -242,9 +242,15 @@ export default function DocumentsPage() {
                         Review & Acknowledge
                       </button>
                     ) : (
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#22c55e', fontSize: 13, fontWeight: 600 }}>
-                        <CheckCircle size={14} /> Acknowledged
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#22c55e', fontSize: 13, fontWeight: 600 }}>
+                          <CheckCircle size={14} /> Acknowledged
+                        </span>
+                        <button onClick={() => setViewTarget(p)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                          <Eye size={14} /> View
+                        </button>
+                      </div>
                     )
                   ) : (
                     <button onClick={() => setViewTarget(p)}

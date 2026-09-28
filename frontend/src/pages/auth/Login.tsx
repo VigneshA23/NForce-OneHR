@@ -86,6 +86,11 @@ function rectStyle(r: { left: number; top: number; width: number; height: number
   return { position: 'absolute', left: `${r.left}%`, top: `${r.top}%`, width: `${r.width}%`, height: `${r.height}%` };
 }
 
+// A length given in px at the artwork's native 1671px width, expressed in container-query units of
+// the frame (container-type: inline-size). Overlay text/icons/radii sized this way scale only with
+// the frame — never on their own — so browser zoom can't grow the field text relative to the art.
+const cq = (px: number) => `${((px / 1671) * 100).toFixed(3)}cqw`;
+
 // Below this width, login-reference.png's fixed 1671x941 composition would
 // scale its login card down to an unreadable/untappable size, so we fall
 // back to the existing plain (non-image) mobile-optimized card below —
@@ -116,16 +121,10 @@ interface ImageLoginProps {
 }
 
 // Full-viewport (100vw x 100dvh, no scrollbar) rendering of login-reference.png. The frame is sized
-// with CSS max() rather than min()/max-width — i.e. "cover" instead of "contain" — so it always
-// scales up to fully cover BOTH viewport dimensions at once. Because aspectRatio stays fixed at
-// 1671/941, that scale-up is perfectly uniform (no stretching, no distortion): on a viewport
-// proportionally wider than the artwork, the frame overflows vertically instead of leaving empty
-// space on the sides, and the outer wrapper's overflow:hidden trims that overflow symmetrically
-// (top and bottom, centered) — the same amount off each edge, so it only ever eats into the
-// artwork's own outer/background margin, never shifting the vertically-centered card/hero/globe.
-// FIELD_RECT's percentages stay exactly correct because they're relative to this same box, which
-// is still the artwork's true, undistorted aspect ratio — just larger than the viewport, not
-// letterboxed to fit inside it.
+// with CSS min() — "contain" — so the whole artwork, login card included, always fits inside the
+// viewport and stays centered; the dark outer background fills any leftover space. (A max()/"cover"
+// sizing cropped the card's top/bottom on short, wide windows.) aspectRatio stays fixed at 1671/941,
+// so FIELD_RECT's percentages always line up with the artwork's fields.
 // Interactive overlays are positioned as percentages of that box only, so they scale and move
 // together with it, never with the viewport directly. The account-lockout state from the parent is
 // wired in here (disabled fields, a locked banner in place of the generic error, the Forgot
@@ -171,7 +170,8 @@ function ImageLogin({
         <div
           className="nf-login-frame"
           style={{
-            position: 'relative', width: 'max(100%, calc(100dvh * 1671 / 941))', aspectRatio: '1671 / 941',
+            position: 'relative', width: 'min(100%, calc(100dvh * 1671 / 941))', aspectRatio: '1671 / 941',
+            containerType: 'inline-size',
             boxShadow: '0 40px 120px rgba(0,0,0,.55)',
           }}
         >
@@ -187,15 +187,15 @@ function ImageLogin({
               role="alert" aria-live={lockedMessage ? 'assertive' : 'polite'} id={errorId}
               style={{
                 ...rectStyle(FIELD_RECT.error),
-                display: 'flex', alignItems: 'flex-start', gap: 8, padding: '3% 3%', borderRadius: 8,
+                display: 'flex', alignItems: 'flex-start', gap: cq(8), padding: '3% 3%', borderRadius: cq(8),
                 background: 'rgba(10,11,14,.92)', border: '1px solid rgba(228,55,61,.4)', color: '#f4a5a8',
                 boxSizing: 'border-box', overflow: 'auto',
               }}
             >
               {lockedMessage
-                ? <Lock size={16} style={{ flexShrink: 0, marginTop: 1, color: 'var(--risk)' }} aria-hidden="true" />
-                : <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1, color: 'var(--risk)' }} aria-hidden="true" />}
-              <span style={{ fontSize: 13, lineHeight: 1.4 }}>{bannerMessage}</span>
+                ? <Lock style={{ width: cq(16), height: cq(16), flexShrink: 0, marginTop: cq(1), color: 'var(--risk)' }} aria-hidden="true" />
+                : <AlertCircle style={{ width: cq(16), height: cq(16), flexShrink: 0, marginTop: cq(1), color: 'var(--risk)' }} aria-hidden="true" />}
+              <span style={{ fontSize: cq(13), lineHeight: 1.4 }}>{bannerMessage}</span>
             </div>
           )}
 
@@ -226,7 +226,7 @@ function ImageLogin({
                 // (67.32%..93.23% of the 1671px-wide source at its placeholder's own vertical
                 // center) — 59/433 ≈ 13.63%. This still scales with the frame like every other
                 // FIELD_RECT-driven value.
-                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 0.52% 0 3.53%',
+                color: '#fff', fontSize: cq(15), fontFamily: 'Inter, sans-serif', padding: '0 0.52% 0 3.53%',
                 opacity: locked ? 0.55 : 1, cursor: locked ? 'not-allowed' : 'text',
               }}
             />
@@ -244,7 +244,7 @@ function ImageLogin({
                 border: 'none', outline: 'none', boxSizing: 'border-box',
                 // Same containing-block-vs-own-width padding fix as the email input above — the
                 // lock icon measures to the same 13.63% inset in the artwork.
-                color: '#fff', fontSize: 15, fontFamily: 'Inter, sans-serif', padding: '0 1.04% 0 3.53%',
+                color: '#fff', fontSize: cq(15), fontFamily: 'Inter, sans-serif', padding: '0 1.04% 0 3.53%',
                 opacity: locked ? 0.55 : 1, cursor: locked ? 'not-allowed' : 'text',
               }}
             />
@@ -267,7 +267,9 @@ function ImageLogin({
                   value, this button's background turns opaque (see passwordFieldBg) and covers
                   that baked glyph entirely, so only then do we render our own icon — keeping
                   exactly one eye visible in both states, not two. */}
-              {password && (showPass ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />)}
+              {password && (showPass
+                ? <EyeOff style={{ width: cq(16), height: cq(16) }} aria-hidden="true" />
+                : <Eye style={{ width: cq(16), height: cq(16) }} aria-hidden="true" />)}
             </button>
 
             {!locked && (
@@ -283,9 +285,9 @@ function ImageLogin({
               style={{
                 ...rectStyle(FIELD_RECT.signIn),
                 background: submitting ? 'rgba(122,12,16,.94)' : 'transparent',
-                border: 'none', borderRadius: 8, cursor: (submitting || locked) ? 'not-allowed' : 'pointer',
+                border: 'none', borderRadius: cq(8), cursor: (submitting || locked) ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#fff', fontSize: 15, fontWeight: 600, fontFamily: 'Inter, sans-serif',
+                color: '#fff', fontSize: cq(15), fontWeight: 600, fontFamily: 'Inter, sans-serif',
                 opacity: locked ? 0.55 : 1,
               }}
             >
