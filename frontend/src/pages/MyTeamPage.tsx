@@ -1823,7 +1823,14 @@ function cardIsAvailable(c: ReportCardDef): boolean {
 
 function ReportsTab({ token }: { token: string }) {
   const { showToast } = useToast();
-  const [category, setCategory] = useState('Attendance Request Reports');
+  // ?category=… opens straight into a specific report library (ONEHR - My Team AI access), the
+  // same deep-link pattern MyTeamPage's own ?tab= already uses — falls back to the original
+  // default when absent or unrecognised, so an ordinary /my-team?tab=reports visit is unaffected.
+  const [searchParams] = useSearchParams();
+  const [category, setCategory] = useState(() => {
+    const fromParam = searchParams.get('category');
+    return fromParam && REPORT_CATEGORIES.includes(fromParam) ? fromParam : 'Attendance Request Reports';
+  });
   const [search, setSearch] = useState('');
   const [runningCard, setRunningCard] = useState<ReportCardDef | null>(null);
 

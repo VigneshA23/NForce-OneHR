@@ -102,7 +102,24 @@ public class AttendancePenaltyService {
     public List<AttendancePenaltyResponse> list(String actorEmail, LocalDate from, LocalDate to, String status,
                                                  String discrepancyType, String department, String location, String search) {
         Employee actor = resolveEmployee(actorEmail);
-        List<UUID> reportIds = new ArrayList<>(resolveScopeIds(actor));
+        return list(new ArrayList<>(resolveScopeIds(actor)), from, to, status, discrepancyType, department, location, search);
+    }
+
+    /**
+     * Active and resolved penalties for the caller's own current direct reports, whatever role they
+     * hold - unlike {@link #list}, never widened to the whole organisation for HR_ADMIN/SUPER_ADMIN.
+     * Backs the assistant's team-penalty question for an admin who is also somebody's reporting
+     * manager ({@code TeamDataProviders.TeamPenalties}); {@link #list} still backs the org-wide view.
+     */
+    @Transactional(readOnly = true)
+    public List<AttendancePenaltyResponse> listForDirectReports(String actorEmail, LocalDate from, LocalDate to) {
+        Employee actor = resolveEmployee(actorEmail);
+        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(actor.getUserId());
+        return list(new ArrayList<>(reportIds), from, to, null, null, null, null, null);
+    }
+
+    private List<AttendancePenaltyResponse> list(List<UUID> reportIds, LocalDate from, LocalDate to, String status,
+                                                  String discrepancyType, String department, String location, String search) {
         if (reportIds.isEmpty()) {
             return List.of();
         }

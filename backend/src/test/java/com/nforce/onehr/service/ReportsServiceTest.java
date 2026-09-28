@@ -330,4 +330,83 @@ class ReportsServiceTest {
 
         verify(employeeRepository, never()).findAllWithDetails();
     }
+
+    // ── getAttendanceRequestReportForDirectReports: the AI assistant's My Team entry point ──────
+    //
+    // Unlike getAttendanceRequestReport above, this one must NEVER widen to the organisation for
+    // HR_ADMIN/SUPER_ADMIN - the My Team AI capability answers only for the caller's own direct
+    // reports, whatever role they hold (ONEHR - My Team AI access control).
+
+    @Test
+    void forDirectReports_neverWidensForHrAdmin_evenWithNoDirectReportsOfTheirOwn() {
+        String hrAdminEmail = "hr.admin@test.com";
+        UUID hrAdminId = UUID.randomUUID();
+        Employee hrAdmin = Employee.builder().userId(hrAdminId).fullName("HR Admin")
+                .user(User.builder().id(hrAdminId).roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build())
+                .build();
+        when(employeeRepository.findByUser_Email(hrAdminEmail)).thenReturn(Optional.of(hrAdmin));
+        when(managerHistoryRepository.findCurrentDirectReportIds(hrAdminId)).thenReturn(List.of());
+
+        List<AttendanceRequestReportRow> rows = reportsService.getAttendanceRequestReportForDirectReports(
+                hrAdminEmail, ReportsService.ReportType.OVERTIME, from, to);
+
+        assertTrue(rows.isEmpty(), "an HR Admin with no direct reports of their own gets nothing here - "
+                + "never the organisation-wide fallback getAttendanceRequestReport uses");
+        verify(employeeRepository, never()).findAllWithDetails();
+    }
+
+    @Test
+    void forDirectReports_returnsOnlyTheHrAdminsOwnDirectReports_whenTheyHaveSome() {
+        String hrAdminEmail = "hr.admin@test.com";
+        UUID hrAdminId = UUID.randomUUID();
+        Employee hrAdmin = Employee.builder().userId(hrAdminId).fullName("HR Admin")
+                .user(User.builder().id(hrAdminId).roles(new HashSet<>(Set.of(role("HR_ADMIN")))).build())
+                .build();
+        when(employeeRepository.findByUser_Email(hrAdminEmail)).thenReturn(Optional.of(hrAdmin));
+        when(managerHistoryRepository.findCurrentDirectReportIds(hrAdminId)).thenReturn(List.of(emp1Id));
+        when(employeeRepository.findAllById(List.of(emp1Id))).thenReturn(List.of(emp1));
+        when(overtimeRequestRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(emp1Id), from, to))
+                .thenReturn(List.of(OvertimeRequest.builder()
+                        .employeeUserId(emp1Id).workDate(LocalDate.of(2026, 9, 10))
+                        .requestedStart(LocalDateTime.of(2026, 9, 10, 19, 0))
+                        .requestedEnd(LocalDateTime.of(2026, 9, 10, 20, 0))
+                        .status("PENDING").build()));
+
+        List<AttendanceRequestReportRow> rows = reportsService.getAttendanceRequestReportForDirectReports(
+                hrAdminEmail, ReportsService.ReportType.OVERTIME, from, to);
+
+        assertEquals(1, rows.size());
+        assertEquals(emp1Id, rows.get(0).getEmployeeUserId());
+        verify(employeeRepository, never()).findAllWithDetails();
+    }
+
+    @Test
+    void forDirectReports_isSuperAdminSafeToo() {
+        String superAdminEmail = "super.admin@test.com";
+        UUID superAdminId = UUID.randomUUID();
+        Employee superAdmin = Employee.builder().userId(superAdminId).fullName("Super Admin")
+                .user(User.builder().id(superAdminId).roles(new HashSet<>(Set.of(role("SUPER_ADMIN")))).build())
+                .build();
+        when(employeeRepository.findByUser_Email(superAdminEmail)).thenReturn(Optional.of(superAdmin));
+        when(managerHistoryRepository.findCurrentDirectReportIds(superAdminId)).thenReturn(List.of());
+
+        List<AttendanceRequestReportRow> rows = reportsService.getAttendanceRequestReportForDirectReports(
+                superAdminEmail, ReportsService.ReportType.REGULARIZATION, from, to);
+
+        assertTrue(rows.isEmpty());
+        verify(employeeRepository, never()).findAllWithDetails();
+    }
+
+    @Test
+    void forDirectReports_managerBehaviourIsUnchanged() {
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(emp1Id, emp2Id));
+        when(employeeRepository.findAllById(List.of(emp1Id, emp2Id))).thenReturn(List.of(emp1, emp2));
+        when(regularizationRequestRepository.findByEmployeeUserIdInAndAttendanceDateBetween(List.of(emp1Id, emp2Id), from, to))
+                .thenReturn(List.of());
+
+        reportsService.getAttendanceRequestReportForDirectReports(
+                managerEmail, ReportsService.ReportType.REGULARIZATION, from, to);
+
+        verify(regularizationRequestRepository).findByEmployeeUserIdInAndAttendanceDateBetween(List.of(emp1Id, emp2Id), from, to);
+    }
 }
