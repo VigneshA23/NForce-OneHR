@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.dto.doc.PolicyListItem;
 import com.nforce.onehr.dto.doc.PublishPolicyRequest;
 import com.nforce.onehr.dto.doc.PublishPolicyVersionRequest;
 import com.nforce.onehr.dto.doc.PolicyResponse;
@@ -390,5 +391,46 @@ class PolicyServiceTest {
         assertEquals(1, history.get(0).getVersionNumber());
         assertEquals(2, history.get(1).getVersionNumber());
         assertEquals(3, history.get(2).getVersionNumber());
+    }
+
+    // ── Policy list endpoints skip the attachment blob (perf) ──────────────────────────────
+
+    private static PolicyListItem listItem(Long id, String audience, boolean hasAttachment) {
+        return new PolicyListItem(id, "Policy " + id, "1.0", "desc", audience, true,
+                java.time.Instant.now(), null, true, 1, null, hasAttachment ? "file.pdf" : null);
+    }
+
+    @Test
+    void myPolicies_usesAttachmentFreeProjectionAndFiltersByAudienceAndAckStatus() {
+        String employeeEmail = "employee@test.com";
+        UUID employeeId = UUID.randomUUID();
+        User employeeUser = User.builder().id(employeeId).email(employeeEmail)
+                .roles(new HashSet<>(Set.of(role("EMPLOYEE")))).build();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+
+        when(policyRepo.findActiveListItems()).thenReturn(List.of(
+                listItem(1L, "ALL", true),
+                listItem(2L, "HR_ADMIN", false)));
+        when(ackRepo.findByEmployeeUserIdOrderByPolicy_PublishedAtDesc(employeeId)).thenReturn(List.of());
+
+        List<PolicyResponse> result = policyService.myPolicies(employeeEmail);
+
+        // Audience-restricted policy (HR_ADMIN-only) is filtered out for an EMPLOYEE.
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getId());
+        assertTrue(result.get(0).isHasAttachment());
+        // Never touches the blob-carrying repo methods.
+        verify(policyRepo, never()).findByActiveTrueOrderByPublishedAtDesc();
+    }
+
+    @Test
+    void listAll_usesAttachmentFreeProjection() {
+        when(policyRepo.findAllListItems()).thenReturn(List.of(listItem(3L, "ALL", false)));
+
+        List<PolicyResponse> result = policyService.listAll(ADMIN_EMAIL);
+
+        assertEquals(1, result.size());
+        assertFalse(result.get(0).isHasAttachment());
+        verify(policyRepo, never()).findAllByOrderByPublishedAtDesc();
     }
 }

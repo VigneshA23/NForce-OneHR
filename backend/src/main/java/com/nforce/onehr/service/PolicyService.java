@@ -45,8 +45,8 @@ public class PolicyService {
         Set<String> actorRoles = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
         UUID actorId = actor.getId();
 
-        List<Policy> active = policyRepo.findByActiveTrueOrderByPublishedAtDesc();
-        List<Policy> applicable = active.stream()
+        List<PolicyListItem> active = policyRepo.findActiveListItems();
+        List<PolicyListItem> applicable = active.stream()
                 .filter(p -> matchesAudience(p.getAudience(), actorRoles))
                 .collect(Collectors.toList());
 
@@ -83,8 +83,8 @@ public class PolicyService {
     @Transactional(readOnly = true)
     public List<PolicyResponse> listAll(String actorEmail) {
         requireAdminRole(actorEmail);
-        return policyRepo.findAllByOrderByPublishedAtDesc().stream()
-                .map(PolicyResponse::from)
+        return policyRepo.findAllListItems().stream()
+                .map(p -> PolicyResponse.from(p, null, null))
                 .collect(Collectors.toList());
     }
 
