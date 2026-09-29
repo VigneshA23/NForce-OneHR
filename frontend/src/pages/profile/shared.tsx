@@ -1,4 +1,5 @@
-import { X, Sparkles, Check } from 'lucide-react';
+import { useRef } from 'react';
+import { X, Sparkles, Check, Pencil, RotateCcw } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
 
 export const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
@@ -218,6 +219,85 @@ export function EditModal({ title, onClose, onSave, saving, saveDisabled, childr
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// My Profile page header background. `coverDataUrl` (an uploaded custom cover) always wins when
+// present; `themeBackground` is the existing theme-color banner CSS value (ProfilePage's
+// `heroBackground`) used as the fallback for every account that hasn't uploaded one — so a
+// profile with no custom cover renders pixel-identical to before this feature existed. Entirely
+// independent of the avatar: no shared state, no mutual exclusivity, unlike photoDataUrl/avatarUrl.
+// The pencil control mirrors the avatar's own edit button (same shape/placement idiom, `Camera`
+// swapped for `Pencil`) so it reads as part of the same page rather than a bolted-on control; the
+// small secondary "restore default" button only appears once a custom cover is actually set.
+export function ProfileCoverBanner({ coverDataUrl, themeBackground, editable, uploading, removing, onUpload, onRemove }: {
+  coverDataUrl: string | null;
+  themeBackground: string;
+  editable: boolean;
+  uploading: boolean;
+  removing: boolean;
+  onUpload: (file: File) => void;
+  onRemove: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const busy = uploading || removing;
+  // object-position: center keeps the natural crop centered regardless of the uploaded image's
+  // own aspect ratio — no stretching, matches `cover`'s usual behavior for a wide, short banner.
+  const background = coverDataUrl
+    ? `url(${coverDataUrl}) center center / cover no-repeat`
+    : themeBackground;
+
+  return (
+    <div style={{ position: 'relative', height: 'clamp(130px, 14vw, 160px)' }}>
+      <div style={{ position: 'absolute', inset: 0, background }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 85%, var(--panel) 100%)' }} />
+
+      {editable && (
+        <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 8 }}>
+          {coverDataUrl && (
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={busy}
+              aria-label="Remove custom cover and restore default"
+              title="Restore default cover"
+              style={{
+                width: 30, height: 30, borderRadius: '50%', background: 'rgba(20,20,22,.55)',
+                border: '1px solid rgba(255,255,255,.35)', backdropFilter: 'blur(2px)',
+                display: 'grid', placeItems: 'center', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? .6 : 1,
+              }}
+            >
+              <RotateCcw size={13} color="#fff" aria-hidden="true" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={busy}
+            aria-label={coverDataUrl ? 'Change cover image' : 'Add cover image'}
+            title={coverDataUrl ? 'Change cover image' : 'Add cover image'}
+            style={{
+              width: 30, height: 30, borderRadius: '50%', background: 'var(--brand)',
+              border: '1px solid rgba(255,255,255,.35)',
+              display: 'grid', placeItems: 'center', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? .6 : 1,
+            }}
+          >
+            <Pencil size={13} color="#fff" aria-hidden="true" />
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) onUpload(file);
+              e.target.value = '';
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

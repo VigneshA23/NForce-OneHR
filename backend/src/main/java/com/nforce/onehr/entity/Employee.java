@@ -183,6 +183,12 @@ public class Employee {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
+    // My Profile page header background — entirely independent of profilePhoto/avatarUrl above
+    // (the round avatar). Null means "no custom cover", in which case the page falls back to its
+    // existing theme-color banner image. See ProfileService.uploadCover/removeCover.
+    @Column(name = "profile_cover", columnDefinition = "BYTEA")
+    private byte[] profileCover;
+
     @Column(name = "created_by")
     private UUID createdBy;
 

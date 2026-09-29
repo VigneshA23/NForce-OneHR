@@ -7,6 +7,10 @@ export interface ProfileData {
   fullName: string;
   role: string;
   photoDataUrl: string | null;
+  // My Profile page header background — independent of photoDataUrl (the round avatar). Null
+  // means no custom cover has been uploaded, so the page falls back to its existing theme-color
+  // banner image.
+  coverDataUrl: string | null;
   phone: string | null;
   dateOfBirth: string | null;
   gender: string | null;
@@ -140,6 +144,22 @@ export const profileApi = {
 
   removePhoto: (token: string) =>
     fetch(`${BASE}/photo`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(handle<ProfileData>),
+
+  uploadCover: (token: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE}/cover`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    }).then(handle<ProfileData>);
+  },
+
+  removeCover: (token: string) =>
+    fetch(`${BASE}/cover`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     }).then(handle<ProfileData>),

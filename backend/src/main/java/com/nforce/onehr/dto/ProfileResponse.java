@@ -15,6 +15,10 @@ public class ProfileResponse {
     private String fullName;
     private String role;
     private String photoDataUrl;
+    // My Profile page header background — independent of photoDataUrl (the round avatar). Null
+    // means no custom cover has been uploaded, so the frontend falls back to the existing
+    // theme-color banner image.
+    private String coverDataUrl;
 
     // Self-service editable
     private String phone;

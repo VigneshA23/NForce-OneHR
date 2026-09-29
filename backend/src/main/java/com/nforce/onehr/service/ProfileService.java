@@ -191,6 +191,36 @@ public class ProfileService {
         return toResponse(user, emp);
     }
 
+    // Cover upload/remove — same validation and storage pattern as uploadPhoto/removePhoto above,
+    // but profileCover is a completely separate column: it never touches profilePhoto/avatarUrl,
+    // so the round avatar and the page header background stay fully independent of each other.
+    @Transactional
+    public ProfileResponse uploadCover(String email, MultipartFile file) throws IOException {
+        if (file.isEmpty()) throw new IllegalArgumentException("File is empty");
+        if (file.getSize() > MAX_PHOTO_BYTES)
+            throw new IllegalArgumentException("Cover image must be under 500 KB");
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/"))
+            throw new IllegalArgumentException("File must be an image");
+
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setProfileCover(file.getBytes());
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
+    @Transactional
+    public ProfileResponse removeCover(String email) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setProfileCover(null);
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
     private ProfileResponse toMinimalResponse(User user) {
         String role = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
         return ProfileResponse.builder()
@@ -228,6 +258,12 @@ public class ProfileService {
             photoDataUrl = emp.getAvatarUrl();
         }
 
+        String coverDataUrl = null;
+        if (emp.getProfileCover() != null && emp.getProfileCover().length > 0) {
+            coverDataUrl = "data:image/jpeg;base64,"
+                    + Base64.getEncoder().encodeToString(emp.getProfileCover());
+        }
+
         return ProfileResponse.builder()
                 .userId(user.getId())
                 .email(user.getEmail())
@@ -235,6 +271,7 @@ public class ProfileService {
                 .role(role)
                 .hasEmployeeRecord(true)
                 .photoDataUrl(photoDataUrl)
+                .coverDataUrl(coverDataUrl)
                 .phone(emp.getPhone())
                 .dateOfBirth(emp.getDateOfBirth())
                 .gender(emp.getGender())

@@ -57,4 +57,16 @@ public class ProfileController {
             Authentication auth) {
         return ResponseEntity.ok(profileService.setAvatar(auth.getName(), req));
     }
+
+    @PostMapping("/cover")
+    public ResponseEntity<ProfileResponse> uploadCover(
+            @RequestParam("file") MultipartFile file,
+            Authentication auth) throws IOException {
+        return ResponseEntity.ok(profileService.uploadCover(auth.getName(), file));
+    }
+
+    @DeleteMapping("/cover")
+    public ResponseEntity<ProfileResponse> removeCover(Authentication auth) {
+        return ResponseEntity.ok(profileService.removeCover(auth.getName()));
+    }
 }

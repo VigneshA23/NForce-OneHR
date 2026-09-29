@@ -204,7 +204,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
   }
 
   return (
-    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', alignSelf: 'flex-start' }}>
       {openWeb && (
         <>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>

@@ -40,6 +40,16 @@ function loadVariant(token: string): Promise<HeroIllustrationVariant> {
   return cached.promise;
 }
 
+// Called by ProfilePage right after a successful save — without this, editing Gender and
+// navigating back to the dashboard would keep showing the OLD variant (same token, so
+// loadVariant's cache above would just return its already-resolved promise) until a full page
+// reload reset this module's state. Dropping the cache here means the next HeroIllustration
+// mount (which happens anyway on navigating back — React Router unmounts/remounts the page) does
+// a fresh /api/profile read, so the Hero reflects the new gender with no refresh needed.
+export function invalidateHeroVariantCache(): void {
+  cached = null;
+}
+
 // The exact uploaded employee image. It's drawn at its OWN aspect ratio (full hero height,
 // width auto), anchored to the card's right edge — never cover-cropped to the flex box's shape.
 // Cropping was what produced the visible vertical seam: on narrower cards the image's dark
@@ -239,6 +249,11 @@ export function HeroIllustrationArt({
   if (variant === 'female' || variant === 'male') {
     return <PersonPhoto variant={variant} shiftLabel={shiftLabel} />;
   }
+  // null = the profile read is still in flight. Rendering FallbackScene here (as if gender were
+  // genuinely unresolvable) is what caused the "fallback flashes first, then swaps to the real
+  // photo" symptom on sign-in — nothing renders until the variant is actually known, so anyone
+  // with a set gender goes straight to their photo with no wrong-scene flash in between.
+  if (variant === null) return null;
   return <FallbackScene shiftLabel={shiftLabel} />;
 }
 
