@@ -1253,6 +1253,65 @@ input[type="date"] {
   .nf-hero-keepgoing { display: none !important; }
 }
 
+/* Attendance hero — gender-aware illustration panel on the right (HeroIllustration.tsx).
+   Hidden on phones, where the banner's text/actions need the full width. */
+.nf-hero-illus {
+  flex-shrink: 0;
+  align-self: center;
+  width: clamp(220px, 24vw, 320px);
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 12px 32px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.08);
+}
+/* Photo variants (uploaded employee image) — a wide right-side scene rather than a small boxed
+   card. The box reserves space in the row and stretches to its height (plain CSS, no JS
+   measuring); the image itself is absolutely positioned at its natural aspect, right-anchored,
+   and may extend left past the box into the text column's dark area (HeroIllustration.tsx
+   explains why it isn't cover-cropped). z-index:-1 inside the isolated card keeps it above the
+   card's own background but beneath the greeting/buttons, so it can never cover them.
+   The negative margin bleeds it through the card's padding (28px 32px, see HeroCard in
+   AttendanceHeroBanner.tsx / the mock's matching wrapper) to the card's real top/right/bottom
+   edges; the card's `overflow: hidden` + radius clips it. The fallback SVG keeps the boxed card. */
+:has(> .nf-hero-illus) { isolation: isolate; }
+.nf-hero-illus[data-variant="male"],
+.nf-hero-illus[data-variant="female"] {
+  position: relative;
+  z-index: -1;
+  align-self: stretch;
+  width: clamp(360px, 52%, 660px);
+  aspect-ratio: auto;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+  pointer-events: none;
+  margin: -28px -32px -28px 0;
+}
+/* Broadens the dark→artwork transition beyond the image's own lead-in fade (which can't go wider
+   without fading the calendar card): a soft wash of the existing --brand-deep token that starts
+   260px left of the image and reaches full strength under its opaque part. The artwork's own
+   backdrop follows the same accent (HeroIllustration.tsx), so dark → accent wash → accent artwork
+   is one continuous ramp for every Theme color. Smootherstep stops, no visible start or end. */
+.nf-hero-illus[data-variant="male"]::before,
+.nf-hero-illus[data-variant="female"]::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: -260px;
+  width: calc(260px + 20%);
+  background: linear-gradient(to right, transparent 0%, color-mix(in srgb, var(--brand-deep) 0.9%, transparent) 12.5%, color-mix(in srgb, var(--brand-deep) 5.7%, transparent) 25%, color-mix(in srgb, var(--brand-deep) 15.1%, transparent) 37.5%, color-mix(in srgb, var(--brand-deep) 27.5%, transparent) 50%, color-mix(in srgb, var(--brand-deep) 39.9%, transparent) 62.5%, color-mix(in srgb, var(--brand-deep) 49.3%, transparent) 75%, color-mix(in srgb, var(--brand-deep) 54.1%, transparent) 87.5%, color-mix(in srgb, var(--brand-deep) 55%, transparent) 100%);
+}
+/* Same row height as before the image went absolute (its aspect used to size the row). */
+.nf-hero-illus[data-variant="female"] { aspect-ratio: 935 / 308; }
+.nf-hero-illus[data-variant="male"] { aspect-ratio: 874 / 277; }
+@keyframes nf-hero-illus-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.nf-hero-illus-fig { animation: nf-hero-illus-in 420ms cubic-bezier(.22,.61,.36,1) both; }
+@media (max-width: 767px) {
+  .nf-hero-illus { display: none !important; }
+}
+
 /* Today hero — subtle "workflow" filler beside the (now compact) Working Progress bar, so the
    leftover row space reads as an intentional detail instead of dead air. Hidden once the row is
    narrow enough that it would otherwise get squeezed against its neighbors. */
