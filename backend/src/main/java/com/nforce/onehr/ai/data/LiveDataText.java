@@ -91,4 +91,23 @@ final class LiveDataText {
         if (from == null || to == null || to.isBefore(from)) return 0;
         return Duration.between(from, to).toMinutes();
     }
+
+    /**
+     * The highest- or lowest-scoring row(s) in a ranked list, spelled out as a ready-to-quote fact
+     * - including every genuine tie, never an arbitrarily chosen "first" one. Computed here so a
+     * ranking question ("who was on time the most") is answered from a fact this code already
+     * worked out, not from the model re-deriving it by eye over a list and risking a miscount or a
+     * dropped tie (ONEHR - the My Team AI capability's own tie-handling requirement).
+     */
+    static <T> String bestOf(List<T> rows, java.util.function.ToDoubleFunction<T> score, boolean highest, Function<T, String> name) {
+        if (rows.isEmpty()) return "no direct reports with data in this period";
+        double best = highest
+                ? rows.stream().mapToDouble(score).max().orElseThrow()
+                : rows.stream().mapToDouble(score).min().orElseThrow();
+        List<String> tied = rows.stream()
+                .filter(r -> Double.compare(score.applyAsDouble(r), best) == 0)
+                .map(name)
+                .toList();
+        return tied.size() == 1 ? tied.get(0) : String.join(" and ", tied) + " (tied)";
+    }
 }

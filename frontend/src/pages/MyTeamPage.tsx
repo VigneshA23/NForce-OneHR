@@ -533,8 +533,8 @@ function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React
 }
 
 /* ── Calendar day-cell classification ── */
-type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing';
-const DAY_COLORS: Record<Exclude<DayCategory, 'plain'>, string> = {
+type DayCategory = 'holiday' | 'weekly-off' | 'leave' | 'wfh' | 'plain' | 'missing' | 'not-joined';
+const DAY_COLORS: Record<Exclude<DayCategory, 'plain' | 'not-joined'>, string> = {
   holiday: '#2FA36B',
   'weekly-off': '#D4922E',
   leave: '#818CF8',
@@ -1852,7 +1852,14 @@ function cardIsAvailable(c: ReportCardDef): boolean {
 
 function ReportsTab({ token }: { token: string }) {
   const { showToast } = useToast();
-  const [category, setCategory] = useState('Attendance Request Reports');
+  // ?category=… opens straight into a specific report library (ONEHR - My Team AI access), the
+  // same deep-link pattern MyTeamPage's own ?tab= already uses — falls back to the original
+  // default when absent or unrecognised, so an ordinary /my-team?tab=reports visit is unaffected.
+  const [searchParams] = useSearchParams();
+  const [category, setCategory] = useState(() => {
+    const fromParam = searchParams.get('category');
+    return fromParam && REPORT_CATEGORIES.includes(fromParam) ? fromParam : 'Attendance Request Reports';
+  });
   const [search, setSearch] = useState('');
   const [runningCard, setRunningCard] = useState<ReportCardDef | null>(null);
 
@@ -2325,8 +2332,8 @@ function PeersView({ token }: { token: string }) {
                         <div style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: (category === 'plain' || category === 'not-joined') ? 'transparent' : DAY_COLORS[category],
+                          color: (category === 'plain' || category === 'not-joined') ? 'var(--txt-dim)' : '#fff',
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
                           {d}
@@ -2412,15 +2419,17 @@ function PeersView({ token }: { token: string }) {
 }
 
 /* ══ Regularize & Cancel Penalties ══ */
-const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED'];
+const PENALTY_STATUS_OPTIONS: AttendancePenaltyStatus[] = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'REVERSED', 'NOT_PENALIZED'];
 const PENALTY_STATUS_LABEL: Record<AttendancePenaltyStatus, string> = {
   PENDING_REVIEW: 'Pending Review', APPLIED: 'Applied', CANCELLED: 'Cancelled', REVERSED: 'Reversed',
+  NOT_PENALIZED: 'Not Penalized',
 };
 const PENALTY_STATUS_STYLE: Record<AttendancePenaltyStatus, { bg: string; fg: string }> = {
   PENDING_REVIEW: { bg: 'rgba(224,169,59,.16)', fg: 'var(--warn)' },
   APPLIED: { bg: 'rgba(228,55,61,.15)', fg: 'var(--risk)' },
   CANCELLED: { bg: 'var(--raised2)', fg: 'var(--txt-dim)' },
   REVERSED: { bg: 'rgba(76,141,214,.16)', fg: 'var(--info)' },
+  NOT_PENALIZED: { bg: 'var(--raised2)', fg: 'var(--txt-mut)' },
 };
 
 function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
@@ -2433,8 +2442,8 @@ function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
   );
 }
 
-// Approved discrepancy/anomaly identifiers (ExceptionType constants) — not every one has a
-// detector wired up yet, but all six are valid values a future policy engine may produce.
+// Discrepancy identifiers (ExceptionType constants). Late Arrival, Early Departure and Missing
+// Punch rows also appear un-penalized (status NOT_PENALIZED) — see AttendancePenaltyService#list.
 const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH'];
 const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
   NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
@@ -2582,7 +2591,7 @@ function PenaltiesTab({ token }: { token: string }) {
     <div style={panelStyle}>
       <div style={panelHeadStyle}>
         <span style={panelTitleStyle}>Regularize &amp; Cancel Penalties</span>
-        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'penalty' : 'penalties'}</span>
+        <span style={panelCountStyle}>{rows.length} {rows.length === 1 ? 'record' : 'records'}</span>
       </div>
 
       <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -2660,7 +2669,7 @@ function PenaltiesTab({ token }: { token: string }) {
             {loading ? (
               <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties found for the selected filters.</td></tr>
+              <tr><td colSpan={9} style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance penalties or incidents found for the selected filters.</td></tr>
             ) : rows.map(r => (
               <tr key={r.id}>
                 <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
@@ -2992,7 +3001,8 @@ export default function MyTeamPage() {
   }, [monthAttendance]);
   const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
 
-  function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
+  function classifyDay(iso: string, dow: number, employeeUserId: string, joiningDate?: string | null): DayCategory {
+    if (joiningDate && iso < joiningDate) return 'not-joined';
     if (holidaySet.has(iso)) return 'holiday';
     if (dow === 0 || dow === 6) return 'weekly-off';
     const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
@@ -3225,18 +3235,19 @@ export default function MyTeamPage() {
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
                     const iso = toISODate(year, month, d);
                     const dow = new Date(year, month, d).getDay();
-                    const category = classifyDay(iso, dow, dr.userId);
+                    const category = classifyDay(iso, dow, dr.userId, dr.joiningDate);
                     const isToday = iso === today;
                     return (
                       <td key={d} style={{ padding: 3, textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
-                        <div style={{
+                        <div title={category === 'not-joined' ? 'Not yet joined' : undefined} style={{
                           width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
                           fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          background: category === 'plain' || category === 'not-joined' ? 'transparent' : DAY_COLORS[category],
+                          color: category === 'not-joined' ? 'var(--txt-dim)' : category === 'plain' ? 'var(--txt-dim)' : '#fff',
+                          opacity: category === 'not-joined' ? 0.35 : 1,
                           boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
                         }}>
-                          {d}
+                          {category === 'not-joined' ? '' : d}
                         </div>
                       </td>
                     );

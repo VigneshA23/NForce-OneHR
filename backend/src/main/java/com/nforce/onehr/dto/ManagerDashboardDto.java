@@ -19,6 +19,8 @@ public class ManagerDashboardDto {
         private String designationName;
         private String departmentName;
         private boolean active;
+        /** ISO date (yyyy-MM-dd) — Employee.joiningDate. Used to hide the employee from calendar days before they joined. */
+        private String joiningDate;
         /** Only populated on the HR (organization-wide) dashboard — null for the Manager view. */
         private String roleCode;
     }

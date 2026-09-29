@@ -5,16 +5,22 @@ import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.ManagerDashboardDto;
+import com.nforce.onehr.dto.asset.AssetAssignmentResponse;
+import com.nforce.onehr.dto.asset.AssetRequestResponse;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
+import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
+import com.nforce.onehr.service.AssetService;
 import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.EmployeeService;
+import com.nforce.onehr.service.ExpenseService;
 import com.nforce.onehr.service.LeaveService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,19 +31,26 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
- * A manager's direct reports - who they are, their attendance, their leave and their penalties -
- * exactly as the Manager Home, My Team, Team Attendance and Team Leave pages show them.
+ * Everything about a caller's own direct reports that they can already see manually - who they are,
+ * their attendance, leave, penalties, expense claims and assets - exactly as the Manager Home, My
+ * Team, Team Attendance, Team Leave and the Assets &amp; Expenses "Team" tab show them.
  *
- * <p>Every read here resolves the team from the actor (current direct reports only), so nothing in
- * this class decides who is on whose team. Manager audience only: HR Admins and Super Admins mean
- * "everyone" when they ask these questions, which {@code OrganisationDataProviders} answers, while
- * these same service methods would hand them only their own direct reports.
+ * <p>Every read here resolves the team from the actor's own reporting line (current direct reports
+ * only, via {@code EmployeeManagerHistory}), never from a role, so nothing in this class decides who
+ * is on whose team. That is also why the audience is Manager, HR Admin <em>and</em> Super Admin: an
+ * HR Admin or Super Admin can be somebody's reporting manager too, exactly like a plain Manager, and
+ * a "who are my direct reports" question deserves their real reports here, not "everyone" - that
+ * organisation-wide reading is a separate question {@code OrganisationDataProviders} answers.
  */
 public final class TeamDataProviders {
 
     private TeamDataProviders() {}
 
     private static final int MAX_NAMES = 25;
+
+    /** Manager, HR Admin and Super Admin: whoever has direct reports at all. Never Employee. */
+    private static final Set<AudienceBucket> TEAM_AUDIENCES =
+            Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
 
     /** Direct reports and recent team joiners - the Manager Home "My team" card. */
     @Component
@@ -52,7 +65,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team.members"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.MANAGER); }
+        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
         @Override public Set<String> modules() { return Set.of("team", "people"); }
 
         @Override
@@ -100,7 +113,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-attendance.today"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' attendance today and this past week"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.MANAGER); }
+        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
         @Override public Set<String> modules() { return Set.of("team-attendance", "team", "attendance"); }
 
         @Override
@@ -145,7 +158,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-leave.upcoming"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' approved leave, today and the next 14 days"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.MANAGER); }
+        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
         @Override public Set<String> modules() { return Set.of("team-leave", "team", "leave"); }
 
         @Override
@@ -159,12 +172,17 @@ public final class TeamDataProviders {
     /**
      * Active (PENDING_REVIEW) attendance penalties for the caller's direct reports - the Regularize
      * &amp; Cancel Penalties screen's manager view, through the same read.
+     *
+     * <p>Reads {@link AttendancePenaltyService#listForDirectReports}, never {@code #list} -
+     * {@code #list} widens to the whole organisation for an HR Admin or Super Admin, which would be
+     * mislabelled "team" here; {@code OrganisationDataProviders.OrgPenalties} answers that question.
      */
     @Component
     @RequiredArgsConstructor
     public static class TeamPenalties implements AssistantDataProvider {
 
         private static final int LOOKBACK_DAYS = 90;
+        private static final String PENDING_REVIEW = "PENDING_REVIEW";
 
         private final AttendancePenaltyService attendancePenaltyService;
         private final AttendanceRulesService attendanceRulesService;
@@ -172,20 +190,107 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-penalties.active"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Active attendance penalties across your direct reports"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.MANAGER); }
+        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
         @Override public Set<String> modules() { return Set.of("team-penalties", "team", "penalties"); }
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
-            // The service widens to the whole organisation for an HR Admin or Super Admin, which
-            // would be mislabelled "team" here; OrganisationDataProviders.OrgPenalties covers them.
-            if (context.getAudiences().contains(AudienceBucket.HR) || context.getAudiences().contains(AudienceBucket.ADMIN)) {
-                return Optional.empty();
-            }
             LocalDate today = LocalDate.now(attendanceRulesService.getDefaultZoneId());
-            List<AttendancePenaltyResponse> active = activePenalties(attendancePenaltyService, context.getActorEmail(),
-                    today.minusDays(LOOKBACK_DAYS - 1), today);
-            return Optional.of(penaltySummary(active, today.minusDays(LOOKBACK_DAYS - 1), today, "your direct reports"));
+            LocalDate from = today.minusDays(LOOKBACK_DAYS - 1);
+            List<AttendancePenaltyResponse> all = attendancePenaltyService.listForDirectReports(context.getActorEmail(), from, today);
+            List<AttendancePenaltyResponse> active = all == null ? List.of()
+                    : all.stream().filter(p -> PENDING_REVIEW.equals(p.getStatus())).toList();
+            return Optional.of(penaltySummary(active, from, today, "your direct reports"));
+        }
+    }
+
+    /**
+     * Expense claims raised by the caller's direct reports, across their full lifecycle - the
+     * Assets &amp; Expenses page's "Team" tab, through the same read.
+     */
+    @Component
+    @RequiredArgsConstructor
+    public static class TeamExpenseClaims implements AssistantDataProvider {
+
+        private final ExpenseService expenseService;
+
+        @Override public String id() { return "team-expenses.claims"; }
+        @Override public DataScope scope() { return DataScope.TEAM; }
+        @Override public String title() { return "Your direct reports' expense claims"; }
+        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> modules() { return Set.of("team-expenses", "team", "assets"); }
+
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context) {
+            // Already newest-first (findByEmployeeUserIdInOrderByCreatedAtDesc) - see allTeamClaims.
+            List<ExpenseClaimResponse> claims = expenseService.allTeamClaims(context.getActorEmail());
+            if (claims == null || claims.isEmpty()) return Optional.empty();
+
+            return Optional.of(LiveDataText.cappedList(claims, MAX_NAMES,
+                    "expense claim(s) raised by your direct reports", "most recent",
+                    c -> "%s: %s, %s on %s: %s".formatted(
+                            c.getEmployeeName(), c.getCategoryName(), c.getAmount(), c.getExpenseDate(), c.getStatus())));
+        }
+    }
+
+    /**
+     * Asset requests raised by the caller's direct reports, across their full lifecycle - the
+     * Assets &amp; Expenses page's "Team" tab, through the same read.
+     */
+    @Component
+    @RequiredArgsConstructor
+    public static class TeamAssetRequests implements AssistantDataProvider {
+
+        private final AssetService assetService;
+
+        @Override public String id() { return "team-assets.requests"; }
+        @Override public DataScope scope() { return DataScope.TEAM; }
+        @Override public String title() { return "Your direct reports' asset requests"; }
+        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> modules() { return Set.of("team-assets", "team", "assets"); }
+
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context) {
+            // teamRequests makes no ordering guarantee, unlike allTeamClaims - sorted here so
+            // "most recent" in the header below is actually true.
+            List<AssetRequestResponse> requests = assetService.teamRequests(context.getActorEmail());
+            if (requests == null || requests.isEmpty()) return Optional.empty();
+            List<AssetRequestResponse> sorted = requests.stream()
+                    .sorted(Comparator.comparing(AssetRequestResponse::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                    .toList();
+
+            return Optional.of(LiveDataText.cappedList(sorted, MAX_NAMES,
+                    "asset request(s) raised by your direct reports", "most recent",
+                    r -> "%s: %s - %s".formatted(r.getEmployeeName(), r.getCategoryName(), r.getStatus())));
+        }
+    }
+
+    /** Assets currently assigned to the caller's direct reports - the Assets &amp; Expenses "Team" tab. */
+    @Component
+    @RequiredArgsConstructor
+    public static class TeamAssetAssignments implements AssistantDataProvider {
+
+        private final AssetService assetService;
+        private final AttendanceRulesService attendanceRulesService;
+
+        @Override public String id() { return "team-assets.assignments"; }
+        @Override public DataScope scope() { return DataScope.TEAM; }
+        @Override public String title() { return "Company assets currently assigned to your direct reports"; }
+        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> modules() { return Set.of("team-assets", "team", "assets"); }
+
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context) {
+            // Already current-only (findByEmployeeUserIdInAndEffectiveToIsNull) - see teamAssignments.
+            List<AssetAssignmentResponse> current = assetService.teamAssignments(context.getActorEmail());
+            if (current == null || current.isEmpty()) return Optional.of("No company assets are currently assigned to your direct reports.");
+
+            ZoneId zone = attendanceRulesService.getDefaultZoneId();
+            return Optional.of(LiveDataText.cappedList(current, MAX_NAMES,
+                    "asset(s) currently assigned across your direct reports", "first",
+                    a -> "%s: %s (%s), assigned since %s, condition %s".formatted(a.getEmployeeName(), a.getAssetTag(),
+                            a.getCategoryName(), LiveDataText.date(a.getEffectiveFrom(), zone),
+                            a.getCondition() == null ? "not recorded" : a.getCondition())));
         }
     }
 
@@ -235,7 +340,7 @@ public final class TeamDataProviders {
         if (rows.isEmpty()) {
             out.append("\nApproved leave in the next %d days, today included (%s to %s): none.".formatted(windowDays, today, to));
         } else {
-            // Framed like MyExceptions' header: the window and its exact size stated up front, so a
+            // Framed like MyHistory's headers: the window and its exact size stated up front, so a
             // "next two weeks" answer that drops the leave already in progress today visibly
             // contradicts the data instead of quietly reading "next" as "starting later".
             out.append("\nApproved leave in the next %d days, today included (%s to %s): exactly %d request(s), every one of "

@@ -52,6 +52,31 @@ knowledge:
       These are the same work details shown on My Profile. They are maintained by HR, so if one is
       wrong the fix is to ask HR rather than to edit it yourself.
 
+  - knowledgeId: data.people.named-lookup
+    type: FAQ
+    module: people
+    pageId: directory
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Asking about a specific person by name
+    synonyms:
+      - tell me about Alex
+      - tell me about myself
+      - who is Sam
+      - who am I
+      - what is Priya's designation
+      - which department is Rahul in
+      - give me Jordan's employee code
+      - give me my own details
+      - tell me about Praveen
+    body: |
+      "Tell me about <name>", "who is <name>" or "show details for <name>" is resolved against the
+      People Directory. When the name - or a shortened form of it, like "Praveen G." - is the
+      signed-in user's own, the answer is their own details. When several people share the name,
+      the assistant asks which one is meant, naming each with their department and designation.
+      For anyone else, only what the People Directory shows every employee is shared: name,
+      employee code, designation, department and reporting manager.
+
   - knowledgeId: data.self.attendance-today
     type: FAQ
     module: attendance-today
@@ -100,8 +125,9 @@ knowledge:
       - which days did I work
     body: |
       The assistant can read your attendance log for the last 30 days - the same rows My Attendance
-      shows: each day's status, first check-in, last check-out, hours worked, lateness and whether
-      the day is tagged PENALIZED - plus totals and averages across the period.
+      shows: each day's status, first check-in, last check-out, hours worked and lateness - plus
+      totals and averages across the period, every attendance exception in it, and which of those
+      exceptions carry an active penalty (shown as PENALIZED on My Attendance).
 
       A date with no row has no attendance record at all: a weekly off, a holiday, a leave day, or a
       day not worked.
@@ -353,14 +379,15 @@ knowledge:
       Center. A Manager's queue holds their direct reports' requests; an HR Admin's or Super Admin's
       holds the whole organisation's.
 
-  # ---------------------------------------------------------------- a manager's team
+  # ---------------------------------------------------------------- a caller's own direct reports
+  # (Manager, HR Admin or Super Admin - whoever the reporting line makes a manager, not a role name)
 
   - knowledgeId: data.team.members
     type: FAQ
     module: team
     pageId: my-team
     version: 1
-    audience: [MANAGER]
+    audience: [MANAGER, HR, ADMIN]
     title: Your direct reports and recent team joiners
     synonyms:
       - who reports to me
@@ -371,16 +398,19 @@ knowledge:
       - who joined my team recently
       - new joiners in my team
     body: |
-      A manager can ask for their current direct reports - name, employee code, designation,
-      department and whether the account is active - and who joined their team recently. These are
-      the same people as the Manager Home and My Team.
+      Anyone who is somebody's reporting manager - a Manager, an HR Admin or a Super Admin alike -
+      can ask for their own current direct reports - name, employee code, designation, department
+      and whether the account is active - and who joined their team recently. These are the same
+      people as the Manager Home and My Team, restricted to that caller's own reports; an HR Admin
+      or Super Admin asking about the whole organisation is a different question, answered from the
+      organisation-wide figures instead.
 
   - knowledgeId: data.team.attendance
     type: FAQ
     module: team-attendance
     pageId: attendance
     version: 1
-    audience: [MANAGER]
+    audience: [MANAGER, HR, ADMIN]
     title: Your team's attendance today and late arrivals this week
     synonyms:
       - who in my team is late today
@@ -391,10 +421,10 @@ knowledge:
       - who came late in my team this week
       - team late arrivals
     body: |
-      A manager can ask how many of their direct reports have checked in today and who they are,
-      who is late, who is on approved leave, who has not checked in yet, and who arrived late over
-      the past week. Present is counted exactly as the Manager Home's Present Today tile counts it:
-      anyone with a check-in today.
+      Whoever is somebody's reporting manager can ask how many of their own direct reports have
+      checked in today and who they are, who is late, who is on approved leave, who has not checked
+      in yet, and who arrived late over the past week. Present is counted exactly as the Manager
+      Home's Present Today tile counts it: anyone with a check-in today.
 
       Not checked in yet is not the same as absent - it includes people on a weekly off or holiday
       and people whose shift has not started.
@@ -404,7 +434,7 @@ knowledge:
     module: team-leave
     pageId: leave
     version: 1
-    audience: [MANAGER]
+    audience: [MANAGER, HR, ADMIN]
     title: Your team's approved leave today and over the next two weeks
     synonyms:
       - who in my team is on leave today
@@ -413,16 +443,16 @@ knowledge:
       - upcoming leave in my team
       - my team's leave calendar
     body: |
-      A manager can ask which direct reports are on approved leave today and which approved leave
-      falls in the next two weeks. Leave still awaiting a decision is not counted here - it is in
-      the Approval Center.
+      Whoever is somebody's reporting manager can ask which of their own direct reports are on
+      approved leave today and which approved leave falls in the next two weeks. Leave still
+      awaiting a decision is not counted here - it is in the Approval Center.
 
   - knowledgeId: data.team.penalties
     type: FAQ
     module: team-penalties
-    pageId: attendance
+    pageId: my-team-penalties
     version: 1
-    audience: [MANAGER]
+    audience: [MANAGER, HR, ADMIN]
     title: Active attendance penalties across your team
     synonyms:
       - which of my team members were penalized
@@ -430,9 +460,170 @@ knowledge:
       - team attendance penalties
       - who in my team has a pending penalty
     body: |
-      A manager can ask which of their direct reports have an active (PENDING_REVIEW) attendance
-      penalty, on which date, for which discrepancy and how much was deducted. A manager can cancel
-      a still-pending penalty from the Regularize & Cancel Penalties screen.
+      Whoever is somebody's reporting manager can ask which of their own direct reports have an
+      active attendance penalty, on which date, for which discrepancy and how much was deducted -
+      restricted to that caller's own reports, never the whole organisation, whatever their role.
+      A Manager, HR Admin or Super Admin can cancel a still-pending penalty from the Regularize &
+      Cancel Penalties screen.
+
+  - knowledgeId: data.team.expenses
+    type: FAQ
+    module: team-expenses
+    pageId: assets
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Your team's expense claims, across their full lifecycle
+    synonyms:
+      - my team's expense claims
+      - which of my team's expenses are approved
+      - team expense claims
+      - who in my team raised an expense claim
+      - expense claims raised by my direct reports
+    body: |
+      Whoever is somebody's reporting manager can ask about the expense claims their own direct
+      reports have raised, at any stage - submitted, manager-approved, rejected or paid - the same
+      claims the Assets & Expenses page's Team tab lists, restricted to that caller's own reports.
+
+  - knowledgeId: data.team.assets
+    type: FAQ
+    module: team-assets
+    pageId: assets
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Your team's asset requests and currently-assigned assets
+    synonyms:
+      - my team's asset requests
+      - what assets are assigned to my team
+      - who in my team has a laptop
+      - team asset requests
+      - which of my team's asset requests are pending
+    body: |
+      Whoever is somebody's reporting manager can ask about the asset requests their own direct
+      reports have raised, at any stage, and which company assets are currently assigned to them -
+      tag, category, condition and since when - the same information the Assets & Expenses page's
+      Team tab shows, restricted to that caller's own reports.
+
+  - knowledgeId: data.my-team.effort
+    type: FAQ
+    module: my-team-effort
+    pageId: my-team-efforts
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Your team's work-hours and on-time (punctuality) leaderboards
+    synonyms:
+      - who worked the most hours
+      - who worked the least hours
+      - who has the highest average work hours
+      - what are my team's average working hours
+      - who is working fewer hours than expected
+      - show my team's effort
+      - who was on time the most
+      - who is the most punctual
+      - who has the highest punctuality percentage
+      - who has the lowest punctuality
+      - who had the best on-time record
+    body: |
+      Whoever is somebody's reporting manager can ask about their own direct reports' Avg. Work
+      Hours Leaderboard and On-Time Leaderboard together - the same two leaderboards the My Team
+      Efforts tab shows on one screen, restricted to that caller's own reports. "On time" means
+      attendance status PRESENT, exactly as the leaderboard itself defines it - not a separate
+      calculation. Ranking questions ("who worked the most/least", "who was on time the most") are
+      answered from the ranking OneHR already computed, including every employee tied for first or
+      last, never a single arbitrarily-picked name.
+
+      A date range said in the question - today, yesterday, this week, the last N days, this
+      month, last month, this quarter, or an explicit range - is used if OneHR can resolve it
+      unambiguously; otherwise this defaults to the trailing 7 days ending today, the same window
+      the Efforts tab itself opens on.
+
+  - knowledgeId: data.my-team.negligence
+    type: FAQ
+    module: my-team-negligence
+    pageId: my-team-negligence
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Your team's late arrivals, least hours worked and frequent breaks
+    synonyms:
+      - who was late the most
+      - who had the most late arrivals
+      - who has the highest late percentage
+      - who has the lowest number of late arrivals
+      - who worked the least hours
+      - which employees worked below expected hours
+      - who takes the most breaks
+      - who has the most break time
+      - who has the highest average breaks per day
+      - which employees have frequent breaks
+    body: |
+      Whoever is somebody's reporting manager can ask about their own direct reports' late
+      arrivals, least hours worked and frequent breaks - the three panels the My Team Negligence
+      tab shows, restricted to that caller's own reports. An employee with zero flagged breaks in
+      the period is not listed under Frequent Breaks at all, never shown as zero. Ranking questions
+      are answered from the ranking OneHR already computed, including every tie.
+
+      Same date-range handling as the Efforts leaderboards: a period named in the question if it
+      can be resolved unambiguously, otherwise the trailing 7 days ending today.
+
+  - knowledgeId: data.my-team.assignments
+    type: FAQ
+    module: my-team-assignments
+    pageId: my-team-assignments
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Your team's shift, weekly-off and penalisation-policy assignments
+    synonyms:
+      - what shift does an employee have
+      - what shifts are assigned to my team
+      - who is on the morning shift
+      - who has a night shift
+      - what is an employee's weekly off policy
+      - which team members have a scheduled future shift change
+      - what penalisation policy is assigned
+    body: |
+      Whoever is somebody's reporting manager can ask which shift, weekly-off policy and
+      penalisation policy each of their own direct reports currently has, and whether a future
+      shift change is already scheduled for them - the same information the Employee Assignments
+      tab shows, restricted to that caller's own reports. This has no date range; it is always the
+      currently-effective assignment.
+
+  - knowledgeId: data.my-team.requests
+    type: FAQ
+    module: my-team-requests
+    pageId: my-team-reports-requests
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Your team's regularization, overtime, partial day, web clock-in and WFH requests
+    synonyms:
+      - who has pending attendance issues
+      - regularization requests for my team
+      - overtime requests for my team
+      - partial day requests for my team
+      - WFH requests for my team
+      - web clock-in requests for my team
+      - attendance request reports
+    body: |
+      Whoever is somebody's reporting manager can ask about their own direct reports'
+      regularization, overtime, partial day, web clock-in and WFH requests, across every status -
+      the same five report types the Attendance Request Reports library shows, restricted to that
+      caller's own reports. Defaults to the trailing 30 days ending today unless the question names
+      a period OneHR can resolve unambiguously.
+
+  - knowledgeId: data.my-team.overview
+    type: FAQ
+    module: my-team-overview
+    pageId: my-team
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Who on your team is working from home today, and their current leave balances
+    synonyms:
+      - who is working from home today
+      - who is WFH today
+      - team leave balances
+      - how much leave does my team have left
+    body: |
+      Whoever is somebody's reporting manager can ask which of their own direct reports are
+      approved to work from home today, and each direct report's current-year leave balance by
+      leave type - restricted to that caller's own reports.
 
   # ---------------------------------------------------------------- organisation (HR / Super Admin)
 
@@ -538,7 +729,7 @@ knowledge:
       - penalties across the company
       - pending penalty review
     body: |
-      HR Admins and Super Admins can ask how many active (PENDING_REVIEW) attendance penalties exist
+      HR Admins and Super Admins can ask how many active attendance penalties exist
       across the organisation over the last 30 days, by discrepancy type and by person - the same
       list as the Regularize & Cancel Penalties screen.
 

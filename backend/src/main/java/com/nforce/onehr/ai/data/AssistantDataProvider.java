@@ -94,4 +94,29 @@ public interface AssistantDataProvider {
      * @param context the caller, resolved from the authenticated principal
      */
     Optional<String> fetch(AssistantRequestContext context);
+
+    /**
+     * As {@link #fetch(AssistantRequestContext)}, for the rare provider whose data genuinely
+     * depends on a date range the user named in the question itself ("this week", "last 30
+     * days") rather than one fixed window. The question is not a second authorisation channel -
+     * every provider is still gated by {@link #audiences()} and, for {@link DataScope#TEAM},
+     * scoped to the caller's direct reports exactly as {@link #fetch(AssistantRequestContext)}
+     * would be - it only ever adjusts which dates are read, through the same deterministic
+     * business-date arithmetic every other date in this system uses ({@code MyTeamDateRange}),
+     * never through anything the model decided. Providers that have no notion of a variable range
+     * do not override this; the default simply ignores the question.
+     */
+    default Optional<String> fetch(AssistantRequestContext context, String question) {
+        return fetch(context);
+    }
+
+    /**
+     * True for the rare provider that decides from the question itself whether it has anything to
+     * say - {@code PeopleDataProviders.NamedInQuestion}, which answers "who does this name refer
+     * to" for any question at all. Consulted on every turn, outside the per-turn cap and module
+     * selection, so it must return empty whenever it does not apply.
+     */
+    default boolean consultedEveryTurn() {
+        return false;
+    }
 }

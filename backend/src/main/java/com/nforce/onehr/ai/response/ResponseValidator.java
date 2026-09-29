@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Turns raw model output into a response the frontend is allowed to receive.
@@ -98,12 +99,42 @@ public class ResponseValidator {
         // the model saying it does not know is the part worth believing.
         List<String> steps = type == AssistantResponseType.UNKNOWN ? List.of() : cleanSteps(raw.getSteps());
 
+        // A page id travels only in navigation, never in text the user reads. An answer that still
+        // describes the prompt's internals is replaced whole rather than trimmed - what is left of
+        // a leak after trimming is still a leak (ONEHR - "I was instructed to only reference pages
+        // listed under REACHABLE PAGES and to use their exact pageId").
+        Function<String, Optional<String>> labelFor = id -> navigationValidator.labelFor(id, context);
+        answer = ConfidentialityGuard.hidePageIds(answer, labelFor);
+        steps = steps.stream().map(step -> ConfidentialityGuard.hidePageIds(step, labelFor)).toList();
+        List<RelatedItem> related = cleanRelated(raw.getRelated());
+        List<String> shown = new ArrayList<>(steps);
+        shown.add(answer);
+        related.forEach(item -> shown.add(item.getLabel()));
+        if (shown.stream().anyMatch(ConfidentialityGuard::leaksInternals)) {
+            log.info("Replacing a response that leaked internal details");
+            return unknownResponses.internalsNotDisclosed(context);
+        }
+        // "You are an HR Admin" to an Employee who only said so (ONEHR). The role is the account's.
+        Optional<ConfidentialityGuard.Claim> attributed = shown.stream()
+                .map(text -> ConfidentialityGuard.unfoundedAttribution(text, context.getAudiences()))
+                .flatMap(Optional::stream)
+                .findFirst();
+        if (attributed.isPresent()) {
+            log.info("Replacing a response that gave the user a role or access their account does not hold");
+            return unknownResponses.claimNotHeld(context, attributed.get());
+        }
+        // Read-only: nothing was deleted, approved or changed, whatever the model says.
+        if (shown.stream().anyMatch(ConfidentialityGuard::claimsAnAction)) {
+            log.info("Replacing a response that claimed to have made a change");
+            return unknownResponses.actionNotSupported(context, navigation.map(NavigationAction::getPageId).orElse(null));
+        }
+
         return AssistantResponse.builder()
                 .type(type)
                 .answer(answer)
                 .steps(steps)
                 .navigation(navigation.orElse(null))
-                .related(cleanRelated(raw.getRelated()))
+                .related(related)
                 .confidence(resolveConfidence(raw.getConfidence(), type))
                 .build();
     }
@@ -175,11 +206,7 @@ public class ResponseValidator {
         List<RelatedItem> cleaned = new ArrayList<>();
         for (RelatedItem item : related) {
             if (item == null || item.getLabel() == null || item.getLabel().isBlank()) continue;
-            cleaned.add(RelatedItem.builder()
-                    .type(item.getType())
-                    .refId(item.getRefId())
-                    .label(item.getLabel().trim())
-                    .build());
+            cleaned.add(RelatedItem.builder().label(item.getLabel().trim()).build());
             if (cleaned.size() == MAX_RELATED) break;
         }
         return List.copyOf(cleaned);

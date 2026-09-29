@@ -1578,6 +1578,11 @@ public class AttendanceService {
 
         List<AttendanceResponse> rows = new ArrayList<>(employees.size());
         for (Employee employee : employees) {
+            // Not yet joined as of the queried day (ONEHR-116) — a newly created employee must
+            // not appear in the roster for dates before their joining date.
+            if (employee.getJoiningDate() != null && employee.getJoiningDate().isAfter(day)) {
+                continue;
+            }
             Attendance record = resolveRosterRecord(byEmployee.get(employee.getUserId()), employee, day);
             rows.add(record != null
                     ? toResponse(record, employee)

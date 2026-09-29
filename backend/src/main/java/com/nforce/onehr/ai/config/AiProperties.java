@@ -49,7 +49,16 @@ public class AiProperties {
 
     @Data
     public static class Retrieval {
-        private int topK = 8;
+        /**
+         * Raised from 8 (ONEHR - My Team AI access added five knowledge units clustered in the
+         * same "attendance/team/hours" vocabulary a Manager or HR Admin's other attendance
+         * questions already live in; at 8, a self-scoped question like "my last 5 attendance
+         * records" could lose its own top-8 slot to several of the new, merely topic-adjacent team
+         * units, and the assistant answered with no rows at all rather than the caller's own
+         * history). Headroom, not a ranking change - {@link #minScore} still keeps genuinely
+         * unrelated results out.
+         */
+        private int topK = 10;
         /**
          * Cosine floor, calibrated against real mistral-embed vectors rather than theory.
          *

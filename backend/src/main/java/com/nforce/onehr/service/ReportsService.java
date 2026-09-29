@@ -68,6 +68,26 @@ public class ReportsService {
         List<Employee> scopeEmployees = isOrgWideReporter(actor)
                 ? employeeRepository.findAllWithDetails()
                 : employeeRepository.findAllById(managerHistoryRepository.findCurrentDirectReportIds(actor.getUserId()));
+        return buildReport(scopeEmployees, type, from, to);
+    }
+
+    /**
+     * As {@link #getAttendanceRequestReport}, but never widened to the whole organisation for
+     * HR_ADMIN/SUPER_ADMIN - always the caller's own current direct reports, whatever role they
+     * hold. Backs the assistant's My Team request-report question, which must never answer with
+     * org-wide rows just because the account also holds an admin role (ONEHR - My Team AI).
+     */
+    @Transactional(readOnly = true)
+    public List<AttendanceRequestReportRow> getAttendanceRequestReportForDirectReports(
+            String actorEmail, ReportType type, LocalDate from, LocalDate to) {
+        Employee actor = resolveManager(actorEmail);
+        List<Employee> scopeEmployees =
+                employeeRepository.findAllById(managerHistoryRepository.findCurrentDirectReportIds(actor.getUserId()));
+        return buildReport(scopeEmployees, type, from, to);
+    }
+
+    private List<AttendanceRequestReportRow> buildReport(
+            List<Employee> scopeEmployees, ReportType type, LocalDate from, LocalDate to) {
         if (scopeEmployees.isEmpty()) {
             return List.of();
         }

@@ -200,7 +200,7 @@ questions:
       mustMentionAny: ["regulariz"]
     why: >
       ONEHR - no knowledge unit existed about attendance penalties at all before this, so a
-      question about one retrieved nothing and the live penalty data (attendance.my-penalties)
+      question about one retrieved nothing and the live penalty data (now in attendance.my-history)
       never even got a chance to run — AssistantDataService only fetches live data once
       retrieval has matched something in the same module. This covers the general
       "what is this and how do I resolve it" question; the live per-date answer needs a real

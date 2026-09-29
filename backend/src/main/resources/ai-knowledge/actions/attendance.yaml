@@ -227,7 +227,7 @@ knowledge:
       ask this assistant which specific date(s) that applies to — it can read your own active
       penalties directly, it does not need you to open the page first.
 
-      A penalty stays active (shown as PENDING_REVIEW behind the scenes) until it is resolved. It
+      A penalty stays active until it is resolved. It
       does not expire or clear itself.
 
       How it gets resolved:
@@ -263,16 +263,16 @@ knowledge:
       - days i came late in the past week
     body: |
       You can ask this assistant about your own recent attendance problems directly — which days you
-      arrived late or had a missing punch in roughly the last week — without opening My Attendance
-      first. It reads your own exception history for that window and states the exact dates.
+      arrived late or had a missing punch in the last 30 days — without opening My Attendance first.
+      It reads your own attendance record for that window and states the exact dates.
 
       The exception types that can show up here: late arrival (clocked in after your shift start plus
       its grace period), missing punch (a check-in without a check-out, or the reverse), no attendance
       recorded, and work hours shortage (worked fewer hours than the day expected). More than one can
-      land on the same date.
+      land on the same date, and each one is listed and counted separately.
 
       An exception is a detected discrepancy, not a deduction — it does not by itself mean leave or
-      pay was docked. Ask about attendance penalties separately for that.
+      pay was docked. The assistant says for each exception whether it carries an active penalty.
 
       For anything beyond roughly the last week, or the full picture with punch times, open My
       Attendance directly.

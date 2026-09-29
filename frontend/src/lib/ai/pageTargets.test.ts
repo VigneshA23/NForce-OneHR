@@ -69,9 +69,27 @@ describe('resolvePageTarget', () => {
     expect(checked).toBeGreaterThan(40);
   });
 
-  it('resolves the two pages that exist outside the sidebar', () => {
+  it('resolves the pages that exist outside the sidebar', () => {
     expect(resolvePageTarget('profile', 'EMPLOYEE')).toEqual({ route: '/profile', label: 'My Profile' });
     expect(resolvePageTarget('notifications', 'MANAGER')).toEqual({ route: '/notifications', label: 'Notifications' });
+  });
+
+  it("resolves My Team's own sections to the same /my-team route with the tab/category it opens on", () => {
+    // My Team is one NAV item with client-side ?tab=/?category= state, not separate routes (ONEHR
+    // - My Team AI access) - these piggyback on that path rather than inventing a new route.
+    expect(resolvePageTarget('my-team-efforts', 'MANAGER')).toEqual({ route: '/my-team?tab=effort', label: 'My Team → Efforts' });
+    expect(resolvePageTarget('my-team-negligence', 'HR_ADMIN')).toEqual({ route: '/my-team?tab=negligence', label: 'My Team → Negligence' });
+    expect(resolvePageTarget('my-team-penalties', 'HR_ADMIN')).toEqual({ route: '/my-team?tab=penalties', label: 'My Team → Penalties' });
+    expect(resolvePageTarget('my-team-assignments', 'MANAGER')?.route).toBe('/my-team?tab=assignments');
+    expect(resolvePageTarget('my-team-reports', 'MANAGER')?.route).toBe('/my-team?tab=reports');
+    expect(resolvePageTarget('my-team-reports-attendance', 'MANAGER')?.route)
+      .toBe('/my-team?tab=reports&category=Attendance%20Reports');
+    expect(resolvePageTarget('my-team-reports-punctuality', 'MANAGER')?.route)
+      .toBe('/my-team?tab=reports&category=Punctuality%20Reports');
+    expect(resolvePageTarget('my-team-reports-negligence', 'MANAGER')?.route)
+      .toBe('/my-team?tab=reports&category=Negligence%20Reports');
+    expect(resolvePageTarget('my-team-reports-requests', 'MANAGER')?.route)
+      .toBe('/my-team?tab=reports&category=Attendance%20Request%20Reports');
   });
 
   it('refuses anything not in the sidebar or that short list', () => {

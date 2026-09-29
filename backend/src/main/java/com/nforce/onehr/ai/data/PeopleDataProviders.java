@@ -133,6 +133,113 @@ public final class PeopleDataProviders {
     }
 
     /**
+     * Every active People Directory entry whose name the question mentions, with the caller's own
+     * entry marked - so "tell me about Praveen" asked by Praveen Gurram, "show details for Praveen
+     * G." and "was the Praveen reporting to Ramesh present yesterday" are resolved against real
+     * people rather than guessed at (ONEHR - the assistant assumed a colleague and refused, when
+     * the name was the caller's own or matched several people).
+     *
+     * <p>{@link DataScope#SHARED}: exactly the fields the People Directory shows every role -
+     * name, employee code, designation, department and reporting manager; never email or contact
+     * details. Matching is by whole name word; see {@link #matches}.
+     */
+    @Component
+    @RequiredArgsConstructor
+    public static class NamedInQuestion implements AssistantDataProvider {
+
+        private static final int MAX_MATCHES = 10;
+
+        /** Words too common in questions to be read as a name, even where someone is called that. */
+        private static final Set<String> NOT_NAMES = Set.of(
+                "the", "and", "for", "you", "your", "yours", "mine", "myself", "what", "whats", "when", "where", "which",
+                "who", "whom", "whose", "why", "how", "was", "were", "are", "has", "have", "had", "will", "can", "could",
+                "would", "should", "may", "might", "must", "shall", "did", "does", "done", "not", "all", "any", "this",
+                "that", "these", "those", "with", "from", "into", "about", "show", "tell", "give", "list", "get", "find",
+                "please", "there", "their", "them", "they", "his", "her", "him", "she", "our", "out", "off", "last",
+                "previous", "past", "next", "first", "only", "but", "also", "records", "record", "details", "detail",
+                "leave", "leaves", "attendance", "present", "absent", "late", "today", "yesterday", "tomorrow", "week",
+                "month", "year", "day", "days", "team", "manager", "reporting", "reports", "report", "employee",
+                "employees", "name", "department", "designation", "request", "requests", "balance", "holiday",
+                "holidays", "shift", "grace", "penalty", "penalties", "profile", "people", "person", "admin", "super");
+
+        private final EmployeeService employeeService;
+
+        @Override public String id() { return "people-named.matches"; }
+        @Override public DataScope scope() { return DataScope.SHARED; }
+        @Override public String title() { return "People Directory entries whose name the question mentions"; }
+        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> modules() { return Set.of("people-named"); }
+        @Override public boolean consultedEveryTurn() { return true; }
+
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context) {
+            return Optional.empty();
+        }
+
+        // ponytail: reads the whole directory each turn; cache listDirectory if the org grows past a few thousand
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context, String question) {
+            if (question == null || question.isBlank()) return Optional.empty();
+            List<DirectoryEntryDto> found = matches(question,
+                    employeeService.listDirectory().stream().filter(DirectoryEntryDto::isActive).toList());
+            if (found.isEmpty()) return Optional.empty();
+
+            StringBuilder out = new StringBuilder(("The question mentions a name. Active People Directory entries it can refer "
+                    + "to - exactly %d%s. Nobody else in the organisation has a matching name:")
+                    .formatted(found.size(), found.size() > MAX_MATCHES ? ", the first %d listed".formatted(MAX_MATCHES) : ""));
+            found.stream().limit(MAX_MATCHES).forEach(p -> out.append("\n- %s%s: employee code %s, %s, %s department, reporting manager %s".formatted(
+                    p.getFullName(),
+                    p.getEmail() != null && p.getEmail().equalsIgnoreCase(context.getActorEmail()) ? " (this is you, the signed-in user)" : "",
+                    orNotSet(p.getEmployeeCode()), orNotSet(p.getDesignationName()), orNotSet(p.getDepartmentName()),
+                    p.getManagerName() == null ? "none assigned" : p.getManagerName())));
+            return Optional.of(out.toString());
+        }
+
+        /**
+         * Entries named by the question. A question word (3+ letters, not in {@link #NOT_NAMES})
+         * matches an entry when it equals one of the words of its name; a single letter right after
+         * such a word must be the initial of another of its words ("Praveen G." rules out "Praveen
+         * Kumar"). For each word, only the entries matching the most question words are kept, so
+         * "Praveen Gurram" names one person while "Praveen" alone names every Praveen.
+         */
+        static List<DirectoryEntryDto> matches(String question, List<DirectoryEntryDto> directory) {
+            List<String> words = java.util.Arrays.stream(question.toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}]+"))
+                    .filter(w -> !w.isEmpty()).toList();
+            Map<DirectoryEntryDto, Integer> scores = new java.util.LinkedHashMap<>();
+            Map<String, List<DirectoryEntryDto>> byWord = new java.util.HashMap<>();
+            for (DirectoryEntryDto entry : directory) {
+                if (entry.getFullName() == null) continue;
+                List<String> name = java.util.Arrays.asList(entry.getFullName().toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}]+"));
+                int score = 0;
+                boolean ruledOut = false;
+                for (int i = 0; i < words.size(); i++) {
+                    String w = words.get(i);
+                    if (w.length() < 3 || NOT_NAMES.contains(w) || !name.contains(w)) continue;
+                    score++;
+                    byWord.computeIfAbsent(w, k -> new java.util.ArrayList<>()).add(entry);
+                    if (i + 1 < words.size() && words.get(i + 1).length() == 1) {
+                        String initial = words.get(i + 1);
+                        if (name.stream().anyMatch(n -> !n.equals(w) && n.startsWith(initial))) score++;
+                        else ruledOut = true;
+                    }
+                }
+                if (score > 0 && !ruledOut) scores.put(entry, score);
+            }
+            java.util.Set<DirectoryEntryDto> kept = new java.util.LinkedHashSet<>();
+            byWord.values().forEach(candidates -> {
+                List<DirectoryEntryDto> live = candidates.stream().filter(scores::containsKey).toList();
+                int best = live.stream().mapToInt(scores::get).max().orElse(0);
+                live.stream().filter(e -> scores.get(e) == best).forEach(kept::add);
+            });
+            return List.copyOf(kept);
+        }
+
+        private static String orNotSet(String value) {
+            return value == null || value.isBlank() ? "not set" : value;
+        }
+    }
+
+    /**
      * Birthdays today and in the coming week - the Home page's birthday widget, which every role
      * sees ({@code GET /api/employees/birthdays} has no role check). Day and month only; no year,
      * so no age, ever leaves the service.

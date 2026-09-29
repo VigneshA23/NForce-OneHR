@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Megaphone, CheckCircle, Clock, Search } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -9,6 +9,7 @@ import {
   listAcknowledgments, listAllAnnouncements, createAnnouncement, publishAnnouncement,
   updateAnnouncement, deactivateAnnouncement, reactivateAnnouncement, deleteAnnouncement,
   resetAcknowledgment, remindEmployee, globalPendingAckCount,
+  validateAttachmentFile, fetchPolicyAttachment,
   type Policy, type PolicyAcknowledgment, type Announcement,
 } from '../api/policies';
 
@@ -35,6 +36,15 @@ function audienceLabel(raw: string): string {
 function parseAudienceToArr(raw: string): string[] {
   if (!raw || raw === 'ALL' || raw === 'All Employees') return [...ALL_AUDIENCE];
   return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+async function openPolicyAttachment(token: string, id: number, showToast: (kind: 'error', msg: string) => void) {
+  try {
+    const url = await fetchPolicyAttachment(token, id);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch (e) {
+    showToast('error', e instanceof Error ? e.message : 'Failed to open attachment');
+  }
 }
 
 
@@ -79,7 +89,17 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
   const [description, setDescription] = useState('');
   const [audience, setAudience] = useState<string[]>([...ALL_AUDIENCE]);
   const [required, setRequired] = useState(true);
+  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null;
+    if (f) {
+      const err = validateAttachmentFile(f);
+      if (err) { showToast('error', err); e.target.value = ''; setFile(null); return; }
+    }
+    setFile(f);
+  }
 
   useEffect(() => {
     if (!title.trim()) { setVersion('1.0'); return; }
@@ -102,7 +122,7 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
     setLoading(true);
     try {
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
-      const p = await publishPolicy(token, { title, version, description, audience: audienceStr, required });
+      const p = await publishPolicy(token, { title, version, description, audience: audienceStr, required }, file);
       onPublished(p);
       showToast('success', 'Policy published');
       onClose();
@@ -141,6 +161,13 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
             <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
               <AudiencePicker value={audience} onChange={setAudience} />
             </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>
+              Attachment <span style={{ fontSize: 11 }}>(optional — Image, PDF, or Word document)</span>
+            </label>
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={onFileChange} style={inputS} />
+            {file && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--txt-dim)' }}>{file.name}</p>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
             <input type="checkbox" id="req" checked={required} onChange={e => setRequired(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
@@ -233,7 +260,17 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
   const [description, setDescription] = useState(policy.description);
   const [audience, setAudience] = useState<string[]>(parseAudienceToArr(policy.audience));
   const [required, setRequired] = useState(policy.required);
+  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null;
+    if (f) {
+      const err = validateAttachmentFile(f);
+      if (err) { showToast('error', err); e.target.value = ''; setFile(null); return; }
+    }
+    setFile(f);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -241,7 +278,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
     setLoading(true);
     try {
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
-      const p = await publishPolicyVersion(token, policy.id, { version, description, audience: audienceStr, required });
+      const p = await publishPolicyVersion(token, policy.id, { version, description, audience: audienceStr, required }, file);
       onPublished(p);
       showToast('success', 'New version published — employees must re-acknowledge');
       onClose();
@@ -273,6 +310,13 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
             <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
               <AudiencePicker value={audience} onChange={setAudience} />
             </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>
+              Attachment <span style={{ fontSize: 11 }}>(optional — Image, PDF, or Word document; leave blank to keep the current one)</span>
+            </label>
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={onFileChange} style={inputS} />
+            {file && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--txt-dim)' }}>{file.name}</p>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
             <input type="checkbox" id="reqv" checked={required} onChange={e => setRequired(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
@@ -742,6 +786,12 @@ export default function PoliciesPage() {
                       <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>
                         {p.title}
                         {p.required && <span style={{ marginLeft: 8, fontSize: 10, background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>Required</span>}
+                        {p.hasAttachment && (
+                          <button onClick={() => openPolicyAttachment(token, p.id, showToast)} title={p.attachmentFileName ?? 'Attachment'}
+                            style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'inline-flex', verticalAlign: 'middle' }}>
+                            <Paperclip size={13} />
+                          </button>
+                        )}
                       </td>
                       <td style={tdS}>v{p.version}</td>
                       <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(p.audience)}</span></td>

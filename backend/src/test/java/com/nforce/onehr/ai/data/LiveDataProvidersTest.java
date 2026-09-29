@@ -10,11 +10,15 @@ import com.nforce.onehr.dto.HolidayResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.ManagerDashboardDto;
 import com.nforce.onehr.dto.PunchResponse;
+import com.nforce.onehr.dto.asset.AssetAssignmentResponse;
+import com.nforce.onehr.dto.asset.AssetRequestResponse;
 import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.service.ApprovalCenterService;
+import com.nforce.onehr.service.AssetService;
 import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.AttendanceService;
@@ -72,9 +76,12 @@ class LiveDataProvidersTest {
     @Mock private EmployeeService employeeService;
     @Mock private LeaveService leaveService;
     @Mock private AttendancePenaltyService attendancePenaltyService;
+    @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private com.nforce.onehr.service.AttendanceStatsService attendanceStatsService;
     @Mock private HolidayService holidayService;
     @Mock private ApprovalCenterService approvalCenterService;
     @Mock private ExpenseService expenseService;
+    @Mock private AssetService assetService;
 
     private LocalDate today;
 
@@ -154,7 +161,7 @@ class LiveDataProvidersTest {
                 roster("Chitra", null, "ON_LEAVE", null),
                 roster("Dev", null, null, null)));
 
-        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService)
+        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService, employeeService)
                 .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)).orElseThrow();
 
         assertThat(out).contains("2 of 4 employees on the attendance roster have checked in");
@@ -183,19 +190,23 @@ class LiveDataProvidersTest {
     }
 
     @Test
-    @DisplayName("team penalties stand aside for HR, whose same service call returns the whole organisation")
-    void teamPenaltiesDoNotMislabelOrgDataAsTeam() {
-        Optional<String> out = new TeamDataProviders.TeamPenalties(attendancePenaltyService, attendanceRulesService)
-                .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.MANAGER, AudienceBucket.EMPLOYEE));
+    @DisplayName("team penalties read the caller's own direct reports, for HR Admin too - never the whole organisation")
+    void teamPenaltiesNeverWidenToTheOrganisation() {
+        when(attendancePenaltyService.listForDirectReports(eq(EMAIL), any(), any())).thenReturn(List.of(
+                penalty("Asha", today.minusDays(2), "PENDING_REVIEW")));
 
-        assertThat(out).isEmpty();
-        verifyNoInteractions(attendancePenaltyService);
+        String out = new TeamDataProviders.TeamPenalties(attendancePenaltyService, attendanceRulesService)
+                .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)).orElseThrow();
+
+        assertThat(out).contains("Exactly 1 active (PENDING_REVIEW) penalty(ies)").contains("Asha");
+        // Never the org-wide read - that would be OrganisationDataProviders.OrgPenalties' job.
+        verify(attendancePenaltyService, never()).list(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
     @DisplayName("team penalties report only what the Attendance Log badges as PENALIZED")
     void teamPenaltiesAreActiveOnly() {
-        when(attendancePenaltyService.list(eq(EMAIL), any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of(
+        when(attendancePenaltyService.listForDirectReports(eq(EMAIL), any(), any())).thenReturn(List.of(
                 penalty("Asha", today.minusDays(2), "PENDING_REVIEW"),
                 penalty("Bala", today.minusDays(3), "CANCELLED")));
 
@@ -204,6 +215,43 @@ class LiveDataProvidersTest {
 
         assertThat(out).contains("Exactly 1 active (PENDING_REVIEW) penalty(ies)");
         assertThat(out).contains("Asha").doesNotContain("Bala");
+    }
+
+    @Test
+    @DisplayName("team expense claims: an HR Admin who is also somebody's manager sees their own direct reports' claims")
+    void teamExpenseClaimsForHrAdmin() {
+        when(expenseService.allTeamClaims(EMAIL)).thenReturn(List.of(claim("SUBMITTED", "1500")));
+
+        String out = new TeamDataProviders.TeamExpenseClaims(expenseService)
+                .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)).orElseThrow();
+
+        assertThat(out).contains("1 expense claim(s) raised by your direct reports").contains("Asha").contains("Travel");
+    }
+
+    @Test
+    @DisplayName("team asset requests are sorted newest first, since the service gives no ordering guarantee")
+    void teamAssetRequestsAreSortedNewestFirst() {
+        when(assetService.teamRequests(EMAIL)).thenReturn(List.of(
+                assetRequest("Asha", "Laptop", today.atStartOfDay().minusDays(5)),
+                assetRequest("Bala", "Monitor", today.atStartOfDay())));
+
+        String out = new TeamDataProviders.TeamAssetRequests(assetService)
+                .fetch(as(ShellRole.MANAGER, AudienceBucket.MANAGER, AudienceBucket.EMPLOYEE)).orElseThrow();
+
+        assertThat(out.indexOf("Bala")).isLessThan(out.indexOf("Asha"));
+    }
+
+    @Test
+    @DisplayName("team asset assignments: which direct report holds which asset, as the Team tab shows it")
+    void teamAssetAssignments() {
+        when(assetService.teamAssignments(EMAIL)).thenReturn(List.of(AssetAssignmentResponse.builder()
+                .assetTag("LT-042").categoryName("Laptop").employeeName("Asha")
+                .effectiveFrom(today.atStartOfDay(ZONE).toInstant()).condition("Good").build()));
+
+        String out = new TeamDataProviders.TeamAssetAssignments(assetService, attendanceRulesService)
+                .fetch(as(ShellRole.SUPER_ADMIN, AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE)).orElseThrow();
+
+        assertThat(out).contains("Asha: LT-042 (Laptop)").contains("condition Good");
     }
 
     // ---------------------------------------------------------------- peers
@@ -247,11 +295,11 @@ class LiveDataProvidersTest {
                 AttendanceResponse.builder().workDate(today.minusDays(1)).status("LATE").lateByMinutes(55)
                         .checkInAt(shiftStart.plusMinutes(55).plusSeconds(36)).shiftStartAt(shiftStart).workedMinutes(420).build()));
 
-        String out = new AttendanceDataProviders.MyHistory(attendanceService)
+        String out = new AttendanceDataProviders.MyHistory(attendanceService, employeeRepository, attendancePenaltyRepository, attendanceStatsService)
                 .fetch(as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)).orElseThrow();
 
         assertThat(out).contains("exactly 2 day(s) with an attendance record");
-        assertThat(out).contains("Late arrivals (1): " + today.minusDays(1));
+        assertThat(out).contains("- LATE_ARRIVAL (1): " + today.minusDays(1));
         assertThat(out).contains("late by 55m 36s");
     }
 
@@ -414,5 +462,10 @@ class LiveDataProvidersTest {
     private static ExpenseClaimResponse claim(String status, String amount) {
         return ExpenseClaimResponse.builder().id(UUID.randomUUID()).employeeName("Asha").categoryName("Travel")
                 .amount(new BigDecimal(amount)).expenseDate(LocalDate.of(2026, 9, 1)).status(status).build();
+    }
+
+    private static AssetRequestResponse assetRequest(String employeeName, String categoryName, LocalDateTime createdAt) {
+        return AssetRequestResponse.builder().id(1L).employeeName(employeeName).categoryName(categoryName)
+                .status("PENDING").createdAt(createdAt.atZone(ZONE).toInstant()).build();
     }
 }

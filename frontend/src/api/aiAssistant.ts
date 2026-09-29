@@ -84,7 +84,6 @@ export interface NavigationAction {
 
 export interface RelatedItem {
   label: string;
-  knowledgeId?: string | null;
 }
 
 export interface AssistantResponse {

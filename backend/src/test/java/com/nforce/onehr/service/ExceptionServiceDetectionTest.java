@@ -260,6 +260,87 @@ class ExceptionServiceDetectionTest {
         verify(attendancePenaltyRepository, org.mockito.Mockito.never()).saveAndFlush(any());
     }
 
+    // ── EARLY_DEPARTURE: previously "reserved"/undetectable — checked out before the snapshotted
+    // shift's scheduled end ──
+    private List<String> savedExceptionTypes() {
+        ArgumentCaptor<AttendanceException> captor = ArgumentCaptor.forClass(AttendanceException.class);
+        verify(attendanceExceptionRepository, org.mockito.Mockito.atLeast(0)).save(captor.capture());
+        return captor.getAllValues().stream().map(AttendanceException::getExceptionType).toList();
+    }
+
+    @Test
+    void checkOutBeforeShiftEnd_detectsEarlyDeparture_withoutAPenalty() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        Attendance earlyDay = Attendance.builder().employeeUserId(employeeId).workDate(targetDate).shiftId(shift.getId())
+                .checkInAt(targetDate.atTime(9, 0)).checkOutAt(targetDate.atTime(16, 30))
+                .workedMinutes(450).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(earlyDay));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        when(shiftRepository.findById(shift.getId())).thenReturn(Optional.of(shift));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        ArgumentCaptor<AttendanceException> captor = ArgumentCaptor.forClass(AttendanceException.class);
+        verify(attendanceExceptionRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        AttendanceException early = captor.getAllValues().stream()
+                .filter(e -> ExceptionType.EARLY_DEPARTURE.equals(e.getExceptionType())).findFirst().orElseThrow();
+        assertEquals(LocalTime.of(18, 0), early.getExpectedTime());
+        assertEquals(LocalTime.of(16, 30), early.getActualTime());
+        // No Penalization Policy section covers Early Departure, so nothing is ever penalized for it.
+        verify(attendancePenaltyRepository, org.mockito.Mockito.never()).saveAndFlush(
+                org.mockito.ArgumentMatchers.argThat(p -> ExceptionType.EARLY_DEPARTURE.equals(p.getDiscrepancyType())));
+    }
+
+    @Test
+    void checkOutAtOrAfterShiftEnd_noEarlyDeparture() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        Attendance fullDay = Attendance.builder().employeeUserId(employeeId).workDate(targetDate).shiftId(shift.getId())
+                .checkInAt(targetDate.atTime(9, 0)).checkOutAt(targetDate.atTime(18, 0))
+                .workedMinutes(540).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(fullDay));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        when(shiftRepository.findById(shift.getId())).thenReturn(Optional.of(shift));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertFalse(savedExceptionTypes().contains(ExceptionType.EARLY_DEPARTURE));
+    }
+
+    @Test
+    void overnightShift_checkOutNextMorningAfterShiftEnd_noEarlyDeparture() {
+        // 22:00 - 06:00: a 06:15 check-out the next calendar day is on time, not "before 06:00 on workDate".
+        Shift shift = shift("Night", LocalTime.of(22, 0), LocalTime.of(6, 0));
+        Attendance nightShift = Attendance.builder().employeeUserId(employeeId).workDate(targetDate).shiftId(shift.getId())
+                .checkInAt(targetDate.atTime(22, 0)).checkOutAt(targetDate.plusDays(1).atTime(6, 15))
+                .workedMinutes(495).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(nightShift));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        when(shiftRepository.findById(shift.getId())).thenReturn(Optional.of(shift));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertFalse(savedExceptionTypes().contains(ExceptionType.EARLY_DEPARTURE));
+    }
+
+    @Test
+    void overnightShift_checkOutBeforeNextMorningShiftEnd_detectsEarlyDeparture() {
+        Shift shift = shift("Night", LocalTime.of(22, 0), LocalTime.of(6, 0));
+        Attendance nightShift = Attendance.builder().employeeUserId(employeeId).workDate(targetDate).shiftId(shift.getId())
+                .checkInAt(targetDate.atTime(22, 0)).checkOutAt(targetDate.plusDays(1).atTime(3, 0))
+                .workedMinutes(300).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(nightShift));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        when(shiftRepository.findById(shift.getId())).thenReturn(Optional.of(shift));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertTrue(savedExceptionTypes().contains(ExceptionType.EARLY_DEPARTURE));
+    }
+
     // ── Weekly cycle (Section 34): exempt-count window follows the configured cycle, not always
     // the calendar month ──
     @Test
@@ -1030,11 +1111,16 @@ class ExceptionServiceDetectionTest {
         exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
 
         ArgumentCaptor<AttendanceException> excCaptor = ArgumentCaptor.forClass(AttendanceException.class);
-        verify(attendanceExceptionRepository).save(excCaptor.capture());
-        assertEquals(ExceptionType.WORK_HOURS_SHORTAGE, excCaptor.getValue().getExceptionType());
+        // Two rows: the 17:00 check-out is also an EARLY_DEPARTURE against the 18:00 end.
+        verify(attendanceExceptionRepository, org.mockito.Mockito.times(2)).save(excCaptor.capture());
+        java.util.Map<String, AttendanceException> byType = excCaptor.getAllValues().stream()
+                .collect(java.util.stream.Collectors.toMap(AttendanceException::getExceptionType, e -> e));
+        assertEquals(Set.of(ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.EARLY_DEPARTURE), byType.keySet());
         // The displayed "expected" time is also the OLD version's own end (18:00), not the new
-        // version's 13:00 — see ExceptionService's own comment on this exact line.
-        assertEquals(java.time.LocalTime.of(18, 0), excCaptor.getValue().getExpectedTime());
+        // version's 13:00 — see ExceptionService's own comment on this exact line. Early
+        // Departure is measured against the same historical version, never the later 13:00 one.
+        assertEquals(java.time.LocalTime.of(18, 0), byType.get(ExceptionType.WORK_HOURS_SHORTAGE).getExpectedTime());
+        assertEquals(java.time.LocalTime.of(18, 0), byType.get(ExceptionType.EARLY_DEPARTURE).getExpectedTime());
         verify(attendancePenaltyRepository, org.mockito.Mockito.times(1)).saveAndFlush(any());
     }
 
