@@ -168,6 +168,18 @@ class ApprovalRuleServiceTest {
     }
 
     @Test
+    void create_managerOnlyStages_rejected_wouldSkipHrFinalClearanceForEveryClaim() {
+        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
+        ApprovalRuleRequest req = validExpenseRuleRequest();
+        req.setApprovalStages(List.of("MANAGER"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.create(req, actorEmail));
+        assertTrue(ex.getMessage().contains("second-approval role"));
+        verify(ruleRepository, never()).save(any());
+    }
+
+    @Test
     void create_duplicateRule_rejected() {
         when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
         when(ruleRepository.existsByRequestTypeAndConditionFieldAndOperatorAndConditionValueAndIdNot(

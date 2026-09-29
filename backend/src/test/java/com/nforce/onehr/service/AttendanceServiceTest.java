@@ -1044,6 +1044,61 @@ class AttendanceServiceTest {
         assertEquals(day, roster.get(0).getWorkDate());
     }
 
+    /** Stubs one manager with this test file's employee as their only direct report and the given
+     * candidate rows in the roster's widened window around {@code day}. */
+    private List<AttendanceResponse> teamRosterWith(Employee report, LocalDate day, List<Attendance> candidates) {
+        UUID managerId = UUID.randomUUID();
+        String managerEmail = "manager@test.com";
+        Employee manager = Employee.builder().userId(managerId).employeeCode("M1").fullName("Manager")
+                .user(User.builder().id(managerId).active(true).build()).build();
+        when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(manager));
+        when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(report));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(
+                List.of(employeeId), day.minusDays(1), day.plusDays(1)))
+                .thenReturn(candidates);
+        return service.getDayForMyTeam(managerEmail, day);
+    }
+
+    @Test
+    void getDayForMyTeam_openSessionStampedPreviousShiftDay_showsAsCheckedIn() {
+        // A 23:59 shift start plus a 60h shift-day boundary keeps yesterday's session live for all
+        // of today (today's own start is never reached, bar the final minute, which is skipped) —
+        // the session is genuinely still open, just stamped yesterday (shift-relative workDate,
+        // see ShiftDayPolicy#shiftDayOf).
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                LocalTime.now(ZoneId.of("Asia/Kolkata")).isBefore(LocalTime.of(23, 58)));
+        lenient().when(shiftWeeklyOffRulesRepository.findBySingletonTrue()).thenReturn(Optional.of(
+                com.nforce.onehr.entity.ShiftWeeklyOffRules.builder()
+                        .maximumShiftDayDurationHours(java.math.BigDecimal.valueOf(60)).build()));
+        Shift lateNightShift = shift("Late Night", LocalTime.of(23, 59), LocalTime.of(8, 0));
+        Employee report = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(lateNightShift).user(User.builder().id(employeeId).active(true).build()).build();
+        LocalDate day = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        Attendance open = Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .workDate(day.minusDays(1)).checkInAt(day.minusDays(1).atTime(23, 59)).timezone("Asia/Kolkata")
+                .status("PRESENT").shiftId(lateNightShift.getId()).build();
+
+        List<AttendanceResponse> roster = teamRosterWith(report, day, List.of(open));
+
+        assertNotNull(roster.get(0).getCheckInAt(),
+                "an employee who is checked in right now must never show as 'Not in yet' to their manager");
+    }
+
+    @Test
+    void getDayForMyTeam_forgottenCheckOutFromAPastShiftDay_stillShowsNotInYet() {
+        Employee report = Employee.builder().userId(employeeId).employeeCode("E1").fullName("Test Employee")
+                .shift(defaultShift).user(User.builder().id(employeeId).active(true).build()).build();
+        LocalDate day = LocalDate.of(2026, 1, 15);
+        Attendance stale = Attendance.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .workDate(day.minusDays(1)).checkInAt(day.minusDays(1).atTime(15, 30)).timezone("Asia/Kolkata")
+                .status("PRESENT").shiftId(defaultShift.getId()).build();
+
+        List<AttendanceResponse> roster = teamRosterWith(report, day, List.of(stale));
+
+        assertNull(roster.get(0).getCheckInAt());
+    }
+
     // ── Phase 0.4 / Phase 1: concurrency race -> clean application response ──
 
     @Test

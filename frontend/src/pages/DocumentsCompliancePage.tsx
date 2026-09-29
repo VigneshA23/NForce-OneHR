@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, XCircle, Eye, Search, Users, History } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
+import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -267,7 +268,8 @@ function DetailModal({
 
 // ── Not Submitted Tab with Remind ────────────────────────
 
-function MissingTab({ missing, searchEmpty }: { missing: MissingDocument[]; searchEmpty: boolean }) {
+// `missing` is the current page's rows; the pagination footer is rendered inside the card.
+function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument[]; searchEmpty: boolean; footer: React.ReactNode }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [reminding, setReminding] = useState<string | null>(null);
@@ -326,6 +328,7 @@ function MissingTab({ missing, searchEmpty }: { missing: MissingDocument[]; sear
           </tbody>
         </table>
       </div>
+      {footer}
     </div>
   );
 }
@@ -433,6 +436,24 @@ export default function DocumentsCompliancePage() {
 
   const filtering = q.length > 0 || docTypeFilter !== '';
 
+  // Client-side pagination (the list endpoints return everything). One page/pageSize is
+  // shared across the tabs; page resets to 1 when the tab, search or filter changes, and is
+  // clamped at render so a verify/reject that empties the last page falls back a page.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  useEffect(() => { setPage(1); }, [tab, q, docTypeFilter]);
+
+  const activeRows = tab === 'pending' ? filteredPending : tab === 'verified' ? filteredVerified : filteredMissing;
+  const safePage = clampPage(page, activeRows.length, pageSize);
+  const pagination = (
+    <TablePagination
+      page={safePage} pageSize={pageSize} total={activeRows.length}
+      noun={tab === 'missing' ? 'records' : 'documents'}
+      onPageChange={setPage}
+      onPageSizeChange={n => { setPageSize(n); setPage(1); }}
+    />
+  );
+
   if (loading) return <p style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</p>;
 
   if (loadError) {
@@ -532,7 +553,7 @@ export default function DocumentsCompliancePage() {
                   <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
                     {filtering ? 'No results match your search or filter.' : 'No documents pending verification.'}
                   </td></tr>
-                ) : filteredPending.map(d => (
+                ) : paginate(filteredPending, safePage, pageSize).map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
                       <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
@@ -555,6 +576,7 @@ export default function DocumentsCompliancePage() {
               </tbody>
             </table>
           </div>
+          {pagination}
         </div>
       )}
 
@@ -586,7 +608,7 @@ export default function DocumentsCompliancePage() {
                   <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
                     {filtering ? 'No results match your search or filter.' : 'No verified documents yet.'}
                   </td></tr>
-                ) : filteredVerified.map(d => (
+                ) : paginate(filteredVerified, safePage, pageSize).map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
                       <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
@@ -607,12 +629,13 @@ export default function DocumentsCompliancePage() {
               </tbody>
             </table>
           </div>
+          {pagination}
         </div>
       )}
 
       {/* ── Not Submitted tab ── */}
       {tab === 'missing' && (
-        <MissingTab missing={filteredMissing} searchEmpty={filtering} />
+        <MissingTab missing={paginate(filteredMissing, safePage, pageSize)} searchEmpty={filtering} footer={pagination} />
       )}
 
       {detailDoc && (

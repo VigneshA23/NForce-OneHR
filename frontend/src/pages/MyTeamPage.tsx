@@ -15,6 +15,7 @@ import {
   type PenaltyRow, type PenaltyFilters, type AttendancePenaltyStatus, type RegularizationRecord,
 } from '../api/attendance';
 import { KebabMenu } from '../components/KebabMenu';
+import { TablePagination, PAGE_SIZE_OPTIONS, clampPage, paginate } from '../components/TablePagination';
 import { leaveApi, type LeaveBalance, type LeaveRequestRecord } from '../api/leave';
 import { attendanceRequestApi, type AttendanceRequestRecord } from '../api/attendanceRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -34,6 +35,12 @@ import { businessTodayIsoDate } from '../utils/businessDate';
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+/** Calls `load` whenever the tab becomes visible again; returns the effect cleanup. */
+function refetchOnFocus(load: () => void): () => void {
+  const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+  document.addEventListener('visibilitychange', onVisible);
+  return () => document.removeEventListener('visibilitychange', onVisible);
 }
 function daysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -600,6 +607,22 @@ function useTeamDateRange(days: number) {
   return { from, setFrom, to, setTo };
 }
 
+/* ── Leaderboard paging: 10 per page by default, back to page 1 whenever the date range changes
+ * (`resetKey`), and clamped so a shorter result never strands the view on an empty page. ── */
+function usePagedRows<T>(rows: T[], resetKey: string) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
+  useEffect(() => { setPage(1); }, [resetKey]);
+  const current = clampPage(page, rows.length, pageSize);
+  return {
+    pageRows: paginate(rows, current, pageSize),
+    footer: (
+      <TablePagination page={current} pageSize={pageSize} total={rows.length} noun="employees"
+        onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1); }} />
+    ),
+  };
+}
+
 /* ══ ONEHR-106: Team Effort (Avg. Work Hours Leaderboard) ══ */
 function EffortRow({ entry }: { entry: TeamEffortEntry }) {
   const fillPct = Math.min(100, entry.avgHoursPerDay * 10);
@@ -648,6 +671,7 @@ function PunctualitySection({ from, to, token }: { from: string; to: string; tok
   const { showToast } = useToast();
   const [data, setData] = useState<TeamPunctualityResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const { pageRows, footer } = usePagedRows(data?.leaderboard ?? [], `${from}:${to}`);
 
   useEffect(() => {
     setLoading(true);
@@ -687,12 +711,13 @@ function PunctualitySection({ from, to, token }: { from: string; to: string; tok
         </div>
         <div className="nf-team-leaderboard-scroll">
           <div className="nf-team-leaderboard-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
-            <div>{data.leaderboard.map(e => <PunctualityRow key={e.employeeUserId} entry={e} />)}</div>
+            <div>{pageRows.map(e => <PunctualityRow key={e.employeeUserId} entry={e} />)}</div>
             <div style={{ borderLeft: '1px solid var(--line)' }}>
               <DailyBarChart data={data.daily.map(d => ({ date: d.date, count: d.employeesOnTime }))} color="var(--ok)" />
             </div>
           </div>
         </div>
+        {footer}
       </div>
     </div>
   );
@@ -703,6 +728,7 @@ function EffortTab({ token }: { token: string }) {
   const { from, setFrom, to, setTo } = useTeamDateRange(7);
   const [entries, setEntries] = useState<TeamEffortEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const { pageRows, footer } = usePagedRows(entries, `${from}:${to}`);
 
   useEffect(() => {
     setLoading(true);
@@ -725,7 +751,10 @@ function EffortTab({ token }: { token: string }) {
         ) : entries.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
         ) : (
-          entries.map(e => <EffortRow key={e.employeeUserId} entry={e} />)
+          <>
+            {pageRows.map(e => <EffortRow key={e.employeeUserId} entry={e} />)}
+            {footer}
+          </>
         )}
       </div>
       <PunctualitySection from={from} to={to} token={token} />
@@ -1990,7 +2019,9 @@ export function KudosModal({ target, token, onClose }: { target: KudosTarget | n
  * share the caller's manager, not direct reports. Self-contained: fetches its own data so it
  * doesn't disturb MyTeamPage's existing (manager-facing) state below. */
 function PeersView({ token }: { token: string }) {
-  const today = todayIsoDate();
+  // Business-zone date (not the UTC-derived todayIsoDate) — the backend roster is keyed on the
+  // org business day, and a UTC date is still "yesterday" before 05:30 IST.
+  const today = businessTodayIsoDate();
 
   const [peers, setPeers] = useState<DirectoryEntry[]>([]);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
@@ -2023,7 +2054,9 @@ function PeersView({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => {
-    attendanceApi.peers(today, token).then(setTodayRecords).catch(() => setTodayRecords([])).finally(() => setLoading(false));
+    const load = () => attendanceApi.peers(today, token).then(setTodayRecords).catch(() => setTodayRecords([])).finally(() => setLoading(false));
+    load();
+    return refetchOnFocus(load);
   }, [token, today]);
 
   useEffect(() => {
@@ -2170,9 +2203,14 @@ function PeersView({ token }: { token: string }) {
                   ))}
                 </div>
                 {notInYet.length > OVERFLOW_LIMIT && (
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '4px 9px', borderRadius: 20 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllNotIn(true)}
+                    title="View all employees not in yet"
+                    style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '4px 9px', borderRadius: 20, border: 'none', cursor: 'pointer' }}
+                  >
                     +{notInYet.length - OVERFLOW_LIMIT} more
-                  </span>
+                  </button>
                 )}
                 <span style={{ fontSize: 12, color: 'var(--txt-dim)', flexBasis: '100%' }}>
                   {notInYet.slice(0, OVERFLOW_LIMIT).map(r => r.peer.fullName).join(', ')}
@@ -2695,29 +2733,43 @@ function PenaltiesTab({ token }: { token: string }) {
   );
 }
 
+type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports';
+const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'reports'];
+const HR_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'reports'];
+
 export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
   const user = useAuthStore(s => s.user);
   const role = toShellRole(user?.role);
   const isEmployee = role === 'Employee';
+  // Efforts/Punctuality, Negligence, Penalties and Employee Assignments are manager tools for
+  // monitoring one's own reports — not part of HR Admin's My Team view. Reports stays: HR relies
+  // on its org-wide Overtime/WFH/Partial Day request reports (see ReportsService), which have no
+  // other home in the app.
+  const allowedTabs: readonly MyTeamTab[] = role === 'HR Admin' ? HR_MY_TEAM_TABS : ALL_MY_TEAM_TABS;
 
-  const today = todayIsoDate();
+  // Business-zone date (not the UTC-derived todayIsoDate) — the backend roster is keyed on the
+  // org business day, and a UTC date is still "yesterday" before 05:30 IST.
+  const today = businessTodayIsoDate();
   const [searchParams] = useSearchParams();
   const rosterRef = useRef<HTMLDivElement>(null);
 
-  const [tab, setTabState] = useState<'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports'>(() => {
+  const [tabState, setTabState] = useState<MyTeamTab>(() => {
     const fromParam = searchParams.get('tab');
-    if (fromParam && ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'reports'].includes(fromParam)) {
-      return fromParam as any;
+    if (fromParam && (ALL_MY_TEAM_TABS as readonly string[]).includes(fromParam)) {
+      return fromParam as MyTeamTab;
     }
     const saved = sessionStorage.getItem('onehr:myteam:tab');
-    if (saved && ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'reports'].includes(saved)) {
-      return saved as any;
+    if (saved && (ALL_MY_TEAM_TABS as readonly string[]).includes(saved)) {
+      return saved as MyTeamTab;
     }
     return 'overview';
   });
+  // A ?tab= link or a tab remembered from another role's session can name a tab this role
+  // doesn't get — fall back to Overview rather than render a hidden tab's content.
+  const tab: MyTeamTab = allowedTabs.includes(tabState) ? tabState : 'overview';
 
-  const setTab = useCallback((newTab: 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports') => {
+  const setTab = useCallback((newTab: MyTeamTab) => {
     setTabState(newTab);
     sessionStorage.setItem('onehr:myteam:tab', newTab);
   }, []);
@@ -2797,9 +2849,13 @@ export default function MyTeamPage() {
       .catch(() => {});
   }, [token, isEmployee, setViewMode]);
 
+  // Re-fetched whenever the tab regains focus, not only on mount — a manager who keeps My Team
+  // open would otherwise keep seeing a report as "Not in yet" long after they checked in.
   useEffect(() => {
     if (isEmployee) return;
-    attendanceApi.team(today, token).then(setTodayRecords).catch(() => setTodayRecords([])).finally(() => setLoading(false));
+    const load = () => attendanceApi.team(today, token).then(setTodayRecords).catch(() => setTodayRecords([])).finally(() => setLoading(false));
+    load();
+    return refetchOnFocus(load);
   }, [token, today, isEmployee]);
 
   // Org-wide directory (same unrestricted endpoint the Directory tab itself uses) — backs the
@@ -3001,7 +3057,7 @@ export default function MyTeamPage() {
           ['penalties', 'Regularize & Cancel Penalties'],
           ['assignments', 'Employee Assignments'],
           ['reports', 'Reports'],
-        ] as const).map(([key, label]) => (
+        ] as const).filter(([key]) => allowedTabs.includes(key)).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             padding: '8px 14px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12.5,
             background: tab === key ? 'var(--brand)' : 'transparent', color: tab === key ? '#fff' : 'var(--txt-dim)', whiteSpace: 'nowrap',

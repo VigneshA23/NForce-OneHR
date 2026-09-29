@@ -402,6 +402,56 @@ class OnboardingServiceTest {
         assertEquals(30, stats.getAvgCompletionDays());
     }
 
+    // ── Deactivated mid-onboarding: not an active case, kept visible for history ─────────────
+
+    @Test
+    void stats_deactivatedEmployeeInProgress_excludedFromStartedAndOverdueCounts() {
+        // Jane is deactivated with an overdue, still-open checklist; Active Person is on track.
+        employee.setUser(User.builder().id(employeeId).active(false).build());
+        UUID activeEmployeeId = UUID.randomUUID();
+        Employee activeEmployee = Employee.builder()
+                .userId(activeEmployeeId).employeeCode("E300").fullName("Active Person")
+                .joiningDate(LocalDate.now().plusDays(30))
+                .user(User.builder().id(activeEmployeeId).active(true).build()).build();
+        when(employeeRepo.findById(activeEmployeeId)).thenReturn(Optional.of(activeEmployee));
+
+        OnboardingChecklist deactivated = inProgressChecklist();
+        OnboardingChecklist active = OnboardingChecklist.builder()
+                .id(UUID.randomUUID()).employeeUserId(activeEmployeeId).startedBy(adminId)
+                .status("IN_PROGRESS").startedAt(Instant.now()).build();
+
+        when(checklistRepo.findAll()).thenReturn(List.of(deactivated, active));
+        when(employeeService.listEmployees()).thenReturn(List.of());
+        when(checklistRepo.findAllWithActiveEmployee()).thenReturn(List.of(deactivated, active));
+        when(itemRepo.findByChecklistIdOrderByDueDateAsc(checklistId)).thenReturn(List.of(
+                overdueItem("PRE_BOARDING", "BUDDY_ASSIGNED")
+        ));
+        when(itemRepo.findByChecklistIdOrderByDueDateAsc(active.getId())).thenReturn(List.of());
+        when(assetService.currentAssignmentsForEmployee(any())).thenReturn(List.of());
+        when(documentService.requiredDocumentsFor(any())).thenReturn(List.of());
+
+        OnboardingStatsDto stats = onboardingService.stats(ADMIN_EMAIL);
+
+        assertEquals(1, stats.getStartedCount());
+        assertEquals(0, stats.getOverdueCount());
+        assertEquals(1, stats.getDeactivatedCount());
+    }
+
+    @Test
+    void searchQueue_deactivated_usesDeactivatedQueryAndFlagsRowInactive() {
+        employee.setUser(User.builder().id(employeeId).active(false).build());
+        when(checklistRepo.searchDeactivatedInProgress(eq("%"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(inProgressChecklist())));
+        stubOneItemPending();
+
+        Page<OnboardingChecklistSummaryDto> result =
+                onboardingService.searchQueue(ADMIN_EMAIL, "DEACTIVATED", null, 0, 20);
+
+        assertEquals(1, result.getTotalElements());
+        assertFalse(result.getContent().get(0).isActive());
+        verify(checklistRepo, never()).searchByStatus(any(), any(), any());
+    }
+
     // ── Explicit completion ──────────────────────────────────────────────────
 
     @Test

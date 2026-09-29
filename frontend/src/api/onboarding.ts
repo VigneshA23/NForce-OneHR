@@ -54,6 +54,8 @@ export interface TimelineEntry {
 
 export type OnboardingStatus = 'ON_TRACK' | 'ATTENTION' | 'OVERDUE' | 'COMPLETE';
 
+export type OnboardingQueueStatus = 'IN_PROGRESS' | 'COMPLETED' | 'DEACTIVATED';
+
 export interface OnboardingSummary {
   checklistId: string;
   employeeUserId: string;
@@ -62,6 +64,7 @@ export interface OnboardingSummary {
   departmentName: string | null;
   designationName: string | null;
   joiningDate: string;
+  active: boolean;           // false = employee deactivated — rendered with the Inactive badge
   archived: boolean;
   status: OnboardingStatus;
   totalItems: number;
@@ -82,6 +85,7 @@ export interface OnboardingDetail {
   locationName: string | null;
   managerName: string | null;
   joiningDate: string;
+  active: boolean;           // false = employee deactivated — rendered with the Inactive badge
   archived: boolean;
   status: OnboardingStatus;
   completedAt: string | null;
@@ -104,13 +108,15 @@ export interface OnboardingStats {
   startedCount: number;
   completedCount: number;
   overdueCount: number;
+  deactivatedCount: number;  // in-progress flows of deactivated employees — excluded from startedCount/overdueCount
   completedThisMonthCount: number;
   avgCompletionDays: number;
 }
 
 export const onboardingApi = {
-  // status: 'IN_PROGRESS' (Onboarding Started tab) or 'COMPLETED' (Successfully Onboarded tab).
-  queue: (status: 'IN_PROGRESS' | 'COMPLETED', search: string, page: number, size: number, token: string) =>
+  // status: 'IN_PROGRESS' (Onboarding Started tab), 'COMPLETED' (Successfully Onboarded tab) or
+  // 'DEACTIVATED' (in-progress flows of since-deactivated employees — history only).
+  queue: (status: OnboardingQueueStatus, search: string, page: number, size: number, token: string) =>
     fetch(`${BASE}${buildQuery({ status, search, page, size })}`, { headers: authHeaders(token) })
       .then(r => handle<Paged<OnboardingSummary>>(r)),
 

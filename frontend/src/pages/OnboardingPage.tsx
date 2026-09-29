@@ -8,11 +8,13 @@ import { useToast } from '../context/ToastContext';
 import {
   onboardingApi, type OnboardingSummary, type OnboardingDetail, type OnboardingItem,
   type OnboardingStatus, type StartOnboardingPayload, type OnboardingStats, type Paged,
+  type OnboardingQueueStatus,
 } from '../api/onboarding';
 import type { EmployeeRecord } from '../api/employees';
 import { assetsApi, type AssetResponse } from '../api/assets';
 import { documentsForEmployee, fetchDocumentFile, type EmployeeDocument } from '../api/documents';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import { StatusBadge, inactiveDimStyle, InactiveEditBanner } from '../components/EmployeeStatus';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
@@ -394,6 +396,12 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
         <ChevronLeft size={14} /> Back to onboarding queue
       </button>
 
+      {!detail.active && (
+        <div style={{ marginBottom: 16 }}>
+          <InactiveEditBanner message={`${detail.employeeName} has been deactivated — this onboarding flow is kept for history only and is not counted as an active onboarding case.`} />
+        </div>
+      )}
+
       {detail.archived && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(47,182,124,.12)', border: '1px solid rgba(47,182,124,.3)', color: '#2FB67C', borderRadius: 10, padding: '13px 18px', marginBottom: 16, fontSize: 13.5, fontWeight: 600 }}>
           <Archive size={16} /> Onboarding complete — archived on {fmtDate(detail.completedAt)}.
@@ -432,7 +440,7 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
           </div>
         </div>
         <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, minWidth: 150, flexShrink: 0 }}>
-          <StatusPill status={detail.status} />
+          {detail.active ? <StatusPill status={detail.status} /> : <StatusBadge active={false} />}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{pct}%</span>
             <div style={{ width: 80, height: 6, borderRadius: 20, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -537,13 +545,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Main page ────────────────────────────────────────────────
 
-type OnboardingTab = 'pending' | 'started' | 'completed';
+// 'deactivated' holds in-progress flows whose employee was deactivated mid-onboarding — kept
+// visible for history but out of 'started' and its counts (the server excludes them there).
+type OnboardingTab = 'pending' | 'started' | 'completed' | 'deactivated';
 
 const PAGE_SIZE = 20;
 
-const STATUS_FOR_TAB: Record<'started' | 'completed', 'IN_PROGRESS' | 'COMPLETED'> = {
+const STATUS_FOR_TAB: Record<Exclude<OnboardingTab, 'pending'>, OnboardingQueueStatus> = {
   started: 'IN_PROGRESS',
   completed: 'COMPLETED',
+  deactivated: 'DEACTIVATED',
 };
 
 export default function OnboardingPage() {
@@ -630,6 +641,8 @@ export default function OnboardingPage() {
 
   const pendingRows = pendingData?.content ?? [];
   const queueRows = queueData?.content ?? [];
+  // Deactivated rows are still-open flows, so they show joining date + frozen progress like Started.
+  const inProgressTab = tab === 'started' || tab === 'deactivated';
   const totalElements = (tab === 'pending' ? pendingData : queueData)?.totalElements ?? 0;
   const totalPages = (tab === 'pending' ? pendingData : queueData)?.totalPages ?? 0;
   const overdueCount = stats?.overdueCount ?? 0;
@@ -657,6 +670,7 @@ export default function OnboardingPage() {
         <button onClick={() => switchTab('pending')} style={tabStyle(tab === 'pending')}>Pending Onboarding ({stats?.pendingCount ?? 0})</button>
         <button onClick={() => switchTab('started')} style={tabStyle(tab === 'started')}>Onboarding Started ({stats?.startedCount ?? 0})</button>
         <button onClick={() => switchTab('completed')} style={tabStyle(tab === 'completed')}>Successfully Onboarded ({stats?.completedCount ?? 0})</button>
+        <button onClick={() => switchTab('deactivated')} style={tabStyle(tab === 'deactivated')}>Deactivated ({stats?.deactivatedCount ?? 0})</button>
       </div>
 
       <div style={{ marginBottom: 12, maxWidth: 340, position: 'relative' }}>
@@ -737,8 +751,8 @@ export default function OnboardingPage() {
                 <tr>
                   <th style={thS}>New hire</th>
                   <th style={thS}>Department</th>
-                  <th style={thS}>{tab === 'started' ? 'Joining date' : 'Completed on'}</th>
-                  {tab === 'started' ? <th style={thS}>Progress</th> : <th style={thS}>Duration</th>}
+                  <th style={thS}>{inProgressTab ? 'Joining date' : 'Completed on'}</th>
+                  {inProgressTab ? <th style={thS}>Progress</th> : <th style={thS}>Duration</th>}
                   <th style={thS}>Status</th>
                   {tab === 'started' && <th style={thS}>Next due</th>}
                   <th style={thS}></th>
@@ -762,7 +776,7 @@ export default function OnboardingPage() {
                     <tr
                       key={r.checklistId}
                       onClick={() => setSelected(r.checklistId)}
-                      style={{ cursor: 'pointer' }}
+                      style={{ cursor: 'pointer', ...inactiveDimStyle(r.active) }}
                       onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
                     >
@@ -779,8 +793,8 @@ export default function OnboardingPage() {
                         {r.departmentName ?? '—'}
                         {r.designationName && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 1 }}>{r.designationName}</div>}
                       </td>
-                      <td style={tdS}>{fmtDate(tab === 'started' ? r.joiningDate : r.completedDate)}</td>
-                      {tab === 'started' ? (
+                      <td style={tdS}>{fmtDate(inProgressTab ? r.joiningDate : r.completedDate)}</td>
+                      {inProgressTab ? (
                         <td style={tdS}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 150 }}>
                             <div style={{ flex: 1, height: 6, borderRadius: 20, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -792,7 +806,7 @@ export default function OnboardingPage() {
                       ) : (
                         <td style={tdS}>{r.durationDays} days</td>
                       )}
-                      <td style={tdS}><StatusPill status={r.status} /></td>
+                      <td style={tdS}>{r.active ? <StatusPill status={r.status} /> : <StatusBadge active={false} />}</td>
                       {tab === 'started' && (
                         <td style={tdS}>{r.nextDueLabel ?? '—'}{r.nextDueDate ? ` · ${fmtDate(r.nextDueDate)}` : ''}</td>
                       )}

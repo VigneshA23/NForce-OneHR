@@ -15,6 +15,8 @@ public class OnboardingStatsDto {
     private long startedCount;
     private long completedCount;
     private long overdueCount;
+    // IN_PROGRESS checklists whose employee was deactivated — excluded from startedCount/overdueCount.
+    private long deactivatedCount;
     private long completedThisMonthCount;
     private long avgCompletionDays;
 }

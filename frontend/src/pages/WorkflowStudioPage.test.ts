@@ -103,6 +103,12 @@ describe('validateRuleForm', () => {
 
   it('rejects MANAGER selected as a second-approval role (it is always implicit)', () => {
     const errors = validateRuleForm({ ...valid, secondApprovalRoles: ['MANAGER'] }, metadata);
+    expect(errors.some(e => e.includes('MANAGER is always included'))).toBe(true);
+  });
+
+  it('requires at least one second-approval role', () => {
+    const errors = validateRuleForm({ ...valid, secondApprovalRoles: [] }, metadata);
+    expect(errors.some(e => e.includes('second-approval role'))).toBe(true);
     expect(errors.length).toBeGreaterThan(0);
   });
 });

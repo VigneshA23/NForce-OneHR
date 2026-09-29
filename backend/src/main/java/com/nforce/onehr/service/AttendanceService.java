@@ -1630,8 +1630,13 @@ public class AttendanceService {
      * purely a same-employee, location-derived TIMEZONE correction (not a location filter): an
      * employee whose Location timezone sits on the other side of local midnight from the
      * business zone has their check-in workDate stamped one day off, and must still count as
-     * checked in today rather than wrongly appear in "Not in yet today". A candidate list with
-     * no match on either date means the employee genuinely hasn't punched for either day.
+     * checked in today rather than wrongly appear in "Not in yet today". Last, a still-OPEN
+     * session (checked in, not yet checked out) dated the day before counts too: a check-in's
+     * workDate is shift-relative (see ShiftDayPolicy#shiftDayOf — an overnight shift, or an early
+     * arrival inside the previous shift-day's boundary, is stamped yesterday), so an employee who
+     * is checked in right now must never show as "Not in yet" to their manager merely because
+     * that session's workDate isn't today's calendar date. A candidate list with no match on any
+     * of these means the employee genuinely hasn't punched.
      */
     private Attendance resolveRosterRecord(List<Attendance> candidates, Employee employee, LocalDate day) {
         if (candidates == null || candidates.isEmpty()) {
@@ -1639,15 +1644,33 @@ public class AttendanceService {
         }
         LocalDate employeeToday = LocalDate.now(attendanceRulesService.resolveEmployeeZoneId(employee));
         Attendance fallback = null;
+        Attendance openFromPreviousDay = null;
         for (Attendance candidate : candidates) {
             if (candidate.getWorkDate().equals(day)) {
                 return candidate;
             }
             if (candidate.getWorkDate().equals(employeeToday)) {
                 fallback = candidate;
+            } else if (candidate.getWorkDate().equals(day.minusDays(1))
+                    && candidate.getCheckInAt() != null && candidate.getCheckOutAt() == null) {
+                openFromPreviousDay = candidate;
             }
         }
-        return fallback;
+        if (fallback != null) {
+            return fallback;
+        }
+        return openFromPreviousDay != null && !isStaleOpenSession(openFromPreviousDay, employee)
+                ? openFromPreviousDay : null;
+    }
+
+    /** A forgotten check-out from a past shift-day is stale, not "still in" — same staleness test
+     * as flagMissingCheckoutIfStale (the session's interpreted workDate has moved past its own). A
+     * legacy row whose shift can't be resolved is treated as stale, never guessed as "in". */
+    private boolean isStaleOpenSession(Attendance record, Employee employee) {
+        AttendanceInterpretation interpretation =
+                attendanceInterpretationService.interpretExistingSession(record, now(employee));
+        return interpretation.isLegacyUnresolved()
+                || interpretation.getWorkDate().isAfter(record.getWorkDate());
     }
 
     private AttendanceResponse toResponse(Attendance record, Employee employee) {
