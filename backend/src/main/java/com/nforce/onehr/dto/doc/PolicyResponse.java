@@ -34,4 +34,11 @@ public class PolicyResponse {
     public static PolicyResponse from(Policy p) {
         return from(p, null, null);
     }
+
+    public static PolicyResponse from(PolicyListItem p, Boolean acknowledged, Instant acknowledgedAt) {
+        return new PolicyResponse(p.getId(), p.getTitle(), p.getVersion(), p.getDescription(),
+                p.getAudience(), p.isRequired(), p.getPublishedAt(), p.getPublishedBy(), p.isActive(),
+                acknowledged, acknowledgedAt, p.getVersionNumber(), p.getPreviousVersionId(),
+                p.getAttachmentName() != null, p.getAttachmentName());
+    }
 }
