@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, Check, X, ShieldAlert } from 'lucide-react';
+import { Plus, X, ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { KebabMenu } from '../components/KebabMenu';
 import {
   workflowRulesApi, type ApprovalRule, type ApprovalRuleMetadata, type ApprovalRulePreview,
 } from '../api/workflowRules';
@@ -468,21 +469,18 @@ export default function WorkflowStudioPage() {
                   <td style={tdS}><StatusPill active={rule.active} /></td>
                   <td style={{ ...tdS, whiteSpace: 'nowrap' }}>{rule.updatedByName ?? rule.createdByName}</td>
                   <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => openEdit(rule)} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12 }}>Edit</button>
-                      {rule.active ? (
-                        <button onClick={() => setConfirmTarget({ rule, action: 'deactivate' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12 }}>Deactivate</button>
-                      ) : (
-                        <>
-                          <button onClick={() => setConfirmTarget({ rule, action: 'activate' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12, background: 'rgba(47,182,124,.15)', borderColor: 'rgba(47,182,124,.3)', color: '#2FB67C' }}>
-                            <Check size={12} style={{ verticalAlign: -1 }} /> Activate
-                          </button>
-                          <button onClick={() => setConfirmTarget({ rule, action: 'delete' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12, background: 'rgba(228,55,61,.1)', borderColor: 'rgba(228,55,61,.28)', color: '#E4373D' }}>
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {/* Kebab menu, matching the row-actions pattern used across the other admin
+                        tables (User Management, Policies & Announcements) — see hr-ux-audit
+                        finding UI-004 — rather than this table's own always-visible text links. */}
+                    <KebabMenu items={[
+                      { label: 'Edit', onClick: () => openEdit(rule) },
+                      ...(rule.active
+                        ? [{ label: 'Deactivate', onClick: () => setConfirmTarget({ rule, action: 'deactivate' as const }) }]
+                        : [
+                            { label: 'Activate', onClick: () => setConfirmTarget({ rule, action: 'activate' as const }) },
+                            { label: 'Delete', onClick: () => setConfirmTarget({ rule, action: 'delete' as const }), danger: true },
+                          ]),
+                    ]} />
                   </td>
                 </tr>
               ))}

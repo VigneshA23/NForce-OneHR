@@ -298,8 +298,20 @@ public class LeaveService {
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
         if (hasOverrideRole(actor)) {
-            List<LeaveRequest> requests = leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
-                    .filter(r -> isVisibleToOverrideActor(r, actor))
+            List<LeaveRequest> allPending = leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING");
+            // Batched equivalent of isVisibleToOverrideActor/resolveSuperAdminApprover — those do
+            // 2-3 DB round trips per employee, which turned this into an N+1 query storm against a
+            // remote DB (took 40+ seconds with a modest pending-request count). Requesters who
+            // hold SUPER_ADMIN are normally 0-1 out of the whole pending set, so resolving that
+            // routing decision per unique requester once, up front, is equivalent but O(1) queries
+            // for everyone else instead of O(N).
+            Map<UUID, UUID> superAdminApproverById = superAdminApproverByEmployeeId(
+                    allPending.stream().map(LeaveRequest::getEmployeeUserId).collect(Collectors.toSet()));
+            List<LeaveRequest> requests = allPending.stream()
+                    .filter(r -> {
+                        UUID superAdminApprover = superAdminApproverById.get(r.getEmployeeUserId());
+                        return superAdminApprover == null || superAdminApprover.equals(actor.getId());
+                    })
                     .collect(Collectors.toList());
             Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
             Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
@@ -319,11 +331,6 @@ public class LeaveService {
         return requests.stream()
                 .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
-    }
-
-    private boolean isVisibleToOverrideActor(LeaveRequest request, User actor) {
-        UUID superAdminApprover = resolveSuperAdminApprover(request.getEmployeeUserId());
-        return superAdminApprover == null || superAdminApprover.equals(actor.getId());
     }
 
     /**
@@ -578,7 +585,7 @@ public class LeaveService {
     }
 
     /**
-     * The ONE routing decision reused by the approval queue ({@link #isVisibleToOverrideActor}),
+     * The ONE routing decision reused by the approval queue ({@link #superAdminApproverByEmployeeId}),
      * approval authorization ({@link #requireAuthorizedApprover}), and the submission
      * notification ({@link #notifySubmission}) — so those three can never disagree about who a
      * Super Admin's own leave request routes to.
@@ -601,6 +608,31 @@ public class LeaveService {
         return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .map(EmployeeManagerHistory::getManagerUserId)
                 .orElse(employeeId);
+    }
+
+    /**
+     * Batched equivalent of calling {@link #resolveSuperAdminApprover} once per id in a loop: one
+     * bulk {@code findAllById} instead of N single-row lookups (+ N more for each one's lazy
+     * {@code roles}), and the remaining per-employee {@code historyRepository} lookup only runs
+     * for the (normally 0-1) employees who actually hold SUPER_ADMIN, not for every candidate.
+     *
+     * @return map of employeeId → routed approver id, containing only the employees for whom the
+     *         override actually applies (absent means "not a Super Admin, use normal routing").
+     */
+    private Map<UUID, UUID> superAdminApproverByEmployeeId(Set<UUID> employeeIds) {
+        if (employeeIds.isEmpty()) return Map.of();
+        Set<UUID> superAdminIds = userRepository.findAllById(employeeIds).stream()
+                .filter(u -> hasRole(u, "SUPER_ADMIN"))
+                .map(User::getId)
+                .collect(Collectors.toSet());
+        if (superAdminIds.isEmpty()) return Map.of();
+        Map<UUID, UUID> approverById = new HashMap<>();
+        for (UUID id : superAdminIds) {
+            approverById.put(id, historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(id)
+                    .map(EmployeeManagerHistory::getManagerUserId)
+                    .orElse(id));
+        }
+        return approverById;
     }
 
     private boolean hasRole(User user, String roleCode) {
