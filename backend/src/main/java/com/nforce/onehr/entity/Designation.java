@@ -24,6 +24,11 @@ public class Designation {
     @Column(length = 20)
     private String level;
 
+    // Nullable only for rows that predate V202 and haven't been re-saved yet — every designation
+    // created/updated through OrgService now requires one (see CreateDesignationRequest).
+    @Column(name = "department_id")
+    private UUID departmentId;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private boolean active = true;

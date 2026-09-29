@@ -56,7 +56,7 @@ const TABS: Record<OrgTab, TabDef> = {
   },
   designations: {
     label: 'Designations', icon: Briefcase,
-    columns: ['Title', 'Grade / Band', 'Level', 'Employees', 'Status'],
+    columns: ['Title', 'Department', 'Grade / Band', 'Level', 'Employees', 'Status'],
     addLabel: 'Add Designation',
     emptyLine: 'No designations defined yet. Add a title to assign to employees.',
   },
@@ -401,9 +401,12 @@ interface AddEditModalProps {
   onClose: () => void;
   onSaved: () => void;
   token: string;
+  // Designations are department-scoped (V202) — only used by the 'designations' tab, to populate
+  // its own Department select below.
+  departments: DepartmentRow[];
 }
 
-function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalProps) {
+function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: AddEditModalProps) {
   const isEdit = !!editRow;
   const isLocations = tab === 'locations';
   const primaryLabel = tab === 'designations' ? 'Title' : 'Name';
@@ -415,6 +418,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
   });
   const [grade, setGrade] = useState(() => (editRow && tab === 'designations' ? ((editRow as DesignationRow).grade ?? '') : ''));
   const [level, setLevel] = useState(() => (editRow && tab === 'designations' ? ((editRow as DesignationRow).level ?? '') : ''));
+  const [departmentId, setDepartmentId] = useState(() => (editRow && tab === 'designations' ? ((editRow as DesignationRow).departmentId ?? '') : ''));
   const [city, setCity] = useState(() => (editRow && isLocations ? ((editRow as LocationRow).city ?? '') : ''));
   const [state, setState] = useState(() => (editRow && isLocations ? ((editRow as LocationRow).state ?? '') : ''));
   const [country, setCountry] = useState(() => (editRow && isLocations ? ((editRow as LocationRow).country ?? '') : ''));
@@ -452,6 +456,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
         setError('Grade/Band must contain exactly 1 letter followed by 1 number (e.g. L1)');
         return;
       }
+      if (!departmentId) { setError('Department is required'); return; }
     } else if (isLocations) {
       // Location names are alphabetic only — letters and spaces (for multi-word names like
       // "Chennai HQ"), no digits, no hyphens, no other special characters.
@@ -486,7 +491,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
           await orgApi.updateDepartment(token, editRow.id, trimmed);
         } else if (tab === 'designations') {
           await orgApi.updateDesignation(token, editRow.id, {
-            title: trimmed, grade: grade.trim() || undefined, level: level || undefined,
+            title: trimmed, departmentId, grade: grade.trim() || undefined, level: level || undefined,
           });
         } else {
           await orgApi.updateLocation(token, editRow.id, {
@@ -502,7 +507,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
         } else if (tab === 'departments') {
           await orgApi.createDepartment(token, trimmed);
         } else if (tab === 'designations') {
-          await orgApi.createDesignation(token, trimmed, grade.trim() || undefined, level || undefined);
+          await orgApi.createDesignation(token, trimmed, departmentId, grade.trim() || undefined, level || undefined);
         } else {
           await orgApi.createLocation(token, {
             name: trimmed,
@@ -572,6 +577,16 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token }: AddEditModalPro
 
           {tab === 'designations' && (
             <>
+              <label style={labelStyle}>
+                <span style={labelTextStyle}>
+                  Department <span style={{ color: 'var(--risk)' }}>*</span>
+                </span>
+                <select value={departmentId} onChange={e => setDepartmentId(e.target.value)}
+                  style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}>
+                  <option value="">— Select a department —</option>
+                  {departments.filter(d => d.active || d.id === departmentId).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </label>
               <label style={labelStyle}>
                 <span style={labelTextStyle}>Grade / Band</span>
                 <input value={grade} onChange={e => setGrade(e.target.value)}
@@ -1769,6 +1784,7 @@ export default function OrgSetupPage() {
           tab={activeTab}
           editRow={addEditModal.row}
           token={token}
+          departments={departments}
           onClose={() => setAddEditModal(s => ({ ...s, open: false }))}
           onSaved={() => {
             fetchAll();
@@ -2121,6 +2137,7 @@ export default function OrgSetupPage() {
                         {d.title}
                       </div>
                     </td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.departmentName ?? '—'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '—'}</td>
                     <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>

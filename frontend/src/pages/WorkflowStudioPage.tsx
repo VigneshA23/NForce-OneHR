@@ -48,8 +48,14 @@ export const EMPTY_FORM: RuleFormValues = {
 
 /** MANAGER is always stage one (structural, not configurable — see backend's own validation)
  *  followed by whichever roles the admin picked for the "second approval" branch. */
+// Stages run in this order (see ExpenseService#finalApprove), so they're saved in hierarchy
+// order rather than the order the checkboxes happened to be ticked — ticking Super Admin before
+// HR Admin must still mean Manager → HR Admin → Super Admin.
+const SECOND_APPROVAL_ORDER = ['HR_ADMIN', 'SUPER_ADMIN'];
+
 export function stagesFromForm(values: RuleFormValues): string[] {
-  return ['MANAGER', ...values.secondApprovalRoles.filter(r => r !== 'MANAGER')];
+  const rank = (r: string) => { const i = SECOND_APPROVAL_ORDER.indexOf(r); return i === -1 ? SECOND_APPROVAL_ORDER.length : i; };
+  return ['MANAGER', ...values.secondApprovalRoles.filter(r => r !== 'MANAGER').sort((a, b) => rank(a) - rank(b))];
 }
 
 /** Client-side validation mirroring the backend's ApprovalRuleService#validateCore — backend

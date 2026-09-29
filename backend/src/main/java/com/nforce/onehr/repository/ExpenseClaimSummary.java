@@ -34,12 +34,14 @@ public class ExpenseClaimSummary {
     private final Instant paidAt;
     private final Instant createdAt;
     private final boolean requiresSecondApproval;
+    private final String pendingFinalStage;
 
     public ExpenseClaimSummary(UUID id, UUID employeeUserId, Integer categoryId, BigDecimal amount,
                                 LocalDate expenseDate, String businessPurpose, String status,
                                 UUID managerDecidedBy, Instant managerDecidedAt, String managerRejectionReason,
                                 UUID finalDecidedBy, Instant finalDecidedAt, String finalRejectionReason,
-                                Instant paidAt, Instant createdAt, boolean requiresSecondApproval) {
+                                Instant paidAt, Instant createdAt, boolean requiresSecondApproval,
+                                String pendingFinalStage) {
         this.id = id;
         this.employeeUserId = employeeUserId;
         this.categoryId = categoryId;
@@ -56,5 +58,6 @@ public class ExpenseClaimSummary {
         this.paidAt = paidAt;
         this.createdAt = createdAt;
         this.requiresSecondApproval = requiresSecondApproval;
+        this.pendingFinalStage = pendingFinalStage;
     }
 }

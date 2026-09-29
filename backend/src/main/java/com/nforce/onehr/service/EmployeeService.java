@@ -112,6 +112,7 @@ public class EmployeeService {
                 throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
             emp.setDesignation(desig);
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             Location loc = locationRepository.findById(req.getLocationId())
                     .orElseThrow(() -> new IllegalArgumentException("Selected location was not found."));
@@ -285,6 +286,7 @@ public class EmployeeService {
                 emp.setDesignation(newDesignation);
             }
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             // TEMPORARY (ONEHR-336 follow-up): see UserManagementService#updateUser's identical
             // guard — Location reassignment via Employee update is disabled for now, pending a
@@ -344,6 +346,21 @@ public class EmployeeService {
      * validates the timezone against a fixed supported set — see OrgService#SUPPORTED_TIMEZONES),
      * but this is the hard backstop this feature explicitly requires.
      */
+    // Designations are department-scoped (see V202) — a designation whose own departmentId
+    // disagrees with the employee's resolved department is an invalid combination (e.g. "QA
+    // Engineer III" under Finance). A designation with no departmentId at all predates V202 and
+    // isn't yet scoped to any one department, so it's allowed under any department until re-saved.
+    // Mirrors UserManagementService's identical check.
+    private void requireDesignationMatchesDepartment(Employee emp) {
+        Department dept = emp.getDepartment();
+        Designation desig = emp.getDesignation();
+        if (dept != null && desig != null && desig.getDepartmentId() != null
+                && !desig.getDepartmentId().equals(dept.getId())) {
+            throw new IllegalArgumentException(
+                    "'" + desig.getTitle() + "' is not a designation under the '" + dept.getName() + "' department.");
+        }
+    }
+
     private void validateAssignableLocation(Location location) {
         if (!location.isActive()) {
             throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");

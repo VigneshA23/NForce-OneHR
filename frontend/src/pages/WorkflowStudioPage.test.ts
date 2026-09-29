@@ -54,6 +54,10 @@ describe('stagesFromForm', () => {
     const values: RuleFormValues = { ...EMPTY_FORM, secondApprovalRoles: ['MANAGER', 'HR_ADMIN'] };
     expect(stagesFromForm(values)).toEqual(['MANAGER', 'HR_ADMIN']);
   });
+  it('orders HR Admin before Super Admin regardless of tick order', () => {
+    const values: RuleFormValues = { ...EMPTY_FORM, secondApprovalRoles: ['SUPER_ADMIN', 'HR_ADMIN'] };
+    expect(stagesFromForm(values)).toEqual(['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']);
+  });
 });
 
 describe('validateRuleForm', () => {
