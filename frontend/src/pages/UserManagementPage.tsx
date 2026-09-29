@@ -363,8 +363,15 @@ function getDepartmentOptions(departments: any[], currentId: string | undefined)
   return departments.filter(d => d.active !== false || d.id === currentId);
 }
 
-function getDesignationOptions(designations: any[], currentId: string | undefined): any[] {
-  return designations.filter(d => d.active !== false || d.id === currentId);
+// Designations are department-scoped (V202) — only designations mapped to the selected
+// Department are offered, so a "QA Engineer III" can no longer be picked under Finance. A
+// designation with no departmentId at all predates V202 and isn't scoped to any department yet;
+// it's excluded here as unmapped (same as any other department mismatch) until someone re-saves
+// it in Org Setup with a Department. The currently-assigned designation is always kept, exactly
+// like the active/inactive exception above, so re-saving an employee whose designation was set
+// before this filter existed doesn't silently wipe it off the form.
+function getDesignationOptions(designations: any[], currentId: string | undefined, departmentId: string | undefined): any[] {
+  return designations.filter(d => (d.active !== false || d.id === currentId) && (d.id === currentId || d.departmentId === departmentId));
 }
 
 function getLocationOptions(locations: Location[], currentId: string | undefined): Location[] {
@@ -660,13 +667,14 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             </select>
           </Field>
           <Field label="Department">
-            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
+            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
               <option value="">Select Department</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
-            <select style={inputStyle} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">Select Designation</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+            <select style={inputStyle} value={form.designationId ?? ''} disabled={!form.departmentId} onChange={e => set('designationId', e.target.value)}>
+              <option value="">{form.departmentId ? 'Select Designation' : 'Select a Department first'}</option>
+              {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           </FormSection>
@@ -884,13 +892,14 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
             </select>
           </Field>
           <Field label="Department">
-            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => set('departmentId', e.target.value)}>
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
               <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
-            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">— None —</option>{getDesignationOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+            <select style={inputStyle} disabled={gatedFieldsLocked || !form.departmentId} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
+              <option value="">{form.departmentId ? '— None —' : 'Select a Department first'}</option>
+              {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
           <Field label="Date of Joining">

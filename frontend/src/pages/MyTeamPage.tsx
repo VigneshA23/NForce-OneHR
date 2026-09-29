@@ -19,7 +19,9 @@ import { TablePagination, PAGE_SIZE_OPTIONS, clampPage, paginate } from '../comp
 import { leaveApi, type LeaveBalance, type LeaveRequestRecord } from '../api/leave';
 import { attendanceRequestApi, type AttendanceRequestRecord } from '../api/attendanceRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
-import { approvalCenterApi, type ApprovalItem } from '../api/approvalCenter';
+import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
+import { expensesApi } from '../api/expenses';
+import { assetsApi } from '../api/assets';
 import {
   employeeAssignmentsApi, type EmployeeAssignmentRow, type AssignmentLookups, type AssignmentFilters,
 } from '../api/employeeAssignments';
@@ -29,7 +31,7 @@ import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
-import { TypeBadge, groupRequestsByType } from '../components/TypeBadge';
+import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
 import { businessTodayIsoDate } from '../utils/businessDate';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
@@ -161,13 +163,31 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const type = item.requestType as 'LEAVE' | 'REGULARIZATION';
+  const type = item.requestType;
+
+  // Same per-type dispatch as ApprovalsPage.tsx's approveItem/rejectItem (expense claims route
+  // through manager- vs final-stage endpoints depending on item.approvalStage).
+  function approveCall() {
+    if (type === 'LEAVE') return leaveApi.approve(item.id, token);
+    if (type === 'REGULARIZATION') return regularizationApi.approve(item.id, token);
+    if (type === 'EXPENSE') {
+      return item.approvalStage === 'MANAGER' ? expensesApi.managerApprove(item.id, token) : expensesApi.finalApprove(item.id, token);
+    }
+    return assetsApi.approveRequest(Number(item.id), token);
+  }
+  function rejectCall(trimmedReason: string) {
+    if (type === 'LEAVE') return leaveApi.reject(item.id, trimmedReason, token);
+    if (type === 'REGULARIZATION') return regularizationApi.reject(item.id, trimmedReason, token);
+    if (type === 'EXPENSE') {
+      return item.approvalStage === 'MANAGER' ? expensesApi.managerReject(item.id, trimmedReason, token) : expensesApi.finalReject(item.id, trimmedReason, token);
+    }
+    return assetsApi.rejectRequest(Number(item.id), trimmedReason, token);
+  }
 
   async function approve() {
     setBusy(true);
     try {
-      if (type === 'LEAVE') await leaveApi.approve(item.id, token);
-      else await regularizationApi.approve(item.id, token);
+      await approveCall();
       showToast('success', `Approved — ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
@@ -180,8 +200,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     if (!reason.trim()) return;
     setBusy(true);
     try {
-      if (type === 'LEAVE') await leaveApi.reject(item.id, reason.trim(), token);
-      else await regularizationApi.reject(item.id, reason.trim(), token);
+      await rejectCall(reason.trim());
       showToast('success', `Rejected — ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
@@ -192,6 +211,10 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
 
   const detail = type === 'LEAVE'
     ? `${item.leaveTypeName} · ${fmtDateShort(item.leaveStartDate)}${item.leaveStartDate !== item.leaveEndDate ? ` – ${fmtDateShort(item.leaveEndDate)}` : ''} (${item.leaveTotalDays} day${item.leaveTotalDays !== 1 ? 's' : ''})`
+    : type === 'EXPENSE'
+    ? `${item.expenseCategoryName} · ₹${item.expenseAmount?.toFixed(2)}${item.approvalStage === 'FINAL' ? ' · awaiting final approval' : ''}`
+    : type === 'ASSET_REQUEST'
+    ? `${item.requestedCategoryName} · ${item.assetRequestReason ?? ''}`
     : `${fmtDateShort(item.attendanceDate)} · missing ${item.requestedCheckIn && item.requestedCheckOut ? 'check-in & check-out' : item.requestedCheckIn ? 'check-in' : 'check-out'}`;
 
   return (
@@ -283,12 +306,16 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
                 {requests.map(r => (
                   <div key={`${r.requestType}:${r.id}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{r.requestType === 'LEAVE' ? 'Leave request' : 'Attendance regularization'}</span>
-                      <TypeBadge type={r.requestType as 'LEAVE' | 'REGULARIZATION'} />
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{TYPE_LABELS[r.requestType]}</span>
+                      <TypeBadge type={r.requestType} />
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
                       {r.requestType === 'LEAVE'
                         ? `${r.leaveTypeName} · ${fmtDateShort(r.leaveStartDate)}${r.leaveStartDate !== r.leaveEndDate ? ` – ${fmtDateShort(r.leaveEndDate)}` : ''}`
+                        : r.requestType === 'EXPENSE'
+                        ? `${r.expenseCategoryName} · ₹${r.expenseAmount?.toFixed(2)}`
+                        : r.requestType === 'ASSET_REQUEST'
+                        ? `${r.requestedCategoryName} · ${r.assetRequestReason ?? ''}`
                         : `${fmtDateShort(r.attendanceDate)} · ${r.regularizationReason ?? ''}`}
                     </div>
                   </div>
@@ -2932,7 +2959,8 @@ export default function MyTeamPage() {
     });
     return m;
   }, [teamBalances]);
-  const attentionItems = useMemo(() => pendingItems.filter(i => i.requestType === 'LEAVE' || i.requestType === 'REGULARIZATION'), [pendingItems]);
+  const ATTENTION_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST'];
+  const attentionItems = useMemo(() => pendingItems.filter(i => ATTENTION_TYPES.includes(i.requestType)), [pendingItems]);
   const requestsByEmployee = useMemo(() => {
     const m = new Map<string, ApprovalItem[]>();
     attentionItems.forEach(i => { const arr = m.get(i.employeeUserId) ?? []; arr.push(i); m.set(i.employeeUserId, arr); });
@@ -2976,7 +3004,7 @@ export default function MyTeamPage() {
     userId: item.employeeUserId,
     fullName: item.employeeName,
     active: directReportsById.get(item.employeeUserId)?.active ?? true,
-    badge: <TypeBadge type={item.requestType as 'LEAVE' | 'REGULARIZATION'} />,
+    badge: <TypeBadge type={item.requestType} />,
   })), [attentionItems, directReportsById]);
 
   const filteredRoster = rosterRows.filter(r => {
@@ -3149,7 +3177,7 @@ export default function MyTeamPage() {
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
         <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
-        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '—' : attentionItems.length} note="pending leave & regularization requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
+        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '—' : attentionItems.length} note="pending leave, regularization, asset & expense requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
       </div>
       {kpiModal && (
         <KpiEmployeesModal
@@ -3167,7 +3195,7 @@ export default function MyTeamPage() {
               : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
               : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
               : kpiModal === 'remote' ? `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
-              : `${attentionItems.length} pending leave & regularization request${attentionItems.length === 1 ? '' : 's'}`
+              : `${attentionItems.length} pending request${attentionItems.length === 1 ? '' : 's'}`
           }
           people={
             kpiModal === 'teamSize' ? teamSizeEmployees
