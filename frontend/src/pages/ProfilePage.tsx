@@ -10,7 +10,7 @@ import profileBannerBlue from '../assets/profile-banner-blue.png';
 import profileBannerPink from '../assets/profile-banner-pink.png';
 import profileBannerGreen from '../assets/profile-banner-green.png';
 import profileBannerPurple from '../assets/profile-banner-purple.png';
-import { PhotoModal, AvatarPickerModal, dicebearUrl, ROLE_LABELS, computeDisplayName } from './profile/shared';
+import { PhotoModal, AvatarPickerModal, ProfileCoverBanner, dicebearUrl, ROLE_LABELS, computeDisplayName } from './profile/shared';
 import { AboutTab } from './profile/tabs/AboutTab';
 import { ProfileTab } from './profile/tabs/ProfileTab';
 import { JobTab } from './profile/tabs/JobTab';
@@ -41,6 +41,8 @@ export default function ProfilePage() {
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [settingAvatar, setSettingAvatar] = useState<string | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverRemoving, setCoverRemoving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('about');
 
   useEffect(() => {
@@ -95,6 +97,34 @@ export default function ProfilePage() {
       showToast('error', err instanceof Error ? err.message : 'Remove failed');
     } finally {
       setRemoving(false);
+    }
+  }
+
+  // Mirrors handlePhotoChange/handleRemovePhoto above — entirely separate state, never touches
+  // profile.photoDataUrl or the shared auth-store avatar sync those use.
+  async function handleCoverUpload(file: File) {
+    setCoverUploading(true);
+    try {
+      const updated = await profileApi.uploadCover(token, file);
+      setProfile(updated);
+      showToast('success', 'Cover updated');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Cover upload failed');
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
+  async function handleCoverRemove() {
+    setCoverRemoving(true);
+    try {
+      const updated = await profileApi.removeCover(token);
+      setProfile(updated);
+      showToast('success', 'Cover reset to default');
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to remove cover');
+    } finally {
+      setCoverRemoving(false);
     }
   }
 
@@ -158,10 +188,15 @@ export default function ProfilePage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Hero banner + identity card — page starts here, no outer page header/title. */}
       <div className="nf-profile-header" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ position: 'relative', height: 'clamp(130px, 14vw, 160px)' }}>
-          <div style={{ position: 'absolute', inset: 0, background: heroBackground }} />
-          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 85%, var(--panel) 100%)' }} />
-        </div>
+        <ProfileCoverBanner
+          coverDataUrl={profile.coverDataUrl}
+          themeBackground={heroBackground}
+          editable={profile.hasEmployeeRecord}
+          uploading={coverUploading}
+          removing={coverRemoving}
+          onUpload={handleCoverUpload}
+          onRemove={handleCoverRemove}
+        />
 
         <div className="nf-profile-row" style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '0 24px 20px' }}>
           <div className="nf-profile-top" style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flex: 1, minWidth: 0 }}>

@@ -38,6 +38,9 @@ import ApiUsagePage from './pages/ApiUsagePage';
 // Role-specific mock/visual-preview page only — not part of the real Leave Management module.
 // See the file header in LeavePreviewPage.tsx for details.
 import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
+// Design-review mock only — the My Profile cover-image feature, reusing the real
+// ProfileCoverBanner component. See the file header in ProfileCoverPreviewPage.tsx for details.
+import ProfileCoverPreviewPage from './pages/profile-cover-preview/ProfileCoverPreviewPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -111,6 +114,11 @@ export default function App() {
         <Route path="/leave-preview/manager" element={<LeavePreviewPage role="manager" />} />
         <Route path="/leave-preview/hr" element={<LeavePreviewPage role="hr" />} />
         <Route path="/leave-preview/super-admin" element={<LeavePreviewPage role="superAdmin" />} />
+
+        {/* Design-review mock only — My Profile cover-image feature, no auth, not linked from
+            the app nav. Not the real My Profile page (that's still /profile below). Reuses the
+            real ProfileCoverBanner component — see the file's own header for details. */}
+        <Route path="/profile-cover-preview" element={<ProfileCoverPreviewPage />} />
 
         {/* Auth required, password-change gate */}
         <Route
