@@ -77,6 +77,18 @@ public class ExpenseClaim {
     @Column(name = "evaluated_rule_id")
     private UUID evaluatedRuleId;
 
+    // Full ordered stage list (CSV, e.g. "MANAGER,HR_ADMIN,SUPER_ADMIN") snapshotted at submission
+    // alongside requiresSecondApproval, for the same never-re-derived reason. Null on claims that
+    // predate multi-layer approval (V201) — those keep the single either-role final stage.
+    @Column(name = "approval_stages", length = 100)
+    private String approvalStages;
+
+    // While MANAGER_APPROVED: the role (HR_ADMIN/SUPER_ADMIN) whose approval is awaited next — see
+    // ExpenseService#finalApprove, which advances it stage by stage until the last one clears the
+    // claim for payroll. Null = legacy single final stage (either role).
+    @Column(name = "pending_final_stage", length = 30)
+    private String pendingFinalStage;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

@@ -112,6 +112,7 @@ public class UserManagementService {
                 throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
             emp.setDesignation(desig);
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             Location loc = locationRepository.findById(req.getLocationId())
                     .orElseThrow(() -> new IllegalArgumentException("Selected location was not found."));
@@ -324,6 +325,7 @@ public class UserManagementService {
                 forceLogoutRequired = true;
             }
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             // TEMPORARY (ONEHR-336 follow-up): Location reassignment via Employee update is
             // disabled for now — pending a proper reassignment flow that correctly effective-dates
@@ -489,6 +491,17 @@ public class UserManagementService {
                 .map(EmployeeManagerHistory::getManagerUserId).orElse(null);
         snapshot.put("manager", resolveEmployeeName(managerId));
         return snapshot;
+    }
+
+    // Mirrors EmployeeService's identical helper — see its own Javadoc for the full rationale.
+    private void requireDesignationMatchesDepartment(Employee emp) {
+        Department dept = emp.getDepartment();
+        Designation desig = emp.getDesignation();
+        if (dept != null && desig != null && desig.getDepartmentId() != null
+                && !desig.getDepartmentId().equals(dept.getId())) {
+            throw new IllegalArgumentException(
+                    "'" + desig.getTitle() + "' is not a designation under the '" + dept.getName() + "' department.");
+        }
     }
 
     /**
