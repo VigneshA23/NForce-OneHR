@@ -3,6 +3,7 @@ package com.nforce.onehr.ai.data;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.AttendanceResponse;
+import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.ManagerDashboardDto;
@@ -24,8 +25,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.format.TextStyle;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -165,21 +168,80 @@ public final class OrganisationDataProviders {
 
         private final AttendanceService attendanceService;
         private final AttendanceRulesService attendanceRulesService;
+        private final EmployeeService employeeService;
 
         @Override public String id() { return "org-attendance.today"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
-        @Override public String title() { return "Organisation attendance today"; }
+        @Override public String title() { return "Organisation attendance for one day, by department"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
         @Override public Set<String> modules() { return Set.of("org-attendance", "attendance"); }
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
+            return fetch(context, null);
+        }
+
+        /**
+         * A single past day the question names ("yesterday", "on 25-09-2026") is read instead of
+         * today - the same {@code getDayForAll} read Attendance Administration's day roster makes for
+         * any date - and broken down by department, so "how many in Quality Engineering were absent
+         * yesterday" has a figure rather than "I can only show today" (ONEHR).
+         */
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context, String question) {
             LocalDate today = LocalDate.now(attendanceRulesService.getDefaultZoneId());
-            List<AttendanceResponse> roster = attendanceService.getDayForAll(today);
+            LocalDate day = MyTeamDateRange.named(question, today)
+                    .filter(r -> r.from().equals(r.to()) && !r.from().isAfter(today))
+                    .map(MyTeamDateRange.Range::from)
+                    .orElse(today);
+            List<AttendanceResponse> roster = attendanceService.getDayForAll(day);
             if (roster == null || roster.isEmpty()) return Optional.empty();
-            return Optional.of(TeamDataProviders.rosterSummary(roster, today, "employees on the attendance roster",
-                    "the Home page's Present Today tile")
-                    + "\nThe roster lists every employee record, including deactivated accounts, exactly as the dashboard does.");
+
+            StringBuilder out = new StringBuilder(day.equals(today)
+                    ? TeamDataProviders.rosterSummary(roster, today, "employees on the attendance roster", "the Home page's Present Today tile")
+                    : pastDaySummary(roster, day, today));
+            out.append("\nThe roster lists every employee record, including deactivated accounts, exactly as the dashboard does.");
+            out.append(byDepartment(roster, day, today));
+            return Optional.of(out.toString());
+        }
+
+        private static String pastDaySummary(List<AttendanceResponse> roster, LocalDate day, LocalDate today) {
+            List<AttendanceResponse> in = roster.stream().filter(r -> r.getCheckInAt() != null).toList();
+            List<String> onLeave = roster.stream().filter(r -> r.getCheckInAt() == null && "ON_LEAVE".equals(r.getStatus()))
+                    .map(AttendanceResponse::getFullName).toList();
+            List<String> absent = roster.stream().filter(r -> r.getCheckInAt() == null && !"ON_LEAVE".equals(r.getStatus()))
+                    .map(AttendanceResponse::getFullName).toList();
+            return ("On %s (a %s): %d of %d employees on the attendance roster checked in.".formatted(
+                            LiveDataText.relative(day, today), day.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+                            in.size(), roster.size())
+                    + "\n- On approved leave, no punch (%d): %s".formatted(onLeave.size(), onLeave.isEmpty() ? "none" : LiveDataText.names(onLeave, MAX_NAMES))
+                    + "\n- Absent - no check-in and not on leave (%d): %s".formatted(absent.size(), absent.isEmpty() ? "none" : LiveDataText.names(absent, MAX_NAMES))
+                    + "\n\"Absent\" here also counts anyone for whom that day was a weekly off or a holiday; say so if the day was one.");
+        }
+
+        /** Per department, active accounts only - a deactivated employee is not absent from anything. */
+        private String byDepartment(List<AttendanceResponse> roster, LocalDate day, LocalDate today) {
+            Map<String, DirectoryEntryDto> directory = employeeService.listDirectory().stream()
+                    .collect(Collectors.toMap(DirectoryEntryDto::getUserId, Function.identity(), (a, b) -> a));
+            Map<String, List<AttendanceResponse>> byDept = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            for (AttendanceResponse r : roster) {
+                DirectoryEntryDto entry = r.getEmployeeUserId() == null ? null : directory.get(r.getEmployeeUserId().toString());
+                if (entry == null || !entry.isActive()) continue;
+                String dept = entry.getDepartmentName() == null || entry.getDepartmentName().isBlank() ? "(no department)" : entry.getDepartmentName();
+                byDept.computeIfAbsent(dept, d -> new java.util.ArrayList<>()).add(r);
+            }
+            String missing = day.equals(today) ? "not checked in yet" : "absent (no check-in, not on leave)";
+            StringBuilder out = new StringBuilder("\nBy department on %s, active employees only - checked in / on leave / %s:"
+                    .formatted(LiveDataText.relative(day, today), missing));
+            byDept.forEach((dept, rows) -> {
+                List<String> notIn = rows.stream().filter(r -> r.getCheckInAt() == null && !"ON_LEAVE".equals(r.getStatus()))
+                        .map(AttendanceResponse::getFullName).toList();
+                long in = rows.stream().filter(r -> r.getCheckInAt() != null).count();
+                long leave = rows.stream().filter(r -> r.getCheckInAt() == null && "ON_LEAVE".equals(r.getStatus())).count();
+                out.append("\n- %s (%d active): %d checked in, %d on leave, %d %s%s".formatted(dept, rows.size(), in, leave,
+                        notIn.size(), missing, notIn.isEmpty() ? "" : " - " + LiveDataText.names(notIn, MAX_NAMES)));
+            });
+            return out.toString();
         }
     }
 

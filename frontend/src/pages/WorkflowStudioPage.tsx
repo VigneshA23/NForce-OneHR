@@ -84,6 +84,8 @@ export function validateRuleForm(values: RuleFormValues, metadata: ApprovalRuleM
   }
   if (values.secondApprovalRoles.some(r => r === 'MANAGER')) {
     errors.push('MANAGER is always included automatically and cannot be selected as a second-approval role');
+  } else if (values.secondApprovalRoles.length === 0) {
+    errors.push('At least one second-approval role (HR Admin or Super Admin) is required');
   }
   return errors;
 }

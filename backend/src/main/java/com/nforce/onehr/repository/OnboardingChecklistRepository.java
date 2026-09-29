@@ -35,19 +35,40 @@ public interface OnboardingChecklistRepository extends JpaRepository<OnboardingC
     // with "could not determine data type of parameter $1". Always binding a concrete, non-null
     // String (used only inside LIKE, whose text context Postgres CAN type-infer) avoids that
     // failure mode entirely instead of relying on the query's very first few executions being
-    // lucky enough to run before the threshold trips.
+    // lucky enough to run before the threshold trips. A still-IN_PROGRESS checklist whose
+    // employee has since been deactivated (User.active = false) is excluded — it's no longer an
+    // active onboarding case, see #searchDeactivatedInProgress — whereas a COMPLETED one stays in
+    // Successfully Onboarded as history (the row carries an `active` flag for the Inactive badge).
     @Query(
             value = "SELECT c FROM OnboardingChecklist c "
                     + "JOIN Employee e ON e.userId = c.employeeUserId "
                     + "JOIN User u ON u.id = c.employeeUserId "
                     + "WHERE u.deletedAt IS NULL AND c.status = :status "
+                    + "AND (c.status = 'COMPLETED' OR u.active = true) "
                     + "AND (LOWER(e.fullName) LIKE :pattern OR LOWER(e.employeeCode) LIKE :pattern)",
             countQuery = "SELECT COUNT(c) FROM OnboardingChecklist c "
                     + "JOIN Employee e ON e.userId = c.employeeUserId "
                     + "JOIN User u ON u.id = c.employeeUserId "
                     + "WHERE u.deletedAt IS NULL AND c.status = :status "
+                    + "AND (c.status = 'COMPLETED' OR u.active = true) "
                     + "AND (LOWER(e.fullName) LIKE :pattern OR LOWER(e.employeeCode) LIKE :pattern)")
     Page<OnboardingChecklist> searchByStatus(@Param("status") String status, @Param("pattern") String pattern, Pageable pageable);
+
+    // Backs OnboardingService#searchQueue's DEACTIVATED tab — checklists still IN_PROGRESS when
+    // their employee was deactivated (not soft-deleted). Kept visible for history, but out of the
+    // Onboarding Started tab and its counts. Same always-non-null `pattern` contract as above.
+    @Query(
+            value = "SELECT c FROM OnboardingChecklist c "
+                    + "JOIN Employee e ON e.userId = c.employeeUserId "
+                    + "JOIN User u ON u.id = c.employeeUserId "
+                    + "WHERE u.deletedAt IS NULL AND u.active = false AND c.status = 'IN_PROGRESS' "
+                    + "AND (LOWER(e.fullName) LIKE :pattern OR LOWER(e.employeeCode) LIKE :pattern)",
+            countQuery = "SELECT COUNT(c) FROM OnboardingChecklist c "
+                    + "JOIN Employee e ON e.userId = c.employeeUserId "
+                    + "JOIN User u ON u.id = c.employeeUserId "
+                    + "WHERE u.deletedAt IS NULL AND u.active = false AND c.status = 'IN_PROGRESS' "
+                    + "AND (LOWER(e.fullName) LIKE :pattern OR LOWER(e.employeeCode) LIKE :pattern)")
+    Page<OnboardingChecklist> searchDeactivatedInProgress(@Param("pattern") String pattern, Pageable pageable);
 
     // Backs OnboardingService#completeOnboarding — an atomic conditional update instead of a
     // read-then-write, so two concurrent completion requests for the same checklist can't both

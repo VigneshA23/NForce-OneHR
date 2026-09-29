@@ -5,6 +5,7 @@ import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.contract.AssistantResponseType;
 import com.nforce.onehr.ai.contract.ConfidenceLevel;
 import com.nforce.onehr.ai.contract.NavigationAction;
+import com.nforce.onehr.ai.contract.RelatedItem;
 import com.nforce.onehr.ai.contract.ShellRole;
 import com.nforce.onehr.ai.navigation.NavigationValidator;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,25 @@ public class UnknownResponses {
                 "I could not find enough information about that in OneHR to answer reliably, so I would "
                         + "rather not guess. Try rephrasing with the wording OneHR uses, or raise a ticket "
                         + "with HR from Help & Guidance.");
+    }
+
+    /**
+     * Nothing but filler words - "what", "is", "my" sent on their own. Asked back rather than sent
+     * to the model, which answered them with the internals refusal (ONEHR). No help link: the user
+     * has not asked anything yet that Help &amp; Guidance could answer.
+     */
+    public AssistantResponse needsMoreDetail(AssistantRequestContext context) {
+        return AssistantResponse.builder()
+                .type(AssistantResponseType.UNKNOWN)
+                .answer("Could you please give a few more details about what you'd like to know? For example, "
+                        + "ask about your leave balance, your attendance, or how to do something in OneHR.")
+                .steps(List.of())
+                .related(List.of(
+                        RelatedItem.builder().label("What is my leave balance?").build(),
+                        RelatedItem.builder().label("Show my last 5 attendance records").build(),
+                        RelatedItem.builder().label("How do I apply for leave?").build()))
+                .confidence(ConfidenceLevel.LOW)
+                .build();
     }
 
     /** The question was not about OneHR. Declining is the product working, not failing. */

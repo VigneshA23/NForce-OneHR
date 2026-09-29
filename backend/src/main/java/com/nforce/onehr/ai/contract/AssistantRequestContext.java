@@ -10,9 +10,9 @@ import java.util.UUID;
  * Everything the assistant is allowed to know about who is asking. Built entirely server-side from
  * the authenticated principal — nothing here is ever read from the request body.
  *
- * <p>Note what is absent: no email, no name, no employee record. Identity beyond {@code userId}
- * (which is used for rate limiting, conversation ownership and interaction logging, and is never
- * placed in a prompt) is not needed to answer a "how do I…" question, so it is not collected.
+ * <p>Note what is absent beyond {@link #actorEmail} and {@link #actorName}: no employee record, no
+ * contact, identity or bank detail. {@code userId} itself is used for rate limiting, conversation
+ * ownership and interaction logging, and is never placed in a prompt.
  */
 @Data
 @Builder
@@ -30,6 +30,18 @@ public class AssistantRequestContext {
      * somebody else's records.
      */
     private String actorEmail;
+
+    /**
+     * The authenticated principal's own full name, from their employee record, or null when none
+     * exists yet.
+     *
+     * <p>Exists so the model can recognise a third-person or first-name self-reference ("tell me
+     * about Praveen" asked by Praveen Gurram himself) without that turning into a lookup of someone
+     * else (ONEHR - AI chatbot fails to handle duplicate employee names). It is placed in the prompt
+     * for exactly that comparison and nothing else - it is not, on its own, authorisation to read or
+     * name anyone but the caller.
+     */
+    private String actorName;
 
     /**
      * Highest-priority role code held, from {@code RoleUtils#primaryRoleCode} — one of the seven

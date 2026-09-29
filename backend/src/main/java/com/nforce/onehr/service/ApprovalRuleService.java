@@ -268,6 +268,12 @@ public class ApprovalRuleService {
         if (!stages.get(0).equals(ApprovalRuleEvaluationService.ROLE_MANAGER)) {
             throw new IllegalArgumentException("Manager approval is always the first stage and must be included");
         }
+        // Manager is always stage one regardless (see ApprovalRuleEvaluationService), so a rule
+        // with no HR_ADMIN/SUPER_ADMIN stage decides nothing except to skip HR final clearance
+        // for every claim — whether or not its condition matches.
+        if (stages.stream().allMatch(ApprovalRuleEvaluationService.ROLE_MANAGER::equals)) {
+            throw new IllegalArgumentException("At least one second-approval role (HR Admin or Super Admin) is required");
+        }
     }
 
     private List<String> normalizeStages(List<String> stages) {

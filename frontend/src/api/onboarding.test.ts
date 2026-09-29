@@ -49,6 +49,16 @@ describe('onboardingApi.queue', () => {
     expect(url).toContain('page=2');
   });
 
+  it('requests the Deactivated tab via status=DEACTIVATED', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(pagedResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    await onboardingApi.queue('DEACTIVATED', '', 0, 20, 'token');
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain('status=DEACTIVATED');
+  });
+
   it('omits an empty search term instead of sending search=', async () => {
     const fetchMock = vi.fn().mockResolvedValue(pagedResponse());
     vi.stubGlobal('fetch', fetchMock);

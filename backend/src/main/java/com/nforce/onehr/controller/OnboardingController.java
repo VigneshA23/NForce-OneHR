@@ -24,7 +24,8 @@ public class OnboardingController {
 
     private final OnboardingService service;
 
-    // status: IN_PROGRESS (Onboarding Started tab) or COMPLETED (Successfully Onboarded tab).
+    // status: IN_PROGRESS (Onboarding Started tab), COMPLETED (Successfully Onboarded tab) or
+    // DEACTIVATED (in-progress checklists of since-deactivated employees — history only).
     @GetMapping
     public Page<OnboardingChecklistSummaryDto> queue(
             @RequestParam String status,

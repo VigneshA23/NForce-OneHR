@@ -300,6 +300,14 @@ public final class MyTeamDataProviders {
      * The Overview tab's gaps {@code TeamDataProviders.TeamAttendance}/{@code TeamLeave} don't
      * already fill: who is working from home today, and each direct report's current-year leave
      * balances.
+     *
+     * <p>Deliberately does not also declare {@code team-attendance}: that module belongs to
+     * {@code TeamDataProviders.TeamAttendance} (today's check-ins and late arrivals), a different
+     * topic. Sharing it would only mean a "team attendance" match lit up two separate provider
+     * families - {@code team-attendance} and {@code my-team-overview} - competing for one of the
+     * turn's four slots for what the question asked once (ONEHR - a self-scoped "my attendance
+     * records" question losing its own provider's slot to unrelated team matches was traced back to
+     * exactly this kind of avoidable extra family competition).
      */
     @Component
     @RequiredArgsConstructor
@@ -314,7 +322,7 @@ public final class MyTeamDataProviders {
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports on WFH today, and their current leave balances"; }
         @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
-        @Override public Set<String> modules() { return Set.of("my-team-overview", "team-attendance", "my-team", "team"); }
+        @Override public Set<String> modules() { return Set.of("my-team-overview", "my-team", "team"); }
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {

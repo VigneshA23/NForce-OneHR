@@ -140,12 +140,14 @@ public class OnboardingService {
     // Server-side searched/paginated Onboarding Started / Successfully Onboarded tabs
     // (ONEHR-488/489). Filters and pages at the database (OnboardingChecklistRepository
     // #searchByStatus) so #compute's per-employee document/asset lookups only run for the
-    // current page's rows, not every checklist on every request.
+    // current page's rows, not every checklist on every request. DEACTIVATED is the history tab
+    // for IN_PROGRESS checklists whose employee was deactivated mid-onboarding — they're excluded
+    // from IN_PROGRESS (and #stats' started/overdue counts) since they're no longer active cases.
     @Transactional(readOnly = true)
     public Page<OnboardingChecklistSummaryDto> searchQueue(String actorEmail, String status, String search, int page, int size) {
         requireAdmin(actorEmail);
-        if (!"IN_PROGRESS".equals(status) && !"COMPLETED".equals(status)) {
-            throw new IllegalArgumentException("status must be IN_PROGRESS or COMPLETED");
+        if (!"IN_PROGRESS".equals(status) && !"COMPLETED".equals(status) && !"DEACTIVATED".equals(status)) {
+            throw new IllegalArgumentException("status must be IN_PROGRESS, COMPLETED or DEACTIVATED");
         }
         String pattern = (search == null || search.isBlank()) ? "%" : "%" + search.trim().toLowerCase() + "%";
         Sort sort = "COMPLETED".equals(status)
@@ -154,7 +156,10 @@ public class OnboardingService {
         Pageable pageable = PageRequest.of(page, size, sort);
         LocalDate today = LocalDate.now();
 
-        return checklistRepo.searchByStatus(status, pattern, pageable)
+        Page<OnboardingChecklist> rows = "DEACTIVATED".equals(status)
+                ? checklistRepo.searchDeactivatedInProgress(pattern, pageable)
+                : checklistRepo.searchByStatus(status, pattern, pageable);
+        return rows
                 .map(c -> {
                     Employee emp = employeeRepo.findById(c.getEmployeeUserId())
                             .orElseThrow(() -> new NoSuchElementException("Employee not found: " + c.getEmployeeUserId()));
@@ -171,8 +176,11 @@ public class OnboardingService {
         requireAdmin(actorEmail);
         long pendingCount = eligibleEmployees(actorEmail).size();
         List<OnboardingChecklistSummaryDto> all = listQueue(actorEmail);
+        // A deactivated employee's still-open checklist isn't an active onboarding case — counted
+        // separately (Deactivated tab) rather than in Onboarding Started / Overdue Tasks.
         List<OnboardingChecklistSummaryDto> started = all.stream()
-                .filter(r -> !r.isArchived()).collect(Collectors.toList());
+                .filter(r -> !r.isArchived() && r.isActive()).collect(Collectors.toList());
+        long deactivatedCount = all.stream().filter(r -> !r.isArchived() && !r.isActive()).count();
         List<OnboardingChecklistSummaryDto> completed = all.stream()
                 .filter(OnboardingChecklistSummaryDto::isArchived).collect(Collectors.toList());
         long overdueCount = started.stream().filter(r -> "OVERDUE".equals(r.getStatus())).count();
@@ -192,6 +200,7 @@ public class OnboardingService {
                 .startedCount(started.size())
                 .completedCount(completed.size())
                 .overdueCount(overdueCount)
+                .deactivatedCount(deactivatedCount)
                 .completedThisMonthCount(completedThisMonth)
                 .avgCompletionDays(avgDays)
                 .build();
@@ -235,6 +244,7 @@ public class OnboardingService {
                 .locationName(emp.getLocation() != null ? emp.getLocation().getName() : null)
                 .managerName(currentManagerName(emp.getUserId()))
                 .joiningDate(emp.getJoiningDate())
+                .active(isActive(emp))
                 .archived(archived)
                 .status(archived ? "COMPLETE" : c.statusLabel)
                 .completedAt(checklist.getCompletedAt())
@@ -415,6 +425,7 @@ public class OnboardingService {
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                 .joiningDate(emp.getJoiningDate())
+                .active(isActive(emp))
                 .archived(archived)
                 .status(archived ? "COMPLETE" : c.statusLabel)
                 .totalItems(c.totalItems)
@@ -464,6 +475,12 @@ public class OnboardingService {
         return OnboardingChecklistItem.builder()
                 .checklistId(checklistId).category(category).itemKey(itemKey).label(label).dueDate(dueDate)
                 .build();
+    }
+
+    // Deactivation lives on User.active (soft delete is User.deletedAt, already filtered at the
+    // repository). A missing User association is treated as active rather than hiding the row.
+    private static boolean isActive(Employee emp) {
+        return emp.getUser() == null || emp.getUser().isActive();
     }
 
     private String currentManagerName(UUID employeeUserId) {

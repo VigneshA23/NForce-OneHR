@@ -115,7 +115,7 @@ class DataProviderSafetyTest {
                 "MyProfile", "UpcomingHolidays", "MyNotifications",
                 "MyDocumentCompliance", "MyPolicies", "MyTickets",
                 // shared - content every role's own sidebar already shows, unguarded
-                "DirectorySummary", "UpcomingBirthdays", "LatestAnnouncements",
+                "DirectorySummary", "UpcomingBirthdays", "LatestAnnouncements", "NamedInQuestion",
                 // peers - the employee's own project team, as My Team shows it
                 "PeerTeam",
                 // approvals

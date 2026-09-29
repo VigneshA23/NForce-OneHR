@@ -6,12 +6,14 @@ import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
 import com.nforce.onehr.dto.attendance.AttendanceExceptionResponse;
+import com.nforce.onehr.dto.attendance.AttendanceStatBucket;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.AttendanceService;
+import com.nforce.onehr.service.AttendanceStatsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -144,11 +146,15 @@ public final class AttendanceDataProviders {
         /** An active penalty stays PENDING_REVIEW until someone resolves it, so it is looked for further back. */
         private static final int PENALTY_LOOKBACK_DAYS = 90;
 
+        /** The longest period a question can name and have read in full - two months and a bit. */
+        private static final int MAX_NAMED_DAYS = 62;
+
         private static final String LATE_ARRIVAL = "LATE_ARRIVAL";
 
         private final AttendanceService attendanceService;
         private final EmployeeRepository employeeRepository;
         private final AttendancePenaltyRepository attendancePenaltyRepository;
+        private final AttendanceStatsService attendanceStatsService;
 
         @Override public String id() { return "attendance.my-history"; }
         @Override public DataScope scope() { return DataScope.SELF; }
@@ -160,10 +166,32 @@ public final class AttendanceDataProviders {
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
+            return fetch(context, null);
+        }
+
+        /**
+         * The period the question names ("the past week", "last 5 days", "August", "from
+         * 01-08-2026 to 15-08-2026") is read exactly, instead of the default 30 days - so the
+         * rows listed are the rows asked for, never 30 days for the model to filter, and never "I
+         * can only show the last 30 days" (ONEHR - "show my attendance for September, but only
+         * records from August"). Capped at {@link #MAX_NAMED_DAYS}, keeping the most recent end,
+         * so a "since January" cannot tip half a year of rows into one prompt; the header then
+         * says the list is only part of what was asked.
+         */
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context, String question) {
             String email = context.getActorEmail();
-            LocalDate to = attendanceService.currentWorkDate(email);
+            LocalDate today = attendanceService.currentWorkDate(email);
+            LocalDate to = today;
             LocalDate from = to.minusDays(LOOKBACK_DAYS - 1);
-            LocalDate penaltiesFrom = to.minusDays(PENALTY_LOOKBACK_DAYS - 1);
+            boolean truncated = false;
+            Optional<MyTeamDateRange.Range> named = MyTeamDateRange.named(question, today);
+            if (named.isPresent() && !named.get().from().isAfter(today)) {
+                to = named.get().to().isAfter(today) ? today : named.get().to();
+                truncated = named.get().from().isBefore(to.minusDays(MAX_NAMED_DAYS - 1));
+                from = truncated ? to.minusDays(MAX_NAMED_DAYS - 1) : named.get().from();
+            }
+            LocalDate penaltiesFrom = today.minusDays(PENALTY_LOOKBACK_DAYS - 1);
             List<AttendanceResponse> rows = Objects.requireNonNullElse(attendanceService.getMyHistory(email, from, to), List.of());
             List<AttendanceExceptionResponse> exceptions =
                     Objects.requireNonNullElse(attendanceService.getMyExceptions(email, from, to), List.of());
@@ -172,7 +200,7 @@ public final class AttendanceDataProviders {
             // this can never disagree with what the employee sees for the same date.
             List<AttendancePenalty> penalties = employeeRepository.findByUser_Email(email)
                     .map(e -> attendancePenaltyRepository.findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
-                            e.getUserId(), penaltiesFrom, to, AttendancePenaltyStatus.PENDING_REVIEW))
+                            e.getUserId(), penaltiesFrom, today, AttendancePenaltyStatus.PENDING_REVIEW))
                     .orElse(List.of()).stream()
                     .sorted(Comparator.comparing(AttendancePenalty::getIncidentDate).reversed())
                     .toList();
@@ -198,25 +226,30 @@ public final class AttendanceDataProviders {
             for (AttendancePenalty p : penalties) {
                 String key = p.getIncidentDate() + "|" + p.getDiscrepancyType();
                 penaltyByKey.putIfAbsent(key, p);
-                if (!p.getIncidentDate().isBefore(from)) items.putIfAbsent(key, new Item(p.getIncidentDate(), p.getDiscrepancyType(), null));
+                if (!p.getIncidentDate().isBefore(from) && !p.getIncidentDate().isAfter(to)) items.putIfAbsent(key, new Item(p.getIncidentDate(), p.getDiscrepancyType(), null));
             }
             List<Item> ledger = items.values().stream().sorted(Comparator.comparing(Item::date).reversed()).toList();
 
-            StringBuilder out = new StringBuilder("From %s to %s (today), newest first.".formatted(from, to));
+            StringBuilder out = new StringBuilder("From %s to %s%s, newest first.".formatted(from, to, to.equals(today) ? " (today)" : ""));
+            if (named.isPresent()) {
+                out.append(truncated
+                        ? " The question names %s; only its most recent %d days are listed here - say the list is partial."
+                                .formatted(named.get().label(), MAX_NAMED_DAYS)
+                        : " This is exactly the period the question names (%s).".formatted(named.get().label()));
+            }
             if (rows.isEmpty()) {
                 out.append("\nNo attendance records at all in that range.");
             } else {
-                long workedTotal = rows.stream().mapToLong(r -> r.getWorkedMinutes() == null ? 0 : r.getWorkedMinutes()).sum();
-                out.append("\nSummary: exactly %d day(s) with an attendance record; total worked %s (average %s per recorded day)."
-                        .formatted(rows.size(), LiveDataText.hoursMinutes(workedTotal), LiveDataText.hoursMinutes(workedTotal / rows.size())));
+                out.append("\nSummary: exactly %d day(s) with an attendance record.".formatted(rows.size()));
                 appendStatusCount(out, rows, "HALF_DAY");
                 appendStatusCount(out, rows, "MISSING_CHECKOUT");
             }
+            appendAverages(out, email, today, from, to);
 
             out.append(penalties.isEmpty()
-                    ? "\n\nActive penalties from %s to %s: none - you have no active attendance penalty.".formatted(penaltiesFrom, to)
+                    ? "\n\nActive penalties from %s to %s: none - you have no active attendance penalty.".formatted(penaltiesFrom, today)
                     : "\n\nActive penalties from %s to %s, each shown as PENALIZED on My Attendance - exactly %d:"
-                            .formatted(penaltiesFrom, to, penalties.size()));
+                            .formatted(penaltiesFrom, today, penalties.size()));
             for (int i = 0; i < penalties.size(); i++) {
                 AttendancePenalty p = penalties.get(i);
                 out.append("\n%d. %s: %s%s".formatted(i + 1, p.getIncidentDate(), p.getDiscrepancyType(), deduction(p)));
@@ -244,7 +277,9 @@ public final class AttendanceDataProviders {
             if (rows.isEmpty()) return Optional.of(out.toString());
             out.append("\n\nA date with no row below has no attendance record - a weekly off, holiday, leave day or a day "
                     + "not worked. Do not call it absent unless the user's question establishes it was a working day.");
-            out.append("\nDaily rows:");
+            // Not "Daily rows": the model quoted that label back as a section of My Attendance and
+            // gave directions to it instead of listing the rows (ONEHR - "previous 5 attendance records").
+            out.append("\nAttendance records in that range, one per day, newest first - list these rows themselves when asked for records:");
             for (AttendanceResponse r : rows) {
                 out.append("\n- %s (%s): %s, in %s, out %s, worked %s".formatted(
                         r.getWorkDate(),
@@ -257,6 +292,37 @@ public final class AttendanceDataProviders {
                 if ("REGULARIZATION".equals(r.getSource())) out.append(", corrected by regularization");
             }
             return Optional.of(out.toString());
+        }
+
+        /**
+         * Average working hours exactly as My Attendance's Attendance Health panel shows them - the
+         * same {@code getStats} call for the same Week (last 7 days) and Month (last 30 days)
+         * windows, plus the period the question names when that is neither. Never computed here:
+         * a figure averaged over every row, open sessions and missing check-outs included, reported
+         * 2h 47m where the page showed something else (ONEHR - average working hours).
+         */
+        private void appendAverages(StringBuilder out, String email, LocalDate today, LocalDate from, LocalDate to) {
+            Map<String, LocalDate[]> windows = new LinkedHashMap<>();
+            windows.put("last 7 days (the Week view)", new LocalDate[]{today.minusDays(6), today});
+            windows.put("last 30 days (the Month view)", new LocalDate[]{today.minusDays(LOOKBACK_DAYS - 1), today});
+            if (!from.equals(today.minusDays(LOOKBACK_DAYS - 1)) || !to.equals(today)) {
+                windows.put("the period the question names", new LocalDate[]{from, to});
+            }
+            out.append("\n\nAverage working hours per day, exactly as My Attendance's Attendance Health panel shows them "
+                    + "(averaged over days with a completed check-out; state these figures, never compute your own):");
+            windows.forEach((label, range) -> {
+                try {
+                    AttendanceStatBucket me = attendanceStatsService.getStats(email, range[0], range[1]).getMe();
+                    out.append("\n- %s, %s to %s: %s".formatted(label, range[0], range[1], me.getAvgHoursPerDay() == null
+                            ? "no completed day to average"
+                            : "%sh per day (%s) over %d present day(s)%s%s".formatted(me.getAvgHoursPerDay(),
+                                    LiveDataText.hoursMinutes(Math.round(me.getAvgHoursPerDay() * 60)), me.getPresentDays(),
+                                    me.getExpectedHoursPerDay() == null ? "" : ", expected %sh per day".formatted(me.getExpectedHoursPerDay()),
+                                    me.getOnTimeArrivalPercent() == null ? "" : ", %s%% on-time".formatted(me.getOnTimeArrivalPercent()))));
+                } catch (RuntimeException e) {
+                    out.append("\n- %s: not available".formatted(label));
+                }
+            });
         }
 
         private static String deduction(AttendancePenalty p) {

@@ -114,6 +114,49 @@ class MyTeamDateRangeTest {
     }
 
     @Test
+    void dayFirstRange_asOneHrDisplaysDates() {
+        var r = MyTeamDateRange.named("my rejected leave requests for 21-09-2026 to 28-09-2026", TODAY).orElseThrow();
+        assertThat(r.from()).isEqualTo(LocalDate.of(2026, 9, 21));
+        assertThat(r.to()).isEqualTo(LocalDate.of(2026, 9, 28)); // uncapped: named() may reach past today
+    }
+
+    @Test
+    void singleExplicitDate_isThatOneDay() {
+        var r = MyTeamDateRange.named("was I late on 03/09/2026", TODAY).orElseThrow();
+        assertThat(r.from()).isEqualTo(LocalDate.of(2026, 9, 3));
+        assertThat(r.to()).isEqualTo(LocalDate.of(2026, 9, 3));
+    }
+
+    @Test
+    void monthName_isThatWholeMonth_andTwoMonthsSpanBoth() {
+        var aug = MyTeamDateRange.named("attendance for August", TODAY).orElseThrow();
+        assertThat(aug.from()).isEqualTo(LocalDate.of(2026, 8, 1));
+        assertThat(aug.to()).isEqualTo(LocalDate.of(2026, 8, 31));
+
+        var both = MyTeamDateRange.named("Show my attendance for September, but only records from August.", TODAY).orElseThrow();
+        assertThat(both.from()).isEqualTo(LocalDate.of(2026, 8, 1));
+        assertThat(both.to()).isEqualTo(LocalDate.of(2026, 9, 30));
+        assertThat(MyTeamDateRange.resolve("attendance for September", TODAY, 7).to()).isEqualTo(TODAY);
+    }
+
+    @Test
+    void monthNotStartedYet_meansLastYears() {
+        var r = MyTeamDateRange.named("leave in December", TODAY).orElseThrow();
+        assertThat(r.from()).isEqualTo(LocalDate.of(2025, 12, 1));
+    }
+
+    @Test
+    void mayTheVerb_isNotTheMonth() {
+        assertThat(MyTeamDateRange.named("may I apply for leave", TODAY)).isEmpty();
+        assertThat(MyTeamDateRange.named("leave in May", TODAY).orElseThrow().from()).isEqualTo(LocalDate.of(2026, 5, 1));
+    }
+
+    @Test
+    void nothingNamed_isEmpty() {
+        assertThat(MyTeamDateRange.named("show my previous 5 attendance records", TODAY)).isEmpty();
+    }
+
+    @Test
     void noRecognisableExpression_fallsBackToTheCallersDefaultWindow() {
         var r = MyTeamDateRange.resolve("who was on time the most", TODAY, 7);
         assertThat(r.from()).isEqualTo(TODAY.minusDays(6));

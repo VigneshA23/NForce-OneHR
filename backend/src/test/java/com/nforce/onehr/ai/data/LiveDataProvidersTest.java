@@ -77,6 +77,7 @@ class LiveDataProvidersTest {
     @Mock private LeaveService leaveService;
     @Mock private AttendancePenaltyService attendancePenaltyService;
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private com.nforce.onehr.service.AttendanceStatsService attendanceStatsService;
     @Mock private HolidayService holidayService;
     @Mock private ApprovalCenterService approvalCenterService;
     @Mock private ExpenseService expenseService;
@@ -160,7 +161,7 @@ class LiveDataProvidersTest {
                 roster("Chitra", null, "ON_LEAVE", null),
                 roster("Dev", null, null, null)));
 
-        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService)
+        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService, employeeService)
                 .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)).orElseThrow();
 
         assertThat(out).contains("2 of 4 employees on the attendance roster have checked in");
@@ -294,7 +295,7 @@ class LiveDataProvidersTest {
                 AttendanceResponse.builder().workDate(today.minusDays(1)).status("LATE").lateByMinutes(55)
                         .checkInAt(shiftStart.plusMinutes(55).plusSeconds(36)).shiftStartAt(shiftStart).workedMinutes(420).build()));
 
-        String out = new AttendanceDataProviders.MyHistory(attendanceService, employeeRepository, attendancePenaltyRepository)
+        String out = new AttendanceDataProviders.MyHistory(attendanceService, employeeRepository, attendancePenaltyRepository, attendanceStatsService)
                 .fetch(as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)).orElseThrow();
 
         assertThat(out).contains("exactly 2 day(s) with an attendance record");
