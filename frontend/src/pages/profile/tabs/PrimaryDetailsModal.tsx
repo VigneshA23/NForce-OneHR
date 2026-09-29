@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useToast } from '../../../context/ToastContext';
 import { profileApi, type ProfileData } from '../../../api/profile';
+import { invalidateHeroVariantCache } from '../../../components/HeroIllustration';
 import {
   EditModal, EditField, PhoneField, SelectField, GENDERS, MARITAL_STATUSES,
   validateName, validatePhone, nameCharsOnly, digitsOnly,
@@ -46,6 +47,11 @@ export function PrimaryDetailsModal({ profile, token, onClose, onSaved }: {
         emergencyContactPhone: digitsOnly(emPhone),
       });
       onSaved(updated);
+      // Dashboard Hero caches its gender→image variant per session token (see
+      // HeroIllustration.tsx) — a Gender change here wouldn't otherwise show up on the
+      // dashboard until a full page reload. Drop that cache so navigating back picks up
+      // the new value immediately.
+      invalidateHeroVariantCache();
       showToast('success', 'Primary details updated');
       onClose();
     } catch (e) {
