@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, Paperclip, Plus, X } from 'lucide-react';
+import { Check, ExternalLink, Paperclip, Plus } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
@@ -11,7 +11,6 @@ import {
   type AssetCategory,
   type AssetRequestResponse,
   type AssetResponse,
-  type AssetTileEmployee,
   type AssetTileHR,
   type AssetTileManager,
 } from '../api/assets';
@@ -25,26 +24,13 @@ import {
 } from '../api/expenses';
 import { employeesApi } from '../api/employees';
 import { ReceiptViewerModal } from '../components/expenses/ReceiptViewerModal';
-
-// ── Shared styles ─────────────────────────────────────────
-
-const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
-const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
-
-function fmtCurrency(n?: number | null) {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
-}
-
-function fmtDate(s?: string | null) {
-  if (!s) return '—';
-  return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-}
+import {
+  panelStyle, thStyle, tdStyle, inputStyle, labelStyle, overlayStyle, modalStyle,
+  fmtCurrency, fmtDate, StatusBadge, Tile, SectionHead, EmptyRow, Modal, FormRow,
+  BtnPrimary, BtnGhost, fileToBase64,
+} from './assets/shared';
+import { useEmployeeAssetsData } from './assets/useEmployeeAssetsData';
+import { RequestAssetModal } from './assets/RequestAssetModal';
 
 export function todayIsoDate(): string {
   const d = new Date();
@@ -59,132 +45,15 @@ export function isExpenseDateInFuture(dateStr: string, todayStr: string = todayI
   return dateStr > todayStr;
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; color: string }> = {
-    SUBMITTED: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-    MANAGER_APPROVED: { bg: 'rgba(99,102,241,.15)', color: '#818CF8' },
-    CLEARED_FOR_PAYROLL: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-    PAID: { bg: 'rgba(47,182,124,.15)', color: '#2FB67C' },
-    MANAGER_REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-    FINAL_REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-    PENDING: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-    APPROVED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-    REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-    AVAILABLE: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-    ASSIGNED: { bg: 'rgba(99,102,241,.15)', color: '#818CF8' },
-    IN_REPAIR: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-    RETIRED: { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' },
-    FULFILLED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-  };
-  const style = map[status] ?? { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' };
-  return <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: style.bg, color: style.color }}>{status.replace(/_/g, ' ')}</span>;
-}
-
-interface TileProps {
-  label: string;
-  value: string | number;
-  sub?: string;
-  clickable?: boolean;
-  onClick?: () => void;
-  clickHint?: string;
-}
-function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
-  return (
-    <div
-      onClick={clickable ? onClick : undefined}
-      style={{
-        background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px',
-        cursor: clickable ? 'pointer' : 'default',
-        transition: clickable ? 'border-color .15s' : undefined,
-        minWidth: 0,
-      }}
-      onMouseEnter={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--brand)') : undefined}
-      onMouseLeave={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--line)') : undefined}
-    >
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{value}</div>
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3, fontWeight: 600 }}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{sub}</div>}
-      {clickable && onClick && clickHint && <div style={{ fontSize: 10, color: 'var(--brand)', marginTop: 6, fontWeight: 600 }}>{clickHint}</div>}
-    </div>
-  );
-}
-
-function SectionHead({ title, action }: { title: string; action?: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
-      {action}
-    </div>
-  );
-}
-
-function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
-  return (
-    <tr>
-      <td colSpan={cols} style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>{msg}</td>
-    </tr>
-  );
-}
-
-// ── Modal wrapper ─────────────────────────────────────────
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: 20 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function FormRow({ children }: { children: React.ReactNode }) {
-  return <div style={{ marginBottom: 14 }}>{children}</div>;
-}
-
-function BtnPrimary({ children, onClick, disabled, type = 'button' }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; type?: 'button' | 'submit' }) {
-  return (
-    <button type={type} onClick={onClick} disabled={disabled} style={{ background: disabled ? 'var(--raised)' : 'var(--brand)', color: disabled ? 'var(--txt-dim)' : '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer' }}>
-      {children}
-    </button>
-  );
-}
-
-function BtnGhost({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{ background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>
-      {children}
-    </button>
-  );
-}
-
-// ── File → base64 helper ──────────────────────────────────
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((res, rej) => {
-    const reader = new FileReader();
-    reader.onload = () => res(reader.result as string);
-    reader.onerror = rej;
-    reader.readAsDataURL(file);
-  });
-}
-
 // ══════════════════════════════════════════════════════════
 // EMPLOYEE VIEW
 // ══════════════════════════════════════════════════════════
 
 function EmployeeView({ token }: { token: string }) {
   const { showToast } = useToast();
-  const [tiles, setTiles] = useState<AssetTileEmployee | null>(null);
+  const { tiles, assignments, requests, categories, reload: reloadAssets, setAssignments, setRequests } = useEmployeeAssetsData(token);
   const [expTiles, setExpTiles] = useState<ExpenseTileEmployee | null>(null);
-  const [assignments, setAssignments] = useState<AssetAssignmentResponse[]>([]);
-  const [requests, setRequests] = useState<AssetRequestResponse[]>([]);
   const [claims, setClaims] = useState<ExpenseClaimResponse[]>([]);
-  const [categories, setCategories] = useState<AssetCategory[]>([]);
   const [expCategories, setExpCategories] = useState<ExpenseCategory[]>([]);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showExpModal, setShowExpModal] = useState(false);
@@ -197,17 +66,16 @@ function EmployeeView({ token }: { token: string }) {
   const [viewingReceiptClaimId, setViewingReceiptClaimId] = useState<string | null>(null);
 
   function reload() {
-    assetsApi.employeeTiles(token).then(setTiles).catch(() => {});
+    reloadAssets();
     expensesApi.employeeTiles(token).then(setExpTiles).catch(() => {});
-    assetsApi.myAssignments(token).then(setAssignments).catch(() => {});
-    assetsApi.myRequests(token).then(setRequests).catch(() => {});
     expensesApi.myClaims(token).then(setClaims).catch(() => {});
   }
 
   useEffect(() => {
-    reload();
-    assetsApi.categories(token).then(setCategories).catch(() => {});
+    expensesApi.employeeTiles(token).then(setExpTiles).catch(() => {});
+    expensesApi.myClaims(token).then(setClaims).catch(() => {});
     expensesApi.categories(token).then(setExpCategories).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   async function handleAcknowledge(id: number) {
@@ -485,61 +353,9 @@ function EmployeeView({ token }: { token: string }) {
   );
 }
 
-// ── Request Asset Modal ───────────────────────────────────
-
-function RequestAssetModal({ categories: propCategories, token, onClose, onCreated }: { categories: AssetCategory[]; token: string; onClose: () => void; onCreated: (r: AssetRequestResponse) => void }) {
-  const [categoryId, setCategoryId] = useState('');
-  const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [localCats, setLocalCats] = useState<AssetCategory[]>([]);
-  const { showToast } = useToast();
-
-  // Self-fetch as fallback when parent state hasn't propagated yet
-  useEffect(() => {
-    if (propCategories.length === 0) {
-      assetsApi.categories(token).then(setLocalCats).catch(() => {});
-    }
-  }, []);
-
-  const categories = propCategories.length > 0 ? propCategories : localCats;
-
-  async function submit() {
-    if (!categoryId || !reason.trim()) return;
-    setSubmitting(true);
-    try {
-      const result = await assetsApi.submitRequest({ categoryId: Number(categoryId), reason: reason.trim() }, token);
-      onCreated(result);
-      onClose();
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Submit failed');
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <Modal title="Request Asset" onClose={onClose}>
-      <FormRow>
-        <label style={labelStyle}>Category *</label>
-        <select value={categoryId} onChange={e => setCategoryId(e.target.value)} style={inputStyle}>
-          <option value="">Select category…</option>
-          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </FormRow>
-      <FormRow>
-        <label style={labelStyle}>Reason *</label>
-        <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }} placeholder="Why do you need this asset?" />
-      </FormRow>
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <BtnGhost onClick={onClose}>Cancel</BtnGhost>
-        <BtnPrimary onClick={submit} disabled={!categoryId || !reason.trim() || submitting}>{submitting ? 'Submitting…' : 'Submit Request'}</BtnPrimary>
-      </div>
-    </Modal>
-  );
-}
-
 // ── Submit Expense Modal ──────────────────────────────────
 
-function SubmitExpenseModal({ categories: propCategories, token, onClose, onCreated }: { categories: ExpenseCategory[]; token: string; onClose: () => void; onCreated: (c: ExpenseClaimResponse) => void }) {
+export function SubmitExpenseModal({ categories: propCategories, token, onClose, onCreated }: { categories: ExpenseCategory[]; token: string; onClose: () => void; onCreated: (c: ExpenseClaimResponse) => void }) {
   const [categoryId, setCategoryId] = useState('');
   const [amount, setAmount] = useState('');
   const [expenseDate, setExpenseDate] = useState('');
@@ -644,7 +460,7 @@ function SubmitExpenseModal({ categories: propCategories, token, onClose, onCrea
 // MANAGER VIEW (read-only)
 // ══════════════════════════════════════════════════════════
 
-function ManagerView({ token }: { token: string }) {
+export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: boolean }) {
   const navigate = useNavigate();
   const [tiles, setTiles] = useState<AssetTileManager | null>(null);
   const [expTiles, setExpTiles] = useState<ExpenseTileManager | null>(null);
@@ -696,13 +512,15 @@ function ManagerView({ token }: { token: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '—'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
-        <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '—'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
-        <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '—'} clickable onClick={() => setActiveTab('assets')} />
-        <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '—'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
-        <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
-      </div>
+      {!hideTiles && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '—'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '—'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
+          <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '—'} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '—'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
+          <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
+        </div>
+      )}
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
@@ -855,7 +673,7 @@ function ManagerView({ token }: { token: string }) {
 // HR / SUPER ADMIN VIEW
 // ══════════════════════════════════════════════════════════
 
-function HRView({ token }: { token: string }) {
+export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolean }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const assetRequestsRef = useRef<HTMLDivElement>(null);
@@ -926,18 +744,20 @@ function HRView({ token }: { token: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
-        <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
-        {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
-            model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
-            see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
-            predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
-            filter rather than silently showing "assigned" assets under an "overdue" label. */}
-        <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
-        <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
-        <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
-      </div>
+      {!hideTiles && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
+          <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
+          {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
+              model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
+              see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
+              predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
+              filter rather than silently showing "assigned" assets under an "overdue" label. */}
+          <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
+          <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
+          <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="nf-tab-scroll" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X, type LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myRequestsApi, type MyRequestItem, type RequestType } from '../api/myRequests';
 import { formatDurationMinutes } from '../context/TimeFormatContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
+import './RequestsPage.css';
 
 // Every notification type the backend emits for a decision on one of this page's request types
 // (see NotificationService) — mirrors the LEAVE_APPROVED/LEAVE_REJECTED pattern LeavePage already
@@ -18,12 +19,6 @@ const REQUEST_DECISION_NOTIFICATION_TYPES = new Set([
   'OVERTIME_APPROVED', 'OVERTIME_REJECTED',
 ]);
 
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
-const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
   REGULARIZATION: 'Attendance Reg.',
@@ -32,42 +27,48 @@ const TYPE_LABELS: Record<RequestType, string> = {
   OVERTIME: 'Overtime',
 };
 
-const TYPE_COLORS: Record<RequestType, string> = {
-  LEAVE: 'rgba(99,102,241,.18)',
-  REGULARIZATION: 'rgba(245,158,11,.18)',
-  WFH: 'rgba(76,141,214,.18)',
-  PARTIAL_DAY: 'rgba(224,169,59,.18)',
-  OVERTIME: 'rgba(236,72,153,.18)',
+// Presentational only — icon + tone class per request type (see RequestsPage.css).
+const TYPE_ICONS: Record<RequestType, LucideIcon> = {
+  LEAVE: CalendarDays,
+  REGULARIZATION: ClockAlert,
+  WFH: House,
+  PARTIAL_DAY: Hourglass,
+  OVERTIME: Timer,
 };
 
-const TYPE_TEXT: Record<RequestType, string> = {
-  LEAVE: '#818CF8',
-  REGULARIZATION: '#F59E0B',
-  WFH: '#4C8DD6',
-  PARTIAL_DAY: '#E0A93B',
-  OVERTIME: '#EC4899',
+const TYPE_TONES: Record<RequestType, string> = {
+  LEAVE: 'tone-indigo',
+  REGULARIZATION: 'tone-warn',
+  WFH: 'tone-info',
+  PARTIAL_DAY: 'tone-teal',
+  OVERTIME: 'tone-rose',
 };
+
+function TypeIcon({ type, size = 17 }: { type: RequestType; size?: number }) {
+  const Icon = TYPE_ICONS[type];
+  return <span className={`nf-rq-type-icon ${TYPE_TONES[type]}`}><Icon size={size} /></span>;
+}
 
 function TypeBadge({ type }: { type: RequestType }) {
   return (
-    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: TYPE_COLORS[type], color: TYPE_TEXT[type], whiteSpace: 'nowrap' }}>
-      {TYPE_LABELS[type]}
-    </span>
+    <div className="nf-rq-type">
+      <TypeIcon type={type} />
+      <span className="nf-rq-type-label">{TYPE_LABELS[type]}</span>
+    </div>
   );
 }
 
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  PENDING: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
+const STATUS_TONES: Record<string, string> = {
+  PENDING: 'tone-warn',
   // Regularization-only: manager stage approved, awaiting HR/Super Admin final approval.
-  PARTIALLY_APPROVED: { bg: 'rgba(59,130,196,.15)', color: '#3B82C4' },
-  APPROVED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-  REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
+  PARTIALLY_APPROVED: 'tone-info',
+  APPROVED: 'tone-ok',
+  REJECTED: 'tone-risk',
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_COLORS[status] ?? { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' };
   return (
-    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: style.bg, color: style.color, whiteSpace: 'nowrap' }}>
+    <span className={`nf-rq-badge ${STATUS_TONES[status] ?? 'tone-mute'}`}>
       {status.replace(/_/g, ' ')}
     </span>
   );
@@ -96,11 +97,17 @@ function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
 
 // ── Type-aware row detail summary ─────────────────────────
 
+function Sep() {
+  return <span className="nf-rq-summary-sep" aria-hidden="true" />;
+}
+
 function ItemDetail({ item }: { item: MyRequestItem }) {
   if (item.requestType === 'LEAVE') {
     return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.leaveTypeName} · {item.leaveStartDate}{item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''} · {item.leaveTotalDays} day{item.leaveTotalDays !== 1 ? 's' : ''}{item.leaveHalfDay ? ' (half)' : ''}
+      <div className="nf-rq-summary">
+        <strong>{item.leaveTypeName}</strong><Sep />
+        <span>{item.leaveStartDate}{item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}</span><Sep />
+        <span>{item.leaveTotalDays} day{item.leaveTotalDays !== 1 ? 's' : ''}{item.leaveHalfDay ? ' (half)' : ''}</span>
       </div>
     );
   }
@@ -108,22 +115,27 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
     const missing = item.requestedCheckIn && item.requestedCheckOut ? 'Check-in & check-out'
       : item.requestedCheckIn ? 'Check-in' : 'Check-out';
     return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate} · Missing: {missing}
+      <div className="nf-rq-summary">
+        <strong>{item.attendanceDate}</strong><Sep />
+        <span>Missing: {missing}</span>
       </div>
     );
   }
   if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') {
     return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate}{item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null ? ` · ${formatDurationMinutes(Math.round(item.partialDayHours * 60))}` : ''}
+      <div className="nf-rq-summary">
+        <strong>{item.attendanceDate}</strong>
+        {item.requestType === 'PARTIAL_DAY' && item.partialDayHours != null && (
+          <><Sep /><span>{formatDurationMinutes(Math.round(item.partialDayHours * 60))}</span></>
+        )}
       </div>
     );
   }
   if (item.requestType === 'OVERTIME') {
     return (
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-        {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
+      <div className="nf-rq-summary">
+        <strong>{item.attendanceDate}</strong><Sep />
+        <span>{item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}</span>
       </div>
     );
   }
@@ -132,46 +144,47 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
 
 // ── Detail modal (read-only) ───────────────────────────────
 
-function Row({ label, value }: { label: string; value?: string | null }) {
+function Row({ label, value, wide }: { label: string; value?: string | null; wide?: boolean }) {
   return (
-    <div>
-      <div style={labelStyle}>{label}</div>
-      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value ?? '—'}</div>
+    <div style={wide ? { gridColumn: '1 / -1' } : undefined}>
+      <div className="nf-rq-field-label">{label}</div>
+      <div className="nf-rq-field-value">{value ?? '—'}</div>
     </div>
   );
 }
 
 function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: () => void }) {
+  // Same per-type field set as before; Reason is pulled out into its own quoted block below.
+  const reason = item.requestType === 'LEAVE' ? item.leaveReason : item.regularizationReason;
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <TypeBadge type={item.requestType} />
-            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-              Request Details
-            </span>
+    <div className="nf-rq-overlay">
+      <div className="nf-rq-modal" role="dialog" aria-modal="true" aria-labelledby="nf-rq-modal-title">
+        <div className="nf-rq-modal-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+            <TypeIcon type={item.requestType} size={19} />
+            <div style={{ minWidth: 0 }}>
+              <h2 id="nf-rq-modal-title" className="nf-rq-modal-title">Request Details</h2>
+              <div className="nf-rq-modal-sub">{TYPE_LABELS[item.requestType]}</div>
+            </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+          <button onClick={onClose} className="nf-rq-close" aria-label="Close"><X size={16} /></button>
         </div>
 
-        <div style={{ padding: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+        <div className="nf-rq-modal-body">
+          <div className="nf-rq-fields">
             {item.requestType === 'LEAVE' && (
               <>
                 <Row label="Type" value={item.leaveTypeName} />
-                <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} />
                 <Row label="Days" value={String(item.leaveTotalDays)} />
-                <Row label="Reason" value={item.leaveReason} />
+                <Row label="Dates" wide value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} />
               </>
             )}
 
             {item.requestType === 'REGULARIZATION' && (
               <>
-                <Row label="Attendance Date" value={item.attendanceDate} />
+                <Row label="Attendance Date" wide value={item.attendanceDate} />
                 <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
                 <Row label="Requested Check-out" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
-                <Row label="Reason" value={item.regularizationReason} />
               </>
             )}
 
@@ -179,7 +192,6 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               <>
                 <Row label="Date" value={item.attendanceDate} />
                 {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
-                <Row label="Reason" value={item.regularizationReason} />
               </>
             )}
 
@@ -187,21 +199,25 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
               <>
                 <Row label="Date" value={item.attendanceDate} />
                 <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
-                <Row label="Reason" value={item.regularizationReason} />
               </>
             )}
+          </div>
 
+          <div className="nf-rq-section-label">Reason</div>
+          <div className="nf-rq-quote">{reason ?? '—'}</div>
+
+          <div className="nf-rq-decision">
             <div>
-              <div style={labelStyle}>Status</div>
+              <div className="nf-rq-field-label">Status</div>
               <StatusBadge status={item.status} />
             </div>
             {item.decisionReason && <Row label="Decision Reason" value={item.decisionReason} />}
             {item.decidedByName && <Row label="Decided By" value={`${item.decidedByName}${item.decidedAt ? ` on ${fmtDate(item.decidedAt)}` : ''}`} />}
           </div>
+        </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Close</button>
-          </div>
+        <div className="nf-rq-modal-foot">
+          <button onClick={onClose} className="nf-rq-btn nf-rq-btn--ghost">Close</button>
         </div>
       </div>
     </div>
@@ -211,6 +227,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
 // ── Main page ─────────────────────────────────────────────
 
 const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'WFH', 'PARTIAL_DAY', 'OVERTIME'];
+const SKELETON_ROWS = 5;
 
 export default function MyRequestsPage() {
   const token = useAuthStore(s => s.token)!;
@@ -269,53 +286,91 @@ export default function MyRequestsPage() {
   ALL_TYPES.forEach(t => { counts[t] = items.filter(i => i.requestType === t).length; });
 
   return (
-    <div>
-      <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>My Requests</h1>
-        <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>All your submitted leave and attendance requests in one place.</p>
+    <div className="nf-rq">
+      <div className="nf-rq-header">
+        <div className="nf-rq-header-main">
+          <div className="nf-rq-header-icon"><ClipboardList size={24} /></div>
+          <div>
+            <h1 className="nf-rq-title">My Requests</h1>
+            <p className="nf-rq-subtitle">All your submitted leave and attendance requests in one place.</p>
+          </div>
+        </div>
       </div>
 
-      {/* Type filter bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['ALL', ...ALL_TYPES] as const).map(t => (
-          <button key={t} onClick={() => setTypeFilter(t)} style={{
-            padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-            cursor: 'pointer', border: 'none',
-            background: typeFilter === t ? 'var(--brand)' : 'var(--raised)',
-            color: typeFilter === t ? '#fff' : 'var(--txt-mut)',
-          }}>
-            {t === 'ALL' ? 'All' : TYPE_LABELS[t]} {counts[t] > 0 && <span style={{ marginLeft: 4, background: 'rgba(255,255,255,.2)', borderRadius: 10, padding: '0 5px' }}>{counts[t]}</span>}
-          </button>
-        ))}
-      </div>
+      <div className="nf-rq-card">
+        {/* Type filter bar */}
+        <div className="nf-rq-tabs" role="tablist" aria-label="Filter by request type">
+          {(['ALL', ...ALL_TYPES] as const).map(t => {
+            const Icon = t === 'ALL' ? Layers : TYPE_ICONS[t];
+            return (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={typeFilter === t}
+                onClick={() => setTypeFilter(t)}
+                className={`nf-rq-tab${typeFilter === t ? ' nf-rq-tab--active' : ''}`}
+              >
+                <Icon size={15} />
+                {t === 'ALL' ? 'All' : TYPE_LABELS[t]} {counts[t] > 0 && <span className="nf-rq-tab-count">{counts[t]}</span>}
+              </button>
+            );
+          })}
+        </div>
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
+          <div className="nf-rq-table-wrap" style={{ borderTop: 'none' }} aria-busy="true">
+            <span className="nf-rq-sr-only">Loading…</span>
+            <table className="nf-rq-table">
+              <tbody>
+                {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                  <tr key={i} className="nf-rq-skel-row">
+                    <td className="nf-rq-td-lead"><span className="nf-rq-skel" style={{ width: 140 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 220 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 80 }} /></td>
+                    <td><span className="nf-rq-skel" style={{ width: 90 }} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center' }}>
-            <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>
+          <div className="nf-rq-empty">
+            <div className="nf-rq-empty-icon"><Inbox size={24} /></div>
+            <div className="nf-rq-empty-title">
               {items.length === 0 ? "You haven't submitted any requests yet." : 'No requests of this type.'}
             </div>
-            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
+            <div className="nf-rq-empty-text">
               {typeFilter === 'ALL' ? 'Requests you submit for leave and attendance will show up here.' : `No ${TYPE_LABELS[typeFilter]} requests.`}
             </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="nf-rq-table-wrap" style={{ borderTop: 'none' }}>
+            <table className="nf-rq-table">
               <thead>
                 <tr>
-                  {['Type', 'Summary', 'Status', 'Submitted'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Type', 'Summary', 'Status', 'Submitted'].map(h => <th key={h}>{h}</th>)}
+                  <th className="nf-rq-th-actions"><span className="nf-rq-sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(item => (
-                  <tr key={`${item.requestType}:${item.id}`} style={{ cursor: 'pointer' }} onClick={() => setViewing(item)}>
-                    <td style={tdStyle}><TypeBadge type={item.requestType} /></td>
-                    <td style={tdStyle}><ItemDetail item={item} /></td>
-                    <td style={tdStyle}><StatusBadge status={item.status} /></td>
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDate(item.createdAt)}</td>
+                  <tr key={`${item.requestType}:${item.id}`} onClick={() => setViewing(item)}>
+                    <td className="nf-rq-td-lead" data-label="Type"><TypeBadge type={item.requestType} /></td>
+                    <td data-label="Summary"><ItemDetail item={item} /></td>
+                    <td data-label="Status"><StatusBadge status={item.status} /></td>
+                    <td data-label="Submitted" className="nf-rq-nowrap">{fmtDate(item.createdAt)}</td>
+                    <td className="nf-rq-td-actions">
+                      {/* Same action as clicking the row — opens the read-only detail modal. */}
+                      <button
+                        type="button"
+                        className="nf-rq-row-btn"
+                        aria-label={`View ${TYPE_LABELS[item.requestType]} request details`}
+                        title="View details"
+                        onClick={e => { e.stopPropagation(); setViewing(item); }}
+                      >
+                        <Eye size={16} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

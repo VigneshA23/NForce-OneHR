@@ -95,6 +95,17 @@ public class AiInteractionLog {
     @Column(name = "completion_tokens")
     private Integer completionTokens;
 
+    /** The embedding call's own prompt tokens (retrieval), never Mistral usage — see V199. Null
+     *  when no embedding call was made this turn (an early decline before retrieval ran). */
+    @Column(name = "embedding_prompt_tokens")
+    private Integer embeddingPromptTokens;
+
+    /** Real Mistral HTTP requests this turn cost end to end (embedding attempts + completion
+     *  attempts, including any transport-level retries) — see V199 and AiAssistantService#record.
+     *  What AiUsageStatsService sums for "Total Requests", instead of counting rows. */
+    @Column(name = "api_call_attempts", nullable = false)
+    private int apiCallAttempts;
+
     @Column(name = "latency_ms", nullable = false)
     private int latencyMs;
 

@@ -1,0 +1,193 @@
+/* Approval Center — layout/visual layer only. Every colour comes from the app's theme tokens
+   (index.css [data-theme]), so dark/light/high-contrast keep working unchanged. */
+
+.apv-header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.apv-header-icon {
+  width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand-bright);
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.apv-title { font-family: Inter, sans-serif; font-size: 20px; font-weight: 700; color: var(--txt); margin: 0; }
+.apv-subtitle { font-size: 13px; color: var(--txt-mut); margin: 3px 0 0; }
+
+/* Toolbar: search + request-type tabs share one card so filtering reads as one control. */
+.apv-toolbar {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  margin-bottom: 14px;
+}
+.apv-toolbar-top { display: flex; align-items: center; gap: 12px; padding: 12px 14px; flex-wrap: wrap; }
+.apv-search {
+  display: flex; align-items: center; gap: 8px; flex: 0 1 360px; min-width: 0;
+  background: var(--shell); border: 1px solid var(--line2); border-radius: 8px; padding: 8px 11px;
+  transition: border-color .15s;
+}
+.apv-search:focus-within { border-color: var(--brand-bright); }
+.apv-search input {
+  flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+  color: var(--txt); font-size: 13px; font-family: inherit;
+}
+.apv-result-count { margin-left: auto; font-size: 12px; color: var(--txt-dim); white-space: nowrap; }
+
+.apv-tabs {
+  display: flex; gap: 2px; padding: 0 8px; border-top: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: thin;
+}
+.apv-tab {
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  padding: 11px 10px; background: none; border: none; cursor: pointer; white-space: nowrap;
+  font-size: 12.5px; font-weight: 600; color: var(--txt-mut); font-family: inherit;
+}
+.apv-tab:hover { color: var(--txt); }
+.apv-tab::after {
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px;
+  border-radius: 2px 2px 0 0; background: transparent;
+}
+.apv-tab[aria-pressed='true'] { color: var(--txt); }
+.apv-tab[aria-pressed='true']::after { background: var(--brand-bright); }
+.apv-tab:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: -2px; border-radius: 6px; }
+.apv-tab-count {
+  font-size: 10.5px; font-weight: 700; min-width: 18px; padding: 1px 6px; border-radius: 10px;
+  background: var(--raised2); color: var(--txt-mut); text-align: center;
+}
+.apv-tab[aria-pressed='true'] .apv-tab-count { background: var(--brand); color: #fff; }
+
+/* Bulk bar */
+.apv-bulk {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 12px; padding: 10px 14px;
+  background: color-mix(in srgb, var(--brand) 6%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--brand) 25%, var(--line)); border-radius: 10px;
+}
+
+/* Table */
+.apv-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.apv-table { width: 100%; border-collapse: collapse; }
+.apv-table th {
+  padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 700; color: var(--txt-mut);
+  text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid var(--line);
+  white-space: nowrap; background: var(--raised2);
+}
+.apv-table td {
+  padding: 13px 14px; font-size: 13px; color: var(--txt-mut);
+  border-bottom: 1px solid var(--line); vertical-align: middle;
+}
+.apv-table tbody tr:last-child td { border-bottom: none; }
+.apv-row { cursor: pointer; transition: background .12s; }
+.apv-row:hover { background: color-mix(in srgb, var(--txt) 3.5%, transparent); }
+.apv-row:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: -2px; }
+.apv-row.is-selected { background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.apv-check { width: 40px; }
+.apv-check input { cursor: pointer; accent-color: var(--brand); width: 15px; height: 15px; }
+
+.apv-type { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.apv-type-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0; }
+.apv-type-label { font-weight: 600; color: var(--txt); white-space: nowrap; }
+
+.apv-emp { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.apv-emp-name { color: var(--txt); font-weight: 600; }
+
+.apv-dates { white-space: nowrap; color: var(--txt); }
+.apv-reason { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-submitted { white-space: nowrap; }
+
+.apv-status {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
+  padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+  background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn);
+}
+.apv-status-sub { font-size: 10.5px; font-weight: 600; color: var(--txt-dim); margin-top: 4px; white-space: nowrap; }
+
+.apv-actions { display: flex; gap: 6px; }
+
+.apv-empty { padding: 56px 24px; text-align: center; }
+.apv-empty-icon {
+  width: 48px; height: 48px; border-radius: 14px; margin: 0 auto 12px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok);
+}
+
+/* Review modal */
+.apv-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center;
+  justify-content: center; z-index: 500; padding: 16px;
+}
+.apv-modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: 100%;
+  max-width: 560px; box-shadow: 0 24px 64px rgba(0,0,0,.45); max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.apv-modal-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.apv-modal-body { padding: 20px; overflow-y: auto; }
+.apv-modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px;
+  border-top: 1px solid var(--line); background: var(--raised2); flex-wrap: wrap;
+}
+.apv-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; margin-bottom: 4px; }
+.apv-detail-grid > .apv-span { grid-column: 1 / -1; }
+.apv-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 8px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+  font-family: inherit;
+}
+.apv-btn:disabled { cursor: not-allowed; }
+.apv-btn-ghost { background: var(--panel); color: var(--txt-mut); border: 1px solid var(--line2); }
+
+/* Responsive rules key off the table card's own width (container query), not the viewport, so
+   they respond correctly whether or not the app sidebar is taking up space beside the page. */
+.apv-card { container: apv-card / inline-size; }
+
+/* Laptop / tablet landscape: tighten spacing and the free-text column first. */
+@container apv-card (max-width: 1300px) {
+  .apv-table th, .apv-table td { padding-left: 10px; padding-right: 10px; }
+  .apv-reason { max-width: 170px; }
+  .apv-type, .apv-emp { min-width: 0; }
+  .apv-type-icon { width: 28px; height: 28px; }
+}
+@container apv-card (max-width: 1060px) {
+  .apv-reason { max-width: 120px; }
+}
+
+@media (max-width: 760px) {
+  .apv-result-count { margin-left: 0; }
+  .apv-search { flex: 1 1 100%; }
+  .apv-tabs { scrollbar-width: none; }
+  .apv-header-icon { width: 38px; height: 38px; }
+}
+
+/* Tablet portrait / phone: every row becomes a card — all the same fields, labelled, nothing
+   hidden, and Approve/Reject never pushed off-screen behind a horizontal scroll. */
+@container apv-card (max-width: 940px) {
+  .apv-table, .apv-table tbody, .apv-table thead { display: block; }
+  /* Header collapses to just the select-all checkbox so bulk selection stays available. */
+  .apv-table thead tr { display: flex; align-items: center; }
+  .apv-table thead th { display: none; }
+  .apv-table thead th.apv-check { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; }
+  .apv-table thead th.apv-check::after { content: 'Select all'; letter-spacing: .06em; }
+  .apv-table tr.apv-row {
+    display: grid; grid-template-columns: auto 1fr auto; grid-auto-flow: row dense; gap: 10px 12px; align-items: center;
+    padding: 14px; border-bottom: 1px solid var(--line);
+  }
+  .apv-table tbody tr:last-child { border-bottom: none; }
+  .apv-table td { display: block; padding: 0; border: none; }
+  .apv-table td.apv-check { grid-row: 1; grid-column: 1; width: auto; }
+  .apv-table td.apv-cell-type { grid-row: 1; grid-column: 2; }
+  .apv-table td.apv-cell-status { grid-row: 1; grid-column: 3; text-align: right; }
+  .apv-table td.apv-cell-emp,
+  .apv-table td.apv-cell-reason { grid-column: 1 / -1; }
+  .apv-table td.apv-cell-dates { grid-column: 1 / 3; }
+  .apv-table td.apv-cell-submitted { grid-column: 3; text-align: right; }
+  .apv-table td.apv-cell-actions { grid-column: 1 / -1; }
+  .apv-table td[data-label]::before {
+    content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--txt-dim); margin-bottom: 3px;
+  }
+  .apv-reason { max-width: none; white-space: normal; }
+  .apv-actions { justify-content: flex-end; }
+  .apv-type, .apv-emp { min-width: 0; }
+}
+
+/* The review modal sits outside the table card, so it follows the viewport instead. */
+@media (max-width: 520px) {
+  .apv-detail-grid { grid-template-columns: 1fr; }
+}

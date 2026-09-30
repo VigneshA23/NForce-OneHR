@@ -101,6 +101,7 @@ public class ExpenseService {
                 .status("SUBMITTED")
                 .requiresSecondApproval(decision.secondApprovalRequired())
                 .evaluatedRuleId(decision.evaluatedRuleId())
+                .approvalStages(ApprovalRuleEvaluationService.toCsv(decision.requiredStages()))
                 .build();
         claim = claimRepo.save(claim);
         auditService.log(actor.getId(), "EXPENSE_SUBMITTED", actor.getId());
@@ -119,9 +120,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> myClaims(String actorEmail) {
         UUID actorId = requireActor(actorEmail).getId();
-        return claimRepo.findByEmployeeUserIdOrderByCreatedAtDesc(actorId).stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdOrderByCreatedAtDesc(actorId));
     }
 
     // ── Receipt (secure, on-demand — reuses the existing receiptUrl storage) ──
@@ -187,9 +186,11 @@ public class ExpenseService {
         BigDecimal openAmount = open.stream().map(ExpenseClaim::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // Windowed on expenseDate (a plain LocalDate, the day the expense was actually incurred),
+        // not the claim's decision/clearance timestamp - see the repository query's own comment.
         YearMonth now = YearMonth.now(ZoneId.of("UTC"));
-        Instant from = now.atDay(1).atStartOfDay(ZoneId.of("UTC")).toInstant();
-        Instant to = now.atEndOfMonth().plusDays(1).atStartOfDay(ZoneId.of("UTC")).toInstant();
+        LocalDate from = now.atDay(1);
+        LocalDate to = now.atEndOfMonth().plusDays(1);
         BigDecimal approvedAmt = claimRepo.sumApprovedThisMonth(actorId, from, to);
         long approvedCount = claimRepo.countApprovedThisMonth(actorId, from, to);
 
@@ -208,9 +209,7 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
-        return claimRepo.findByEmployeeUserIdInAndStatus(reportIds, "SUBMITTED").stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdInAndStatus(reportIds, "SUBMITTED"));
     }
 
     @Transactional
@@ -231,6 +230,7 @@ public class ExpenseService {
         // dashboard displays.
         if (claim.isRequiresSecondApproval()) {
             claim.setStatus("MANAGER_APPROVED");
+            claim.setPendingFinalStage(nextFinalStage(claim, ApprovalRuleEvaluationService.ROLE_MANAGER));
         } else {
             claim.setStatus("CLEARED_FOR_PAYROLL");
         }
@@ -292,10 +292,14 @@ public class ExpenseService {
     // clearance (finalApprove/finalReject still require MANAGER_APPROVED via requireClaimInStatus).
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> pendingForFinalApprover(String actorEmail) {
-        requireFinalApprover(actorEmail);
-        return claimRepo.findByStatusIn(List.of("SUBMITTED", "MANAGER_APPROVED")).stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        User actor = requireActor(actorEmail);
+        requireFinalApproverRole(actor);
+        // A multi-layer claim (see ExpenseClaim.pendingFinalStage) only shows at the final stage
+        // for whoever can act on its CURRENT stage — an HR Admin who already approved a
+        // Manager -> HR Admin -> Super Admin claim no longer sees it once it moves on to Super Admin.
+        return toClaimResponses(claimRepo.findSummaryByStatusIn(List.of("SUBMITTED", "MANAGER_APPROVED")).stream()
+                .filter(c -> !"MANAGER_APPROVED".equals(c.getStatus()) || canActAtFinalStage(actor, c.getPendingFinalStage()))
+                .collect(Collectors.toList()));
     }
 
     @Transactional
@@ -303,8 +307,32 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         requireFinalApproverRole(actor);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
+        requireCanActAtFinalStage(actor, claim);
+
+        // Multi-layer approval: this approval satisfies the current stage, plus any immediately
+        // following stages this same actor also holds the role for (a Super Admin approving at the
+        // HR Admin stage of Manager -> HR Admin -> Super Admin isn't asked to approve twice). If a
+        // stage held by someone else remains, the claim stays MANAGER_APPROVED and moves on to it.
+        String next = nextFinalStage(claim, claim.getPendingFinalStage());
+        while (next != null && hasRole(actor, next)) {
+            next = nextFinalStage(claim, next);
+        }
+        if (next != null) {
+            String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED", "pendingFinalStage", String.valueOf(claim.getPendingFinalStage())));
+            claim.setPendingFinalStage(next);
+            claimRepo.save(claim);
+            String after = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED", "pendingFinalStage", next, "approvedBy", actor.getId().toString()));
+            auditService.log(actor.getId(), "EXPENSE_STAGE_APPROVED", claimId, before, after);
+            notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
+                    "Expense Claim Approved",
+                    "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount())
+                            + " was approved and is now awaiting " + stageLabel(next) + " approval.",
+                    "/assets");
+            return toClaimResponse(claim, categoryName(claim.getCategoryId()));
+        }
 
         String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED"));
+        claim.setPendingFinalStage(null);
         claim.setStatus("CLEARED_FOR_PAYROLL");
         claim.setFinalDecidedBy(actor.getId());
         claim.setFinalDecidedAt(Instant.now());
@@ -323,8 +351,10 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         requireFinalApproverRole(actor);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
+        requireCanActAtFinalStage(actor, claim);
 
         String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED"));
+        claim.setPendingFinalStage(null);
         claim.setStatus("FINAL_REJECTED");
         claim.setFinalDecidedBy(actor.getId());
         claim.setFinalDecidedAt(Instant.now());
@@ -344,9 +374,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> clearedForPayroll(String actorEmail) {
         requireFinalApprover(actorEmail);
-        return claimRepo.findByStatus("CLEARED_FOR_PAYROLL").stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByStatus("CLEARED_FOR_PAYROLL"));
     }
 
     @Transactional
@@ -375,9 +403,7 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
-        return claimRepo.findByEmployeeUserIdInOrderByCreatedAtDesc(reportIds).stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdInOrderByCreatedAtDesc(reportIds));
     }
 
     // ── Manager tile summary ──────────────────────────────
@@ -432,6 +458,41 @@ public class ExpenseService {
         return actor.getRoles().stream().anyMatch(r -> FINAL_APPROVER_ROLES.contains(r.getCode()));
     }
 
+    private boolean hasRole(User actor, String roleCode) {
+        return actor.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
+    }
+
+    /** Null stage = legacy single final stage, either role. Otherwise the stage's own role, with
+     * Super Admin's usual override (it may act at the HR Admin stage too, never the reverse). */
+    private boolean canActAtFinalStage(User actor, String stage) {
+        if (stage == null) return isFinalApprover(actor);
+        return hasRole(actor, stage) || hasRole(actor, "SUPER_ADMIN");
+    }
+
+    private void requireCanActAtFinalStage(User actor, ExpenseClaim claim) {
+        if (!canActAtFinalStage(actor, claim.getPendingFinalStage())) {
+            throw new AccessDeniedException("This claim is awaiting " + stageLabel(claim.getPendingFinalStage()) + " approval");
+        }
+    }
+
+    /** The HR_ADMIN/SUPER_ADMIN stage after {@code current} in the claim's snapshotted stage list,
+     * or null when {@code current} is the last one (or the claim predates V201's stage list). */
+    private String nextFinalStage(ExpenseClaim claim, String current) {
+        if (claim.getApprovalStages() == null || current == null) return null;
+        List<String> stages = ApprovalRuleEvaluationService.parseStages(claim.getApprovalStages());
+        int i = stages.indexOf(current);
+        for (int j = i + 1; i >= 0 && j < stages.size(); j++) {
+            if (FINAL_APPROVER_ROLES.contains(stages.get(j))) return stages.get(j);
+        }
+        return null;
+    }
+
+    private static String stageLabel(String stage) {
+        if ("SUPER_ADMIN".equals(stage)) return "Super Admin";
+        if ("HR_ADMIN".equals(stage)) return "HR Admin";
+        return "HR Admin or Super Admin";
+    }
+
     private void requireCurrentManagerOf(User actor, UUID employeeUserId) {
         // HR_ADMIN/SUPER_ADMIN may decide the manager stage too, not just the final stage —
         // same override convention as every other approval workflow in the app (Regularization/
@@ -482,7 +543,11 @@ public class ExpenseService {
                 .amount(c.getAmount())
                 .expenseDate(c.getExpenseDate())
                 .businessPurpose(c.getBusinessPurpose())
-                .receiptUrl(c.getReceiptUrl())
+                // receiptUrl deliberately omitted here: the stored value is the full base64 data:
+                // URI (can be several MB), and nothing on the frontend reads this field from a
+                // response — receipts are always fetched on demand via the dedicated, authorized
+                // GET /claims/{id}/receipt endpoint (see ReceiptViewerModal). Inlining it here was
+                // turning every claim in a list response into a multi-MB payload for no reader.
                 .status(c.getStatus())
                 .managerDecidedByName(c.getManagerDecidedBy() != null ? employeeName(c.getManagerDecidedBy()) : null)
                 .managerDecidedAt(c.getManagerDecidedAt())
@@ -493,6 +558,7 @@ public class ExpenseService {
                 .paidAt(c.getPaidAt())
                 .createdAt(c.getCreatedAt())
                 .requiresSecondApproval(c.isRequiresSecondApproval())
+                .pendingFinalStage(c.getPendingFinalStage())
                 .build();
     }
 
@@ -503,5 +569,63 @@ public class ExpenseService {
 
     private String categoryName(Integer categoryId) {
         return categoryRepo.findById(categoryId).map(ExpenseCategory::getName).orElse("Unknown");
+    }
+
+    /**
+     * Batched equivalent of {@code claims.stream().map(c -> toClaimResponse(c,
+     * categoryName(c.getCategoryId())))} — that per-row form was an N+1 (up to 4 extra queries per
+     * row: category name + up to 3 employee-name lookups), which made every expense-claim list
+     * endpoint (My Claims, pending-for-manager, pending-for-final-approver, cleared-for-payroll,
+     * team claims) scale with row count against a remote DB. This resolves all category and
+     * employee names in bulk up front instead.
+     */
+    private List<ExpenseClaimResponse> toClaimResponses(List<ExpenseClaimSummary> claims) {
+        if (claims.isEmpty()) return List.of();
+        Set<Integer> categoryIds = claims.stream().map(ExpenseClaimSummary::getCategoryId).collect(Collectors.toSet());
+        Map<Integer, String> catNamesById = categoryRepo.findAllById(categoryIds).stream()
+                .collect(Collectors.toMap(ExpenseCategory::getId, ExpenseCategory::getName));
+
+        Set<UUID> employeeIds = new HashSet<>();
+        for (ExpenseClaimSummary c : claims) {
+            employeeIds.add(c.getEmployeeUserId());
+            if (c.getManagerDecidedBy() != null) employeeIds.add(c.getManagerDecidedBy());
+            if (c.getFinalDecidedBy() != null) employeeIds.add(c.getFinalDecidedBy());
+        }
+        Map<UUID, String> namesById = new HashMap<>();
+        for (Object[] row : employeeRepo.findNamesByUserIds(employeeIds)) {
+            namesById.put((UUID) row[0], (String) row[1]);
+        }
+        Set<UUID> missing = new HashSet<>(employeeIds);
+        missing.removeAll(namesById.keySet());
+        if (!missing.isEmpty()) {
+            for (User u : userRepo.findAllById(missing)) {
+                namesById.put(u.getId(), u.getEmail());
+            }
+        }
+
+        return claims.stream()
+                .map(c -> ExpenseClaimResponse.builder()
+                        .id(c.getId())
+                        .employeeUserId(c.getEmployeeUserId())
+                        .employeeName(namesById.getOrDefault(c.getEmployeeUserId(), "Unknown"))
+                        .categoryId(c.getCategoryId())
+                        .categoryName(catNamesById.getOrDefault(c.getCategoryId(), "Unknown"))
+                        .amount(c.getAmount())
+                        .expenseDate(c.getExpenseDate())
+                        .businessPurpose(c.getBusinessPurpose())
+                        // receiptUrl omitted — see toClaimResponse's comment above.
+                        .status(c.getStatus())
+                        .managerDecidedByName(c.getManagerDecidedBy() != null ? namesById.get(c.getManagerDecidedBy()) : null)
+                        .managerDecidedAt(c.getManagerDecidedAt())
+                        .managerRejectionReason(c.getManagerRejectionReason())
+                        .finalDecidedByName(c.getFinalDecidedBy() != null ? namesById.get(c.getFinalDecidedBy()) : null)
+                        .finalDecidedAt(c.getFinalDecidedAt())
+                        .finalRejectionReason(c.getFinalRejectionReason())
+                        .paidAt(c.getPaidAt())
+                        .createdAt(c.getCreatedAt())
+                        .requiresSecondApproval(c.isRequiresSecondApproval())
+                        .pendingFinalStage(c.getPendingFinalStage())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

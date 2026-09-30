@@ -55,6 +55,12 @@ public class LeaveController {
         return leaveService.listMyBalances(principal.getName());
     }
 
+    /** Current-year balances for the caller's current direct reports — My Team roster. */
+    @GetMapping("/balances/team")
+    public List<LeaveBalanceResponse> teamBalances(Principal principal) {
+        return leaveService.listTeamBalances(principal.getName());
+    }
+
     @PostMapping("/requests")
     @ResponseStatus(HttpStatus.CREATED)
     public LeaveRequestResponse submitRequest(@Valid @RequestBody CreateLeaveRequestRequest req, Principal principal) {

@@ -29,6 +29,12 @@ public class User {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    // The hash being replaced, kept so a password change/reset can reject reuse of the
+    // immediately-preceding password, not just the current one. Null for an account whose
+    // password has never been changed. See #updatePasswordHash.
+    @Column(name = "previous_password_hash", length = 255)
+    private String previousPasswordHash;
+
     @Column(name = "email_verified_at")
     private LocalDateTime emailVerifiedAt;
 
@@ -90,5 +96,13 @@ public class User {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    /** Shifts the current hash into previousPasswordHash before replacing it, so reuse checks
+     * can always see the one password being superseded — call this instead of setPasswordHash
+     * whenever the password is actually being changed (not initial account creation). */
+    public void updatePasswordHash(String newHash) {
+        this.previousPasswordHash = this.passwordHash;
+        this.passwordHash = newHash;
     }
 }

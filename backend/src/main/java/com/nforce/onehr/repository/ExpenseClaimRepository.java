@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -17,6 +18,49 @@ import java.util.UUID;
 public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID> {
 
     List<ExpenseClaim> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
+
+    // ── Summary projections (every column except the potentially multi-MB receiptUrl) ──
+    // Used by every LIST endpoint (My Claims, pending-for-manager, pending-for-final-approver,
+    // cleared-for-payroll, team claims) — see ExpenseClaimSummary's Javadoc. The single-claim
+    // methods above still return full entities: approve/reject/markPaid etc. need the real
+    // entity to mutate and save, and there's only ever one row in flight there, not N.
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c WHERE c.employeeUserId = :employeeUserId ORDER BY c.createdAt DESC")
+    List<ExpenseClaimSummary> findSummaryByEmployeeUserIdOrderByCreatedAtDesc(@Param("employeeUserId") UUID employeeUserId);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds AND c.status = :status")
+    List<ExpenseClaimSummary> findSummaryByEmployeeUserIdInAndStatus(@Param("employeeUserIds") List<UUID> employeeUserIds, @Param("status") String status);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds ORDER BY c.createdAt DESC")
+    List<ExpenseClaimSummary> findSummaryByEmployeeUserIdInOrderByCreatedAtDesc(@Param("employeeUserIds") List<UUID> employeeUserIds);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
+         + "WHERE c.status = :status AND u.deletedAt IS NULL")
+    List<ExpenseClaimSummary> findSummaryByStatus(@Param("status") String status);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
+         + "WHERE c.status IN :statuses AND u.deletedAt IS NULL")
+    List<ExpenseClaimSummary> findSummaryByStatusIn(@Param("statuses") Collection<String> statuses);
 
     // Backs audit-log target search — resolves which expense claims belong to a set of employees.
     @Query("SELECT c.id FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds")
@@ -52,16 +96,20 @@ public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID
            "AND c.managerDecidedAt >= :from AND c.managerDecidedAt < :to")
     List<ExpenseClaim> findManagerApprovedInWindow(UUID managerId, Instant from, Instant to);
 
-    // Employee "approved this month" tile: CLEARED_FOR_PAYROLL or PAID, final_decided_at in current month
+    // Employee "approved this month" tile: CLEARED_FOR_PAYROLL or PAID, EXPENSE_DATE (not the
+    // decision/clearance date) falling in the current month - the card is meant to answer "how much
+    // of what I spent this month has been cleared/paid", not "how much got cleared this month
+    // regardless of when it was spent". A claim submitted in one month and cleared the next must
+    // still count toward the month it was actually incurred.
     @Query("SELECT COALESCE(SUM(c.amount), 0) FROM ExpenseClaim c " +
            "WHERE c.employeeUserId = :userId " +
            "AND c.status IN ('CLEARED_FOR_PAYROLL', 'PAID') " +
-           "AND c.finalDecidedAt >= :from AND c.finalDecidedAt < :to")
-    BigDecimal sumApprovedThisMonth(UUID userId, Instant from, Instant to);
+           "AND c.expenseDate >= :from AND c.expenseDate < :to")
+    BigDecimal sumApprovedThisMonth(UUID userId, LocalDate from, LocalDate to);
 
     @Query("SELECT COUNT(c) FROM ExpenseClaim c " +
            "WHERE c.employeeUserId = :userId " +
            "AND c.status IN ('CLEARED_FOR_PAYROLL', 'PAID') " +
-           "AND c.finalDecidedAt >= :from AND c.finalDecidedAt < :to")
-    long countApprovedThisMonth(UUID userId, Instant from, Instant to);
+           "AND c.expenseDate >= :from AND c.expenseDate < :to")
+    long countApprovedThisMonth(UUID userId, LocalDate from, LocalDate to);
 }

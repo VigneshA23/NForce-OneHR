@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -110,6 +110,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('audit', 'Audit & Security', Clock, 1),
     item('featurelab', 'Future Feature Lab', HelpCircle, 2),
     item('reports', 'Reports & Analytics', FileText, 1),
+    item('api-usage', 'API Usage', Activity, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
 };
@@ -151,7 +152,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
   { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
-  { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports'] },
+  { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
   { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'performance', 'documents', 'policies', 'my-documents'] },
   'help',
 ];

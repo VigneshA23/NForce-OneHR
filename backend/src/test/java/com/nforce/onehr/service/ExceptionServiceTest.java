@@ -429,6 +429,67 @@ class ExceptionServiceTest {
                 exc.getExceptionType().equals(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)));
     }
 
+    @Test
+    void leaveAttendanceConflict_detection_neverEmailsImmediately() {
+        // The bug: this used to email the employee synchronously the instant an HR Admin/Manager's
+        // dashboard load first detected the conflict — same-day, and once per admin who happened to
+        // view the dashboard before the row existed yet. It must now only ever be detected here;
+        // notifyUnnotifiedExceptions (the nightly job) is the sole place that emails it.
+        User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
+
+        LocalDate conflictDate = LocalDate.now().minusDays(1);
+        Attendance recordOnLeaveDay = Attendance.builder()
+                .employeeUserId(employeeId)
+                .workDate(conflictDate)
+                .checkInAt(LocalDateTime.now().minusDays(1).withHour(9).withMinute(30))
+                .checkOutAt(LocalDateTime.now().minusDays(1).withHour(18).withMinute(0))
+                .lateByMinutes(0)
+                .build();
+        LeaveRequest approvedLeave = LeaveRequest.builder()
+                .employeeUserId(employeeId)
+                .startDate(conflictDate)
+                .endDate(conflictDate)
+                .status("APPROVED")
+                .build();
+
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to))
+                .thenReturn(List.of(recordOnLeaveDay));
+        when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                List.of(employeeId), "APPROVED", to, from)).thenReturn(List.of(approvedLeave));
+        when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
+                employeeId, conflictDate, ExceptionType.LEAVE_ATTENDANCE_CONFLICT)).thenReturn(Optional.empty());
+        when(attendanceExceptionRepository.save(any(AttendanceException.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+
+        verifyNoInteractions(emailService);
+    }
+
+    @Test
+    void notifyUnnotifiedExceptions_emailsAPendingLeaveAttendanceConflict_exactlyOnce() {
+        AttendanceException pending = AttendanceException.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(employeeId)
+                .exceptionDate(to)
+                .exceptionType(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)
+                .actualTime(LocalTime.of(9, 30))
+                .build();
+        when(attendanceExceptionRepository.findByExceptionTypeInAndNotifiedAtIsNull(
+                argThat(types -> types.contains(ExceptionType.LEAVE_ATTENDANCE_CONFLICT))))
+                .thenReturn(List.of(pending));
+        Employee employee = Employee.builder().userId(employeeId).user(User.builder().email(employeeEmail).build())
+                .fullName("Test Employee").build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        exceptionService.notifyUnnotifiedExceptions();
+
+        verify(emailService, times(1)).sendLeaveAttendanceConflictEmail(
+                eq(employeeEmail), any(), eq("Test Employee"), eq(to), eq(LocalTime.of(9, 30)));
+        assertNotNull(pending.getNotifiedAt());
+    }
+
     // ── Gap-033: reevaluateAndReverseIfInvalid must reverse ONLY the invalidated type ──────────
 
     @Test

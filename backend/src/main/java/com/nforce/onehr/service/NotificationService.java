@@ -64,8 +64,11 @@ public class NotificationService {
         m.put("HELPDESK_TICKET_RESOLVED",         "MEDIUM");
         m.put("HELPDESK_TICKET_CLOSED",           "MEDIUM");
         m.put("KUDOS",                            "MEDIUM");
+        m.put("BIRTHDAY_WISH",                    "MEDIUM");
         m.put("ACCOUNT",                          "MEDIUM");
         // LOW — purely informational
+        m.put("BIRTHDAY",                         "LOW");  // to the birthday person themselves: celebratory, not actionable
+        m.put("BIRTHDAY_TODAY_HR",                "LOW");  // to HR/Super Admin: awareness, not actionable
         m.put("SECURITY",                         "LOW");
         m.put("WEB_CLOCK_IN_NOTICE",               "LOW");  // goes to manager: informational only, no action
         return java.util.Collections.unmodifiableMap(m);

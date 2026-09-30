@@ -118,7 +118,16 @@ public class EmployeeController {
         byte[] photo = employeeService.getPhoto(userId);
         if (photo != null) return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(photo);
         String avatarUrl = employeeService.getAvatarUrl(userId);
-        if (avatarUrl != null) return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(avatarUrl)).build();
+        if (avatarUrl != null) return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(withExplicitSize(avatarUrl))).build();
         return ResponseEntity.notFound().build();
+    }
+
+    // DiceBear's SVG omits width/height (only viewBox) unless a size is requested, which is fine
+    // for a plain <img>/background-image but leaves the org chart's PNG/PDF export (html2canvas)
+    // unable to size the image at all — it silently rasterizes nothing. Force an explicit size on
+    // every redirect (old avatarUrls stored before this existed included) rather than relying on
+    // callers to have generated the URL correctly.
+    private static String withExplicitSize(String dicebearUrl) {
+        return dicebearUrl.contains("size=") ? dicebearUrl : dicebearUrl + "&size=200";
     }
 }

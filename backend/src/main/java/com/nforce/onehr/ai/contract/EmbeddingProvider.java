@@ -27,4 +27,18 @@ public interface EmbeddingProvider {
      * @throws com.nforce.onehr.ai.exception.AiProviderException on any failure
      */
     List<float[]> embedBatch(List<String> texts);
+
+    /**
+     * Real Mistral HTTP attempts and prompt-token usage for the most recent {@link #embed(String)}
+     * call on this thread, success or failure — an embedding call is never itself logged as its own
+     * turn, so this is how {@code AiAssistantService} attaches its real cost to the same
+     * {@code AiInteractionLog} row as the completion call it accompanied. {@code attempts == 0}
+     * means no call has been made yet on this thread. Not meaningful after {@link #embedBatch}
+     * (indexing) — only reflects that call's own last sub-batch, which nothing reads.
+     */
+    EmbeddingCallInfo lastCallInfo();
+
+    record EmbeddingCallInfo(int attempts, int promptTokens) {
+        public static final EmbeddingCallInfo NONE = new EmbeddingCallInfo(0, 0);
+    }
 }

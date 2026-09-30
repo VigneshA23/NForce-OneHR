@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Data @Builder
@@ -14,6 +15,7 @@ public class AssetRequestResponse {
     private Integer categoryId;
     private String categoryName;
     private String reason;
+    private LocalDate requiredByDate;
     private String status;
     private String managerDecidedByName;
     private Instant managerDecidedAt;

@@ -42,15 +42,6 @@ public interface EmployeeDocumentRepository extends JpaRepository<EmployeeDocume
     @Query("SELECT d FROM EmployeeDocument d JOIN User u ON u.id = d.employeeUserId WHERE u.deletedAt IS NULL AND d.superseded = false")
     List<EmployeeDocument> findAllWithActiveEmployee();
 
-    @Query("SELECT COUNT(DISTINCT d.employeeUserId) FROM EmployeeDocument d WHERE d.status = 'PENDING_VERIFICATION' AND d.superseded = false")
-    long countEmployeesWithPendingDocs();
-
-    @Query("SELECT COUNT(d) FROM EmployeeDocument d WHERE d.status = 'PENDING_VERIFICATION' AND d.superseded = false")
-    long countPendingDocuments();
-
-    @Query(value = "SELECT COUNT(*) FROM employee_documents WHERE expiry_date IS NOT NULL AND expiry_date <= CURRENT_DATE + INTERVAL '30 days' AND status = 'VERIFIED' AND NOT superseded", nativeQuery = true)
-    long countExpiringWithin30Days();
-
     @Query("SELECT d.employeeUserId, d.documentType.id FROM EmployeeDocument d WHERE d.superseded = false")
     List<Object[]> findAllEmployeeDocTypePairs();
 

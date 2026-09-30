@@ -112,6 +112,7 @@ public class UserManagementService {
                 throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
             emp.setDesignation(desig);
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             Location loc = locationRepository.findById(req.getLocationId())
                     .orElseThrow(() -> new IllegalArgumentException("Selected location was not found."));
@@ -324,6 +325,7 @@ public class UserManagementService {
                 forceLogoutRequired = true;
             }
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             // TEMPORARY (ONEHR-336 follow-up): Location reassignment via Employee update is
             // disabled for now — pending a proper reassignment flow that correctly effective-dates
@@ -491,6 +493,17 @@ public class UserManagementService {
         return snapshot;
     }
 
+    // Mirrors EmployeeService's identical helper — see its own Javadoc for the full rationale.
+    private void requireDesignationMatchesDepartment(Employee emp) {
+        Department dept = emp.getDepartment();
+        Designation desig = emp.getDesignation();
+        if (dept != null && desig != null && desig.getDepartmentId() != null
+                && !desig.getDepartmentId().equals(dept.getId())) {
+            throw new IllegalArgumentException(
+                    "'" + desig.getTitle() + "' is not a designation under the '" + dept.getName() + "' department.");
+        }
+    }
+
     /**
      * Rejects an inactive Location, or one with no valid IANA timezone, before it's assigned.
      * Mirrors EmployeeService's identical helper — see its own Javadoc for the full rationale.
@@ -533,7 +546,7 @@ public class UserManagementService {
         // only the safe, hash-free "must change password" flag flip.
         String before = auditSnapshot.toJson(Map.of("mustChangePassword", target.isMustChangePassword()));
         String tempPassword = generateTempPassword();
-        target.setPasswordHash(passwordEncoder.encode(tempPassword));
+        target.updatePasswordHash(passwordEncoder.encode(tempPassword));
         target.setMustChangePassword(true);
         // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
         target.setTokenVersion(target.getTokenVersion() + 1);

@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
+import com.nforce.onehr.entity.AttendanceException;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.AttendanceRequest;
@@ -12,6 +13,7 @@ import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.RegularizationRequest;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
@@ -54,6 +56,7 @@ import static org.mockito.Mockito.when;
 class AttendancePenaltyServiceTest {
 
     @Mock private AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private AttendanceExceptionRepository attendanceExceptionRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository managerHistoryRepository;
     @Mock private RegularizationRequestRepository regularizationRequestRepository;
@@ -270,6 +273,85 @@ class AttendancePenaltyServiceTest {
         // matched anything in range, so there is nothing to list, not a bug.
         when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
                 .thenReturn(List.of());
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertTrue(result.isEmpty());
+    }
+
+    private AttendanceException incident(String type) {
+        return AttendanceException.builder().id(UUID.randomUUID()).employeeUserId(empId)
+                .exceptionDate(incidentDate).exceptionType(type).build();
+    }
+
+    @Test
+    void list_includesDetectedIncidentsThatWereNeverPenalized_asNotPenalized() {
+        // e.g. still within the Late Arrival exempt count, or Early Departure (no policy section).
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of());
+        when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                List.of(empId), from, to))
+                .thenReturn(List.of(incident("LATE_ARRIVAL"), incident("EARLY_DEPARTURE"), incident("MISSING_PUNCH"),
+                        incident("NO_ATTENDANCE")));
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertEquals(java.util.Set.of("LATE_ARRIVAL", "EARLY_DEPARTURE", "MISSING_PUNCH"),
+                result.stream().map(AttendancePenaltyResponse::getDiscrepancyType).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(result.stream().allMatch(r -> "NOT_PENALIZED".equals(r.getStatus()) && !r.isCancellable()));
+    }
+
+    @Test
+    void list_discrepancyFilter_returnsOnlyMatchingIncidents() {
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of());
+        when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                List.of(empId), from, to))
+                .thenReturn(List.of(incident("LATE_ARRIVAL"), incident("EARLY_DEPARTURE")));
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, "EARLY_DEPARTURE", null, null, null);
+
+        assertEquals(1, result.size());
+        assertEquals("EARLY_DEPARTURE", result.get(0).getDiscrepancyType());
+    }
+
+    @Test
+    void list_penalizedIncident_isListedOnceAsThePenalty_notAgainAsNotPenalized() {
+        AttendancePenalty p = penalty(AttendancePenaltyStatus.PENDING_REVIEW);
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of(p));
+        when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                List.of(empId), from, to))
+                .thenReturn(List.of(incident("LATE_ARRIVAL")));
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
+
+        assertEquals(1, result.size());
+        assertEquals(p.getId(), result.get(0).getId());
+    }
+
+    @Test
+    void list_penaltyStatusFilter_excludesNotPenalizedIncidents() {
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of());
+
+        List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to,
+                AttendancePenaltyStatus.PENDING_REVIEW, null, null, null, null);
+
+        assertTrue(result.isEmpty());
+        verifyNoInteractions(attendanceExceptionRepository);
+    }
+
+    @Test
+    void list_activeRegularization_hidesNotPenalizedIncidentToo() {
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of());
+        when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                List.of(empId), from, to))
+                .thenReturn(List.of(incident("MISSING_PUNCH")));
+        when(regularizationRequestRepository.findByEmployeeUserIdInAndAttendanceDateBetween(any(), any(), any()))
+                .thenReturn(List.of(RegularizationRequest.builder().employeeUserId(empId)
+                        .attendanceDate(incidentDate).status("PENDING").build()));
 
         List<AttendancePenaltyResponse> result = service.list(managerEmail, from, to, null, null, null, null, null);
 

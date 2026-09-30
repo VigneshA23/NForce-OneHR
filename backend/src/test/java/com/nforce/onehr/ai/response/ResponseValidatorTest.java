@@ -103,6 +103,16 @@ class ResponseValidatorTest {
             assertThat(r.getType()).isEqualTo(AssistantResponseType.HOW_TO);
             assertThat(r.getConfidence()).isEqualTo(ConfidenceLevel.HIGH);
         }
+
+        @Test
+        void aReplyCutOffAtTheTokenLimitKeepsItsCompleteLines() {
+            AssistantResponse r = validator.validate(
+                    "{\"type\":\"EXPLANATION\",\"answer\":\"Repeated late arrivals:\\n- Asha: 3\\n- Ravi: \\\"2", employee());
+
+            assertThat(r.getType()).isEqualTo(AssistantResponseType.EXPLANATION);
+            assertThat(r.getAnswer()).isEqualTo("Repeated late arrivals:\n- Asha: 3");
+            assertThat(r.getConfidence()).isEqualTo(ConfidenceLevel.LOW);
+        }
     }
 
     @Nested

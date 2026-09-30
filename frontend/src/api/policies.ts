@@ -1,9 +1,14 @@
 import { API_ORIGIN } from './config';
+export { validateAttachmentFile, ALLOWED_ATTACHMENT_EXTENSIONS } from './helpContent';
 const BASE_POLICIES = `${API_ORIGIN}/api/policies`;
 const BASE_ANNOUN = `${API_ORIGIN}/api/announcements`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
+
+function authOnly(token: string) {
+  return { Authorization: `Bearer ${token}` };
 }
 
 async function handle<T>(res: Response): Promise<T> {
@@ -29,6 +34,8 @@ export interface Policy {
   acknowledgedAt: string | null;
   versionNumber: number;
   previousVersionId: number | null;
+  hasAttachment: boolean;
+  attachmentFileName: string | null;
 }
 
 export interface PolicyAcknowledgment {
@@ -84,10 +91,33 @@ export async function listAllPolicies(token: string): Promise<Policy[]> {
   return handle(await fetch(BASE_POLICIES, { headers: authHeaders(token) }));
 }
 
+function policyFormData(body: Record<string, string | number | boolean | undefined>, file?: File | null): FormData {
+  const form = new FormData();
+  Object.entries(body).forEach(([key, value]) => {
+    if (value !== undefined) form.append(key, String(value));
+  });
+  if (file) form.append('attachment', file);
+  return form;
+}
+
 export async function publishPolicy(token: string, body: {
   title: string; version: string; description: string; audience?: string; required?: boolean;
-}): Promise<Policy> {
-  return handle(await fetch(BASE_POLICIES, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(body) }));
+}, file?: File | null): Promise<Policy> {
+  return handle(await fetch(BASE_POLICIES, { method: 'POST', headers: authOnly(token), body: policyFormData(body, file) }));
+}
+
+// Images/PDF/Word — see AttachmentValidator on the backend for the enforced size/type rule.
+export async function uploadPolicyAttachment(token: string, id: number, file: File): Promise<Policy> {
+  const form = new FormData();
+  form.append('file', file);
+  return handle(await fetch(`${BASE_POLICIES}/${id}/attachment`, { method: 'POST', headers: authOnly(token), body: form }));
+}
+
+export async function fetchPolicyAttachment(token: string, id: number): Promise<string> {
+  const res = await fetch(`${BASE_POLICIES}/${id}/attachment`, { headers: authOnly(token) });
+  if (!res.ok) throw new Error(`Attachment fetch failed (${res.status})`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }
 
 export async function editPolicy(token: string, id: number, body: {
@@ -98,8 +128,8 @@ export async function editPolicy(token: string, id: number, body: {
 
 export async function publishPolicyVersion(token: string, id: number, body: {
   title?: string; version?: string; description?: string; audience?: string; required?: boolean;
-}): Promise<Policy> {
-  return handle(await fetch(`${BASE_POLICIES}/${id}/publish-version`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(body) }));
+}, file?: File | null): Promise<Policy> {
+  return handle(await fetch(`${BASE_POLICIES}/${id}/publish-version`, { method: 'POST', headers: authOnly(token), body: policyFormData(body, file) }));
 }
 
 export async function policyVersionHistory(token: string, id: number): Promise<Policy[]> {

@@ -60,6 +60,11 @@ public class DocumentController {
         return service.uploadDocument(principal.getName(), documentTypeId, file, issueDate, expiryDate);
     }
 
+    @PostMapping("/my/{id}/withdraw")
+    public EmployeeDocumentResponse withdraw(Principal principal, @PathVariable UUID id) {
+        return service.withdrawDocument(principal.getName(), id);
+    }
+
     // ── HR/SA endpoints ────────────────────────────────────
 
     @GetMapping
@@ -95,6 +100,14 @@ public class DocumentController {
         return service.listMissing(principal.getName());
     }
 
+    // Employee-scoped listing — used by the Onboarding workflow's "View Documents" action
+    // so HR never needs to leave onboarding context to see one employee's documents.
+    @GetMapping("/employee/{employeeUserId}")
+    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    public List<EmployeeDocumentResponse> documentsForEmployee(Principal principal, @PathVariable UUID employeeUserId) {
+        return service.documentsForEmployee(principal.getName(), employeeUserId);
+    }
+
     @PostMapping("/remind/{employeeUserId}/{documentTypeId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
@@ -126,8 +139,12 @@ public class DocumentController {
         ContentDisposition cd = (mediaType == MediaType.APPLICATION_OCTET_STREAM)
                 ? ContentDisposition.attachment().filename(doc.getFileName()).build()
                 : ContentDisposition.inline().filename(doc.getFileName()).build();
+        // Employee documents are sensitive: never cache them, and stop the browser from
+        // content-sniffing an upload into something other than its declared type.
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("X-Content-Type-Options", "nosniff")
                 .contentType(mediaType)
                 .body(doc.getFileData());
     }

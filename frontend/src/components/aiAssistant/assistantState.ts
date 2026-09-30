@@ -41,8 +41,6 @@ export interface AssistantState {
   sending: boolean;
   /** Transport-level problem worth surfacing above the composer. */
   error: string | null;
-  /** Rating per assistant message id. Local only; the server keeps its own record. */
-  ratings: Record<string, 'UP' | 'DOWN'>;
 }
 
 /**
@@ -58,7 +56,6 @@ export const initialAssistantState: AssistantState = {
   conversationId: null,
   sending: false,
   error: null,
-  ratings: {},
 };
 
 export type AssistantAction =
@@ -67,7 +64,6 @@ export type AssistantAction =
   | { type: 'ANSWER'; pendingId: string; response: AssistantResponse }
   | { type: 'FAIL'; pendingId: string; message: string }
   | { type: 'RESTORE'; conversationId: string; messages: AssistantMessage[] }
-  | { type: 'RATE'; id: string; rating: 'UP' | 'DOWN' }
   | { type: 'DISMISS_ERROR' }
   | { type: 'CLEAR' };
 
@@ -141,9 +137,6 @@ export function assistantReducer(state: AssistantState, action: AssistantAction)
         })),
       };
 
-    case 'RATE':
-      return { ...state, ratings: { ...state.ratings, [action.id]: action.rating } };
-
     case 'DISMISS_ERROR':
       return { ...state, error: null };
 
@@ -177,13 +170,4 @@ export function describeSendFailure(e: unknown): string {
     return `${e.message} ${formatRetryEstimate(e.retryAt)}`;
   }
   return e instanceof Error ? e.message : 'The assistant could not be reached.';
-}
-
-/** The last assistant message, which is the one feedback applies to. */
-export function lastAssistantMessage(state: AssistantState): AssistantMessageView | null {
-  for (let i = state.messages.length - 1; i >= 0; i -= 1) {
-    const message = state.messages[i];
-    if (message.sender === 'ASSISTANT' && !message.pending && !message.failed) return message;
-  }
-  return null;
 }

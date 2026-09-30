@@ -3,6 +3,15 @@ import {
   THEME_STORAGE_KEY, readStoredThemeMode, resolveAppliedTheme,
   type Theme, type ThemeMode,
 } from './themePreference';
+import { useAuthStore } from '../store/authStore';
+import { userScopedKey } from './userScopedStorageKey';
+
+// A thin adapter, not a change to themePreference.ts's own (deliberately pure, browser-free,
+// unit-tested) functions — it redirects whatever key those functions ask for to this user's
+// scoped key instead, so per-user scoping stays entirely in this side-effect-ful module.
+function scopedLocalStorage(): Pick<Storage, 'getItem'> {
+  return { getItem: (key: string) => window.localStorage.getItem(userScopedKey(key)) };
+}
 
 export type { Theme, ThemeMode };
 
@@ -15,7 +24,7 @@ function prefersLightNow(): boolean {
 }
 
 function getInitialMode(): ThemeMode {
-  return readStoredThemeMode(window.localStorage) ?? 'auto';
+  return readStoredThemeMode(scopedLocalStorage()) ?? 'auto';
 }
 
 let _mode: ThemeMode = getInitialMode();
@@ -29,7 +38,7 @@ function applyTheme(theme: Theme) {
 }
 
 function persistMode(mode: ThemeMode) {
-  try { window.localStorage.setItem(THEME_STORAGE_KEY, mode); } catch { /* best effort */ }
+  try { window.localStorage.setItem(userScopedKey(THEME_STORAGE_KEY), mode); } catch { /* best effort */ }
 }
 
 // Runs at module load, before ThemeProvider ever mounts — so the persisted theme is applied
@@ -53,6 +62,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState]   = useState<ThemeMode>(_mode);
   const [theme, setThemeState] = useState<Theme>(_theme);
+  const email = useAuthStore(s => s.user?.email);
 
   function setMode(next: ThemeMode) {
     _mode = next;
@@ -63,6 +73,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyTheme(applied);
     setThemeState(applied);
   }
+
+  // Re-reads and re-applies whenever the signed-in user changes — otherwise whichever account's
+  // mode was applied at module-load time would keep showing for the next person who signs in
+  // without a full page reload.
+  useEffect(() => {
+    const nextMode = getInitialMode();
+    _mode = nextMode;
+    setModeState(nextMode);
+    const applied = resolveAppliedTheme(nextMode, prefersLightNow());
+    _theme = applied;
+    applyTheme(applied);
+    setThemeState(applied);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
 
   // While in 'auto', keep tracking the OS preference live instead of only reading it once.
   useEffect(() => {

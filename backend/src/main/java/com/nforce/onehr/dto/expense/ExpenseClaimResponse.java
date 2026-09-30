@@ -32,4 +32,6 @@ public class ExpenseClaimResponse {
     // submission time (see ExpenseClaim.requiresSecondApproval). false means Manager approval
     // alone clears it straight to CLEARED_FOR_PAYROLL.
     private boolean requiresSecondApproval;
+    /** Role whose approval a MANAGER_APPROVED claim awaits next (HR_ADMIN/SUPER_ADMIN); null = either. */
+    private String pendingFinalStage;
 }
