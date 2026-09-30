@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
+import { Briefcase, Clock, Network } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { type ProfileData } from '../../../api/profile';
 import { hierarchyApi, type PersonCard } from '../../../api/hierarchy';
 import { dashboardApi, type DirectReport } from '../../../api/dashboard';
 import { SectionHeader, ReadField } from '../shared';
 
-function Card({ title, badge, children }: { title: string; badge?: string; children: React.ReactNode }) {
+function Card({ title, badge, icon, children }: { title: string; badge?: string; icon?: LucideIcon; children: React.ReactNode }) {
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <SectionHeader title={title} badge={badge} />
+      <SectionHeader title={title} badge={badge} icon={icon} />
       {children}
     </div>
   );
@@ -43,7 +45,7 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Card title="Job Details">
+      <Card title="Job Details" icon={Briefcase}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Employee ID" value={profile.employeeCode} />
           <ReadField label="Job Title / Job Code" value={profile.designationName ? `${profile.designationName}${profile.jobCode ? ` (${profile.jobCode})` : ''}` : profile.jobCode} />
@@ -56,7 +58,7 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
         </div>
       </Card>
 
-      <Card title="Employee Time">
+      <Card title="Employee Time" icon={Clock}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Shift / Work Schedule" value={profile.shiftName} />
           <ReadField label="Attendance Time Tracking Policy" value={null} />
@@ -64,7 +66,7 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
         </div>
       </Card>
 
-      <Card title="Organization">
+      <Card title="Organization" icon={Network}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Business Unit / Division" value={profile.businessUnitName} />
           <ReadField label="Department" value={profile.departmentName} />
