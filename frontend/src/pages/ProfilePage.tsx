@@ -10,7 +10,9 @@ import profileBannerBlue from '../assets/profile-banner-blue.png';
 import profileBannerPink from '../assets/profile-banner-pink.png';
 import profileBannerGreen from '../assets/profile-banner-green.png';
 import profileBannerPurple from '../assets/profile-banner-purple.png';
-import { PhotoModal, AvatarPickerModal, ProfileCoverBanner, dicebearUrl, ROLE_LABELS, computeDisplayName } from './profile/shared';
+import { PhotoModal, AvatarPickerModal, ProfileCoverBanner, ProfileDayStatusBadge, DesignationLine, dicebearUrl, ROLE_LABELS, computeDisplayName, type ProfileDayStatus } from './profile/shared';
+import { attendanceApi } from '../api/attendance';
+import { holidaysApi } from '../api/holidays';
 import { AboutTab } from './profile/tabs/AboutTab';
 import { ProfileTab } from './profile/tabs/ProfileTab';
 import { JobTab } from './profile/tabs/JobTab';
@@ -44,6 +46,7 @@ export default function ProfilePage() {
   const [coverUploading, setCoverUploading] = useState(false);
   const [coverRemoving, setCoverRemoving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('about');
+  const [dayStatus, setDayStatus] = useState<ProfileDayStatus>(null);
 
   useEffect(() => {
     profileApi.get(token)
@@ -58,6 +61,30 @@ export default function ProfilePage() {
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // "Today" status badge (Weekly Off / Holiday) — reuses the exact same source of truth and
+  // client-side classification AttendancePage.tsx/DashboardPage.tsx already use for the same
+  // question (attendanceApi.config().weeklyOffDays + holidaysApi.listForMyLocation()), rather
+  // than inventing a second calculation: the backend's employee-specific WeeklyOffPolicy and
+  // location Holiday calendar are already fully expressed in those two responses. Holiday takes
+  // precedence over weekly-off when both apply on the same date — same precedence
+  // InlineDayBadge/primaryDayBadge/AttendanceTimeline use everywhere on the Attendance page.
+  useEffect(() => {
+    if (!profile?.hasEmployeeRecord) { setDayStatus(null); return; }
+    let alive = true;
+    Promise.all([attendanceApi.config(token), holidaysApi.listForMyLocation(token)])
+      .then(([config, holidays]) => {
+        if (!alive) return;
+        const now = new Date();
+        const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const dowNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+        const isHoliday = holidays.some(h => h.active && h.holidayDate === todayIso);
+        const isWeeklyOff = config.weeklyOffDays.includes(dowNames[now.getDay()]);
+        setDayStatus(isHoliday ? 'holiday' : isWeeklyOff ? 'weekly-off' : null);
+      })
+      .catch(() => { if (alive) setDayStatus(null); });
+    return () => { alive = false; };
+  }, [token, profile?.hasEmployeeRecord]);
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -231,8 +258,9 @@ export default function ProfilePage() {
 
             <div style={{ flex: 1, minWidth: 0, paddingBottom: 4 }}>
               <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{displayName}</div>
-              <div style={{ fontSize: 13.5, color: 'var(--txt-mut)', marginBottom: 8 }}>{profile.designationName ?? ROLE_LABELS[profile.role] ?? profile.role}</div>
+              <DesignationLine text={profile.designationName ?? ROLE_LABELS[profile.role] ?? profile.role} />
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <ProfileDayStatusBadge status={dayStatus} />
                 <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'color-mix(in srgb, var(--brand) 16%, transparent)', color: 'var(--brand-bright)' }}>
                   {ROLE_LABELS[profile.role] ?? profile.role}
                 </span>

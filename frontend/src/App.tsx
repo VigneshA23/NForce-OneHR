@@ -41,6 +41,13 @@ import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
 // Design-review mock only — the My Profile cover-image feature, reusing the real
 // ProfileCoverBanner component. See the file header in ProfileCoverPreviewPage.tsx for details.
 import ProfileCoverPreviewPage from './pages/profile-cover-preview/ProfileCoverPreviewPage';
+// Design-review mock only — Profile Weekly-off/Holiday status badge + Attendance Log W-OFF/HLDY/
+// worked-on-non-working-day indicator, reusing the real components. See the file header in
+// AttendanceStatusPreviewPage.tsx for details.
+import AttendanceStatusPreviewPage from './pages/attendance-status-preview/AttendanceStatusPreviewPage';
+// Design-review mock only — Dashboard Hero Male/Female/Non-binary/Fallback variants, reusing the
+// real HeroIllustrationArt component. See the file header in HeroGenderPreviewPage.tsx for details.
+import HeroGenderPreviewPage from './pages/hero-gender-preview/HeroGenderPreviewPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -119,6 +126,17 @@ export default function App() {
             the app nav. Not the real My Profile page (that's still /profile below). Reuses the
             real ProfileCoverBanner component — see the file's own header for details. */}
         <Route path="/profile-cover-preview" element={<ProfileCoverPreviewPage />} />
+
+        {/* Design-review mock only — Profile Weekly-off/Holiday badge + Attendance Log W-OFF/
+            HLDY/worked-on-non-working-day feature, no auth, not linked from the app nav. Reuses
+            real components from pages/profile/shared.tsx and pages/AttendancePage.tsx — see the
+            file's own header for details. */}
+        <Route path="/attendance-status-preview" element={<AttendanceStatusPreviewPage />} />
+
+        {/* Design-review mock only — Dashboard Hero Male/Female/Non-binary/Fallback variants, no
+            auth, not linked from the app nav. Reuses the real HeroIllustrationArt component from
+            components/HeroIllustration.tsx — see the file's own header for details. */}
+        <Route path="/hero-gender-preview" element={<HeroGenderPreviewPage />} />
 
         {/* Auth required, password-change gate */}
         <Route

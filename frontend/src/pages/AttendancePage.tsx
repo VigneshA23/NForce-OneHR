@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, MoreVertical, XCircle, Mountain, MapPin, type LucideIcon } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, MoreVertical, XCircle, Mountain, MapPin, PartyPopper, type LucideIcon } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -1642,7 +1642,7 @@ function KpiDetailModal({ kind, monthLabel, monthRecords, leaveHolidayEntries, c
   );
 }
 
-interface DayInfo {
+export interface DayInfo {
   iso: string;
   day: number;
   isFuture: boolean;
@@ -3545,11 +3545,11 @@ const attendanceVisualPlaceholderStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', height: ATTENDANCE_VISUAL_HEIGHT, width: '100%', fontSize: 12, color: 'var(--txt-dim)',
 };
 
-function AttendanceTimeline({ info, punches, punchesLoading }: {
+export function AttendanceTimeline({ info, punches, punchesLoading }: {
   info: DayInfo; punches: Punch[] | undefined; punchesLoading: boolean;
 }) {
   const { formatTime } = useTimeFormat();
-  if (info.holidayName) {
+  if (info.holidayName && !info.record) {
     return (
       <div style={attendanceVisualPlaceholderStyle}>
         <TruncatedText text={`Company holiday — ${info.holidayName}`} />
@@ -3821,7 +3821,7 @@ function DayDetailsBody({ info, config, punches, workedMinutesToday, businessTod
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>{formatDay(info.iso)}</div>
-      {info.holidayName ? (
+      {info.holidayName && !info.record ? (
         <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Company holiday — {info.holidayName}</div>
       ) : info.leaveTypeName ? (
         <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>On leave — {info.leaveTypeName}</div>
@@ -3887,6 +3887,12 @@ function DayDetailsBody({ info, config, punches, workedMinutesToday, businessTod
           </div>
           <StatusPill status={info.record.status} />
           <LateBadge minutes={info.record.lateByMinutes} checkInAt={info.record.checkInAt} shiftStartAt={info.record.shiftStartAt} graceMinutes={config?.lateGraceMinutes} workedMinutes={metrics?.effectiveMinutes ?? info.record.workedMinutes} config={config} />
+          {/* Visible (not hover-only) so tapping/opening this drawer — the same action a touch
+              device already uses instead of hover — surfaces the same message the desktop-only
+              icon's tooltip gives on the log row. */}
+          {(info.holidayName || info.isWeekend) && (
+            <NonWorkingDayWorkedNote reason={info.holidayName ? 'holiday' : 'weekend'} />
+          )}
           <DayShiftAndActions info={info} config={config} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
           <DayPunchIntervals info={info} punches={punches} />
         </>
@@ -3936,10 +3942,14 @@ function attendanceRowTint(info: DayInfo): string | undefined {
 }
 
 /** Special-day badge shown next to the date — plain PRESENT/LATE status is conveyed by the
- * Arrival/Effective Hours columns instead, so it's deliberately not repeated here. */
-function InlineDayBadge({ info }: { info: DayInfo }) {
-  if (info.holidayName) {
-    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>Holiday</span>;
+ * Arrival/Effective Hours columns instead, so it's deliberately not repeated here.
+ * Holiday/W-OFF are only shown when there's no actual attendance record for the day — same
+ * `!info.record` gate on both, so an employee who actually worked a holiday or weekend sees
+ * their real status (PRESENT/LATE/etc., or the Worked-on-non-working-day indicator below)
+ * instead of a badge implying no attendance was expected. */
+export function InlineDayBadge({ info }: { info: DayInfo }) {
+  if (info.holidayName && !info.record) {
+    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(76,141,214,.15)', color: '#4C8DD6' }}>HLDY</span>;
   }
   if (info.leaveTypeName) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(139,92,246,.18)', color: '#8B5CF6' }}>LEAVE</span>;
@@ -3961,6 +3971,41 @@ function InlineDayBadge({ info }: { info: DayInfo }) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(155,161,172,.15)', color: '#9BA1AC' }}>W-OFF</span>;
   }
   return null;
+}
+
+const NON_WORKING_DAY_WORKED_MESSAGE: Record<'holiday' | 'weekend', string> = {
+  holiday: 'Good working on a holiday',
+  weekend: 'Good working on a weekend',
+};
+
+/** Small positive indicator shown next to InlineDayBadge only when there's an actual attendance
+ * record on an otherwise non-working day (see InlineDayBadge/AttendanceTimeline's `!info.record`
+ * gates just above — this is exactly the case those gates fall through to). `title` covers desktop
+ * hover; touch devices get the same message as visible text in the day-detail drawer instead of
+ * relying on this icon's hover-only tooltip — see NonWorkingDayWorkedNote, rendered there whenever
+ * this icon would be. Decorative/non-interactive by design (a nested <button> inside the row's own
+ * LogCellButton would be invalid HTML), so it never competes with the row's own tap target. */
+export function NonWorkingDayWorkedIcon({ reason }: { reason: 'holiday' | 'weekend' }) {
+  return (
+    <span
+      title={NON_WORKING_DAY_WORKED_MESSAGE[reason]}
+      aria-hidden="true"
+      style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 5, color: '#E0A93B', verticalAlign: 'middle' }}
+    >
+      <PartyPopper size={12} />
+    </span>
+  );
+}
+
+/** Same message as NonWorkingDayWorkedIcon's tooltip, but as always-visible text — used inside
+ * DayDetailsBody (opened by tapping the row), so the message reaches touch devices too. */
+export function NonWorkingDayWorkedNote({ reason }: { reason: 'holiday' | 'weekend' }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: '#E0A93B' }}>
+      <PartyPopper size={12} aria-hidden="true" />
+      {NON_WORKING_DAY_WORKED_MESSAGE[reason]}
+    </div>
+  );
 }
 
 /**
@@ -5050,7 +5095,12 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                             <td style={{ padding: 0 }}>
                               <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View attendance details for ${dayLabel}`}>
                                 <div style={{ color: 'var(--txt)', fontWeight: 600 }}>{dayLabel}</div>
-                                <div style={{ marginTop: 3 }}><InlineDayBadge info={info} /></div>
+                                <div style={{ marginTop: 3 }}>
+                                  <InlineDayBadge info={info} />
+                                  {!!info.record?.checkInAt && (info.holidayName || info.isWeekend) && (
+                                    <NonWorkingDayWorkedIcon reason={info.holidayName ? 'holiday' : 'weekend'} />
+                                  )}
+                                </div>
                               </LogCellButton>
                             </td>
                             <td style={{ padding: 0 }}>
@@ -5111,6 +5161,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                               <span style={{ color: 'var(--txt)', fontWeight: 700, fontSize: 12.5 }}>{dayLabel}</span>
                               <InlineDayBadge info={info} />
+                              {!!info.record?.checkInAt && (info.holidayName || info.isWeekend) && (
+                                <NonWorkingDayWorkedIcon reason={info.holidayName ? 'holiday' : 'weekend'} />
+                              )}
                             </div>
                           </LogCellButton>
                           <button
