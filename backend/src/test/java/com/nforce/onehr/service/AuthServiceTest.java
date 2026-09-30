@@ -327,6 +327,32 @@ class AuthServiceTest {
         verify(userRepository, never()).save(any());
     }
 
+    // --- changePassword: reuse of a previous password (ONEHR-561) -----------------------------
+
+    @Test
+    void changePassword_success_shiftsCurrentHashIntoPreviousPasswordHash() {
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "NewPassword123!"), EMAIL);
+
+        assertEquals(PASSWORD_HASH, user.getPreviousPasswordHash());
+        assertEquals("new-hash", user.getPasswordHash());
+    }
+
+    @Test
+    void changePassword_newPasswordMatchesPreviousPassword_rejectedWithReuseMessage() {
+        user.setPreviousPasswordHash("previous-hash");
+        lenient().when(passwordEncoder.matches("OldPassword123!", PASSWORD_HASH)).thenReturn(false);
+        when(passwordEncoder.matches("OldPassword123!", "previous-hash")).thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "OldPassword123!", "OldPassword123!"), EMAIL));
+
+        assertEquals("You cannot reuse your previous password. Please choose a different password.", ex.getMessage());
+        verify(userRepository, never()).save(any());
+    }
+
     @Test
     void forgotPassword_unregisteredEmail_throwsAccountNotFound() {
         when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());

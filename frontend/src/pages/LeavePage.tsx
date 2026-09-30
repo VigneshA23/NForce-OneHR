@@ -154,7 +154,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
   // date picker's min slip a day off from what "today" really is.
   const now = new Date();
   const today = toISODate(now.getFullYear(), now.getMonth(), now.getDate());
-  const [form, setForm] = useState<SubmitLeaveRequestPayload>({ leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, reason: '' });
+  const [form, setForm] = useState<SubmitLeaveRequestPayload>({ leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, halfDaySession: undefined, reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,6 +183,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     // Early-UX only, same as the balance check below — the backend independently re-validates
     // this against its own (timezone-correct) notion of "today" regardless of what's checked here.
     if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
+    if (form.halfDay && !form.halfDaySession) { setError('Select First Half or Second Half.'); return; }
     if (exceedsBalance && selectedBalance) {
       setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${selectedBalance.remainingDays} days.`);
       return;
@@ -235,9 +236,21 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
             <input type="date" style={inputStyle} value={form.halfDay ? form.startDate : form.endDate} disabled={form.halfDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
           </Field>
           <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, endDate: e.target.checked ? f.startDate : f.endDate }))} />
+            <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, halfDaySession: e.target.checked ? f.halfDaySession : undefined, endDate: e.target.checked ? f.startDate : f.endDate }))} />
             <label htmlFor="halfDay" style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Half day</label>
           </div>
+          {form.halfDay && (
+            <div style={{ gridColumn: '1/-1', display: 'flex', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'FIRST_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'FIRST_HALF' }))} />
+                First Half
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'SECOND_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'SECOND_HALF' }))} />
+                Second Half
+              </label>
+            </div>
+          )}
           <div style={{ gridColumn: '1/-1' }}>
             <Field label="Reason *">
               <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for leave" />
@@ -480,7 +493,7 @@ export default function LeavePage() {
                         </span>
                       )}
                     </td>
-                    <td style={tdStyle}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
+                    <td style={tdStyle}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
                     <td style={tdStyle}>{r.totalDays}</td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}>

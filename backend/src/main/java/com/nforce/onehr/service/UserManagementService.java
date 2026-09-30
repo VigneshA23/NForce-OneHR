@@ -546,7 +546,7 @@ public class UserManagementService {
         // only the safe, hash-free "must change password" flag flip.
         String before = auditSnapshot.toJson(Map.of("mustChangePassword", target.isMustChangePassword()));
         String tempPassword = generateTempPassword();
-        target.setPasswordHash(passwordEncoder.encode(tempPassword));
+        target.updatePasswordHash(passwordEncoder.encode(tempPassword));
         target.setMustChangePassword(true);
         // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
         target.setTokenVersion(target.getTokenVersion() + 1);
