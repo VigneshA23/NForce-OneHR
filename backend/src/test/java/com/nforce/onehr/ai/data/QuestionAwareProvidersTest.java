@@ -39,6 +39,7 @@ class QuestionAwareProvidersTest {
 
     @Mock private AttendanceRulesService attendanceRulesService;
     @Mock private AttendanceService attendanceService;
+    @Mock private com.nforce.onehr.service.AttendanceRequestService attendanceRequestService;
     @Mock private EmployeeService employeeService;
     @Mock private LeaveService leaveService;
     @Mock private com.nforce.onehr.repository.EmployeeRepository employeeRepository;
@@ -188,7 +189,7 @@ class QuestionAwareProvidersTest {
                 DirectoryEntryDto.builder().userId(b.toString()).departmentName("Quality Engineering").active(true).build(),
                 DirectoryEntryDto.builder().userId(c.toString()).departmentName("Finance").active(true).build()));
 
-        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService, employeeService)
+        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService, employeeService, attendanceRequestService)
                 .fetch(as(ShellRole.SUPER_ADMIN, AudienceBucket.ADMIN),
                         "How many employees in Quality Engineering were absent yesterday?").orElseThrow();
 

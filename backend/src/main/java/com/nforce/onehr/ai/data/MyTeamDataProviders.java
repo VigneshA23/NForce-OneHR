@@ -9,8 +9,13 @@ import com.nforce.onehr.dto.attendance.PunctualityLeaderboardEntry;
 import com.nforce.onehr.dto.attendance.TeamEffortEntry;
 import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
 import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
+import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.dto.reports.AttendanceRequestReportRow;
+import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.ExceptionType;
+import com.nforce.onehr.repository.AttendanceExceptionRepository;
+import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.service.AttendanceRequestService;
 import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.AttendanceService;
@@ -18,10 +23,14 @@ import com.nforce.onehr.service.DirectReportScopeService;
 import com.nforce.onehr.service.EmployeeAssignmentService;
 import com.nforce.onehr.service.LeaveService;
 import com.nforce.onehr.service.ReportsService;
+import com.nforce.onehr.service.WorkingDayService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -326,11 +335,15 @@ public final class MyTeamDataProviders {
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
+            // No team, no team block: an HR Admin with no reports was told "nobody in your team" beside
+            // the organisation-wide figure they actually asked for (ONEHR).
+            if (directReportScopeService.directReportIds(context.getActorEmail()).isEmpty()) return Optional.empty();
             LocalDate today = LocalDate.now(attendanceRulesService.getDefaultZoneId());
             List<AttendanceRequestResponse> wfh = attendanceRequestService.listTeamApprovedWfh(context.getActorEmail(), today, today);
             List<LeaveBalanceResponse> balances = leaveService.listTeamBalances(context.getActorEmail());
-            if (wfh.isEmpty() && balances.isEmpty()) return Optional.empty();
 
+            // Stated even when nobody is: without this line "who is working from home today" had
+            // no team block, and the model read that as "you have no direct reports" (ONEHR).
             StringBuilder out = new StringBuilder();
             out.append("Working from home today (%s), approved (%d): %s".formatted(today, wfh.size(),
                     wfh.isEmpty() ? "none" : wfh.stream()
@@ -356,6 +369,143 @@ public final class MyTeamDataProviders {
                 case "SECOND_HALF" -> " (second half)";
                 default -> "";
             };
+        }
+    }
+
+    /**
+     * Absences, late arrivals, missed punches, half days and early departures per direct report over
+     * the period the question names - "how many in my team were absent yesterday", "who has the most
+     * missed punches this month", "who was late more than once". Counted here, per person, from the
+     * rows My Team → Reports → Attendance Reports lists, so the model
+     * quotes a count rather than scanning rows (ONEHR - it answered "absent yesterday" from the
+     * manager's own empty record, and could not rank missed punches at all).
+     */
+    @Component
+    @RequiredArgsConstructor
+    public static class MyTeamAttendanceDiscrepancies implements AssistantDataProvider {
+
+        /** Two months and a bit - the widest period read in one turn, most recent end kept. */
+        private static final int MAX_DAYS = 62;
+        private static final String ABSENT = "Absent (a working day for that person - not a weekly off, holiday or "
+                + "approved leave - with no check-in; today is never counted, a shift may not have started)";
+        private static final String LATE = "Late arrivals (status LATE)";
+        private static final String MISSED = "Missed punches (checked in but never checked out)";
+        private static final String HALF = "Half days (status HALF_DAY)";
+        private static final String EARLY = "Left before the shift ended";
+        private static final Map<String, String> NOUNS = Map.of(ABSENT, "absences", LATE, "late arrivals",
+                MISSED, "missed punches", HALF, "half days", EARLY, "early departures");
+
+        private final DirectReportScopeService directReportScopeService;
+        private final AttendanceRepository attendanceRepository;
+        private final AttendanceExceptionRepository attendanceExceptionRepository;
+        private final WorkingDayService workingDayService;
+        private final AttendanceRulesService attendanceRulesService;
+
+        @Override public String id() { return "my-team-attendance.discrepancies"; }
+        @Override public DataScope scope() { return DataScope.TEAM; }
+        @Override public String title() { return "Your direct reports' absences, late arrivals, missed punches, half days and early departures"; }
+        @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
+        @Override public Set<String> modules() { return Set.of("my-team-attendance", "team-attendance", "my-team", "team"); }
+
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context) {
+            return fetch(context, null);
+        }
+
+        /**
+         * Raw rows in one query each, not {@code getMonthForMyTeam}: that resolves every row's shift
+         * window with its own queries, and a month of a 22-person team took over a minute against
+         * the hosted database. Only status, check-in and check-out are needed here; leaving early is
+         * read from the EARLY_DEPARTURE exceptions the detector already worked out against each
+         * row's own shift.
+         */
+        @Override
+        public Optional<String> fetch(AssistantRequestContext context, String question) {
+            String email = context.getActorEmail();
+            LocalDate today = LocalDate.now(attendanceRulesService.getDefaultZoneId());
+            MyTeamDateRange.Range range = MyTeamDateRange.resolve(question, today, DEFAULT_REQUEST_WINDOW_DAYS);
+            LocalDate to = range.to();
+            boolean truncated = range.from().isBefore(to.minusDays(MAX_DAYS - 1));
+            LocalDate from = truncated ? to.minusDays(MAX_DAYS - 1) : range.from();
+
+            List<Employee> reports = directReportScopeService.directReports(email);
+            if (reports.isEmpty()) return Optional.of("You have no direct reports, so there is no team attendance to report.");
+            List<UUID> ids = reports.stream().map(Employee::getUserId).toList();
+            Map<UUID, String> names = names(reports);
+            List<Attendance> rows = attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(ids, from, to);
+
+            Map<String, Map<String, List<LocalDate>>> byKind = new LinkedHashMap<>();
+            for (String kind : List.of(ABSENT, LATE, MISSED, HALF, EARLY)) byKind.put(kind, new TreeMap<>(String.CASE_INSENSITIVE_ORDER));
+
+            LocalDate lastPastDay = to.isBefore(today) ? to : today.minusDays(1);
+            if (!from.isAfter(lastPastDay)) {
+                Map<UUID, Set<LocalDate>> punched = rows.stream().collect(Collectors.groupingBy(
+                        Attendance::getEmployeeUserId, Collectors.mapping(Attendance::getWorkDate, Collectors.toSet())));
+                Map<UUID, WorkingDaySchedule> schedules = workingDayService.computeExpectedWorkingDaysBulk(reports, from, lastPastDay);
+                for (Employee e : reports) {
+                    WorkingDaySchedule schedule = schedules.get(e.getUserId());
+                    if (schedule == null) continue;
+                    Set<LocalDate> in = punched.getOrDefault(e.getUserId(), Set.of());
+                    schedule.getWorkingDates().stream().filter(d -> !in.contains(d))
+                            .forEach(d -> add(byKind, ABSENT, names.get(e.getUserId()), d));
+                }
+            }
+            for (Attendance r : rows) {
+                String name = names.get(r.getEmployeeUserId());
+                if ("LATE".equals(r.getStatus())) add(byKind, LATE, name, r.getWorkDate());
+                if ("HALF_DAY".equals(r.getStatus())) add(byKind, HALF, name, r.getWorkDate());
+                if ("MISSING_CHECKOUT".equals(r.getStatus())
+                        || r.getWorkDate().isBefore(today) && r.getCheckInAt() != null && r.getCheckOutAt() == null) {
+                    add(byKind, MISSED, name, r.getWorkDate());
+                }
+            }
+            attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(ids, from, to)
+                    .stream().filter(x -> ExceptionType.EARLY_DEPARTURE.equals(x.getExceptionType()))
+                    .forEach(x -> add(byKind, EARLY, names.get(x.getEmployeeUserId()), x.getExceptionDate()));
+
+            StringBuilder out = new StringBuilder("Period: %s. Exactly %d direct report(s): %s.".formatted(
+                    truncated ? "the most recent %d days (%s to %s) of %s - say the list is partial".formatted(MAX_DAYS, from, to, range.label())
+                            : range.label(),
+                    reports.size(), LiveDataText.names(names.values(), MAX_ROWS)));
+            byKind.forEach((kind, people) -> {
+                int days = people.values().stream().mapToInt(List::size).sum();
+                out.append("\n\n%s - exactly %d day(s) across %d of %d direct report(s)%s".formatted(
+                        kind, days, people.size(), reports.size(), people.isEmpty() ? ": none." : ":"));
+                if (people.isEmpty()) return;
+                // Every line names its own type: with only "Repeated - more than once" under each
+                // heading, the model quoted the absences line as late arrivals (ONEHR).
+                String noun = NOUNS.get(kind);
+                List<Map.Entry<String, List<LocalDate>>> ranked = people.entrySet().stream()
+                        .sorted(Comparator.comparingInt((Map.Entry<String, List<LocalDate>> p) -> p.getValue().size()).reversed())
+                        .toList();
+                int most = ranked.get(0).getValue().size();
+                List<String> top = ranked.stream().filter(p -> p.getValue().size() == most).map(Map.Entry::getKey).toList();
+                out.append("\n- Most %s: %s with %d%s".formatted(noun, String.join(" and ", top), most, top.size() > 1 ? " each (tied)" : ""));
+                List<String> repeated = ranked.stream().filter(p -> p.getValue().size() > 1).map(Map.Entry::getKey).toList();
+                out.append("\n- Repeated %s - more than once (%d): %s".formatted(noun, repeated.size(), repeated.isEmpty() ? "nobody"
+                        : ranked.stream().filter(p -> p.getValue().size() > 1)
+                                .map(p -> p.getKey() + " " + p.getValue().size()).collect(Collectors.joining(", "))));
+                out.append("\n- %s by person, most first: ".formatted(Character.toUpperCase(noun.charAt(0)) + noun.substring(1))).append(ranked.stream().limit(MAX_ROWS)
+                        .map(p -> "%s %d (%s)".formatted(p.getKey(), p.getValue().size(), p.getValue().stream()
+                                .sorted(Comparator.reverseOrder()).map(d -> LiveDataText.relative(d, today)).collect(Collectors.joining(", "))))
+                        .collect(Collectors.joining("; ")));
+            });
+            return Optional.of(out.toString());
+        }
+
+        /** Full name, with the employee code added only where two direct reports share a name. */
+        private static Map<UUID, String> names(List<Employee> reports) {
+            Map<String, Long> counts = reports.stream().collect(Collectors.groupingBy(
+                    e -> String.valueOf(e.getFullName()).toLowerCase(java.util.Locale.ROOT), Collectors.counting()));
+            Map<UUID, String> names = new LinkedHashMap<>();
+            reports.stream().sorted(Comparator.comparing(e -> String.valueOf(e.getFullName()), String.CASE_INSENSITIVE_ORDER))
+                    .forEach(e -> names.put(e.getUserId(), counts.get(String.valueOf(e.getFullName()).toLowerCase(java.util.Locale.ROOT)) > 1
+                            ? e.getFullName() + " (" + e.getEmployeeCode() + ")" : e.getFullName()));
+            return names;
+        }
+
+        private static void add(Map<String, Map<String, List<LocalDate>>> byKind, String kind, String name, LocalDate date) {
+            byKind.get(kind).computeIfAbsent(name == null ? "(unknown)" : name, n -> new ArrayList<>()).add(date);
         }
     }
 

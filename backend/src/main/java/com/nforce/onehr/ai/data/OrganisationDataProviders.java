@@ -15,6 +15,7 @@ import com.nforce.onehr.dto.org.LocationResponse;
 import com.nforce.onehr.dto.org.ShiftResponse;
 import com.nforce.onehr.dto.org.WeeklyOffPolicyResponse;
 import com.nforce.onehr.service.AttendancePenaltyService;
+import com.nforce.onehr.service.AttendanceRequestService;
 import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.EmployeeService;
@@ -169,6 +170,7 @@ public final class OrganisationDataProviders {
         private final AttendanceService attendanceService;
         private final AttendanceRulesService attendanceRulesService;
         private final EmployeeService employeeService;
+        private final AttendanceRequestService attendanceRequestService;
 
         @Override public String id() { return "org-attendance.today"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
@@ -201,6 +203,11 @@ public final class OrganisationDataProviders {
                     ? TeamDataProviders.rosterSummary(roster, today, "employees on the attendance roster", "the Home page's Present Today tile")
                     : pastDaySummary(roster, day, today));
             out.append("\nThe roster lists every employee record, including deactivated accounts, exactly as the dashboard does.");
+            // HR and Super Admin see the whole organisation's WFH, not only their own direct reports (ONEHR).
+            List<String> wfh = attendanceRequestService.listOrgApprovedWfh(day, day).stream()
+                    .map(r -> r.getEmployeeName()).distinct().toList();
+            out.append("\nWorking from home on %s, approved WFH across the organisation (%d): %s".formatted(
+                    LiveDataText.relative(day, today), wfh.size(), wfh.isEmpty() ? "nobody" : LiveDataText.names(wfh, MAX_NAMES)));
             out.append(byDepartment(roster, day, today));
             return Optional.of(out.toString());
         }

@@ -163,6 +163,41 @@ public class AiAssistantService {
         return !words.isEmpty() && words.size() <= 3 && FILLER.containsAll(words);
     }
 
+    /** Anything that could make a message about the assistant or OneHR's internals. */
+    private static final java.util.regex.Pattern ABOUT_THE_ASSISTANT = java.util.regex.Pattern.compile(
+            "\\b(you|your|yours|yourself|u|nora|assistant|chat\\s*bot|bot|ai|model|system|prompt|instruct\\w*|config\\w*"
+                    + "|internal\\w*|secret\\w*|keys?|tokens?|password\\w*|code|database|server|api|rules?)\\b",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The model's own decline of a message that asked nothing about it: the clarify answer, or the
+     * internals refusal given to "I don't have enough information to determine that." (ONEHR). The
+     * question already passed {@link ConfidentialityGuard}, so a refusal is only kept when the
+     * message could still be about the assistant - a probe that slipped past the patterns.
+     */
+    static boolean isUnclearDecline(AssistantResponse response, String question) {
+        if (response.getType() != com.nforce.onehr.ai.contract.AssistantResponseType.UNKNOWN) return false;
+        String answer = response.getAnswer() == null ? "" : response.getAnswer();
+        // Opening words only: the model rewords the example that follows ("your team's attendance").
+        return answer.startsWith("Could you please give a few more details")
+                || UnknownResponses.INTERNALS_NOT_DISCLOSED.equals(answer)
+                && !ABOUT_THE_ASSISTANT.matcher(question).find();
+    }
+
+    /** First words that make a message a question or a request rather than a statement. */
+    private static final Set<String> ASKS = Set.of(
+            "what", "whats", "how", "why", "when", "where", "who", "whose", "which", "is", "are", "was", "were",
+            "can", "could", "do", "does", "did", "will", "would", "should", "shall", "may", "am", "has", "have",
+            "had", "any", "show", "list", "tell", "give", "find", "get", "explain", "help", "check", "view",
+            "open", "apply", "please", "count");
+
+    /** "I don't have enough information to determine that." - says something, asks nothing. */
+    static boolean isStatement(String question) {
+        if (question.contains("?")) return false;
+        String first = question.toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}]+", 2)[0];
+        return !first.isEmpty() && !ASKS.contains(first);
+    }
+
     private AssistantResponse answer(String question,
                                      AssistantRequestContext context,
                                      Optional<PageReference> currentPage,
@@ -195,7 +230,9 @@ public class AiAssistantService {
             // grounding there is nothing for an answer to be based on except general knowledge,
             // which is exactly what this assistant must not do.
             log.debug("No authorised knowledge matched; returning UNKNOWN without calling the model");
-            AssistantResponse unknown = unknownResponses.notEnoughKnowledge(context);
+            AssistantResponse unknown = isStatement(question)
+                    ? unknownResponses.needsMoreDetail(context)
+                    : unknownResponses.notEnoughKnowledge(context);
             conversationService.recordTurn(conversation.getId(), question,
                     unknown.getAnswer(), unknown.getType().name());
             record(context, conversation.getId(), question, List.of(), null, unknown,
@@ -234,6 +271,9 @@ public class AiAssistantService {
         }
 
         AssistantResponse response = responseValidator.validate(completion.getContent(), context);
+        if (isUnclearDecline(response, question)) {
+            response = unknownResponses.needsMoreDetail(context);
+        }
         conversationService.recordTurn(conversation.getId(), question,
                 response.getAnswer(), response.getType().name());
         record(context, conversation.getId(), question, knowledge, completion, response, null, startedNanos,

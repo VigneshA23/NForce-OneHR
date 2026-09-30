@@ -39,7 +39,9 @@ class DataProviderSafetyTest {
             "countallpendingrequired", "getadminkpis", "hrtilesummary", "countassets", "listqueue",
             // Widens to the whole organisation for HR_ADMIN/SUPER_ADMIN - the My Team AI providers
             // must reach only its never-widening counterpart, getAttendanceRequestReportForDirectReports.
-            "getattendancerequestreport");
+            "getattendancerequestreport",
+            // Every approved WFH request in the organisation - OrgAttendanceToday only.
+            "listorgapprovedwfh");
 
     /**
      * Team reads - actor-scoped, but about the caller's direct reports rather than the caller. Only
@@ -128,6 +130,7 @@ class DataProviderSafetyTest {
                 // my-team - Efforts/Punctuality, Negligence, Time Assignments, Attendance Request
                 // Reports, and the Overview gaps: same direct-report-only audience as "team" above
                 "MyTeamEffort", "MyTeamNegligence", "MyTeamAssignments", "MyTeamRequestReports", "MyTeamOverviewExtras",
+                "MyTeamAttendanceDiscrepancies",
                 // organisation - HR/Admin only, audiences mirroring each screen's @PreAuthorize
                 "UserAccounts", "Headcount", "OrgAttendanceToday", "OrgLeave", "OrgPenalties",
                 "OrgStructure", "OrgDocumentCompliance", "HelpdeskQueue", "OnboardingSummary",

@@ -75,6 +75,13 @@ public class MistralLlmProvider implements LlmProvider {
         }
 
         JsonNode usage = response.path("usage");
+        String finish = choices.get(0).path("finish_reason").asText("");
+        if (!"stop".equals(finish)) {
+            // Length only, never content: a reply cut off mid-JSON reads as a malformed answer.
+            org.slf4j.LoggerFactory.getLogger(MistralLlmProvider.class).info(
+                    "Mistral finish_reason={} after {} completion tokens ({} chars)",
+                    finish, usage.path("completion_tokens").asInt(0), content.length());
+        }
         return LlmCompletion.builder()
                 .content(content)
                 .provider(name())

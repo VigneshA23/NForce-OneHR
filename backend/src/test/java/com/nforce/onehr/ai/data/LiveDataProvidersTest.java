@@ -71,6 +71,7 @@ class LiveDataProvidersTest {
 
     @Mock private AttendanceRulesService attendanceRulesService;
     @Mock private AttendanceService attendanceService;
+    @Mock private com.nforce.onehr.service.AttendanceRequestService attendanceRequestService;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private UserManagementService userManagementService;
     @Mock private EmployeeService employeeService;
@@ -161,7 +162,7 @@ class LiveDataProvidersTest {
                 roster("Chitra", null, "ON_LEAVE", null),
                 roster("Dev", null, null, null)));
 
-        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService, employeeService)
+        String out = new OrganisationDataProviders.OrgAttendanceToday(attendanceService, attendanceRulesService, employeeService, attendanceRequestService)
                 .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)).orElseThrow();
 
         assertThat(out).contains("2 of 4 employees on the attendance roster have checked in");

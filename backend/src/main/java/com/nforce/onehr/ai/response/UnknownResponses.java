@@ -42,16 +42,20 @@ public class UnknownResponses {
                         + "with HR from Help & Guidance.");
     }
 
+    /** The one reply to every ambiguous message. Also the exact answer the prompt tells the model to give for one. */
+    public static final String NEEDS_MORE_DETAIL = "Could you please give a few more details about what you'd like "
+            + "to know? For example, ask about your leave balance, your attendance, or how to do something in OneHR.";
+
     /**
-     * Nothing but filler words - "what", "is", "my" sent on their own. Asked back rather than sent
-     * to the model, which answered them with the internals refusal (ONEHR). No help link: the user
-     * has not asked anything yet that Help &amp; Guidance could answer.
+     * An ambiguous message - filler words ("what", "is", "my") sent on their own, or a statement
+     * that asks nothing ("I don't have enough information to determine that."). Asked back rather
+     * than refused: the model answered both with the internals refusal (ONEHR). No help link: the
+     * user has not asked anything yet that Help &amp; Guidance could answer.
      */
     public AssistantResponse needsMoreDetail(AssistantRequestContext context) {
         return AssistantResponse.builder()
                 .type(AssistantResponseType.UNKNOWN)
-                .answer("Could you please give a few more details about what you'd like to know? For example, "
-                        + "ask about your leave balance, your attendance, or how to do something in OneHR.")
+                .answer(NEEDS_MORE_DETAIL)
                 .steps(List.of())
                 .related(List.of(
                         RelatedItem.builder().label("What is my leave balance?").build(),

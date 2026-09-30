@@ -332,6 +332,13 @@ public class AttendanceRequestService {
         return approvedWfhFor(historyRepository.findCurrentPeerIds(actor.getId()), from, to);
     }
 
+    /** Approved WFH requests in [from, to] across the whole organisation. Unscoped - callers gate it to HR/Super Admin. */
+    @Transactional(readOnly = true)
+    public List<AttendanceRequestResponse> listOrgApprovedWfh(LocalDate from, LocalDate to) {
+        return toResponseList(requestRepository.findByRequestTypeAndStatusAndRequestDateBetween(
+                TYPE_WFH, STATUS_APPROVED, from, to));
+    }
+
     private List<AttendanceRequestResponse> approvedWfhFor(List<UUID> employeeIds, LocalDate from, LocalDate to) {
         if (employeeIds.isEmpty()) return List.of();
         return toResponseList(requestRepository.findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(

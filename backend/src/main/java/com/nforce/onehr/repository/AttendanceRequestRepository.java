@@ -41,4 +41,8 @@ public interface AttendanceRequestRepository extends JpaRepository<AttendanceReq
     // My Team's "WFH / On duty" card and calendar — approved requests only.
     List<AttendanceRequest> findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
             Collection<UUID> employeeUserIds, String requestType, String status, LocalDate from, LocalDate to);
+
+    // The AI assistant's organisation-wide "who is working from home" for HR/Super Admin.
+    List<AttendanceRequest> findByRequestTypeAndStatusAndRequestDateBetween(
+            String requestType, String status, LocalDate from, LocalDate to);
 }
