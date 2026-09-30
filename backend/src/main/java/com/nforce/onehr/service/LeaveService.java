@@ -9,7 +9,6 @@ import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
-import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
@@ -103,40 +102,13 @@ public class LeaveService {
         // only the ANNUAL row surfaces here, so the balance list/pie chart shows ONE Annual Leave
         // entry instead of three.
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
-                .filter(this::isDisplayableBalance)
+                // Unpaid leave types (see LeaveType#isPaid) never deduct from/track a balance —
+                // see #submitRequest and #approve — so they have nothing meaningful to show here.
+                .filter(b -> b.getLeaveType().isPaid())
+                .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
+                        || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
                 .map(this::toBalanceResponse)
                 .collect(Collectors.toList());
-    }
-
-    /**
-     * Current-year leave balances for the caller's current direct reports — backs My Team's
-     * per-report "Leave balance" column. Same filtering as {@link #listMyBalances}, with each row
-     * tagged by employeeUserId so the frontend can group them per report.
-     */
-    @Transactional(readOnly = true)
-    public List<LeaveBalanceResponse> listTeamBalances(String actorEmail) {
-        User actor = requireActor(actorEmail);
-        List<UUID> reportIds = historyRepository.findCurrentDirectReportIds(actor.getId());
-        if (reportIds.isEmpty()) {
-            return List.of();
-        }
-        int year = LocalDateTime.now().getYear();
-        return leaveBalanceRepository.findByEmployeeUserIdInAndYear(reportIds, year).stream()
-                .filter(this::isDisplayableBalance)
-                .map(b -> {
-                    LeaveBalanceResponse r = toBalanceResponse(b);
-                    r.setEmployeeUserId(b.getEmployeeUserId());
-                    return r;
-                })
-                .collect(Collectors.toList());
-    }
-
-    // Unpaid leave types (see LeaveType#isPaid) never deduct from/track a balance — see
-    // #submitRequest and #approve — so they have nothing meaningful to show here.
-    private boolean isDisplayableBalance(LeaveBalance b) {
-        return b.getLeaveType().isPaid()
-                && (!isAnnualBalanceLeaveType(b.getLeaveType())
-                        || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()));
     }
 
     /**
@@ -182,10 +154,6 @@ public class LeaveService {
         if (req.isHalfDay() && !req.getEndDate().isEqual(req.getStartDate())) {
             throw new IllegalArgumentException("A half-day request must use the same start and end date");
         }
-        if (req.isHalfDay() && !(LeaveHalfDaySession.FIRST_HALF.equals(req.getHalfDaySession())
-                || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
-            throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
-        }
 
         // "Today" is resolved in the business timezone (same convention as AttendanceProperties'
         // other consumers), not the JVM default, so a server running in UTC doesn't roll the day
@@ -207,16 +175,6 @@ public class LeaveService {
                 ? new BigDecimal("0.5")
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
 
-        // An employee with an available paid leave balance must exhaust/use that before falling
-        // back to an Unpaid-classified type — this is a business rule (not day-count-based), so it
-        // applies to every Unpaid LeaveType, not just a specific hardcoded one. Checked against ALL
-        // of the employee's distinct paid balances for the year (mirrors #listMyBalances' dedup of
-        // the Annual/Sick/Casual group), not just the balance tied to the selected type.
-        if (!type.isPaid() && hasAnyPositivePaidBalance(actor.getId(), req.getStartDate().getYear())) {
-            throw new IllegalArgumentException(
-                    "You cannot apply for unpaid leave while you have an available paid leave balance.");
-        }
-
         // Unpaid leave types (see LeaveType#isPaid) don't draw from any LeaveBalance — the
         // requested days must never consume the employee's paid leave balance, so there is
         // nothing to look up or validate against here. Mirrors the skip in #approve below.
@@ -236,23 +194,6 @@ public class LeaveService {
                 throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
                         + " balance of " + formatDays(remaining) + " days.");
             }
-        } else {
-            // Unpaid Leave/Loss of Pay must never be a way to skip past an available paid leave
-            // balance — the employee is expected to exhaust Annual/Sick/Casual (and any standalone
-            // paid type) first. Summed across every distinct, non-vestigial paid balance row
-            // (same row set #listMyBalances already surfaces), not just the requested amount, so
-            // even a request smaller than the paid balance is still blocked.
-            int year = req.getStartDate().getYear();
-            BigDecimal availablePaidDays = leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
-                    .filter(b -> b.getLeaveType().isPaid())
-                    .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
-                            || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
-                    .map(this::availableBalance)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            if (availablePaidDays.signum() > 0) {
-                throw new IllegalArgumentException("You have " + formatDays(availablePaidDays)
-                        + " day(s) of paid leave available — use that before applying for " + type.getName() + ".");
-            }
         }
 
         LeaveRequest request = LeaveRequest.builder()
@@ -261,7 +202,6 @@ public class LeaveService {
                 .startDate(req.getStartDate())
                 .endDate(req.getEndDate())
                 .halfDay(req.isHalfDay())
-                .halfDaySession(req.isHalfDay() ? req.getHalfDaySession() : null)
                 .totalDays(totalDays)
                 .status("PENDING")
                 .employeeReason(req.getReason().trim())
@@ -304,20 +244,8 @@ public class LeaveService {
     public List<LeaveRequestResponse> listPendingApprovals(String actorEmail) {
         User actor = requireActor(actorEmail);
         if (hasOverrideRole(actor)) {
-            List<LeaveRequest> allPending = leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING");
-            // Batched equivalent of isVisibleToOverrideActor/resolveSuperAdminApprover — those do
-            // 2-3 DB round trips per employee, which turned this into an N+1 query storm against a
-            // remote DB (took 40+ seconds with a modest pending-request count). Requesters who
-            // hold SUPER_ADMIN are normally 0-1 out of the whole pending set, so resolving that
-            // routing decision per unique requester once, up front, is equivalent but O(1) queries
-            // for everyone else instead of O(N).
-            Map<UUID, UUID> superAdminApproverById = superAdminApproverByEmployeeId(
-                    allPending.stream().map(LeaveRequest::getEmployeeUserId).collect(Collectors.toSet()));
-            List<LeaveRequest> requests = allPending.stream()
-                    .filter(r -> {
-                        UUID superAdminApprover = superAdminApproverById.get(r.getEmployeeUserId());
-                        return superAdminApprover == null || superAdminApprover.equals(actor.getId());
-                    })
+            List<LeaveRequest> requests = leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+                    .filter(r -> isVisibleToOverrideActor(r, actor))
                     .collect(Collectors.toList());
             Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
             Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
@@ -337,6 +265,11 @@ public class LeaveService {
         return requests.stream()
                 .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
+    }
+
+    private boolean isVisibleToOverrideActor(LeaveRequest request, User actor) {
+        UUID superAdminApprover = resolveSuperAdminApprover(request.getEmployeeUserId());
+        return superAdminApprover == null || superAdminApprover.equals(actor.getId());
     }
 
     /**
@@ -591,7 +524,7 @@ public class LeaveService {
     }
 
     /**
-     * The ONE routing decision reused by the approval queue ({@link #superAdminApproverByEmployeeId}),
+     * The ONE routing decision reused by the approval queue ({@link #isVisibleToOverrideActor}),
      * approval authorization ({@link #requireAuthorizedApprover}), and the submission
      * notification ({@link #notifySubmission}) — so those three can never disagree about who a
      * Super Admin's own leave request routes to.
@@ -614,31 +547,6 @@ public class LeaveService {
         return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .map(EmployeeManagerHistory::getManagerUserId)
                 .orElse(employeeId);
-    }
-
-    /**
-     * Batched equivalent of calling {@link #resolveSuperAdminApprover} once per id in a loop: one
-     * bulk {@code findAllById} instead of N single-row lookups (+ N more for each one's lazy
-     * {@code roles}), and the remaining per-employee {@code historyRepository} lookup only runs
-     * for the (normally 0-1) employees who actually hold SUPER_ADMIN, not for every candidate.
-     *
-     * @return map of employeeId → routed approver id, containing only the employees for whom the
-     *         override actually applies (absent means "not a Super Admin, use normal routing").
-     */
-    private Map<UUID, UUID> superAdminApproverByEmployeeId(Set<UUID> employeeIds) {
-        if (employeeIds.isEmpty()) return Map.of();
-        Set<UUID> superAdminIds = userRepository.findAllById(employeeIds).stream()
-                .filter(u -> hasRole(u, "SUPER_ADMIN"))
-                .map(User::getId)
-                .collect(Collectors.toSet());
-        if (superAdminIds.isEmpty()) return Map.of();
-        Map<UUID, UUID> approverById = new HashMap<>();
-        for (UUID id : superAdminIds) {
-            approverById.put(id, historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(id)
-                    .map(EmployeeManagerHistory::getManagerUserId)
-                    .orElse(id));
-        }
-        return approverById;
     }
 
     private boolean hasRole(User user, String roleCode) {
@@ -739,21 +647,6 @@ public class LeaveService {
         return b.getTotalDays().subtract(b.getUsedDays()).subtract(pendingReserved);
     }
 
-    /**
-     * True if the employee has any distinct paid-classification LeaveType balance with a
-     * positive available balance for the given year — used to block Unpaid submissions (see
-     * #submitRequest). Mirrors #listMyBalances' filtering/dedup (paid types only, Annual/Sick/
-     * Casual collapsed to the single Annual row) so this reads the same balances a user actually
-     * sees, reusing #availableBalance rather than a duplicate calculation.
-     */
-    private boolean hasAnyPositivePaidBalance(UUID employeeUserId, int year) {
-        return leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year).stream()
-                .filter(b -> b.getLeaveType().isPaid())
-                .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
-                        || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
-                .anyMatch(b -> availableBalance(b).compareTo(BigDecimal.ZERO) > 0);
-    }
-
     private boolean isAnnualBalanceLeaveType(LeaveType type) {
         return ANNUAL_BALANCE_GROUP_CODES.contains(type.getCode());
     }
@@ -797,7 +690,6 @@ public class LeaveService {
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
                 .halfDay(r.isHalfDay())
-                .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())
@@ -829,7 +721,6 @@ public class LeaveService {
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
                 .halfDay(r.isHalfDay())
-                .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())

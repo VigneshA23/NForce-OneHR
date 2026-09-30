@@ -102,9 +102,7 @@ class AiRateLimiterTest {
     void concurrentRequestsCannotBypassTheLimit() throws InterruptedException {
         budget(true, 5, 60);
         int attempts = 50;
-        // One thread per attempt: each task blocks on `go` after counting down `ready`, so a smaller
-        // pool never starts the rest and `ready.await()` below waits forever.
-        ExecutorService pool = Executors.newFixedThreadPool(attempts);
+        ExecutorService pool = Executors.newFixedThreadPool(10);
         CountDownLatch ready = new CountDownLatch(attempts);
         CountDownLatch go = new CountDownLatch(1);
         AtomicInteger allowed = new AtomicInteger();

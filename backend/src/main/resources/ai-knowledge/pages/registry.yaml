@@ -17,7 +17,9 @@
 #
 # `placeholder: true` marks a roadmap item that renders the "Ships in Phase 2" placeholder rather
 # than a real page. These are described so the assistant can explain them, but NavigationValidator
-# refuses to emit them as targets.
+# refuses to emit them as targets. Note `reports` is a placeholder in the nav even though
+# ReportsController and ReportsService are fully implemented - that functionality is surfaced
+# inside My Team, not at a /reports page, so it is still not navigable.
 
 pages:
 
@@ -130,88 +132,6 @@ pages:
         route: /my-team
         description: "Your immediate working group: peers and reports, their attendance and leave at a glance, and kudos."
 
-  # ---------------------------------------------------------------- My Team's own sub-sections
-  # (ONEHR - My Team AI access). MyTeamPage.tsx reads ?tab=… and ReportsTab reads ?category=… to
-  # open the matching section directly - see MyTeamDataProviders' own Javadoc for which provider
-  # feeds each one. Manager and HR Admin only, matching the base my-team page above - Super Admin
-  # has no My Team entry in nav.config.ts at all (see ShellRole's own Javadoc on why bucket
-  # membership must never be used to infer navigation), so a Super Admin's My Team question is
-  # still answered in full - MyTeamDataProviders' own audiences include ADMIN - it is only never
-  # offered a "take me there" button for it, the same graceful degradation NavigationValidator
-  # already gives any other page a role's sidebar does not have.
-
-  - pageId: my-team-efforts
-    module: my-team-effort
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Efforts"
-        route: /my-team?tab=effort
-        description: "Your direct reports' Avg. Work Hours Leaderboard and On-Time (punctuality) Leaderboard for a selected date range."
-
-  - pageId: my-team-negligence
-    module: my-team-negligence
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Negligence"
-        route: /my-team?tab=negligence
-        description: "Your direct reports' late arrivals, least hours worked and frequent breaks for a selected date range."
-
-  - pageId: my-team-penalties
-    module: team-penalties
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Penalties"
-        route: /my-team?tab=penalties
-        description: "Your direct reports' attendance penalties, with regularization history and the ability to cancel a still-pending one."
-
-  - pageId: my-team-assignments
-    module: my-team-assignments
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Time Assignments"
-        route: /my-team?tab=assignments
-        description: "Your direct reports' current shift, weekly-off policy and penalisation policy, and any scheduled future shift change."
-
-  - pageId: my-team-reports
-    module: my-team-requests
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Reports"
-        route: /my-team?tab=reports
-        description: "The Reports library for your direct reports: Attendance Request Reports, Attendance Reports, Punctuality Reports and Negligence Reports."
-
-  - pageId: my-team-reports-attendance
-    module: team-attendance
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Reports → Attendance Reports"
-        route: /my-team?tab=reports&category=Attendance+Reports
-        description: "Your direct reports' attendance for a selected date range, in report form."
-
-  - pageId: my-team-reports-punctuality
-    module: my-team-effort
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Reports → Punctuality Reports"
-        route: /my-team?tab=reports&category=Punctuality+Reports
-        description: "Your direct reports' On-Time Leaderboard for a selected date range, in report form - the same figures as My Team → Efforts."
-
-  - pageId: my-team-reports-negligence
-    module: my-team-negligence
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Reports → Negligence Reports"
-        route: /my-team?tab=reports&category=Negligence+Reports
-        description: "Your direct reports' late arrivals, least hours worked and frequent breaks for a selected date range, in report form - the same figures as My Team → Negligence."
-
-  - pageId: my-team-reports-requests
-    module: my-team-requests
-    variants:
-      - roles: [MANAGER, HR_ADMIN]
-        label: "My Team → Reports → Attendance Request Reports"
-        route: /my-team?tab=reports&category=Attendance+Request+Reports
-        description: "Your direct reports' regularization, overtime, partial day, web clock-in and WFH requests for a selected date range."
-
   - pageId: approvals
     module: approvals
     variants:
@@ -320,14 +240,6 @@ pages:
         label: "Reports & Analytics"
         route: /reports
         description: "Company-wide headcount, today's attendance breakdown (present/late/absent/on leave/not checked in) and approved leave for a selected period, with charts, tables and an Export to Excel button. The separate attendance-request reporting library (regularization, web clock-in, overtime, partial day, WFH) still lives inside My Team, not here."
-
-  - pageId: api-usage
-    module: api-usage
-    variants:
-      - roles: [SUPER_ADMIN]
-        label: "API Usage"
-        route: /api-usage
-        description: "The AI assistant's own usage and cost: requests, tokens, errors and latency over time, this month's estimated spend against the monthly budget, and the Re-index now button that rebuilds the assistant's knowledge base after it changes."
 
   # ---------------------------------------------------------------- reachable, but not nav items
 

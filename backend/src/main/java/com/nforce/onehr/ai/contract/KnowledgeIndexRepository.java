@@ -3,7 +3,6 @@ package com.nforce.onehr.ai.contract;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Storage seam for the knowledge index. pgvector is the first implementation.
@@ -46,16 +45,4 @@ public interface KnowledgeIndexRepository {
 
     /** Audience-filtered kNN search. The filter is part of the SQL, never a post-filter. */
     List<RetrievalResult> search(RetrievalQuery query);
-
-    /**
-     * Literal, audience-filtered lookup by id - no vector comparison at all. Every named unit this
-     * caller is authorised for comes back, each given the fixed {@code score} passed in rather than
-     * a computed one, since there is nothing to compute it from.
-     *
-     * <p>For a knowledge unit whose inclusion needs to be certain rather than probable: see {@code
-     * VectorKnowledgeRetriever}'s deterministic inclusion of the named-person-lookup unit, which
-     * cannot rely on cosine similarity clearing the noise floor for an arbitrary name it has never
-     * seen (ONEHR - AI chatbot fails to handle duplicate employee names).
-     */
-    List<RetrievalResult> findByIds(Set<String> knowledgeIds, Set<AudienceBucket> audiences, double score);
 }

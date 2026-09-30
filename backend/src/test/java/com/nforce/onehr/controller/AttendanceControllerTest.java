@@ -5,7 +5,6 @@ import com.nforce.onehr.dto.attendance.BulkRegularizationResultResponse;
 import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.service.AttendancePenaltyService;
-import com.nforce.onehr.service.ExceptionService;
 import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.RegularizationService;
@@ -36,14 +35,13 @@ class AttendanceControllerTest {
     @Mock private AttendanceStatsService attendanceStatsService;
     @Mock private RegularizationService regularizationService;
     @Mock private AttendancePenaltyService attendancePenaltyService;
-    @Mock private ExceptionService exceptionService;
     @Mock private Principal principal;
 
     private AttendanceController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new AttendanceController(attendanceService, attendanceStatsService, regularizationService, attendancePenaltyService, exceptionService);
+        controller = new AttendanceController(attendanceService, attendanceStatsService, regularizationService, attendancePenaltyService);
         lenient().when(principal.getName()).thenReturn("manager@test.com");
     }
 

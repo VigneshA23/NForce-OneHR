@@ -33,8 +33,6 @@ export interface UpdateLeaveTypePayload {
 }
 
 export interface LeaveBalance {
-  /** Only set by listTeamBalances — null for the caller's own balances. */
-  employeeUserId?: string | null;
   leaveTypeCode: string;
   leaveTypeName: string;
   year: number;
@@ -56,7 +54,6 @@ export interface LeaveRequestRecord {
   startDate: string;
   endDate: string;
   halfDay: boolean;
-  halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   employeeReason: string;
@@ -71,7 +68,6 @@ export interface SubmitLeaveRequestPayload {
   startDate: string;
   endDate: string;
   halfDay: boolean;
-  halfDaySession?: 'FIRST_HALF' | 'SECOND_HALF';
   reason: string;
 }
 
@@ -89,10 +85,6 @@ export const leaveApi = {
 
   listBalances: (token: string) =>
     fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
-
-  /** Current-year balances for the caller's direct reports (each row tagged with employeeUserId). */
-  listTeamBalances: (token: string) =>
-    fetch(`${BASE}/balances/team`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
   submit: (payload: SubmitLeaveRequestPayload, token: string) =>
     fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),

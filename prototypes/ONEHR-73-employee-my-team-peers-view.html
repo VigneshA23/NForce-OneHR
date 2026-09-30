@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Team — NForce OneHR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+
+/* ── Design tokens — lifted verbatim from ONEHR-72's prototype / the live NForce OneHR product (frontend/src/index.css) ── */
+:root {
+  --shell:        #0E0F12;
+  --panel:        #16181D;
+  --raised:       #1E2128;
+  --raised2:      #262A32;
+  --line:         #2A2E37;
+  --line2:        #353A45;
+
+  --brand:        #B11116;
+  --brand-bright: #E4373D;
+  --brand-deep:   #7A0C10;
+
+  --txt:          #E8EAED;
+  --txt-mut:      #9BA1AC;
+  --txt-dim:      #6B7280;
+
+  --ok:           #2FB67C;
+  --warn:         #E0A93B;
+  --risk:         #E4373D;
+  --info:         #4C8DD6;
+
+  --sidebar-bg:   #0B0C0F;
+  --sidebar-line: #23262D;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --shell: #F7F8FA; --panel: #FFFFFF; --raised: #FFFFFF; --raised2: #F1F3F5;
+    --line: #E3E6EA; --line2: #D3D8DE;
+    --brand-bright: #C81A1F;
+    --txt: #1A1D23; --txt-mut: #5A616B; --txt-dim: #8A909A;
+    --ok: #1A7A52; --warn: #896010; --risk: #C81A1F; --info: #1A5FAA;
+  }
+}
+:root[data-theme="dark"] {
+  --shell: #0E0F12; --panel: #16181D; --raised: #1E2128; --raised2: #262A32;
+  --line: #2A2E37; --line2: #353A45; --brand-bright: #E4373D;
+  --txt: #E8EAED; --txt-mut: #9BA1AC; --txt-dim: #6B7280;
+  --ok: #2FB67C; --warn: #E0A93B; --risk: #E4373D; --info: #4C8DD6;
+}
+:root[data-theme="light"] {
+  --shell: #F7F8FA; --panel: #FFFFFF; --raised: #FFFFFF; --raised2: #F1F3F5;
+  --line: #E3E6EA; --line2: #D3D8DE; --brand-bright: #C81A1F;
+  --txt: #1A1D23; --txt-mut: #5A616B; --txt-dim: #8A909A;
+  --ok: #1A7A52; --warn: #896010; --risk: #C81A1F; --info: #1A5FAA;
+}
+
+* , *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: var(--shell);
+  color: var(--txt);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+button { font-family: inherit; }
+:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: 2px; }
+::selection { background: rgba(177,17,22,.28); }
+
+/* ── Shell layout ── */
+.nf-app { display: flex; min-height: 100vh; }
+
+.nf-sidebar {
+  width: 236px; flex-shrink: 0; background: var(--sidebar-bg); border-right: 1px solid var(--sidebar-line);
+  display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+}
+.nf-sidebar-head {
+  height: 56px; padding: 0 14px; flex-shrink: 0; border-bottom: 1px solid var(--sidebar-line);
+  display: flex; align-items: center; gap: 10px;
+}
+.nf-logo-mark {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  background: radial-gradient(circle at 30% 30%, var(--brand-bright), var(--brand-deep));
+  display: grid; place-items: center; color: #fff; font: 700 13px 'Space Grotesk', sans-serif;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.25), inset 0 -1px 3px rgba(0,0,0,.5);
+}
+.nf-brand-name { font: 700 13px 'Space Grotesk', sans-serif; color: #E8EAED; letter-spacing: .01em; }
+.nf-brand-tag { font-size: 8px; color: #6B7280; letter-spacing: .12em; text-transform: uppercase; margin-top: 1px; }
+
+.nf-nav { flex: 1; overflow-y: auto; padding: 8px 0; }
+.nf-nav-item {
+  display: flex; align-items: center; gap: 9px; padding: 8px 12px; margin: 1px 8px; border-radius: 7px;
+  text-decoration: none; font-size: 12.5px; color: #9BA1AC; position: relative; cursor: pointer;
+}
+.nf-nav-item svg { flex-shrink: 0; }
+.nf-nav-item:hover { background: #15171B; color: #E8EAED; }
+.nf-nav-item.active { background: #1B0D0E; color: #F2C9CA; }
+.nf-nav-item.active .nf-active-rail { position: absolute; left: -8px; top: 6px; bottom: 6px; width: 3px; background: var(--brand-bright); border-radius: 0 3px 3px 0; }
+.nf-nav-item .nf-flex1 { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-pill-new {
+  font-size: 8.5px; font-weight: 700; letter-spacing: .04em; color: #fff; background: var(--brand);
+  padding: 2px 5px; border-radius: 4px; text-transform: uppercase;
+}
+
+.nf-sidebar-foot { border-top: 1px solid var(--sidebar-line); padding: 10px; display: flex; align-items: center; gap: 8px; }
+.nf-avatar {
+  width: 30px; height: 30px; border-radius: 50%; background: var(--brand); display: grid; place-items: center;
+  color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.nf-foot-name { font-size: 12px; color: #E8EAED; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nf-foot-role { font-size: 10px; color: #6B7280; }
+
+.nf-main { margin-left: 236px; flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.nf-topbar {
+  height: 56px; background: linear-gradient(90deg, #050506 0%, #6B0C10 40%, #A01418 100%);
+  border-bottom: 1px solid rgba(228,55,61,.22); position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; padding: 0 18px; gap: 10px; color: #9BA1AC; font-size: 13px;
+}
+.nf-crumb b { color: #E8EAED; font-weight: 600; }
+.nf-topbar-search {
+  max-width: 260px; width: 260px; background: #1E2128; border: 1px solid #2A2E37; border-radius: 8px;
+  padding: 7px 11px; display: flex; align-items: center; gap: 8px; color: #6B7280; font-size: 12px;
+}
+.nf-topbar-btn {
+  background: transparent; border: none; cursor: pointer; padding: 7px; border-radius: 6px;
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: #C8CCD2; position: relative;
+}
+.nf-topbar-btn:hover { background: rgba(255,255,255,.09); }
+.nf-topbar-avatar-btn {
+  position: relative; background: transparent; border: none; cursor: pointer; padding: 4px; border-radius: 50%;
+}
+.nf-topbar-avatar-btn:hover { background: rgba(255,255,255,.09); }
+.nf-topbar-avatar {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--brand); display: grid; place-items: center;
+  color: #fff; font-size: 12px; font-weight: 700; border: 2px solid rgba(255,255,255,.55); box-sizing: border-box;
+}
+
+main.nf-content { flex: 1; padding: 26px; }
+
+/* ── Prototype notice ── */
+.nf-proto-banner {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px; margin-bottom: 20px;
+  background: linear-gradient(90deg, rgba(177,17,22,.13), rgba(177,17,22,.04));
+  border: 1px solid rgba(177,17,22,.30); border-radius: 9px; font-size: 12.5px; color: var(--txt-mut);
+}
+.nf-proto-banner b { color: var(--txt); font-weight: 600; }
+.nf-proto-banner a { color: var(--brand-bright); text-decoration: none; font-weight: 600; }
+.nf-proto-banner a:hover { text-decoration: underline; }
+.nf-proto-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand-bright); flex-shrink: 0; box-shadow: 0 0 0 3px rgba(228,55,61,.18); }
+
+/* ── Page header ── */
+.nf-page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.nf-page-title { font: 700 22px 'Space Grotesk', sans-serif; color: var(--txt); margin: 0 0 4px; text-wrap: balance; }
+.nf-page-sub { font-size: 13px; color: var(--txt-mut); margin: 0; max-width: 62ch; }
+.nf-date-ctl {
+  display: flex; align-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px; flex-shrink: 0;
+}
+.nf-date-ctl button {
+  background: none; border: none; cursor: pointer; color: var(--txt-mut); padding: 6px; border-radius: 6px; display: flex;
+}
+.nf-date-ctl button:hover { background: var(--raised2); color: var(--txt); }
+.nf-date-label { font-size: 12.5px; font-weight: 600; color: var(--txt); padding: 0 6px; white-space: nowrap; }
+
+/* ── Direct Reports / Peers segmented toggle ── */
+.nf-seg-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+.nf-seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+.nf-seg-btn {
+  font-size: 12.5px; font-weight: 600; padding: 8px 16px; border-radius: 8px; border: none; background: none;
+  color: var(--txt-mut); cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 6px;
+}
+.nf-seg-btn:hover:not(.active) { color: var(--txt); background: var(--raised2); }
+.nf-seg-btn.active { background: var(--brand); color: #fff; }
+.nf-seg-hint { font-size: 11.5px; color: var(--txt-dim); }
+
+/* ── Open-question callout ── */
+.nf-callout {
+  display: flex; gap: 10px; align-items: flex-start; padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;
+  background: rgba(224,169,59,.10); border: 1px solid rgba(224,169,59,.32); font-size: 12.5px; color: var(--txt-mut);
+}
+.nf-callout svg { color: var(--warn); flex-shrink: 0; margin-top: 1px; }
+.nf-callout b { color: var(--txt); }
+.nf-callout code { font: 400 11px 'JetBrains Mono', monospace; background: var(--raised2); padding: 1px 5px; border-radius: 4px; color: var(--txt-mut); }
+
+/* ── Empty state (Direct Reports view) ── */
+.nf-empty-panel { padding: 54px 24px; text-align: center; }
+.nf-empty-panel svg { color: var(--txt-dim); margin-bottom: 12px; }
+.nf-empty-panel h3 { font: 700 14.5px 'Space Grotesk', sans-serif; color: var(--txt); margin: 0 0 6px; }
+.nf-empty-panel p { font-size: 12.5px; color: var(--txt-mut); max-width: 48ch; margin: 0 auto; }
+
+/* ── Who's on leave / Not in yet panel pair ── */
+.nf-panel-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+@media (max-width: 720px) { .nf-panel-pair { grid-template-columns: 1fr; } }
+.nf-mini-list { display: flex; flex-direction: column; }
+.nf-mini-row { display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-bottom: 1px solid var(--line); }
+.nf-mini-row:last-child { border-bottom: none; }
+.nf-mini-name { font-size: 12.5px; font-weight: 600; color: var(--txt); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-mini-meta { font-size: 11.5px; color: var(--txt-dim); flex-shrink: 0; }
+.nf-mini-empty { padding: 16px 18px; font-size: 12.5px; color: var(--txt-dim); }
+
+/* ── "Not in yet" overflow avatar stack ── */
+.nf-overflow-row { display: flex; align-items: center; padding: 14px 18px; gap: 4px; flex-wrap: wrap; }
+.nf-overflow-stack { display: flex; align-items: center; }
+.nf-overflow-stack .nf-emp-avatar { border: 2px solid var(--panel); margin-left: -8px; }
+.nf-overflow-stack .nf-emp-avatar:first-child { margin-left: 0; }
+.nf-overflow-more {
+  width: 30px; height: 30px; border-radius: 50%; background: var(--raised2); color: var(--txt-mut);
+  display: grid; place-items: center; font-size: 10.5px; font-weight: 700; margin-left: -8px;
+  border: 2px solid var(--panel); cursor: pointer; flex-shrink: 0;
+}
+.nf-overflow-more:hover { background: var(--line2); color: var(--txt); }
+.nf-overflow-names { padding: 0 18px 14px; font-size: 11.5px; color: var(--txt-dim); }
+.nf-overflow-names b { color: var(--txt-mut); font-weight: 600; }
+
+/* ── KPI row ── */
+.nf-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.nf-kpi-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.nf-kpi-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--txt-mut); }
+.nf-kpi-head span { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.nf-kpi-num { font: 700 30px 'Space Grotesk', sans-serif; color: var(--txt); line-height: 1; }
+.nf-kpi-note { font-size: 11.5px; color: var(--txt-dim); margin-top: 4px; }
+.nf-kpi-viewlink { display: block; margin-top: 10px; background: none; border: none; padding: 0; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--info); }
+.nf-kpi-viewlink:hover { text-decoration: underline; color: var(--brand-bright); }
+
+/* ── Body panel base ── */
+.nf-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.nf-panel-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.nf-panel-title { font: 700 14px 'Space Grotesk', sans-serif; color: var(--txt); }
+.nf-panel-sub { font-size: 11.5px; color: var(--txt-dim); margin-top: 2px; }
+.nf-panel-count { font-size: 11px; font-weight: 700; color: var(--txt-mut); background: var(--raised2); padding: 2px 8px; border-radius: 20px; }
+
+/* ── Toolbar (search + filter chips) ── */
+.nf-toolbar { padding: 12px 18px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.nf-search { flex: 1; min-width: 160px; display: flex; align-items: center; gap: 8px; background: var(--shell); border: 1px solid var(--line2); border-radius: 7px; padding: 7px 10px; color: var(--txt-dim); }
+.nf-search input { flex: 1; background: none; border: none; outline: none; color: var(--txt); font-size: 12.5px; }
+.nf-search input::placeholder { color: var(--txt-dim); }
+.nf-chip {
+  font-size: 11.5px; font-weight: 600; padding: 6px 11px; border-radius: 20px; border: 1px solid var(--line2);
+  background: var(--shell); color: var(--txt-mut); cursor: pointer; white-space: nowrap;
+}
+.nf-chip:hover { border-color: var(--txt-dim); color: var(--txt); }
+.nf-chip.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+/* ── Avatar + status pills ── */
+.nf-emp-avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+
+.nf-status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 4px 9px 4px 7px; border-radius: 20px; white-space: nowrap; }
+.nf-status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.nf-status-ok      { background: rgba(47,182,124,.15); color: var(--ok); }
+.nf-status-ok .nf-status-dot      { background: var(--ok); }
+.nf-status-warn    { background: rgba(224,169,59,.16); color: var(--warn); }
+.nf-status-warn .nf-status-dot    { background: var(--warn); }
+.nf-status-risk    { background: rgba(228,55,61,.15); color: var(--risk); }
+.nf-status-risk .nf-status-dot    { background: var(--risk); }
+.nf-status-info    { background: rgba(76,141,214,.16); color: var(--info); }
+.nf-status-info .nf-status-dot    { background: var(--info); }
+.nf-status-neutral { background: var(--raised2); color: var(--txt-dim); }
+.nf-status-neutral .nf-status-dot { background: var(--txt-dim); }
+.nf-status-leave    { background: rgba(129,140,248,.18); color: #818CF8; }
+.nf-status-leave .nf-status-dot   { background: #818CF8; }
+
+.nf-req-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+.nf-type-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+.nf-dept-chip { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+
+.nf-empty { padding: 34px 18px; text-align: center; color: var(--txt-dim); font-size: 12.5px; }
+
+/* ── Peer card grid (Keka-style, extended with location/department/email) ── */
+.nf-roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 10px; padding: 14px 18px; }
+.nf-roster-card { background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 13px 14px; display: flex; flex-direction: column; gap: 9px; }
+.nf-rc-top { display: flex; align-items: flex-start; gap: 10px; }
+.nf-rc-info { flex: 1; min-width: 0; }
+.nf-rc-name { color: var(--txt); font-weight: 600; font-size: 13px; }
+.nf-rc-role { font-size: 11.5px; color: var(--txt-mut); margin-top: 1px; }
+.nf-rc-code { color: var(--txt-dim); font: 400 10.5px 'JetBrains Mono', monospace; margin-top: 2px; }
+.nf-rc-pill-row { display: flex; flex-wrap: wrap; gap: 5px; min-height: 22px; }
+.nf-rc-metarow { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--txt-dim); }
+.nf-rc-metarow svg { flex-shrink: 0; }
+.nf-rc-emailrow { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--txt-mut); overflow: hidden; }
+.nf-rc-emailrow svg { flex-shrink: 0; color: var(--txt-dim); }
+.nf-rc-emailrow a { color: var(--txt-mut); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.nf-rc-emailrow a:hover { color: var(--brand-bright); text-decoration: underline; }
+.nf-copy-btn { background: none; border: none; color: var(--txt-dim); cursor: pointer; padding: 2px; display: flex; flex-shrink: 0; border-radius: 4px; }
+.nf-copy-btn:hover { color: var(--txt); background: var(--raised2); }
+
+/* ── Team calendar (Keka-style month grid) ── */
+.nf-cal-toolbar { padding: 12px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.nf-cal-nav { display: flex; align-items: center; gap: 4px; background: var(--shell); border: 1px solid var(--line2); border-radius: 8px; padding: 4px; }
+.nf-cal-nav button { background: none; border: none; cursor: pointer; color: var(--txt-mut); padding: 5px; border-radius: 6px; display: flex; }
+.nf-cal-nav button:hover { background: var(--raised2); color: var(--txt); }
+.nf-cal-nav-label { font-size: 12.5px; font-weight: 600; color: var(--txt); padding: 0 8px; white-space: nowrap; }
+.nf-cal-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 10.5px; color: var(--txt-mut); }
+.nf-cal-legend-item { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.nf-cal-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.nf-cal-wrap { overflow-x: auto; }
+table.nf-cal { border-collapse: collapse; }
+.nf-cal thead th { padding: 7px 3px; font-size: 9.5px; font-weight: 700; color: var(--txt-dim); text-align: center; border-bottom: 1px solid var(--line); background: var(--raised); text-transform: uppercase; }
+.nf-cal thead th.nf-cal-emp-h { position: sticky; left: 0; z-index: 2; text-align: left; padding-left: 18px; min-width: 168px; }
+.nf-cal thead th.nf-cal-today { color: var(--brand-bright); }
+.nf-cal tbody td { padding: 3px; border-bottom: 1px solid var(--line); text-align: center; }
+.nf-cal tbody tr:last-child td { border-bottom: none; }
+.nf-cal-emp-cell { position: sticky; left: 0; background: var(--panel); z-index: 1; padding: 6px 18px !important; text-align: left; }
+.nf-cal tbody tr:hover .nf-cal-emp-cell { background: var(--raised); }
+.nf-cal tbody tr:hover td { background: var(--raised); }
+.nf-cal-emp { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.nf-cal-emp-avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 9.5px; font-weight: 700; flex-shrink: 0; }
+.nf-cal-emp-name { font-size: 12px; font-weight: 600; color: var(--txt); white-space: nowrap; }
+.nf-cal-you-tag { font-size: 8px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ok); background: rgba(47,182,124,.15); padding: 1px 5px; border-radius: 4px; margin-left: 2px; }
+.nf-day-cell { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: var(--txt-dim); margin: 0 auto; }
+.nf-day-cell.nf-cal-today-col { box-shadow: 0 0 0 2px var(--brand-bright); color: var(--txt); }
+.nf-day-cell.nf-cal-wo  { background: #D4922E; color: #fff; }
+.nf-day-cell.nf-cal-hol { background: #2FA36B; color: #fff; }
+.nf-day-cell.nf-cal-pl  { background: #3D7FC0; color: #fff; }
+.nf-day-cell.nf-cal-ul  { background: #6B7280; color: #fff; }
+.nf-day-cell.nf-cal-na  { background: #D6444A; color: #fff; }
+.nf-day-cell.nf-cal-wfh { background: #8B5CF6; color: #fff; }
+.nf-day-cell.nf-cal-od  { background: #D6428E; color: #fff; }
+
+/* ── Toast ── */
+.nf-toast-stack { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
+.nf-toast {
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ok); border-radius: 8px;
+  padding: 10px 14px; font-size: 12.5px; color: var(--txt); box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  display: flex; align-items: center; gap: 8px; min-width: 220px; max-width: 320px;
+  animation: nf-toast-in .18s ease;
+}
+.nf-toast.reject { border-left-color: var(--risk); }
+@keyframes nf-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ── Footer note ── */
+.nf-foot-note { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--txt-dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.nf-foot-note a { color: var(--txt-mut); text-decoration: none; }
+.nf-foot-note a:hover { color: var(--brand-bright); text-decoration: underline; }
+.nf-foot-note code { font: 400 11px 'JetBrains Mono', monospace; background: var(--raised2); padding: 1px 5px; border-radius: 4px; color: var(--txt-mut); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .nf-anim { transition: background .15s ease, color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease; }
+}
+</style>
+</head>
+<body>
+<div class="nf-app">
+
+  <!-- ══ Sidebar ══ -->
+  <aside class="nf-sidebar">
+    <div class="nf-sidebar-head">
+      <div class="nf-logo-mark">N</div>
+      <div>
+        <div class="nf-brand-name">NForce OneHR</div>
+        <div class="nf-brand-tag">Employee Experience</div>
+      </div>
+    </div>
+    <nav class="nf-nav">
+      <a class="nf-nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span class="nf-flex1">Dashboard</span></a>
+      <a class="nf-nav-item active"><span class="nf-active-rail"></span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="nf-flex1">My Team</span><span class="nf-pill-new">New</span></a>
+      <a class="nf-nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span class="nf-flex1">Attendance</span></a>
+      <a class="nf-nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span class="nf-flex1">Leave</span></a>
+      <a class="nf-nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span class="nf-flex1">My Requests</span></a>
+      <a class="nf-nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg><span class="nf-flex1">Assets &amp; Expenses</span></a>
+      <a class="nf-nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><span class="nf-flex1">Directory</span></a>
+    </nav>
+    <div class="nf-sidebar-foot">
+      <div class="nf-avatar">KM</div>
+      <div>
+        <div class="nf-foot-name">Karan Mehta</div>
+        <div class="nf-foot-role">QA Engineer</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══ Main ══ -->
+  <div class="nf-main">
+    <header class="nf-topbar">
+      <div class="nf-crumb">NForce OneHR / <b>My Team</b></div>
+      <div style="flex:1"></div>
+      <div class="nf-topbar-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        Search this workspace…
+      </div>
+      <button class="nf-topbar-btn" id="themeToggle" aria-label="Toggle theme">
+        <svg id="themeIconMoon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+        <svg id="themeIconSun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <span id="themeLabel">Light</span>
+      </button>
+      <button class="nf-topbar-btn" aria-label="Notifications">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+      <button class="nf-topbar-avatar-btn" aria-label="Profile menu">
+        <div class="nf-topbar-avatar">KM</div>
+      </button>
+    </header>
+
+    <main class="nf-content">
+
+      <div class="nf-proto-banner">
+        <span class="nf-proto-dot"></span>
+        <span><b>Prototype</b> for <code style="font:400 11.5px 'JetBrains Mono',monospace">ONEHR-73</code> — Employee: My Team View, Project Team. Sample data shown; not wired to live services. Extends <code style="font:400 11.5px 'JetBrains Mono',monospace">ONEHR-72</code>. <a href="https://nforceonehr.atlassian.net/browse/ONEHR-73" target="_blank" rel="noopener">View story in Jira ↗</a></span>
+      </div>
+
+      <div class="nf-page-head">
+        <div>
+          <h1 class="nf-page-title">My Team</h1>
+          <p class="nf-page-sub" id="pageSub">Attendance and leave for your project team today, plus a directory so you can find and reach a teammate without opening HR or Directory. Scoped to the people you actually work with, not everyone who shares your manager.</p>
+        </div>
+        <div class="nf-date-ctl">
+          <button aria-label="Previous day"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+          <span class="nf-date-label">Today · Mon, 10 Aug 2026</span>
+          <button aria-label="Next day"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+        </div>
+      </div>
+
+      <!-- ── Direct Reports / Peers toggle ── -->
+      <div class="nf-seg-row">
+        <div class="nf-seg" role="tablist" aria-label="My Team view">
+          <button class="nf-seg-btn" data-view="direct" role="tab" aria-selected="false">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Direct Reports
+          </button>
+          <button class="nf-seg-btn active" data-view="peers" role="tab" aria-selected="true">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="3.2"/><circle cx="16" cy="9" r="3.2"/><path d="M2.5 20c0-3 2.5-5.4 5.5-5.4S13.5 17 13.5 20"/><path d="M10.7 14.7c.9-.6 1.9-.9 3-.9 3 0 5.5 2.4 5.5 5.4"/></svg>
+            Project Team
+          </button>
+        </div>
+        <span class="nf-seg-hint" id="segHint">Showing your project team · Karan's squad on Project Atlas (5 people, not his whole department)</span>
+      </div>
+
+      <!-- ── Open question callout — AC #5, now resolved to a narrower (and harder) scope ── -->
+      <div class="nf-callout">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+        <span><b>Open question for Product, before this is built for real:</b> this prototype now models "my team" as <b>Karan's project squad</b> (the people he actually works with day to day), not everyone who shares his manager. That's a better fit for "who's around today" — but there's no <code>Project</code> or team-membership entity anywhere in the current data model; <code>HierarchyNode</code>/<code>PersonCard</code> only carry department, manager and designation. Building this for real means introducing project/team membership as a new concept — a bigger lift than the same-manager scoping this page started with. Needs scoping before estimating <code>ONEHR-73</code>.</span>
+      </div>
+
+      <!-- ══════════ VIEW: DIRECT REPORTS (empty for this persona) ══════════ -->
+      <div id="viewDirect" hidden>
+        <div class="nf-panel">
+          <div class="nf-empty-panel">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <h3>You don't have any direct reports</h3>
+            <p>Karan Mehta is an individual contributor today. Once you manage a team, this tab shows the exact same attendance, leave and calendar view your manager sees on their <b style="color:var(--txt-mut)">My Team</b> page — reusing ONEHR-72 as-is.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ VIEW: PEERS ══════════ -->
+      <div id="viewPeers">
+
+        <!-- ── Who's on leave / Not in yet ── -->
+        <div class="nf-panel-pair">
+          <div class="nf-panel">
+            <div class="nf-panel-head">
+              <span class="nf-panel-title">Who's on leave today</span>
+              <span class="nf-panel-count">1 person</span>
+            </div>
+            <div class="nf-mini-list">
+              <div class="nf-mini-row">
+                <div class="nf-emp-avatar" style="background:#7D5FC4">PS</div>
+                <div class="nf-mini-name">Priya Suresh</div>
+                <span class="nf-status-pill nf-status-leave"><span class="nf-status-dot"></span>Casual Leave</span>
+              </div>
+            </div>
+          </div>
+          <div class="nf-panel">
+            <div class="nf-panel-head">
+              <span class="nf-panel-title">Not in yet today</span>
+              <span class="nf-panel-count" id="notInCount">2 people</span>
+            </div>
+            <div class="nf-overflow-row">
+              <div class="nf-overflow-stack" id="notInStack">
+                <div class="nf-emp-avatar" style="background:#2F8F76" title="Devendra Iyer">DI</div>
+                <div class="nf-emp-avatar" style="background:#2FA36B" title="Naveen Pillai">NP</div>
+              </div>
+            </div>
+            <div class="nf-overflow-names" id="notInNames"><b>Shift starts 09:30 —</b> Devendra Iyer, Naveen Pillai</div>
+          </div>
+        </div>
+
+        <!-- ── KPI row — matches Keka reference exactly ── -->
+        <div class="nf-kpi-row">
+          <div class="nf-kpi-card">
+            <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Employees On Time</span></div>
+            <div class="nf-kpi-num">1</div>
+            <div class="nf-kpi-note">Ananya Rao</div>
+            <button class="nf-kpi-viewlink" data-view-filter="ontime">View Employees</button>
+          </div>
+          <div class="nf-kpi-card">
+            <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span>Late Arrivals</span></div>
+            <div class="nf-kpi-num">0</div>
+            <div class="nf-kpi-note">none in your project team today</div>
+          </div>
+          <div class="nf-kpi-card">
+            <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 2l9 7.5"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg><span>Work from Home / On Duty</span></div>
+            <div class="nf-kpi-num">1</div>
+            <div class="nf-kpi-note">Meera Nair · client site</div>
+            <button class="nf-kpi-viewlink" data-view-filter="onduty">View Employees</button>
+          </div>
+          <div class="nf-kpi-card">
+            <div class="nf-kpi-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--txt-mut)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg><span>Remote Clock-ins</span></div>
+            <div class="nf-kpi-num">0</div>
+            <div class="nf-kpi-note">via Web Clock-In today</div>
+          </div>
+        </div>
+
+        <!-- ── Team calendar ── -->
+        <div class="nf-panel" style="margin-bottom:16px">
+          <div class="nf-panel-head">
+            <span class="nf-panel-title">Team calendar</span>
+            <span class="nf-panel-count">6 people · you + project team</span>
+          </div>
+          <div class="nf-cal-toolbar">
+            <div class="nf-cal-nav">
+              <button aria-label="Previous month" id="calPrev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+              <span class="nf-cal-nav-label">August 2026</span>
+              <button aria-label="Next month" id="calNext"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+            </div>
+            <div class="nf-cal-legend">
+              <span class="nf-cal-legend-item"><span class="nf-cal-swatch" style="background:#8B5CF6"></span>Work from home</span>
+              <span class="nf-cal-legend-item"><span class="nf-cal-swatch" style="background:#D6428E"></span>On duty</span>
+              <span class="nf-cal-legend-item"><span class="nf-cal-swatch" style="background:#3D7FC0"></span>Paid leave</span>
+              <span class="nf-cal-legend-item"><span class="nf-cal-swatch" style="background:#D6444A"></span>Leave due to no attendance</span>
+              <span class="nf-cal-legend-item"><span class="nf-cal-swatch" style="background:#D4922E"></span>Weekly off</span>
+              <span class="nf-cal-legend-item"><span class="nf-cal-swatch" style="background:#2FA36B"></span>Holiday</span>
+            </div>
+          </div>
+          <div class="nf-cal-wrap">
+            <table class="nf-cal">
+              <thead>
+                <tr>
+                  <th class="nf-cal-emp-h">Team member</th>
+                  <th class="nf-cal-daycol">Sa</th><th class="nf-cal-daycol">Su</th><th class="nf-cal-daycol">Mo</th><th class="nf-cal-daycol">Tu</th><th class="nf-cal-daycol">We</th><th class="nf-cal-daycol">Th</th><th class="nf-cal-daycol">Fr</th><th class="nf-cal-daycol">Sa</th><th class="nf-cal-daycol">Su</th><th class="nf-cal-daycol nf-cal-today">Mo</th><th class="nf-cal-daycol">Tu</th><th class="nf-cal-daycol">We</th><th class="nf-cal-daycol">Th</th><th class="nf-cal-daycol">Fr</th><th class="nf-cal-daycol">Sa</th><th class="nf-cal-daycol">Su</th><th class="nf-cal-daycol">Mo</th><th class="nf-cal-daycol">Tu</th><th class="nf-cal-daycol">We</th><th class="nf-cal-daycol">Th</th><th class="nf-cal-daycol">Fr</th><th class="nf-cal-daycol">Sa</th><th class="nf-cal-daycol">Su</th><th class="nf-cal-daycol">Mo</th><th class="nf-cal-daycol">Tu</th><th class="nf-cal-daycol">We</th><th class="nf-cal-daycol">Th</th><th class="nf-cal-daycol">Fr</th><th class="nf-cal-daycol">Sa</th><th class="nf-cal-daycol">Su</th><th class="nf-cal-daycol">Mo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="nf-cal-emp-cell"><div class="nf-cal-emp"><div class="nf-cal-emp-avatar" style="background:var(--brand)">KM</div><div class="nf-cal-emp-name">Karan Mehta<span class="nf-cal-you-tag">You</span></div></div></td>
+                  <td><div class="nf-day-cell nf-cal-wo">1</div></td><td><div class="nf-day-cell nf-cal-wo">2</div></td><td><div class="nf-day-cell">3</div></td><td><div class="nf-day-cell">4</div></td><td><div class="nf-day-cell">5</div></td><td><div class="nf-day-cell">6</div></td><td><div class="nf-day-cell">7</div></td><td><div class="nf-day-cell nf-cal-wo">8</div></td><td><div class="nf-day-cell nf-cal-wo">9</div></td><td><div class="nf-day-cell nf-cal-today-col">10</div></td><td><div class="nf-day-cell">11</div></td><td><div class="nf-day-cell">12</div></td><td><div class="nf-day-cell">13</div></td><td><div class="nf-day-cell">14</div></td><td><div class="nf-day-cell nf-cal-hol">15</div></td><td><div class="nf-day-cell nf-cal-wo">16</div></td><td><div class="nf-day-cell">17</div></td><td><div class="nf-day-cell">18</div></td><td><div class="nf-day-cell">19</div></td><td><div class="nf-day-cell nf-cal-wfh">20</div></td><td><div class="nf-day-cell">21</div></td><td><div class="nf-day-cell nf-cal-wo">22</div></td><td><div class="nf-day-cell nf-cal-wo">23</div></td><td><div class="nf-day-cell">24</div></td><td><div class="nf-day-cell">25</div></td><td><div class="nf-day-cell">26</div></td><td><div class="nf-day-cell">27</div></td><td><div class="nf-day-cell">28</div></td><td><div class="nf-day-cell nf-cal-wo">29</div></td><td><div class="nf-day-cell nf-cal-wo">30</div></td><td><div class="nf-day-cell">31</div></td>
+                </tr>
+                <tr>
+                  <td class="nf-cal-emp-cell"><div class="nf-cal-emp"><div class="nf-cal-emp-avatar" style="background:#B5652F">AR</div><div class="nf-cal-emp-name">Ananya Rao</div></div></td>
+                  <td><div class="nf-day-cell nf-cal-wo">1</div></td><td><div class="nf-day-cell nf-cal-wo">2</div></td><td><div class="nf-day-cell">3</div></td><td><div class="nf-day-cell">4</div></td><td><div class="nf-day-cell">5</div></td><td><div class="nf-day-cell">6</div></td><td><div class="nf-day-cell">7</div></td><td><div class="nf-day-cell nf-cal-wo">8</div></td><td><div class="nf-day-cell nf-cal-wo">9</div></td><td><div class="nf-day-cell nf-cal-today-col">10</div></td><td><div class="nf-day-cell">11</div></td><td><div class="nf-day-cell">12</div></td><td><div class="nf-day-cell">13</div></td><td><div class="nf-day-cell">14</div></td><td><div class="nf-day-cell nf-cal-hol">15</div></td><td><div class="nf-day-cell nf-cal-wo">16</div></td><td><div class="nf-day-cell">17</div></td><td><div class="nf-day-cell">18</div></td><td><div class="nf-day-cell">19</div></td><td><div class="nf-day-cell">20</div></td><td><div class="nf-day-cell">21</div></td><td><div class="nf-day-cell nf-cal-wo">22</div></td><td><div class="nf-day-cell nf-cal-wo">23</div></td><td><div class="nf-day-cell">24</div></td><td><div class="nf-day-cell">25</div></td><td><div class="nf-day-cell">26</div></td><td><div class="nf-day-cell">27</div></td><td><div class="nf-day-cell">28</div></td><td><div class="nf-day-cell nf-cal-wo">29</div></td><td><div class="nf-day-cell nf-cal-wo">30</div></td><td><div class="nf-day-cell">31</div></td>
+                </tr>
+                <tr>
+                  <td class="nf-cal-emp-cell"><div class="nf-cal-emp"><div class="nf-cal-emp-avatar" style="background:#7D5FC4">PS</div><div class="nf-cal-emp-name">Priya Suresh</div></div></td>
+                  <td><div class="nf-day-cell nf-cal-wo">1</div></td><td><div class="nf-day-cell nf-cal-wo">2</div></td><td><div class="nf-day-cell">3</div></td><td><div class="nf-day-cell">4</div></td><td><div class="nf-day-cell">5</div></td><td><div class="nf-day-cell">6</div></td><td><div class="nf-day-cell">7</div></td><td><div class="nf-day-cell nf-cal-wo">8</div></td><td><div class="nf-day-cell nf-cal-wo">9</div></td><td><div class="nf-day-cell nf-cal-pl nf-cal-today-col">10</div></td><td><div class="nf-day-cell">11</div></td><td><div class="nf-day-cell">12</div></td><td><div class="nf-day-cell">13</div></td><td><div class="nf-day-cell">14</div></td><td><div class="nf-day-cell nf-cal-hol">15</div></td><td><div class="nf-day-cell nf-cal-wo">16</div></td><td><div class="nf-day-cell">17</div></td><td><div class="nf-day-cell">18</div></td><td><div class="nf-day-cell">19</div></td><td><div class="nf-day-cell">20</div></td><td><div class="nf-day-cell">21</div></td><td><div class="nf-day-cell nf-cal-wo">22</div></td><td><div class="nf-day-cell nf-cal-wo">23</div></td><td><div class="nf-day-cell">24</div></td><td><div class="nf-day-cell">25</div></td><td><div class="nf-day-cell">26</div></td><td><div class="nf-day-cell">27</div></td><td><div class="nf-day-cell">28</div></td><td><div class="nf-day-cell nf-cal-wo">29</div></td><td><div class="nf-day-cell nf-cal-wo">30</div></td><td><div class="nf-day-cell">31</div></td>
+                </tr>
+                <tr>
+                  <td class="nf-cal-emp-cell"><div class="nf-cal-emp"><div class="nf-cal-emp-avatar" style="background:#2F8F76">DI</div><div class="nf-cal-emp-name">Devendra Iyer</div></div></td>
+                  <td><div class="nf-day-cell nf-cal-wo">1</div></td><td><div class="nf-day-cell nf-cal-wo">2</div></td><td><div class="nf-day-cell">3</div></td><td><div class="nf-day-cell">4</div></td><td><div class="nf-day-cell">5</div></td><td><div class="nf-day-cell">6</div></td><td><div class="nf-day-cell">7</div></td><td><div class="nf-day-cell nf-cal-wo">8</div></td><td><div class="nf-day-cell nf-cal-wo">9</div></td><td><div class="nf-day-cell nf-cal-today-col">10</div></td><td><div class="nf-day-cell">11</div></td><td><div class="nf-day-cell">12</div></td><td><div class="nf-day-cell">13</div></td><td><div class="nf-day-cell">14</div></td><td><div class="nf-day-cell nf-cal-hol">15</div></td><td><div class="nf-day-cell nf-cal-wo">16</div></td><td><div class="nf-day-cell">17</div></td><td><div class="nf-day-cell">18</div></td><td><div class="nf-day-cell">19</div></td><td><div class="nf-day-cell">20</div></td><td><div class="nf-day-cell">21</div></td><td><div class="nf-day-cell nf-cal-wo">22</div></td><td><div class="nf-day-cell nf-cal-wo">23</div></td><td><div class="nf-day-cell">24</div></td><td><div class="nf-day-cell">25</div></td><td><div class="nf-day-cell">26</div></td><td><div class="nf-day-cell">27</div></td><td><div class="nf-day-cell">28</div></td><td><div class="nf-day-cell nf-cal-wo">29</div></td><td><div class="nf-day-cell nf-cal-wo">30</div></td><td><div class="nf-day-cell">31</div></td>
+                </tr>
+                <tr>
+                  <td class="nf-cal-emp-cell"><div class="nf-cal-emp"><div class="nf-cal-emp-avatar" style="background:#D6428E">MN</div><div class="nf-cal-emp-name">Meera Nair</div></div></td>
+                  <td><div class="nf-day-cell nf-cal-wo">1</div></td><td><div class="nf-day-cell nf-cal-wo">2</div></td><td><div class="nf-day-cell">3</div></td><td><div class="nf-day-cell">4</div></td><td><div class="nf-day-cell">5</div></td><td><div class="nf-day-cell">6</div></td><td><div class="nf-day-cell">7</div></td><td><div class="nf-day-cell nf-cal-wo">8</div></td><td><div class="nf-day-cell nf-cal-wo">9</div></td><td><div class="nf-day-cell nf-cal-od nf-cal-today-col">10</div></td><td><div class="nf-day-cell">11</div></td><td><div class="nf-day-cell">12</div></td><td><div class="nf-day-cell">13</div></td><td><div class="nf-day-cell">14</div></td><td><div class="nf-day-cell nf-cal-hol">15</div></td><td><div class="nf-day-cell nf-cal-wo">16</div></td><td><div class="nf-day-cell">17</div></td><td><div class="nf-day-cell">18</div></td><td><div class="nf-day-cell">19</div></td><td><div class="nf-day-cell">20</div></td><td><div class="nf-day-cell">21</div></td><td><div class="nf-day-cell nf-cal-wo">22</div></td><td><div class="nf-day-cell nf-cal-wo">23</div></td><td><div class="nf-day-cell">24</div></td><td><div class="nf-day-cell">25</div></td><td><div class="nf-day-cell">26</div></td><td><div class="nf-day-cell">27</div></td><td><div class="nf-day-cell">28</div></td><td><div class="nf-day-cell nf-cal-wo">29</div></td><td><div class="nf-day-cell nf-cal-wo">30</div></td><td><div class="nf-day-cell">31</div></td>
+                </tr>
+                <tr>
+                  <td class="nf-cal-emp-cell"><div class="nf-cal-emp"><div class="nf-cal-emp-avatar" style="background:#2FA36B">NP</div><div class="nf-cal-emp-name">Naveen Pillai</div></div></td>
+                  <td><div class="nf-day-cell nf-cal-wo">1</div></td><td><div class="nf-day-cell nf-cal-wo">2</div></td><td><div class="nf-day-cell">3</div></td><td><div class="nf-day-cell">4</div></td><td><div class="nf-day-cell">5</div></td><td><div class="nf-day-cell">6</div></td><td><div class="nf-day-cell">7</div></td><td><div class="nf-day-cell nf-cal-wo">8</div></td><td><div class="nf-day-cell nf-cal-wo">9</div></td><td><div class="nf-day-cell nf-cal-today-col">10</div></td><td><div class="nf-day-cell">11</div></td><td><div class="nf-day-cell">12</div></td><td><div class="nf-day-cell">13</div></td><td><div class="nf-day-cell">14</div></td><td><div class="nf-day-cell nf-cal-hol">15</div></td><td><div class="nf-day-cell nf-cal-wo">16</div></td><td><div class="nf-day-cell">17</div></td><td><div class="nf-day-cell">18</div></td><td><div class="nf-day-cell">19</div></td><td><div class="nf-day-cell">20</div></td><td><div class="nf-day-cell">21</div></td><td><div class="nf-day-cell nf-cal-wo">22</div></td><td><div class="nf-day-cell nf-cal-wo">23</div></td><td><div class="nf-day-cell">24</div></td><td><div class="nf-day-cell">25</div></td><td><div class="nf-day-cell">26</div></td><td><div class="nf-day-cell">27</div></td><td><div class="nf-day-cell">28</div></td><td><div class="nf-day-cell nf-cal-wo">29</div></td><td><div class="nf-day-cell nf-cal-wo">30</div></td><td><div class="nf-day-cell">31</div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── Peer directory card grid — the new deliverable, reusing DirectoryPage.tsx's card visuals ── -->
+        <div class="nf-panel" id="peerPanel">
+          <div class="nf-panel-head">
+            <div>
+              <span class="nf-panel-title" id="peerGridTitle">Project Team (5)</span>
+            </div>
+          </div>
+          <div class="nf-toolbar">
+            <div class="nf-search">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <input id="peerSearch" type="text" placeholder="Search by name, code, or department…" />
+            </div>
+            <button class="nf-chip active" data-filter="all">All</button>
+            <button class="nf-chip" data-filter="in">In</button>
+            <button class="nf-chip" data-filter="out">Out</button>
+            <button class="nf-chip" data-filter="not-in-yet">Not in yet</button>
+            <button class="nf-chip" data-filter="leave">On leave</button>
+            <button class="nf-chip" data-filter="ontime">On time</button>
+            <button class="nf-chip" data-filter="late">Late</button>
+            <button class="nf-chip" data-filter="onduty">On duty</button>
+          </div>
+          <div class="nf-roster-grid" id="peerGrid">
+
+            <div class="nf-roster-card" data-status="out" data-ontime="1" data-name="ananya rao emp-0142 software engineer ii engineering" data-code="AR">
+              <div class="nf-rc-top">
+                <div class="nf-emp-avatar" style="background:#B5652F">AR</div>
+                <div class="nf-rc-info">
+                  <div class="nf-rc-name">Ananya Rao</div>
+                  <div class="nf-rc-role">Software Engineer II</div>
+                  <div class="nf-rc-code">EMP-0142</div>
+                </div>
+              </div>
+              <div class="nf-rc-pill-row">
+                <span class="nf-status-pill nf-status-risk"><span class="nf-status-dot"></span>Out</span>
+                <span class="nf-dept-chip" style="background:rgba(76,141,214,.16); color:var(--info)">Engineering</span>
+              </div>
+              <div class="nf-rc-metarow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>Bengaluru</div>
+              <div class="nf-rc-emailrow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z" opacity="0"/><path d="M22 6 12 13 2 6"/><path d="M2 6h20v12H2z"/></svg><a href="mailto:ananya.rao@nforceone.com">ananya.rao@nforceone.com</a><button class="nf-copy-btn" data-copy="ananya.rao@nforceone.com" title="Copy email"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            </div>
+
+            <div class="nf-roster-card" data-status="leave" data-name="priya suresh emp-0163 product analyst product" data-code="PS">
+              <div class="nf-rc-top">
+                <div class="nf-emp-avatar" style="background:#7D5FC4">PS</div>
+                <div class="nf-rc-info">
+                  <div class="nf-rc-name">Priya Suresh</div>
+                  <div class="nf-rc-role">Product Analyst</div>
+                  <div class="nf-rc-code">EMP-0163</div>
+                </div>
+              </div>
+              <div class="nf-rc-pill-row">
+                <span class="nf-status-pill nf-status-leave"><span class="nf-status-dot"></span>Casual Leave</span>
+                <span class="nf-dept-chip" style="background:rgba(212,146,46,.16); color:#D4922E">Product</span>
+              </div>
+              <div class="nf-rc-metarow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>Hyderabad</div>
+              <div class="nf-rc-emailrow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 6 12 13 2 6"/><path d="M2 6h20v12H2z"/></svg><a href="mailto:priya.suresh@nforceone.com">priya.suresh@nforceone.com</a><button class="nf-copy-btn" data-copy="priya.suresh@nforceone.com" title="Copy email"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            </div>
+
+            <div class="nf-roster-card" data-status="not-in-yet" data-name="devendra iyer emp-0171 software engineer engineering" data-code="DI">
+              <div class="nf-rc-top">
+                <div class="nf-emp-avatar" style="background:#2F8F76">DI</div>
+                <div class="nf-rc-info">
+                  <div class="nf-rc-name">Devendra Iyer</div>
+                  <div class="nf-rc-role">Software Engineer</div>
+                  <div class="nf-rc-code">EMP-0171</div>
+                </div>
+              </div>
+              <div class="nf-rc-pill-row">
+                <span class="nf-status-pill nf-status-info"><span class="nf-status-dot"></span>Not in yet</span>
+                <span class="nf-dept-chip" style="background:rgba(76,141,214,.16); color:var(--info)">Engineering</span>
+              </div>
+              <div class="nf-rc-metarow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>Bengaluru</div>
+              <div class="nf-rc-emailrow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 6 12 13 2 6"/><path d="M2 6h20v12H2z"/></svg><a href="mailto:devendra.iyer@nforceone.com">devendra.iyer@nforceone.com</a><button class="nf-copy-btn" data-copy="devendra.iyer@nforceone.com" title="Copy email"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            </div>
+
+            <div class="nf-roster-card" data-status="in" data-onduty="1" data-name="meera nair emp-0190 business analyst business" data-code="MN">
+              <div class="nf-rc-top">
+                <div class="nf-emp-avatar" style="background:#D6428E">MN</div>
+                <div class="nf-rc-info">
+                  <div class="nf-rc-name">Meera Nair</div>
+                  <div class="nf-rc-role">Business Analyst</div>
+                  <div class="nf-rc-code">EMP-0190</div>
+                </div>
+              </div>
+              <div class="nf-rc-pill-row">
+                <span class="nf-status-pill nf-status-info"><span class="nf-status-dot"></span>On duty</span>
+                <span class="nf-dept-chip" style="background:rgba(212,146,46,.16); color:#D4922E">Business</span>
+              </div>
+              <div class="nf-rc-metarow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>Hyderabad · client site</div>
+              <div class="nf-rc-emailrow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 6 12 13 2 6"/><path d="M2 6h20v12H2z"/></svg><a href="mailto:meera.nair@nforceone.com">meera.nair@nforceone.com</a><button class="nf-copy-btn" data-copy="meera.nair@nforceone.com" title="Copy email"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            </div>
+
+            <div class="nf-roster-card" data-status="not-in-yet" data-name="naveen pillai emp-0205 qa engineer qa" data-code="NP">
+              <div class="nf-rc-top">
+                <div class="nf-emp-avatar" style="background:#2FA36B">NP</div>
+                <div class="nf-rc-info">
+                  <div class="nf-rc-name">Naveen Pillai</div>
+                  <div class="nf-rc-role">QA Engineer</div>
+                  <div class="nf-rc-code">EMP-0205</div>
+                </div>
+              </div>
+              <div class="nf-rc-pill-row">
+                <span class="nf-status-pill nf-status-info"><span class="nf-status-dot"></span>Not in yet</span>
+                <span class="nf-dept-chip" style="background:rgba(139,92,246,.16); color:#8B5CF6">QA</span>
+              </div>
+              <div class="nf-rc-metarow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>Bengaluru</div>
+              <div class="nf-rc-emailrow"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 6 12 13 2 6"/><path d="M2 6h20v12H2z"/></svg><a href="mailto:naveen.pillai@nforceone.com">naveen.pillai@nforceone.com</a><button class="nf-copy-btn" data-copy="naveen.pillai@nforceone.com" title="Copy email"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            </div>
+
+          </div>
+          <div class="nf-empty" id="peerEmpty" style="display:none">No peers match your search or filter.</div>
+        </div>
+
+        <div class="nf-foot-note">
+          <span>Data source (once built): a new project/team-membership table (doesn't exist yet — see the open question above) cross-joined with <code>directoryApi.list()</code> for email/location, and a project-scoped attendance endpoint that also doesn't exist yet. <code>hierarchyApi.getContext(myUserId).peers</code> was the original fallback (same-manager siblings) but undercounts/overcounts a real project team.</span>
+        </div>
+
+      </div><!-- /#viewPeers -->
+
+    </main>
+  </div>
+</div>
+
+<div class="nf-toast-stack" id="toastStack"></div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var toggle = document.getElementById('themeToggle');
+  var iconMoon = document.getElementById('themeIconMoon');
+  var iconSun = document.getElementById('themeIconSun');
+  var label = document.getElementById('themeLabel');
+
+  function systemPrefersLight() {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+  }
+
+  function apply(theme) {
+    root.setAttribute('data-theme', theme);
+    if (theme === 'dark') {
+      iconMoon.style.display = 'block'; iconSun.style.display = 'none'; label.textContent = 'Light';
+    } else {
+      iconMoon.style.display = 'none'; iconSun.style.display = 'block'; label.textContent = 'Dark';
+    }
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem('nf-proto-theme'); } catch (e) {}
+  apply(saved || (systemPrefersLight() ? 'light' : 'dark'));
+
+  toggle.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    apply(next);
+    try { localStorage.setItem('nf-proto-theme', next); } catch (e) {}
+  });
+
+  function showToast(message, kind) {
+    var el = document.createElement('div');
+    el.className = 'nf-toast' + (kind ? ' ' + kind : '');
+    el.textContent = message;
+    document.getElementById('toastStack').appendChild(el);
+    setTimeout(function () {
+      el.style.opacity = '0';
+      el.style.transition = 'opacity .2s ease';
+      setTimeout(function () { el.remove(); }, 200);
+    }, 2800);
+  }
+
+  // ── Direct Reports / Peers segmented toggle — AC #1 ──
+  var segBtns = Array.prototype.slice.call(document.querySelectorAll('.nf-seg-btn'));
+  var viewDirect = document.getElementById('viewDirect');
+  var viewPeers = document.getElementById('viewPeers');
+  var segHint = document.getElementById('segHint');
+  var pageSub = document.getElementById('pageSub');
+  segBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      segBtns.forEach(function (b) { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+      btn.classList.add('active'); btn.setAttribute('aria-selected', 'true');
+      var view = btn.getAttribute('data-view');
+      viewDirect.hidden = view !== 'direct';
+      viewPeers.hidden = view !== 'peers';
+      if (view === 'direct') {
+        segHint.textContent = 'Showing direct reports · you currently manage no one';
+        pageSub.textContent = 'You have no direct reports yet — this tab will mirror your manager’s My Team view (ONEHR-72) the moment you do.';
+      } else {
+        segHint.textContent = "Showing your project team · Karan's squad on Project Atlas (5 people, not his whole department)";
+        pageSub.textContent = 'Attendance and leave for your project team today, plus a directory so you can find and reach a teammate without opening HR or Directory. Scoped to the people you actually work with, not everyone who shares your manager.';
+      }
+    });
+  });
+
+  // Note: with the project team narrowed to 5 people, "Not in yet" (2 people) no longer
+  // exceeds the inline avatar cap, so there's nothing to expand here today. The AC #3
+  // overflow behavior ("+N more") is still exercised in ONEHR-72's roster panel — it just
+  // isn't triggered by this smaller, more realistic project-team dataset.
+
+  // ── Peer grid search + filter ──
+  var searchInput = document.getElementById('peerSearch');
+  var chips = Array.prototype.slice.call(document.querySelectorAll('.nf-chip'));
+  var cards = Array.prototype.slice.call(document.querySelectorAll('#peerGrid .nf-roster-card'));
+  var peerGridTitle = document.getElementById('peerGridTitle');
+  var peerEmpty = document.getElementById('peerEmpty');
+  var activeFilter = 'all';
+
+  // Filters keyed by "on time / late / on duty" match an explicit data-* flag on the card
+  // (set from the same numbers the KPI cards above are showing); every other filter matches
+  // the coarse data-status attribute, same as before.
+  var FLAG_FILTERS = { ontime: 'data-ontime', late: 'data-late', onduty: 'data-onduty' };
+
+  function refreshPeers() {
+    var q = searchInput.value.trim().toLowerCase();
+    var visible = 0;
+    cards.forEach(function (card) {
+      var matchesFilter;
+      if (activeFilter === 'all') {
+        matchesFilter = true;
+      } else if (FLAG_FILTERS[activeFilter]) {
+        matchesFilter = card.getAttribute(FLAG_FILTERS[activeFilter]) === '1';
+      } else {
+        matchesFilter = card.getAttribute('data-status') === activeFilter;
+      }
+      var matchesSearch = !q || card.getAttribute('data-name').indexOf(q) !== -1;
+      var show = matchesFilter && matchesSearch;
+      card.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    peerGridTitle.textContent = 'Project Team (' + cards.length + ')' + (visible !== cards.length ? ' · ' + visible + ' shown' : '');
+    peerEmpty.style.display = visible === 0 ? 'block' : 'none';
+  }
+
+  function setPeerFilter(filterKey) {
+    activeFilter = filterKey;
+    chips.forEach(function (c) { c.classList.toggle('active', c.getAttribute('data-filter') === filterKey); });
+    refreshPeers();
+  }
+
+  searchInput.addEventListener('input', refreshPeers);
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () { setPeerFilter(chip.getAttribute('data-filter')); });
+  });
+
+  // ── KPI "View Employees" links — jump to the peer grid, pre-filtered ──
+  document.querySelectorAll('.nf-kpi-viewlink').forEach(function (link) {
+    link.addEventListener('click', function () {
+      setPeerFilter(link.getAttribute('data-view-filter'));
+      document.getElementById('peerPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  // ── Copy email ──
+  document.querySelectorAll('.nf-copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var email = btn.getAttribute('data-copy');
+      var done = function () { showToast('Copied ' + email); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(email).then(done).catch(done);
+      } else {
+        done();
+      }
+    });
+  });
+
+  // ── Team calendar month nav (prototype only) ──
+  var calPrev = document.getElementById('calPrev');
+  var calNext = document.getElementById('calNext');
+  [calPrev, calNext].forEach(function (btn) {
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      showToast('Prototype only — month navigation is not wired up yet.');
+    });
+  });
+})();
+</script>
+</body>
+</html>

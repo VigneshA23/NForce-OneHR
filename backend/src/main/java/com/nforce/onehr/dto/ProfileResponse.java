@@ -15,10 +15,6 @@ public class ProfileResponse {
     private String fullName;
     private String role;
     private String photoDataUrl;
-    // My Profile page header background — independent of photoDataUrl (the round avatar). Null
-    // means no custom cover has been uploaded, so the frontend falls back to the existing
-    // theme-color banner image.
-    private String coverDataUrl;
 
     // Self-service editable
     private String phone;
@@ -29,22 +25,6 @@ public class ProfileResponse {
     private String emergencyContactName;
     private String emergencyContactPhone;
     private String workMode;
-
-    // Self-service editable — ESS "My Profile" redesign
-    private String firstName;
-    private String middleName;
-    private String lastName;
-    private String preferredName;
-    private String bio;
-    private String maritalStatus;
-    private String emergencyContactRelationship;
-    private String permanentAddress;      // "address" above stays Current Address
-    private String passportNumber;
-    private LocalDate passportExpiry;
-    private String bankAccountNumber;     // masked, e.g. "•••• •••• 5591"
-    private String bankName;
-    private String bankIfsc;
-    private String nationalId;            // masked
 
     // Employment — read-only, HR-managed
     private String employeeCode;
@@ -57,16 +37,4 @@ public class ProfileResponse {
     private String managerEmail;
     private boolean active;
     private boolean hasEmployeeRecord;
-
-    // Job tab — read-only, HR-managed
-    private String jobCode;
-    private LocalDate probationEndDate;
-    private LocalDate confirmationDate;
-    private String businessUnitName;
-    private String shiftName;
-    private String weeklyOffPolicyName;
-    private String attendancePenalizationPolicyName;
-
-    // Attendance indicator — "IN" | "OUT"
-    private String attendanceStatus;
 }

@@ -27,11 +27,9 @@ import { myRequestsApi, type MyRequestItem } from '../api/myRequests';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { AttendanceHeroBanner } from '../components/AttendanceHeroBanner';
 import { BirthdayWidget } from '../components/BirthdayWidget';
-import { RecentNotificationsWidget } from '../components/RecentNotificationsWidget';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
-import { roundDays } from '../utils/leaveDays';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -611,6 +609,8 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
 
       <QuickActions actions={isHr ? HR_ADMIN_QUICK_ACTIONS : MANAGER_QUICK_ACTIONS} />
 
+      <BirthdayWidget />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -753,10 +753,6 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           emptyMessage={isHr ? 'No one joined the organization in the last 12 months.' : 'No one joined your team in the last 12 months.'}
         />
       </div>
-
-      {/* Kept lower for both Manager and HR — not directly relevant to their top-of-page stats. */}
-      <BirthdayWidget />
-      <RecentNotificationsWidget />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -901,11 +897,9 @@ const SUPER_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
 // numbers can never diverge: entries with no configured quota (totalDays <= 0) are
 // excluded, and any negative remainingDays is clamped to 0 before summing.
 function usableRemaining(balances: LeaveBalance[]): number {
-  // roundDays strips the IEEE-754 noise summing several BigDecimal-derived values can reintroduce
-  // (e.g. 13.75 + 0.5 + 0 rendering as 14.249999999999998) - see utils/leaveDays.ts.
-  return roundDays(balances
+  return balances
     .filter(b => b.totalDays > 0)
-    .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0));
+    .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0);
 }
 
 function EmployeeStatTiles({
@@ -983,8 +977,8 @@ function EmployeeStatTiles({
 // ── Attendance calendar heatmap ──────────────────────────────────────────────────
 
 const CAL_DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const CAL_CELL_PX = 58;
-const CAL_GAP = 6;
+const CAL_CELL_PX = 48;
+const CAL_GAP = 5;
 
 function AttendanceCalendar({ token, config }: { token: string; config: AttendanceConfig | null }) {
   const [monthOffset, setMonthOffset] = useState(0);
@@ -1071,7 +1065,7 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
         {/* Day headers */}
         <div className="nf-atn-cal-row nf-atn-cal-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CAL_CELL_PX}px)`, gap: CAL_GAP, marginBottom: CAL_GAP, width: gridWidth }}>
           {CAL_DAY_HEADERS.map(d => (
-            <div key={d} style={{ textAlign: 'center', fontSize: 10, color: 'var(--txt-dim)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em' }}>
+            <div key={d} style={{ textAlign: 'center', fontSize: 9, color: 'var(--txt-dim)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em' }}>
               {d}
             </div>
           ))}
@@ -1106,11 +1100,11 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.filter = 'brightness(1.18)'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.filter = ''; }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1, color: calCellTextColor(day), fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, lineHeight: 1, color: calCellTextColor(day), fontVariantNumeric: 'tabular-nums' }}>
                     {dayNum}
                   </span>
                   {!day.isWeekend && !day.isFuture && day.status != null && (
-                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(255,255,255,0.5)', flexShrink: 0 }} />
+                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'rgba(255,255,255,0.5)', flexShrink: 0 }} />
                   )}
                 </div>
               );
@@ -1148,8 +1142,8 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
   const configured = useMemo(() => balances.filter(b => b.totalDays > 0), [balances]);
 
   const totalRemaining = usableRemaining(balances);
-  const totalQuota = roundDays(configured.reduce((s, b) => s + Number(b.totalDays), 0));
-  const totalConsumed = roundDays(Math.max(0, totalQuota - totalRemaining));
+  const totalQuota = configured.reduce((s, b) => s + Number(b.totalDays), 0);
+  const totalConsumed = Math.max(0, totalQuota - totalRemaining);
   const data = [
     { name: 'Available', value: totalRemaining },
     { name: 'Consumed/Reserved', value: totalConsumed },
@@ -1571,21 +1565,15 @@ function EmployeeDashboardView() {
         statsLoading={statsLoading}
       />
 
-      {/* Charts row: calendar (60%) + leave donut & recent notifications stacked (40%, combined height = calendar) */}
+      {/* Charts row: calendar (60%) + leave donut & upcoming holidays stacked (40%, combined height = calendar) */}
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 16 }}>
         <AttendanceCalendar token={token} config={config} />
         <div className="nf-dash-right-col" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <LeaveBalancePanel balances={balances} />
-          <RecentNotificationsWidget className="nf-notif-panel" />
+          <UpcomingHolidays holidays={holidays} />
+          <BirthdayWidget />
         </div>
       </div>
-
-      {/* Full-width, not inside .nf-dash-right-col above — that column's combined height is
-          deliberately locked to match the calendar's (see the comment on the row above), so
-          stacking these here too would grow it past the calendar and leave a gap under the
-          calendar instead. */}
-      <UpcomingHolidays holidays={holidays} />
-      <BirthdayWidget />
 
       {/* Bottom row: Action Needed | Recent Requests — both capped to 5 records and
           stretched (default grid alignment) to the same height as each other */}
@@ -1640,20 +1628,7 @@ function SuperAdminDashboardView() {
   const [totalAssets,        setTotalAssets]        = useState<number | null>(null);
   const [roleChangesMonth,   setRoleChangesMonth]   = useState<number | null>(null);
   const [passwordResetsMonth,setPasswordResetsMonth]= useState<number | null>(null);
-
-  // Each data source used to share one `loading` flag behind a single Promise.all, so one slow
-  // call (e.g. Pending Approvals under DB contention) left every OTHER card's already-arrived
-  // data stuck behind a "Loading…" placeholder too. Independent per-source flags let each card
-  // render the moment its own fetch resolves, regardless of how long a sibling call takes.
-  const [usersLoading,          setUsersLoading]          = useState(true);
-  const [attendanceLoading,     setAttendanceLoading]     = useState(true);
-  const [approvalsLoading,      setApprovalsLoading]      = useState(true);
-  const [auditStatsLoading,     setAuditStatsLoading]     = useState(true);
-  const [recentAuditLoading,    setRecentAuditLoading]    = useState(true);
-  const [docKpisLoading,        setDocKpisLoading]        = useState(true);
-  const [assetsLoading,         setAssetsLoading]         = useState(true);
-  const [passwordResetsLoading, setPasswordResetsLoading] = useState(true);
-  const [roleChangesLoading,    setRoleChangesLoading]    = useState(true);
+  const [loading,            setLoading]            = useState(true);
 
   // Wrapper refs for the two donuts below — PieHoverTooltip needs each chart's own pixel center
   // (mid-width of the div its Pie's cx="50%" is relative to) to decide which side to flip to.
@@ -1668,82 +1643,41 @@ function SuperAdminDashboardView() {
   const loadSuperAdminData = useCallback((opts?: { silent?: boolean }) => {
     if (inFlightRef.current) { queuedRef.current = true; return; }
     inFlightRef.current = true;
-    const silent = !!opts?.silent;
+    if (!opts?.silent) setLoading(true);
 
     const today = todayIsoDate();
     const now = new Date();
     const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
-    // Each source fetches and resolves independently (rather than one shared Promise.all) so a
-    // single slow call can't hold back cards whose own data already arrived — see the loading
-    // flags' doc comment above.
-    if (!silent) setUsersLoading(true);
-    const usersDone = usersApi.list(token)
-      .then(users => setAllUsers(users as EmployeeRecord[]))
-      .catch(() => setAllUsers([]))
-      .finally(() => setUsersLoading(false));
-
-    if (!silent) setAttendanceLoading(true);
-    const attendanceDone = attendanceApi.day(today, token)
-      .then(attn => setTodayRecords(attn as AttendanceRecord[]))
-      .catch(() => setTodayRecords([]))
-      .finally(() => setAttendanceLoading(false));
-
-    if (!silent) setApprovalsLoading(true);
-    const approvalsDone = approvalCenterApi.listPending(token)
-      .then(pending => setPendingItems(pending as ApprovalItem[]))
-      .catch(() => setPendingItems([]))
-      .finally(() => setApprovalsLoading(false));
-
-    if (!silent) setAuditStatsLoading(true);
-    const auditStatsDone = auditApi.stats({}, token)
-      .then(stats => setAuditStats(stats as AuditLogStats | null))
-      .catch(() => setAuditStats(null))
-      .finally(() => setAuditStatsLoading(false));
-
-    if (!silent) setRecentAuditLoading(true);
-    const recentAuditDone = auditApi.list({}, 0, 8, token)
-      .then(auditPage => setRecentAudit((auditPage as { content: AuditLogEntry[] }).content))
-      .catch(() => setRecentAudit([]))
-      .finally(() => setRecentAuditLoading(false));
-
-    if (!silent) setDocKpisLoading(true);
-    const docKpisDone = getAdminKpis(token)
-      .then(kpis => setDocKpis(kpis as DocumentAdminKpi | null))
-      .catch(() => setDocKpis(null))
-      .finally(() => setDocKpisLoading(false));
-
-    if (!silent) setAssetsLoading(true);
-    const assetsDone = assetsApi.count(token)
-      .then(assets => setTotalAssets((assets as { count: number }).count))
-      .catch(() => setTotalAssets(0))
-      .finally(() => setAssetsLoading(false));
-
-    if (!silent) setPasswordResetsLoading(true);
-    const passwordResetsDone = auditApi.list({ action: 'PASSWORD_RESET', from: monthStartStr }, 0, 1, token)
-      .then(pwResetPage => setPasswordResetsMonth((pwResetPage as { totalElements: number }).totalElements))
-      .catch(() => setPasswordResetsMonth(0))
-      .finally(() => setPasswordResetsLoading(false));
-
-    if (!silent) setRoleChangesLoading(true);
-    const roleChangesDone = auditApi.exportAll({ action: 'USER_UPDATED', from: monthStartStr }, token)
-      .then(userUpdated => {
-        const roleChanges = (userUpdated as AuditLogEntry[]).filter(e => {
-          try {
-            const b = JSON.parse(e.beforeState ?? 'null');
-            const a = JSON.parse(e.afterState ?? 'null');
-            return b && a && b.role !== a.role;
-          } catch { return false; }
-        }).length;
-        setRoleChangesMonth(roleChanges);
-      })
-      .catch(() => setRoleChangesMonth(0))
-      .finally(() => setRoleChangesLoading(false));
-
-    Promise.allSettled([
-      usersDone, attendanceDone, approvalsDone, auditStatsDone, recentAuditDone,
-      docKpisDone, assetsDone, passwordResetsDone, roleChangesDone,
-    ]).finally(() => {
+    Promise.all([
+      usersApi.list(token).catch(() => [] as EmployeeRecord[]),
+      attendanceApi.day(today, token).catch(() => []),
+      approvalCenterApi.listPending(token).catch(() => [] as ApprovalItem[]),
+      auditApi.stats({}, token).catch(() => null),
+      auditApi.list({}, 0, 8, token).catch(() => ({ content: [] as AuditLogEntry[] })),
+      getAdminKpis(token).catch(() => null),
+      assetsApi.count(token).catch(() => ({ count: 0 })),
+      auditApi.list({ action: 'PASSWORD_RESET', from: monthStartStr }, 0, 1, token).catch(() => ({ totalElements: 0 })),
+      auditApi.exportAll({ action: 'USER_UPDATED', from: monthStartStr }, token).catch(() => [] as AuditLogEntry[]),
+    ]).then(([users, attn, pending, stats, auditPage, kpis, assets, pwResetPage, userUpdated]) => {
+      setAllUsers(users as EmployeeRecord[]);
+      setTodayRecords(attn as AttendanceRecord[]);
+      setPendingItems(pending as ApprovalItem[]);
+      setAuditStats(stats as AuditLogStats | null);
+      setRecentAudit((auditPage as { content: AuditLogEntry[] }).content);
+      setDocKpis(kpis as DocumentAdminKpi | null);
+      setTotalAssets((assets as { count: number }).count);
+      setPasswordResetsMonth((pwResetPage as { totalElements: number }).totalElements);
+      const roleChanges = (userUpdated as AuditLogEntry[]).filter(e => {
+        try {
+          const b = JSON.parse(e.beforeState ?? 'null');
+          const a = JSON.parse(e.afterState ?? 'null');
+          return b && a && b.role !== a.role;
+        } catch { return false; }
+      }).length;
+      setRoleChangesMonth(roleChanges);
+    }).finally(() => {
+      setLoading(false);
       inFlightRef.current = false;
       if (queuedRef.current) { queuedRef.current = false; loadSuperAdminData({ silent: true }); }
     });
@@ -1810,15 +1744,15 @@ function SuperAdminDashboardView() {
     {
       icon: <Users size={16} />,
       label: 'Total Users',
-      value: usersLoading ? '—' : String(allUsers.length),
-      sub: usersLoading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
+      value: loading ? '—' : String(allUsers.length),
+      sub: loading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
       accent: '#4E9EE8',
       onClick: () => navigate('/directory'),
     },
     {
       icon: <UserCheck size={16} />,
       label: 'Present Today',
-      value: attendanceLoading ? '—' : `${presentCount}/${todayRecords.length}`,
+      value: loading ? '—' : `${presentCount}/${todayRecords.length}`,
       sub: 'org-wide check-ins · view list →',
       accent: '#2FB67C',
       onClick: () => setShowPresentModal(true),
@@ -1826,7 +1760,7 @@ function SuperAdminDashboardView() {
     {
       icon: <Package size={16} />,
       label: 'Total Assets',
-      value: assetsLoading ? '—' : totalAssets === null ? '—' : String(totalAssets),
+      value: loading ? '—' : totalAssets === null ? '—' : String(totalAssets),
       sub: 'company-wide inventory · view inventory →',
       accent: '#F97316',
       onClick: () => navigate('/assets'),
@@ -1834,7 +1768,7 @@ function SuperAdminDashboardView() {
     {
       icon: <ShieldCheck size={16} />,
       label: 'Audit Events Today',
-      value: auditStatsLoading ? '—' : auditStats ? String(auditStats.todayCount) : '—',
+      value: loading ? '—' : auditStats ? String(auditStats.todayCount) : '—',
       sub: 'security events logged · view log →',
       accent: '#B11116',
       onClick: () => {
@@ -1856,10 +1790,6 @@ function SuperAdminDashboardView() {
       </span>
     </div>
   );
-  const accountHealthSectionLabel: React.CSSProperties = {
-    fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)',
-    textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8,
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -1873,6 +1803,8 @@ function SuperAdminDashboardView() {
       <AttendanceHeroBanner />
 
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
+
+      <BirthdayWidget />
 
       {/* Row 2 — Stat tiles, each clickable through to its detail view */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
@@ -1907,7 +1839,7 @@ function SuperAdminDashboardView() {
         {/* Pending Approvals by Type — donut, clickable segments */}
         <div style={cardStyle}>
           {cardTitle('Pending Approvals by Type')}
-          {approvalsLoading ? (
+          {loading ? (
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
           ) : pendingByType.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '16px 0' }}>
@@ -1972,119 +1904,71 @@ function SuperAdminDashboardView() {
           )}
         </div>
 
-        {/* Account Health — split into "needs a decision" vs. "just a count", instead of one flat
-            list where a data-quality issue (no manager, unverified docs) reads with the same
-            visual weight as an FYI stat (role changes, password resets this month). */}
+        {/* Account Health — 5 metrics */}
         <div style={cardStyle}>
           {cardTitle('Account Health')}
-          {/* Each row is fed by its own independent fetch (see loadSuperAdminData), so it shows
-              its own '—' placeholder only while ITS source is still loading, instead of the
-              whole card waiting on the slowest of four unrelated calls. */}
-          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between', gap: 16 }}>
-              <div>
-                <div style={accountHealthSectionLabel}>Needs Attention</div>
-                {[
-                  {
-                    label: 'Docs Pending Verification',
-                    value: docKpisLoading ? '—' : docKpis?.pendingVerification ?? '—',
-                    sub: docKpisLoading ? 'loading…' : docKpis ? `${docKpis.employeesWithPending} employees affected` : 'unavailable',
-                    color: '#E0A93B',
-                    onClick: () => navigate('/documents'),
-                  },
-                  {
-                    label: 'Employees Without Manager',
-                    value: usersLoading ? '—' : noManagerCount,
-                    sub: usersLoading ? 'loading…' : 'active employees with no reporting line',
-                    color: '#F97316',
-                    onClick: () => navigate('/directory'),
-                  },
-                ].map((row, i) => (
-                  <button
-                    key={row.label}
-                    type="button"
-                    onClick={row.onClick}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-                      padding: '8px 10px',
-                      marginBottom: i === 0 ? 6 : 0,
-                      borderRadius: 8, cursor: 'pointer', textAlign: 'left', font: 'inherit',
-                      background: 'color-mix(in srgb, var(--warn) 8%, transparent)',
-                      border: '1px solid color-mix(in srgb, var(--warn) 22%, transparent)',
-                    }}
-                  >
-                    <div style={{
-                      fontSize: 22, fontWeight: 700, fontFamily: 'Inter, sans-serif',
-                      fontVariantNumeric: 'tabular-nums', color: row.color,
-                      minWidth: 32, lineHeight: 1,
-                    }}>
-                      {row.value}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: 1 }}>{row.label}</div>
-                      <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{row.sub}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <div>
-                <div style={accountHealthSectionLabel}>This Month</div>
-                {[
-                  {
-                    label: 'Joined This Month',
-                    value: usersLoading ? '—' : joinedThisMonth,
-                    sub: usersLoading ? 'loading…' : 'new accounts by joining date',
-                    color: '#2FB67C',
-                    onClick: () => navigate('/directory'),
-                  },
-                  {
-                    label: 'Inactive Accounts',
-                    value: usersLoading ? '—' : inactiveUsers,
-                    sub: usersLoading ? 'loading…' : 'deactivated in system',
-                    color: '#6B7280',
-                    onClick: () => navigate('/access'),
-                  },
-                  {
-                    label: 'Role Changes This Month',
-                    value: roleChangesLoading ? '—' : roleChangesMonth ?? '—',
-                    sub: roleChangesLoading ? 'loading…' : 'users with role updated',
-                    color: '#8B5CF6',
-                    onClick: () => navigate('/audit'),
-                  },
-                  {
-                    label: 'Password Resets This Month',
-                    value: passwordResetsLoading ? '—' : passwordResetsMonth ?? '—',
-                    sub: passwordResetsLoading ? 'loading…' : 'admin-initiated resets',
-                    color: '#B11116',
-                    onClick: () => navigate('/audit'),
-                  },
-                ].map((row, i) => (
-                  <button
-                    key={row.label}
-                    type="button"
-                    onClick={row.onClick}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-                      padding: '7px 0', cursor: 'pointer', textAlign: 'left', font: 'inherit',
-                      background: 'none', border: 'none',
-                      borderTop: i === 0 ? 'none' : '1px solid var(--line)',
-                    }}
-                  >
-                    <div style={{
-                      fontSize: 22, fontWeight: 700, fontFamily: 'Inter, sans-serif',
-                      fontVariantNumeric: 'tabular-nums', color: row.color,
-                      minWidth: 32, lineHeight: 1,
-                    }}>
-                      {row.value}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: 1 }}>{row.label}</div>
-                      <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{row.sub}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-          </div>
+          {loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between' }}>
+              {[
+                {
+                  label: 'Joined This Month',
+                  value: joinedThisMonth,
+                  sub: 'new accounts by joining date',
+                  color: '#2FB67C',
+                },
+                {
+                  label: 'Inactive Accounts',
+                  value: inactiveUsers,
+                  sub: 'deactivated in system',
+                  color: '#6B7280',
+                },
+                {
+                  label: 'Docs Pending Verification',
+                  value: docKpis?.pendingVerification ?? '—',
+                  sub: docKpis ? `${docKpis.employeesWithPending} employees affected` : 'unavailable',
+                  color: '#E0A93B',
+                },
+                {
+                  label: 'Role Changes This Month',
+                  value: roleChangesMonth ?? '—',
+                  sub: 'users with role updated',
+                  color: '#8B5CF6',
+                },
+                {
+                  label: 'Password Resets This Month',
+                  value: passwordResetsMonth ?? '—',
+                  sub: 'admin-initiated resets',
+                  color: '#B11116',
+                },
+                {
+                  label: 'Employees Without Manager',
+                  value: noManagerCount,
+                  sub: 'active employees with no reporting line',
+                  color: '#F97316',
+                },
+              ].map((row, i) => (
+                <div key={row.label} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '7px 0',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                }}>
+                  <div style={{
+                    fontSize: 22, fontWeight: 700, fontFamily: 'Inter, sans-serif',
+                    fontVariantNumeric: 'tabular-nums', color: row.color,
+                    minWidth: 32, lineHeight: 1,
+                  }}>
+                    {row.value}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: 1 }}>{row.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{row.sub}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Users by Role — UNCHANGED */}
@@ -2092,9 +1976,9 @@ function SuperAdminDashboardView() {
           <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
             Users by Role
           </div>
-          {usersLoading || roleData.length === 0 ? (
+          {loading || roleData.length === 0 ? (
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0', textAlign: 'center' }}>
-              {usersLoading ? 'Loading…' : 'No users found.'}
+              {loading ? 'Loading…' : 'No users found.'}
             </div>
           ) : (
             <>
@@ -2160,17 +2044,12 @@ function SuperAdminDashboardView() {
         </div>
       </div>
 
-      {/* Not top of page for Super Admin — same reasoning as Manager, kept lower and out of the
-          way of the org-wide admin stats up front. */}
-      <BirthdayWidget />
-      <RecentNotificationsWidget />
-
       {/* Recent Audit Events — UNCHANGED */}
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
           Recent Audit Events
         </div>
-        {recentAuditLoading ? (
+        {loading ? (
           <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
         ) : recentAudit.length === 0 ? (
           <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>No audit events recorded yet.</div>
@@ -2224,7 +2103,7 @@ function SuperAdminDashboardView() {
       {showPresentModal && (
         <PresentTodayModal
           records={todayRecords}
-          loading={attendanceLoading}
+          loading={loading}
           scopeLabel="Organization"
           onClose={() => setShowPresentModal(false)}
         />

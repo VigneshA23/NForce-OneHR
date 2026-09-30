@@ -15,7 +15,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Authorised semantic retrieval: embed the question, fetch candidates the caller may read, re-rank
@@ -41,20 +40,6 @@ public class VectorKnowledgeRetriever implements KnowledgeRetriever {
      */
     private static final double PAGE_BOOST = 0.05;
     private static final double MODULE_BOOST = 0.03;
-
-    /**
-     * The one knowledge unit {@link NamedPersonQuestion} guarantees regardless of similarity score.
-     * See that class for why a name-lookup question cannot be left to cosine similarity alone.
-     */
-    private static final String NAMED_PERSON_LOOKUP_ID = "data.people.named-lookup";
-
-    /**
-     * The fixed score given to a deterministically-included result. Comparable to a genuine
-     * "good informal match" (see {@code AiProperties.Retrieval#minScore}'s calibration notes) since
-     * that is the confidence this deterministic detection actually deserves - not a computed
-     * similarity, because there is nothing to compute one from.
-     */
-    private static final double NAMED_PERSON_LOOKUP_SCORE = 0.65;
 
     private final KnowledgeIndexRepository index;
     private final EmbeddingProvider embeddingProvider;
@@ -90,40 +75,14 @@ public class VectorKnowledgeRetriever implements KnowledgeRetriever {
                 .build();
 
         List<RetrievalResult> found = index.search(candidateQuery);
-        List<RetrievalResult> result;
         if (found.isEmpty()) {
             log.debug("No authorised knowledge matched the query above the {} threshold", resolved.getMinScore());
-            result = List.of();
-        } else {
-            List<RetrievalResult> ranked = rerank(found, resolved);
-            List<RetrievalResult> deduped = keepBestChunkPerUnit(ranked);
-            result = applyContextBudget(deduped, resolved.getTopK(), cfg.getMaxContextChars());
+            return List.of();
         }
 
-        return withNamedPersonLookup(result, resolved);
-    }
-
-    /**
-     * Adds the named-person-lookup unit outright when the question is shaped like one (see
-     * {@link NamedPersonQuestion}) and semantic search did not already surface it on its own merit.
-     *
-     * <p>A literal id lookup, never a second vector search - the same authorised, audience-filtered
-     * row ordinary search would have returned had this particular name happened to score a little
-     * higher. Deliberately allowed to exceed {@code topK} by one: the per-turn ceiling on how much
-     * of this actually reaches a provider is {@code AssistantDataService.MAX_PROVIDERS_PER_TURN},
-     * not this list's length.
-     */
-    private List<RetrievalResult> withNamedPersonLookup(List<RetrievalResult> results, RetrievalQuery query) {
-        if (!NamedPersonQuestion.asks(query.getRawQuery())) return results;
-        if (results.stream().anyMatch(r -> NAMED_PERSON_LOOKUP_ID.equals(r.getKnowledgeId()))) return results;
-
-        List<RetrievalResult> guaranteed = index.findByIds(
-                Set.of(NAMED_PERSON_LOOKUP_ID), query.getAudiences(), NAMED_PERSON_LOOKUP_SCORE);
-        if (guaranteed.isEmpty()) return results;
-
-        List<RetrievalResult> combined = new ArrayList<>(results);
-        combined.addAll(guaranteed);
-        return combined;
+        List<RetrievalResult> ranked = rerank(found, resolved);
+        List<RetrievalResult> deduped = keepBestChunkPerUnit(ranked);
+        return applyContextBudget(deduped, resolved.getTopK(), cfg.getMaxContextChars());
     }
 
     private RetrievalQuery withDefaults(RetrievalQuery query, AiProperties.Retrieval cfg) {

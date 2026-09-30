@@ -12,7 +12,6 @@ import com.nforce.onehr.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -168,18 +167,6 @@ class ApprovalRuleServiceTest {
     }
 
     @Test
-    void create_managerOnlyStages_rejected_wouldSkipHrFinalClearanceForEveryClaim() {
-        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
-        ApprovalRuleRequest req = validExpenseRuleRequest();
-        req.setApprovalStages(List.of("MANAGER"));
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> service.create(req, actorEmail));
-        assertTrue(ex.getMessage().contains("second-approval role"));
-        verify(ruleRepository, never()).save(any());
-    }
-
-    @Test
     void create_duplicateRule_rejected() {
         when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
         when(ruleRepository.existsByRequestTypeAndConditionFieldAndOperatorAndConditionValueAndIdNot(
@@ -257,18 +244,13 @@ class ApprovalRuleServiceTest {
         when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
         when(ruleRepository.findById(toActivate.getId())).thenReturn(Optional.of(toActivate));
         when(ruleRepository.findByRequestTypeAndActiveTrue("EXPENSE")).thenReturn(Optional.of(other));
-        when(ruleRepository.saveAndFlush(other)).thenReturn(other);
         when(ruleRepository.save(any(ApprovalRule.class))).thenAnswer(inv -> inv.getArgument(0));
 
         ApprovalRuleResponse res = service.activate(toActivate.getId(), actorEmail);
 
         assertTrue(res.isActive());
         assertFalse(other.isActive(), "the previously active rule for the same requestType must be auto-deactivated, never left active alongside the new one");
-        // The deactivation must hit the DB before the activation, or the one-active-per-type
-        // partial unique index rejects the activation.
-        InOrder inOrder = inOrder(ruleRepository);
-        inOrder.verify(ruleRepository).saveAndFlush(other);
-        inOrder.verify(ruleRepository).save(toActivate);
+        verify(ruleRepository, times(2)).save(any(ApprovalRule.class));
     }
 
     @Test

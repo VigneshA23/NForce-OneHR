@@ -19,12 +19,10 @@ public class OnboardingChecklistDetailDto {
     private String locationName;
     private String managerName;
     private LocalDate joiningDate;
-    private boolean active;         // false = employee deactivated (User.active) — Inactive badge
 
     private boolean archived;
     private String status;
     private Instant completedAt;
-    private boolean readyToComplete;
     private int totalItems;
     private int doneItems;
 

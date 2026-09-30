@@ -14,7 +14,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -52,15 +51,8 @@ public class AssistantDataService {
      * <p>Not a performance guard. Each provider is a real query returning real employee data into a
      * prompt that leaves the building, so the number that can fire on one question is capped
      * deliberately rather than left to however many modules happened to match.
-     *
-     * <p>Raised from 3 to 4 (ONEHR - a "do I have any penalties" question was answered as "no
-     * penalties" for an employee with a real active one, reproduced live on the Attendance page).
-     * Raising it was not enough on its own: on the Attendance page four families match, so every
-     * slot goes in the first round and the attendance family never gets a second one. That is why
-     * the caller's log, exceptions and penalties are one provider ({@code attendance.my-history})
-     * rather than three - a question about late days and penalties together only needs one slot.
      */
-    private static final int MAX_PROVIDERS_PER_TURN = 4;
+    private static final int MAX_PROVIDERS_PER_TURN = 3;
 
     /**
      * How relevant the page the user is looking at counts as.
@@ -78,39 +70,20 @@ public class AssistantDataService {
      * @param knowledge what retrieval matched, which is what drives selection
      */
     public LiveData fetch(AssistantRequestContext context, List<RetrievalResult> knowledge) {
-        return fetch(context, knowledge, null);
-    }
-
-    /**
-     * As {@link #fetch(AssistantRequestContext, List)}, additionally passing the raw question
-     * through to {@link AssistantDataProvider#fetch(AssistantRequestContext, String)} for the
-     * handful of providers that read a date range out of it (see that method's own Javadoc). The
-     * question never changes which providers are selected or what they are allowed to read -
-     * only, for those few, which dates within their already-authorised scope they read.
-     *
-     * @param question the user's question, verbatim - never itself a source of authorisation
-     */
-    public LiveData fetch(AssistantRequestContext context, List<RetrievalResult> knowledge, String question) {
-        Map<String, Double> knowledgeRelevance = knowledgeRelevance(knowledge);
-        questionRelevance(question).forEach((module, score) -> knowledgeRelevance.merge(module, score, Math::max));
-        Map<String, Double> moduleRelevance = withCurrentPage(context, knowledgeRelevance);
+        Map<String, Double> moduleRelevance = moduleRelevance(context, knowledge);
+        if (moduleRelevance.isEmpty()) return LiveData.empty();
 
         List<AssistantDataProvider> eligible = providers.stream()
-                .filter(provider -> !provider.consultedEveryTurn())
                 .filter(provider -> mayRun(provider, context))
                 .filter(provider -> relevance(provider, moduleRelevance) > 0)
                 .toList();
 
-        List<AssistantDataProvider> candidates = new ArrayList<>(selectDiverse(eligible, moduleRelevance, knowledgeRelevance));
-        providers.stream()
-                .filter(AssistantDataProvider::consultedEveryTurn)
-                .filter(provider -> mayRun(provider, context))
-                .forEach(candidates::add);
+        List<AssistantDataProvider> candidates = selectDiverse(eligible, moduleRelevance);
 
         List<Section> sections = new ArrayList<>();
         for (AssistantDataProvider provider : candidates) {
-            fetchSafely(provider, context, question).ifPresent(body ->
-                    sections.add(new Section(provider.id(), provider.title(), provider.scope(), body)));
+            fetchSafely(provider, context).ifPresent(body ->
+                    sections.add(new Section(provider.id(), provider.title(), body)));
         }
 
         if (!sections.isEmpty()) {
@@ -125,38 +98,28 @@ public class AssistantDataService {
      * Orders providers so that record-type diversity wins over raw score once every relevant
      * family has had a turn.
      *
-     * <p>Round-robin: each family's own candidates are ranked internally by relevance, and families
-     * are visited in order of their own best candidate's score. One candidate is taken from each
-     * family per pass; a family only contributes a second candidate once every other relevant family
-     * has contributed its first. The cap still applies to the total — this changes which providers
-     * fill it, not how many.
-     *
-     * <p>Ties are broken by how well the provider's own modules matched <em>retrieved knowledge</em>,
-     * before falling back to the id. Sitting on a page gives every provider tagged with that page's
-     * module the same {@link #CURRENT_PAGE_RELEVANCE}, so on the Attendance page a dozen providers
-     * tie; ranking that tie alphabetically meant "what time did I check in today" could lose its one
-     * family slot to whichever sibling's id sorted first. A provider the question actually retrieved
-     * knowledge for now wins that tie, even when the match scored below the page's own weight.
+     * <p>Round-robin: each family's own candidates are ranked internally by relevance (ties by id,
+     * same rule as before), and families are visited in order of their own best candidate's score.
+     * One candidate is taken from each family per pass; a family only contributes a second candidate
+     * once every other relevant family has contributed its first. The cap still applies to the total
+     * — this changes which providers fill it, not how many.
      */
-    private List<AssistantDataProvider> selectDiverse(List<AssistantDataProvider> eligible,
-                                                      Map<String, Double> moduleRelevance,
-                                                      Map<String, Double> knowledgeRelevance) {
+    private List<AssistantDataProvider> selectDiverse(
+            List<AssistantDataProvider> eligible, Map<String, Double> moduleRelevance) {
         if (eligible.isEmpty()) return List.of();
-
-        Comparator<AssistantDataProvider> bestFirst = Comparator
-                .comparingDouble((AssistantDataProvider p) -> relevance(p, moduleRelevance)).reversed()
-                .thenComparing(Comparator.comparingDouble(
-                        (AssistantDataProvider p) -> relevance(p, knowledgeRelevance)).reversed())
-                .thenComparing(AssistantDataProvider::id);
 
         Map<String, List<AssistantDataProvider>> byFamily = eligible.stream()
                 .collect(Collectors.groupingBy(AssistantDataService::family));
         for (List<AssistantDataProvider> members : byFamily.values()) {
-            members.sort(bestFirst);
+            members.sort(Comparator.comparingDouble((AssistantDataProvider p) -> relevance(p, moduleRelevance))
+                    .reversed()
+                    .thenComparing(AssistantDataProvider::id));
         }
 
         List<String> familyOrder = byFamily.keySet().stream()
-                .sorted(Comparator.comparing((String family) -> byFamily.get(family).get(0), bestFirst)
+                .sorted(Comparator.comparingDouble(
+                                (String family) -> relevance(byFamily.get(family).get(0), moduleRelevance))
+                        .reversed()
                         .thenComparing(Comparator.naturalOrder()))
                 .toList();
 
@@ -206,13 +169,13 @@ public class AssistantDataService {
     }
 
     /**
-     * Best retrieval score per module.
+     * Best retrieval score per module, plus the current page.
      *
      * <p>Keyed on the score rather than on mere presence so that a question whose top hit is an
      * expense chunk prefers the expense provider over one matched by a chunk that scraped in at the
      * bottom of the result set.
      */
-    private Map<String, Double> knowledgeRelevance(List<RetrievalResult> knowledge) {
+    private Map<String, Double> moduleRelevance(AssistantRequestContext context, List<RetrievalResult> knowledge) {
         Map<String, Double> relevance = new HashMap<>();
         if (knowledge != null) {
             for (RetrievalResult result : knowledge) {
@@ -220,83 +183,6 @@ public class AssistantDataService {
                 relevance.merge(result.getModule(), result.getScore(), Math::max);
             }
         }
-        return relevance;
-    }
-
-    /**
-     * Wording that names a record type outright, mapped to the module of the one provider holding
-     * those rows. Retrieval ranks by similarity, and "show my previous 5 attendance records" scored
-     * closer to today's attendance than to the history - so the model got no rows and answered with
-     * directions (ONEHR), while "last 5" worked. Deterministic, the same way {@link MyTeamDateRange}
-     * reads a period: a question that says "records" or "rejected leave" gets those rows.
-     */
-    private static final Map<Pattern, String> QUESTION_MODULES = Map.of(
-            Pattern.compile("\\battendance\\s+(records?|history|log|rows?|entries)\\b"
-                    + "|\\b(last|previous|past|recent|prior)\\s+\\d+\\s+(attendance|records?|entries|days?)\\b"
-                    + "|\\b(present|absent)\\b", Pattern.CASE_INSENSITIVE), "attendance-history",
-            Pattern.compile("\\bleave\\s+(requests?|applications?|rejections?)\\b"
-                    + "|\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b.*\\bleaves?\\b"
-                    + "|\\bleaves?\\b.*\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b", Pattern.CASE_INSENSITIVE), "leave-requests",
-            Pattern.compile("\\b(employees|people|staff|department|how\\s+many)\\b.*\\b(absent|present|checked\\s+in|late|attendance)\\b",
-                    Pattern.CASE_INSENSITIVE), "org-attendance");
-
-    /** As strong as a direct retrieval hit: the question named the record type in so many words. */
-    private static final double QUESTION_RELEVANCE = 0.9;
-
-    private static final Pattern ATTENDANCE = Pattern.compile("\\b(attendance|check[- ]?ins?|punch(es)?)\\b", Pattern.CASE_INSENSITIVE);
-
-    /** "my team", "employees", "who ..." - about the caller's reports (or the organisation), not the caller. */
-    private static final Pattern TEAM_SCOPE = Pattern.compile(
-            "\\b(my|our)\\s+(team|direct\\s+reports?|reportees|subordinates)\\b|\\bteam\\s*members?\\b"
-                    + "|\\b(employees?|reportees|subordinates|staff|members|people)\\b|\\bwho\\b|\\bwhich\\s+of\\b",
-            Pattern.CASE_INSENSITIVE);
-    /** Every attendance discrepancy My Team's attendance rows show. */
-    private static final Pattern DISCREPANCY = Pattern.compile(
-            "\\b(absent\\w*|absences?|late(ness|comers?)?|punch\\w*|check[- ]?(ins?|outs?)|left\\s+early|early\\s+(exit|departure|leaving|logout)s?"
-                    + "|half[- ]?days?|discrepanc\\w*|irregular\\w*|attendance|on\\s+time|punctual\\w*)\\b",
-            Pattern.CASE_INSENSITIVE);
-    private static final Pattern PENALTY = Pattern.compile("\\bpenal\\w*", Pattern.CASE_INSENSITIVE);
-    private static final Pattern WFH = Pattern.compile(
-            "\\b(wfh|work(ing|s)?\\s+from\\s+home|remote(ly)?|on\\s+duty)\\b", Pattern.CASE_INSENSITIVE);
-    /** "what leave types can I apply for", "my leave balance" - the balance block lists every type held. */
-    private static final Pattern LEAVE_TYPES = Pattern.compile(
-            "\\bleave\\s+(types?|balances?|entitlements?)\\b|\\btypes?\\s+of\\s+leaves?\\b"
-                    + "|\\bleaves?\\b.*\\b(apply|avail\\w*|left|remaining)\\b|\\b(apply|avail\\w*)\\b.*\\bleaves?\\b",
-            Pattern.CASE_INSENSITIVE);
-
-    private static Map<String, Double> questionRelevance(String question) {
-        if (question == null) return Map.of();
-        Map<String, Double> relevance = new HashMap<>();
-        QUESTION_MODULES.forEach((pattern, module) -> {
-            if (pattern.matcher(question).find()) relevance.put(module, QUESTION_RELEVANCE);
-        });
-        // "my attendance for the past week", "... in August": any period but today alone is the
-        // history's, which reads exactly that period. Only presence matters here, so the JVM date is fine.
-        if (ATTENDANCE.matcher(question).find() && MyTeamDateRange.named(question, java.time.LocalDate.now())
-                .filter(r -> !"today".equals(r.label())).isPresent()) {
-            relevance.put("attendance-history", QUESTION_RELEVANCE);
-        }
-        if (LEAVE_TYPES.matcher(question).find()) relevance.put("leave-balances", QUESTION_RELEVANCE);
-        // A team question gets the team's rows, never only the caller's own: "how many in my team
-        // were absent yesterday" was answered from the manager's own empty record (ONEHR).
-        if (TEAM_SCOPE.matcher(question).find()) {
-            relevance.remove("attendance-history");
-            if (DISCREPANCY.matcher(question).find()) relevance.put("my-team-attendance", QUESTION_RELEVANCE);
-            if (PENALTY.matcher(question).find()) {
-                relevance.put("team-penalties", QUESTION_RELEVANCE);
-                relevance.put("org-penalties", QUESTION_RELEVANCE);
-            }
-            if (WFH.matcher(question).find()) {
-                relevance.put("my-team-overview", QUESTION_RELEVANCE);
-                relevance.put("org-attendance", QUESTION_RELEVANCE);
-            }
-        }
-        return relevance;
-    }
-
-    /** {@link #knowledgeRelevance} plus the page the user is on. */
-    private Map<String, Double> withCurrentPage(AssistantRequestContext context, Map<String, Double> knowledgeRelevance) {
-        Map<String, Double> relevance = new HashMap<>(knowledgeRelevance);
         if (context.getCurrentModule() != null) {
             relevance.merge(context.getCurrentModule(), CURRENT_PAGE_RELEVANCE, Math::max);
         }
@@ -310,9 +196,9 @@ public class AssistantDataService {
      * before this feature existed and is still a useful answer. Turning that into an error would
      * trade a good answer for no answer.
      */
-    private Optional<String> fetchSafely(AssistantDataProvider provider, AssistantRequestContext context, String question) {
+    private Optional<String> fetchSafely(AssistantDataProvider provider, AssistantRequestContext context) {
         try {
-            return provider.fetch(context, question);
+            return provider.fetch(context);
         } catch (Exception e) {
             log.warn("Live data provider '{}' failed; continuing without it: {}", provider.id(), e.toString());
             return Optional.empty();
@@ -320,7 +206,7 @@ public class AssistantDataService {
     }
 
     /** One provider's contribution. */
-    public record Section(String providerId, String title, DataScope scope, String body) {}
+    public record Section(String providerId, String title, String body) {}
 
     /** Everything fetched for one turn. */
     @Data

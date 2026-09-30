@@ -1,12 +1,9 @@
 package com.nforce.onehr.dto.org;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
-
-import java.util.UUID;
 
 @Data
 public class UpdateDesignationRequest {
@@ -25,7 +22,4 @@ public class UpdateDesignationRequest {
 
     @Size(max = 20)
     private String level;
-
-    @NotNull(message = "Department is required")
-    private UUID departmentId;
 }

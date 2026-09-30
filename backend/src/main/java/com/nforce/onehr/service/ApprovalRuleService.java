@@ -154,10 +154,7 @@ public class ApprovalRuleService {
                 .ifPresent(other -> {
                     other.setActive(false);
                     other.setUpdatedBy(actor.getId());
-                    // Flush now: Hibernate orders UPDATEs by load order, and `rule` was loaded
-                    // first — without this, its active=true write would hit the DB before this
-                    // active=false one and violate idx_approval_rules_one_active_per_type.
-                    ruleRepository.saveAndFlush(other);
+                    ruleRepository.save(other);
                     log.info("Approval rule {} auto-deactivated: superseded by newly-activated rule {} for requestType={}",
                             other.getId(), id, requestType);
                 });
@@ -267,12 +264,6 @@ public class ApprovalRuleService {
         }
         if (!stages.get(0).equals(ApprovalRuleEvaluationService.ROLE_MANAGER)) {
             throw new IllegalArgumentException("Manager approval is always the first stage and must be included");
-        }
-        // Manager is always stage one regardless (see ApprovalRuleEvaluationService), so a rule
-        // with no HR_ADMIN/SUPER_ADMIN stage decides nothing except to skip HR final clearance
-        // for every claim — whether or not its condition matches.
-        if (stages.stream().allMatch(ApprovalRuleEvaluationService.ROLE_MANAGER::equals)) {
-            throw new IllegalArgumentException("At least one second-approval role (HR Admin or Super Admin) is required");
         }
     }
 

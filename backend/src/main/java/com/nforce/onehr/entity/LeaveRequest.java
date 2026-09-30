@@ -34,10 +34,6 @@ public class LeaveRequest {
     @Builder.Default
     private boolean halfDay = false;
 
-    // Which half of the day, when halfDay is true; null otherwise. See LeaveHalfDaySession.
-    @Column(name = "half_day_session", length = 10)
-    private String halfDaySession;
-
     @Column(name = "total_days", nullable = false)
     private BigDecimal totalDays;
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -9,7 +9,6 @@ import {
   listAcknowledgments, listAllAnnouncements, createAnnouncement, publishAnnouncement,
   updateAnnouncement, deactivateAnnouncement, reactivateAnnouncement, deleteAnnouncement,
   resetAcknowledgment, remindEmployee, globalPendingAckCount,
-  validateAttachmentFile, fetchPolicyAttachment,
   type Policy, type PolicyAcknowledgment, type Announcement,
 } from '../api/policies';
 
@@ -36,15 +35,6 @@ function audienceLabel(raw: string): string {
 function parseAudienceToArr(raw: string): string[] {
   if (!raw || raw === 'ALL' || raw === 'All Employees') return [...ALL_AUDIENCE];
   return raw.split(',').map(s => s.trim()).filter(Boolean);
-}
-
-async function openPolicyAttachment(token: string, id: number, showToast: (kind: 'error', msg: string) => void) {
-  try {
-    const url = await fetchPolicyAttachment(token, id);
-    window.open(url, '_blank', 'noopener,noreferrer');
-  } catch (e) {
-    showToast('error', e instanceof Error ? e.message : 'Failed to open attachment');
-  }
 }
 
 
@@ -79,102 +69,6 @@ function AudiencePicker({ value, onChange }: { value: string[]; onChange(v: stri
   );
 }
 
-// ── Shared modal shell ─────────────────────────────────────
-// All four policy/announcement modals below (Publish/Edit/PublishVersion/Announce) are the
-// same backdrop+panel+form+Cancel/Submit-footer shape wrapped around a different field set and
-// submit handler — that shape now lives once here instead of four times.
-
-function PolicyFormModal({ title, subtitle, submitLabel, loadingLabel, loading, onSubmit, onClose, children }: {
-  title: string;
-  subtitle?: string;
-  submitLabel: string;
-  loadingLabel: string;
-  loading: boolean;
-  onSubmit(e: React.FormEvent): void;
-  onClose(): void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} className="nf-modal-overlay-in">
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 500, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }} className="nf-modal-panel-in">
-        <h3 style={{ margin: subtitle ? '0 0 6px' : '0 0 20px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{title}</h3>
-        {subtitle && <p style={{ margin: '0 0 20px', fontSize: 12, color: '#eab308' }}>{subtitle}</p>}
-        <form onSubmit={onSubmit}>
-          {children}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} disabled={loading}
-              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
-            <button type="submit" disabled={loading}
-              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-              {loading ? loadingLabel : submitLabel}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function FormField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>
-        {label} {hint && <span style={{ fontSize: 11 }}>{hint}</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function AudienceField({ value, onChange }: { value: string[]; onChange(v: string[]): void }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 8 }}>Audience *</label>
-      <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
-        <AudiencePicker value={value} onChange={onChange} />
-      </div>
-    </div>
-  );
-}
-
-/** Validate-then-set file logic shared by Publish and Publish New Version — the only two modals
- *  with an attachment field. */
-function useAttachmentField() {
-  const { showToast } = useToast();
-  const [file, setFile] = useState<File | null>(null);
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] ?? null;
-    if (f) {
-      const err = validateAttachmentFile(f);
-      if (err) { showToast('error', err); e.target.value = ''; setFile(null); return; }
-    }
-    setFile(f);
-  }
-  return { file, onFileChange };
-}
-
-function AttachmentField({ file, onFileChange, hint }: {
-  file: File | null;
-  onFileChange(e: React.ChangeEvent<HTMLInputElement>): void;
-  hint: string;
-}) {
-  return (
-    <FormField label="Attachment" hint={`(${hint})`}>
-      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={onFileChange} style={inputS} />
-      {file && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--txt-dim)' }}>{file.name}</p>}
-    </FormField>
-  );
-}
-
-function RequiredAckCheckbox({ id, checked, onChange }: { id: string; checked: boolean; onChange(v: boolean): void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-      <input type="checkbox" id={id} checked={checked} onChange={e => onChange(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-      <label htmlFor={id} style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Required acknowledgment</label>
-    </div>
-  );
-}
-
 // ── Publish Policy Modal ──────────────────────────────────
 
 function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; onClose(): void; onPublished(p: Policy): void }) {
@@ -185,7 +79,6 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
   const [description, setDescription] = useState('');
   const [audience, setAudience] = useState<string[]>([...ALL_AUDIENCE]);
   const [required, setRequired] = useState(true);
-  const { file, onFileChange } = useAttachmentField();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -209,7 +102,7 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
     setLoading(true);
     try {
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
-      const p = await publishPolicy(token, { title, version, description, audience: audienceStr, required }, file);
+      const p = await publishPolicy(token, { title, version, description, audience: audienceStr, required });
       onPublished(p);
       showToast('success', 'Policy published');
       onClose();
@@ -221,31 +114,49 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
   }
 
   return (
-    <PolicyFormModal
-      title={isUpdate ? 'Publish New Version' : 'Publish New Policy'}
-      submitLabel="Publish"
-      loadingLabel="Publishing…"
-      loading={loading}
-      onSubmit={submit}
-      onClose={onClose}
-    >
-      <FormField label="Title *">
-        <input style={inputS} value={title} onChange={e => setTitle(e.target.value)} required list="policy-titles-list" />
-        <datalist id="policy-titles-list">
-          {[...new Set(policies.map(p => p.title))].map(t => <option key={t} value={t} />)}
-        </datalist>
-        {isUpdate && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#eab308' }}>Existing policy — will publish v{version}, supersede current.</p>}
-      </FormField>
-      <FormField label="Version" hint="(auto-suggested)">
-        <input style={inputS} value={version} onChange={e => setVersion(e.target.value)} required />
-      </FormField>
-      <FormField label="Description *">
-        <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
-      </FormField>
-      <AudienceField value={audience} onChange={setAudience} />
-      <AttachmentField file={file} onFileChange={onFileChange} hint="optional — Image, PDF, or Word document" />
-      <RequiredAckCheckbox id="req" checked={required} onChange={setRequired} />
-    </PolicyFormModal>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 500, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>
+          {isUpdate ? 'Publish New Version' : 'Publish New Policy'}
+        </h3>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Title *</label>
+            <input style={inputS} value={title} onChange={e => setTitle(e.target.value)} required list="policy-titles-list" />
+            <datalist id="policy-titles-list">
+              {[...new Set(policies.map(p => p.title))].map(t => <option key={t} value={t} />)}
+            </datalist>
+            {isUpdate && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#eab308' }}>Existing policy — will publish v{version}, supersede current.</p>}
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Version <span style={{ fontSize: 11 }}>(auto-suggested)</span></label>
+            <input style={inputS} value={version} onChange={e => setVersion(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Description *</label>
+            <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 8 }}>Audience *</label>
+            <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
+              <AudiencePicker value={audience} onChange={setAudience} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            <input type="checkbox" id="req" checked={required} onChange={e => setRequired(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            <label htmlFor="req" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Required acknowledgment</label>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading}
+              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+            <button type="submit" disabled={loading}
+              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              {loading ? 'Publishing…' : 'Publish'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -277,22 +188,35 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
   }
 
   return (
-    <PolicyFormModal
-      title={`Edit Policy — v${policy.version}`}
-      submitLabel="Save Changes"
-      loadingLabel="Saving…"
-      loading={loading}
-      onSubmit={submit}
-      onClose={onClose}
-    >
-      <FormField label="Title *">
-        <input style={inputS} value={title} onChange={e => setTitle(e.target.value)} required />
-      </FormField>
-      <FormField label="Description *">
-        <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
-      </FormField>
-      <AudienceField value={audience} onChange={setAudience} />
-    </PolicyFormModal>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 500, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Edit Policy — v{policy.version}</h3>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Title *</label>
+            <input style={inputS} value={title} onChange={e => setTitle(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Description *</label>
+            <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 8 }}>Audience *</label>
+            <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
+              <AudiencePicker value={audience} onChange={setAudience} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading}
+              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+            <button type="submit" disabled={loading}
+              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              {loading ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -309,7 +233,6 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
   const [description, setDescription] = useState(policy.description);
   const [audience, setAudience] = useState<string[]>(parseAudienceToArr(policy.audience));
   const [required, setRequired] = useState(policy.required);
-  const { file, onFileChange } = useAttachmentField();
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -318,7 +241,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
     setLoading(true);
     try {
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
-      const p = await publishPolicyVersion(token, policy.id, { version, description, audience: audienceStr, required }, file);
+      const p = await publishPolicyVersion(token, policy.id, { version, description, audience: audienceStr, required });
       onPublished(p);
       showToast('success', 'New version published — employees must re-acknowledge');
       onClose();
@@ -330,25 +253,42 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
   }
 
   return (
-    <PolicyFormModal
-      title={`Publish New Version — ${policy.title}`}
-      subtitle={`Currently v${policy.version}. Publishing a new version supersedes it and requires every affected employee to re-acknowledge.`}
-      submitLabel="Publish New Version"
-      loadingLabel="Publishing…"
-      loading={loading}
-      onSubmit={submit}
-      onClose={onClose}
-    >
-      <FormField label="New Version *">
-        <input style={inputS} value={version} onChange={e => setVersion(e.target.value)} required />
-      </FormField>
-      <FormField label="Description *">
-        <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
-      </FormField>
-      <AudienceField value={audience} onChange={setAudience} />
-      <AttachmentField file={file} onFileChange={onFileChange} hint="optional — Image, PDF, or Word document; leave blank to keep the current one" />
-      <RequiredAckCheckbox id="reqv" checked={required} onChange={setRequired} />
-    </PolicyFormModal>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 500, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Publish New Version — {policy.title}</h3>
+        <p style={{ margin: '0 0 20px', fontSize: 12, color: '#eab308' }}>
+          Currently v{policy.version}. Publishing a new version supersedes it and requires every affected employee to re-acknowledge.
+        </p>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>New Version *</label>
+            <input style={inputS} value={version} onChange={e => setVersion(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Description *</label>
+            <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 8 }}>Audience *</label>
+            <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
+              <AudiencePicker value={audience} onChange={setAudience} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            <input type="checkbox" id="reqv" checked={required} onChange={e => setRequired(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            <label htmlFor="reqv" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Required acknowledgment</label>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading}
+              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+            <button type="submit" disabled={loading}
+              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              {loading ? 'Publishing…' : 'Publish New Version'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -391,28 +331,41 @@ function AnnounceModal({ initial, onClose, onSaved }: {
   }
 
   return (
-    <PolicyFormModal
-      title={isEdit ? 'Edit Announcement' : 'Create Announcement'}
-      submitLabel={isEdit ? 'Save Changes' : (publishNow ? 'Publish' : 'Save Draft')}
-      loadingLabel="Saving…"
-      loading={loading}
-      onSubmit={submit}
-      onClose={onClose}
-    >
-      <FormField label="Title *">
-        <input style={inputS} value={title} onChange={e => setTitle(e.target.value)} required />
-      </FormField>
-      <FormField label="Body *">
-        <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={body} onChange={e => setBody(e.target.value)} required />
-      </FormField>
-      <AudienceField value={audience} onChange={setAudience} />
-      {!isEdit && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-          <input type="checkbox" id="now" checked={publishNow} onChange={e => setPublishNow(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-          <label htmlFor="now" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Publish immediately</label>
-        </div>
-      )}
-    </PolicyFormModal>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 500, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{isEdit ? 'Edit Announcement' : 'Create Announcement'}</h3>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Title *</label>
+            <input style={inputS} value={title} onChange={e => setTitle(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Body *</label>
+            <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={body} onChange={e => setBody(e.target.value)} required />
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 8 }}>Audience *</label>
+            <div style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px' }}>
+              <AudiencePicker value={audience} onChange={setAudience} />
+            </div>
+          </div>
+          {!isEdit && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+              <input type="checkbox" id="now" checked={publishNow} onChange={e => setPublishNow(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+              <label htmlFor="now" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Publish immediately</label>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} disabled={loading}
+              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+            <button type="submit" disabled={loading}
+              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              {loading ? 'Saving…' : isEdit ? 'Save Changes' : (publishNow ? 'Publish' : 'Save Draft')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -472,8 +425,8 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
   const filtered = q ? acks.filter(a => (a.employeeName ?? '').toLowerCase().includes(q)) : acks;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} className="nf-modal-overlay-in">
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 600, maxWidth: '94vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} className="nf-modal-panel-in">
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 600, maxWidth: '94vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{selected.title} — v{selected.version}</h3>
@@ -789,12 +742,6 @@ export default function PoliciesPage() {
                       <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>
                         {p.title}
                         {p.required && <span style={{ marginLeft: 8, fontSize: 10, background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>Required</span>}
-                        {p.hasAttachment && (
-                          <button onClick={() => openPolicyAttachment(token, p.id, showToast)} title={p.attachmentFileName ?? 'Attachment'}
-                            style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'inline-flex', verticalAlign: 'middle' }}>
-                            <Paperclip size={13} />
-                          </button>
-                        )}
                       </td>
                       <td style={tdS}>v{p.version}</td>
                       <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(p.audience)}</span></td>

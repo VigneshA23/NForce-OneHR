@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, XCircle, Eye, Search, Users, History } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
-import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -20,7 +19,6 @@ function StatusBadge({ status }: { status: string }) {
     VERIFIED: { label: 'Verified', color: '#22c55e' },
     PENDING_VERIFICATION: { label: 'Pending Review', color: '#eab308' },
     REJECTED: { label: 'Rejected', color: '#ef4444' },
-    WITHDRAWN: { label: 'Withdrawn', color: 'var(--txt-dim)' },
   };
   const cfg = map[status] ?? { label: status, color: 'var(--txt-dim)' };
   return (
@@ -133,15 +131,11 @@ function DetailModal({
   const isPdf = ext === 'pdf';
 
   useEffect(() => {
-    // Track the URL locally: the cleanup closure would otherwise only ever see the initial
-    // null blobUrl state and never revoke the object URL.
-    let url: string | null = null;
-    let cancelled = false;
     fetchDocumentFile(token, doc.id)
-      .then(u => { url = u; if (cancelled) URL.revokeObjectURL(u); else setBlobUrl(u); })
-      .catch(() => { if (!cancelled) setFileError(true); })
-      .finally(() => { if (!cancelled) setFileLoading(false); });
-    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+      .then(url => setBlobUrl(url))
+      .catch(() => setFileError(true))
+      .finally(() => setFileLoading(false));
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
   }, [doc.id, token]);
 
   async function handleVerify() {
@@ -268,8 +262,7 @@ function DetailModal({
 
 // ── Not Submitted Tab with Remind ────────────────────────
 
-// `missing` is the current page's rows; the pagination footer is rendered inside the card.
-function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument[]; searchEmpty: boolean; footer: React.ReactNode }) {
+function MissingTab({ missing, searchEmpty }: { missing: MissingDocument[]; searchEmpty: boolean }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [reminding, setReminding] = useState<string | null>(null);
@@ -301,7 +294,7 @@ function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument
           <tbody>
             {missing.length === 0 ? (
               <tr><td colSpan={3} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                {searchEmpty ? 'No results match your search or filter.' : (
+                {searchEmpty ? 'No results match your search.' : (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                     <Users size={28} color="var(--txt-dim)" />
                     <span>All employees have submitted their required documents.</span>
@@ -328,7 +321,6 @@ function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument
           </tbody>
         </table>
       </div>
-      {footer}
     </div>
   );
 }
@@ -346,32 +338,23 @@ export default function DocumentsCompliancePage() {
   const [verified, setVerified] = useState<EmployeeDocument[]>([]);
   const [missing, setMissing] = useState<MissingDocument[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [detailDoc, setDetailDoc] = useState<EmployeeDocument | null>(null);
 
-  async function load(showSpinner: boolean) {
-    if (showSpinner) setLoading(true);
-    try {
-      const [k, p, all, m] = await Promise.all([
-        getAdminKpis(token),
-        listPendingDocuments(token),
-        listAllDocuments(token),
-        listMissingDocuments(token),
-      ]);
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      getAdminKpis(token),
+      listPendingDocuments(token),
+      listAllDocuments(token),
+      listMissingDocuments(token),
+    ]).then(([k, p, all, m]) => {
       setKpis(k);
       setPending(p);
       setVerified(all.filter(d => d.status === 'VERIFIED'));
       setMissing(m);
-      setLoadError(null);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Load failed';
-      if (showSpinner) setLoadError(msg); else showToast('error', msg);
-    } finally {
-      if (showSpinner) setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(true); }, [token]);
+    }).catch(e => showToast('error', e instanceof Error ? e.message : 'Load failed'))
+      .finally(() => setLoading(false));
+  }, [token]);
 
   async function doVerify(doc: EmployeeDocument) {
     try {
@@ -379,27 +362,22 @@ export default function DocumentsCompliancePage() {
       setPending(p => p.filter(d => d.id !== doc.id));
       setVerified(v => [updated, ...v]);
       setDetailDoc(null);
-      showToast('success', 'Document verified — the employee has been notified');
+      showToast('success', 'Document verified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Verify failed');
-      // e.g. another admin already reviewed it, or the employee re-uploaded — resync.
-      setDetailDoc(null);
-      load(false);
     }
   }
 
   async function doReject(doc: EmployeeDocument, reason: string) {
     try {
-      await verifyDocument(token, doc.id, 'REJECT', reason.trim());
+      await verifyDocument(token, doc.id, 'REJECT', reason);
       setPending(p => p.filter(d => d.id !== doc.id));
       setDetailDoc(null);
-      showToast('success', 'Document rejected — the employee has been notified');
+      showToast('success', 'Document rejected');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
-      setDetailDoc(null);
-      load(false);
     }
   }
 
@@ -434,40 +412,7 @@ export default function DocumentsCompliancePage() {
     return !q || m.employeeName.toLowerCase().includes(q) || m.documentTypeName.toLowerCase().includes(q);
   });
 
-  const filtering = q.length > 0 || docTypeFilter !== '';
-
-  // Client-side pagination (the list endpoints return everything). One page/pageSize is
-  // shared across the tabs; page resets to 1 when the tab, search or filter changes, and is
-  // clamped at render so a verify/reject that empties the last page falls back a page.
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  useEffect(() => { setPage(1); }, [tab, q, docTypeFilter]);
-
-  const activeRows = tab === 'pending' ? filteredPending : tab === 'verified' ? filteredVerified : filteredMissing;
-  const safePage = clampPage(page, activeRows.length, pageSize);
-  const pagination = (
-    <TablePagination
-      page={safePage} pageSize={pageSize} total={activeRows.length}
-      noun={tab === 'missing' ? 'records' : 'documents'}
-      onPageChange={setPage}
-      onPageSizeChange={n => { setPageSize(n); setPage(1); }}
-    />
-  );
-
   if (loading) return <p style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</p>;
-
-  if (loadError) {
-    return (
-      <div style={{ ...card, padding: 28, textAlign: 'center' }}>
-        <p style={{ color: 'var(--txt)', fontSize: 14, fontWeight: 600, margin: '0 0 6px' }}>Couldn't load documents</p>
-        <p style={{ color: 'var(--txt-dim)', fontSize: 13, margin: '0 0 14px' }}>{loadError}</p>
-        <button onClick={() => load(true)}
-          style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-          Retry
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -529,15 +474,7 @@ export default function DocumentsCompliancePage() {
       {tab === 'pending' && (
         <div style={card}>
           <div className="nf-doc-table-scroll">
-            <table className="nf-doc-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-              <colgroup>
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '28%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: 48 }} />
-              </colgroup>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
                   <th style={thS}>Employee</th>
@@ -551,17 +488,17 @@ export default function DocumentsCompliancePage() {
               <tbody>
                 {filteredPending.length === 0 ? (
                   <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                    {filtering ? 'No results match your search or filter.' : 'No documents pending verification.'}
+                    {q ? 'No results match your search.' : 'No documents pending verification.'}
                   </td></tr>
-                ) : paginate(filteredPending, safePage, pageSize).map(d => (
+                ) : filteredPending.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.documentTypeName}</td>
+                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
                     <td style={tdS}>
-                      <span title={d.fileName} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
+                        <Eye size={12} /> {d.fileName}
                       </span>
                     </td>
                     <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
@@ -576,7 +513,6 @@ export default function DocumentsCompliancePage() {
               </tbody>
             </table>
           </div>
-          {pagination}
         </div>
       )}
 
@@ -584,15 +520,7 @@ export default function DocumentsCompliancePage() {
       {tab === 'verified' && (
         <div style={card}>
           <div className="nf-doc-table-scroll">
-            <table className="nf-doc-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-              <colgroup>
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '28%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: 48 }} />
-              </colgroup>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
                   <th style={thS}>Employee</th>
@@ -606,17 +534,17 @@ export default function DocumentsCompliancePage() {
               <tbody>
                 {filteredVerified.length === 0 ? (
                   <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
-                    {filtering ? 'No results match your search or filter.' : 'No verified documents yet.'}
+                    {q ? 'No results match your search.' : 'No verified documents yet.'}
                   </td></tr>
-                ) : paginate(filteredVerified, safePage, pageSize).map(d => (
+                ) : filteredVerified.map(d => (
                   <tr key={d.id}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
                     </td>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.documentTypeName}</td>
+                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>{d.documentTypeName}</td>
                     <td style={tdS}>
-                      <span title={d.fileName} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12 }}>
+                        <Eye size={12} /> {d.fileName}
                       </span>
                     </td>
                     <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '—'}</td>
@@ -629,13 +557,12 @@ export default function DocumentsCompliancePage() {
               </tbody>
             </table>
           </div>
-          {pagination}
         </div>
       )}
 
       {/* ── Not Submitted tab ── */}
       {tab === 'missing' && (
-        <MissingTab missing={paginate(filteredMissing, safePage, pageSize)} searchEmpty={filtering} footer={pagination} />
+        <MissingTab missing={filteredMissing} searchEmpty={q.length > 0} />
       )}
 
       {detailDoc && (

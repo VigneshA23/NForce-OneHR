@@ -44,26 +44,12 @@ public class AiProperties {
         private long retryBackoffMillis = 500;
         /** Low: the assistant reports documented behaviour, it does not compose freely. */
         private double temperature = 0.2;
-        /**
-         * 2000, not 1200: a team list (every late arrival, every penalty) plus the JSON wrapper ran
-         * past 1200, the reply was cut off mid-JSON, and the user got "not able to produce a reliable
-         * answer" (ONEHR). The 4000-character answer cap alone is about 1000 tokens.
-         */
-        private int maxTokens = 2000;
+        private int maxTokens = 1200;
     }
 
     @Data
     public static class Retrieval {
-        /**
-         * Raised from 8 (ONEHR - My Team AI access added five knowledge units clustered in the
-         * same "attendance/team/hours" vocabulary a Manager or HR Admin's other attendance
-         * questions already live in; at 8, a self-scoped question like "my last 5 attendance
-         * records" could lose its own top-8 slot to several of the new, merely topic-adjacent team
-         * units, and the assistant answered with no rows at all rather than the caller's own
-         * history). Headroom, not a ranking change - {@link #minScore} still keeps genuinely
-         * unrelated results out.
-         */
-        private int topK = 10;
+        private int topK = 8;
         /**
          * Cosine floor, calibrated against real mistral-embed vectors rather than theory.
          *

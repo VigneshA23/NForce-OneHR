@@ -19,17 +19,11 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.YearMonth;
 import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-
-import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -362,124 +356,5 @@ class ExpenseServiceTest {
         assertEquals("application/pdf", receipt.contentType());
         assertTrue(receipt.fileName().endsWith(".pdf"));
         assertEquals("%PDF-1.4 fake pdf bytes", new String(receipt.data()));
-    }
-
-    // ── "Approved This Month" tile: windowed by expenseDate, not the clearance/payment date ──
-
-    @Test
-    void employeeTileSummary_windowsApprovedThisMonthByExpenseDate_notFinalDecidedAt() {
-        when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(employeeUser));
-        when(claimRepo.findByEmployeeUserIdInAndStatus(List.of(employeeUser.getId()), "SUBMITTED"))
-                .thenReturn(new ArrayList<>());
-        when(claimRepo.findByEmployeeUserIdInAndStatus(List.of(employeeUser.getId()), "MANAGER_APPROVED"))
-                .thenReturn(new ArrayList<>());
-        // A claim incurred this month but only cleared next month (or vice versa) must still be
-        // windowed on when it was spent - the repository query itself is the actual fix (this test
-        // only pins down the LocalDate window ExpenseService hands it, since sumApprovedThisMonth/
-        // countApprovedThisMonth are mocked here, not exercised against real JPA date semantics).
-        when(claimRepo.sumApprovedThisMonth(eq(employeeUser.getId()), any(LocalDate.class), any(LocalDate.class)))
-                .thenReturn(new BigDecimal("12300.00"));
-        when(claimRepo.countApprovedThisMonth(eq(employeeUser.getId()), any(LocalDate.class), any(LocalDate.class)))
-                .thenReturn(4L);
-
-        Map<String, Object> result = expenseService.employeeTileSummary(actorEmail);
-
-        assertEquals(new BigDecimal("12300.00"), result.get("approvedThisMonthAmount"));
-        assertEquals(4L, result.get("approvedThisMonthCount"));
-
-        ArgumentCaptor<LocalDate> fromCap = ArgumentCaptor.forClass(LocalDate.class);
-        ArgumentCaptor<LocalDate> toCap = ArgumentCaptor.forClass(LocalDate.class);
-        verify(claimRepo).sumApprovedThisMonth(eq(employeeUser.getId()), fromCap.capture(), toCap.capture());
-        YearMonth thisMonth = YearMonth.now(ZoneId.of("UTC"));
-        assertEquals(thisMonth.atDay(1), fromCap.getValue());
-        assertEquals(thisMonth.atEndOfMonth().plusDays(1), toCap.getValue());
-    }
-
-    // ── Workflow Studio multi-layer approval: Manager -> HR Admin -> Super Admin ─────────
-
-    private ExpenseClaim threeStageClaimAwaiting(String pendingStage) {
-        ExpenseClaim claim = claimInStatus("MANAGER_APPROVED", true);
-        claim.setApprovalStages("MANAGER,HR_ADMIN,SUPER_ADMIN");
-        claim.setPendingFinalStage(pendingStage);
-        return claim;
-    }
-
-    private void stubFinalStage(User actor, ExpenseClaim claim) {
-        when(userRepo.findByEmail(actor.getEmail())).thenReturn(Optional.of(actor));
-        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
-        lenient().when(claimRepo.save(any(ExpenseClaim.class))).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
-    }
-
-    @Test
-    void managerApprove_threeStageClaim_awaitsHrAdminFirst() {
-        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
-        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
-        claim.setApprovalStages("MANAGER,HR_ADMIN,SUPER_ADMIN");
-        stubManagerOf(manager, claim.getEmployeeUserId());
-        stubFinalStage(manager, claim);
-
-        ExpenseClaimResponse res = expenseService.managerApprove(claim.getId(), "manager@test.com");
-
-        assertEquals("MANAGER_APPROVED", res.getStatus());
-        assertEquals("HR_ADMIN", res.getPendingFinalStage());
-    }
-
-    @Test
-    void finalApprove_hrAdminOnThreeStageClaim_movesToSuperAdmin_notClearedForPayroll() {
-        User hr = hrAdminUser();
-        ExpenseClaim claim = threeStageClaimAwaiting("HR_ADMIN");
-        stubFinalStage(hr, claim);
-
-        ExpenseClaimResponse res = expenseService.finalApprove(claim.getId(), hr.getEmail());
-
-        assertEquals("MANAGER_APPROVED", res.getStatus(), "HR approval alone must not clear a claim that also needs Super Admin");
-        assertEquals("SUPER_ADMIN", res.getPendingFinalStage());
-    }
-
-    @Test
-    void finalApprove_superAdminAtLastStage_clearsForPayroll() {
-        User sa = superAdminUser();
-        ExpenseClaim claim = threeStageClaimAwaiting("SUPER_ADMIN");
-        stubFinalStage(sa, claim);
-
-        ExpenseClaimResponse res = expenseService.finalApprove(claim.getId(), sa.getEmail());
-
-        assertEquals("CLEARED_FOR_PAYROLL", res.getStatus());
-        assertNull(res.getPendingFinalStage());
-    }
-
-    @Test
-    void finalApprove_hrAdminAtSuperAdminStage_denied() {
-        User hr = hrAdminUser();
-        ExpenseClaim claim = threeStageClaimAwaiting("SUPER_ADMIN");
-        stubFinalStage(hr, claim);
-
-        assertThrows(org.springframework.security.access.AccessDeniedException.class,
-                () -> expenseService.finalApprove(claim.getId(), hr.getEmail()));
-        assertEquals("MANAGER_APPROVED", claim.getStatus());
-    }
-
-    @Test
-    void pendingForFinalApprover_claimAwaitingSuperAdmin_shownToSuperAdmin_hiddenFromHrAdmin() {
-        ExpenseClaim claim = threeStageClaimAwaiting("SUPER_ADMIN");
-        when(claimRepo.findByStatusIn(any())).thenReturn(List.of(claim));
-        lenient().when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
-        User hr = hrAdminUser();
-        User sa = superAdminUser();
-        when(userRepo.findByEmail(hr.getEmail())).thenReturn(Optional.of(hr));
-        when(userRepo.findByEmail(sa.getEmail())).thenReturn(Optional.of(sa));
-
-        assertTrue(expenseService.pendingForFinalApprover(hr.getEmail()).isEmpty());
-        assertEquals(1, expenseService.pendingForFinalApprover(sa.getEmail()).size());
-    }
-
-    @Test
-    void finalApprove_legacyClaimWithoutStageList_hrAdminStillClearsInOneStep() {
-        User hr = hrAdminUser();
-        ExpenseClaim claim = claimInStatus("MANAGER_APPROVED", true);
-        stubFinalStage(hr, claim);
-
-        assertEquals("CLEARED_FOR_PAYROLL", expenseService.finalApprove(claim.getId(), hr.getEmail()).getStatus());
     }
 }

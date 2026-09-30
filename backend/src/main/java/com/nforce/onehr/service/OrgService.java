@@ -206,10 +206,8 @@ public class OrgService {
     @Transactional(readOnly = true)
     public List<DesignationResponse> listDesignations() {
         Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByDesignationId());
-        Map<UUID, String> departmentNames = departmentRepo.findAll().stream()
-                .collect(Collectors.toMap(Department::getId, Department::getName));
         return designationRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt")).stream()
-                .map(d -> DesignationResponse.from(d, counts.getOrDefault(d.getId(), 0L), departmentNames.get(d.getDepartmentId())))
+                .map(d -> DesignationResponse.from(d, counts.getOrDefault(d.getId(), 0L)))
                 .toList();
     }
 
@@ -219,15 +217,13 @@ public class OrgService {
         if (designationRepo.existsByTitleIgnoreCase(req.getTitle().trim())) {
             throw new IllegalArgumentException("A designation titled '" + req.getTitle().trim() + "' already exists");
         }
-        Department dept = requireActiveDepartment(req.getDepartmentId());
         Designation saved = designationRepo.save(
                 Designation.builder()
                         .title(req.getTitle().trim())
                         .grade(req.getGrade() != null ? req.getGrade().trim() : null)
                         .level(req.getLevel() != null ? req.getLevel().trim() : null)
-                        .departmentId(dept.getId())
                         .build());
-        return DesignationResponse.from(saved, 0L, dept.getName());
+        return DesignationResponse.from(saved, 0L);
     }
 
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
@@ -239,13 +235,11 @@ public class OrgService {
         if (!desig.getTitle().equalsIgnoreCase(trimmed) && designationRepo.existsByTitleIgnoreCase(trimmed)) {
             throw new IllegalArgumentException("A designation titled '" + trimmed + "' already exists");
         }
-        Department dept = requireActiveDepartment(req.getDepartmentId());
         desig.setTitle(trimmed);
         desig.setGrade(req.getGrade() != null ? req.getGrade().trim() : null);
         desig.setLevel(req.getLevel() != null ? req.getLevel().trim() : null);
-        desig.setDepartmentId(dept.getId());
         long count = employeeRepo.countByDesignationId(id);
-        return DesignationResponse.from(designationRepo.save(desig), count, dept.getName());
+        return DesignationResponse.from(designationRepo.save(desig), count);
     }
 
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
@@ -255,17 +249,7 @@ public class OrgService {
                 .orElseThrow(() -> new NoSuchElementException("Designation not found"));
         desig.setActive(!desig.isActive());
         long count = employeeRepo.countByDesignationId(id);
-        String departmentName = desig.getDepartmentId() != null
-                ? departmentRepo.findById(desig.getDepartmentId()).map(Department::getName).orElse(null) : null;
-        return DesignationResponse.from(designationRepo.save(desig), count, departmentName);
-    }
-
-    private Department requireActiveDepartment(UUID departmentId) {
-        Department dept = departmentRepo.findById(departmentId)
-                .orElseThrow(() -> new IllegalArgumentException("Selected department was not found."));
-        if (!dept.isActive())
-            throw new IllegalArgumentException("This department is inactive and cannot be assigned. Choose an active department.");
-        return dept;
+        return DesignationResponse.from(designationRepo.save(desig), count);
     }
 
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")

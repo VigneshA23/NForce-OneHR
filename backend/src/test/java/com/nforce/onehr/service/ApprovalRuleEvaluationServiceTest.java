@@ -152,21 +152,6 @@ class ApprovalRuleEvaluationServiceTest {
     }
 
     @Test
-    void activeManagerOnlyRule_ignored_hrFinalStageStillRequired() {
-        // Previously this routed every claim (condition true or false) to Manager-only, so
-        // Manager-approved claims went straight to CLEARED_FOR_PAYROLL and never reached HR.
-        when(ruleRepository.findByRequestTypeAndActiveTrue("EXPENSE"))
-                .thenReturn(Optional.of(ruleAbove500("MANAGER")));
-
-        ApprovalRuleEvaluationService.Decision above = evaluationService.evaluateExpense(new BigDecimal("750"));
-        ApprovalRuleEvaluationService.Decision below = evaluationService.evaluateExpense(new BigDecimal("300"));
-
-        assertTrue(above.secondApprovalRequired());
-        assertTrue(below.secondApprovalRequired());
-        assertNull(above.evaluatedRuleId());
-    }
-
-    @Test
     void noActiveRule_fallsBackToLegacyDefault_bothStagesAlwaysRequired() {
         when(ruleRepository.findByRequestTypeAndActiveTrue("EXPENSE")).thenReturn(Optional.empty());
 

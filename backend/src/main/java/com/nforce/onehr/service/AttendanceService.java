@@ -199,24 +199,6 @@ public class AttendanceService {
     }
 
     /**
-     * Whether the employee currently has an open, non-stale normal Check-In/Check-Out session —
-     * the same {@code canCheckOut} semantics {@link #getToday} exposes on
-     * {@code TodayAttendanceResponse}, extracted here so ProfileService's "In/Out" indicator can
-     * reuse it without duplicating the open-session lookup or staleness check (and risking the two
-     * endpoints disagreeing). Deliberately ignores Web Clock-In sessions, same as getToday.
-     */
-    @Transactional
-    public boolean isClockedIn(UUID employeeUserId) {
-        Employee employee = employeeRepository.findById(employeeUserId)
-                .orElseThrow(() -> new IllegalArgumentException("Employee not found: " + employeeUserId));
-        Optional<Attendance> open = findOpenNormalAttendance(employeeUserId);
-        if (open.isEmpty()) return false;
-        ZoneId zone = resolveZone(open.get(), employee);
-        LocalDateTime now = LocalDateTime.now(zone);
-        return !flagMissingCheckoutIfStale(open.get(), now);
-    }
-
-    /**
      * Sum of the gaps between consecutive closed punch sessions — an open (unclosed) session
      * contributes nothing yet. Spans BOTH punch sources (normal Check-In/Out and Web Check-In/
      * Out): a gap between, say, a Web Check-Out and a later normal Check-In is still a break,
@@ -907,16 +889,6 @@ public class AttendanceService {
     }
 
     /**
-     * The caller's current shift-relative work date - the same "today" the Attendance Log and
-     * {@link #getToday} use, so an overnight shift still reads as the day it started. A pure
-     * read, unlike {@link #getToday}, which also settles a stale open session as it goes.
-     */
-    @Transactional(readOnly = true)
-    public LocalDate currentWorkDate(String actorEmail) {
-        return defaultHistoryEnd(resolveEmployee(actorEmail));
-    }
-
-    /**
      * The caller's own punch for a single date, if any — backs the regularization request
      * form's auto-fill (Attendance Regularization spec scenarios 1/2: prefill whichever side
      * of the punch already exists so only the missing one needs to be entered). Null if the
@@ -1578,11 +1550,6 @@ public class AttendanceService {
 
         List<AttendanceResponse> rows = new ArrayList<>(employees.size());
         for (Employee employee : employees) {
-            // Not yet joined as of the queried day (ONEHR-116) — a newly created employee must
-            // not appear in the roster for dates before their joining date.
-            if (employee.getJoiningDate() != null && employee.getJoiningDate().isAfter(day)) {
-                continue;
-            }
             Attendance record = resolveRosterRecord(byEmployee.get(employee.getUserId()), employee, day);
             rows.add(record != null
                     ? toResponse(record, employee)
@@ -1635,13 +1602,8 @@ public class AttendanceService {
      * purely a same-employee, location-derived TIMEZONE correction (not a location filter): an
      * employee whose Location timezone sits on the other side of local midnight from the
      * business zone has their check-in workDate stamped one day off, and must still count as
-     * checked in today rather than wrongly appear in "Not in yet today". Last, a still-OPEN
-     * session (checked in, not yet checked out) dated the day before counts too: a check-in's
-     * workDate is shift-relative (see ShiftDayPolicy#shiftDayOf — an overnight shift, or an early
-     * arrival inside the previous shift-day's boundary, is stamped yesterday), so an employee who
-     * is checked in right now must never show as "Not in yet" to their manager merely because
-     * that session's workDate isn't today's calendar date. A candidate list with no match on any
-     * of these means the employee genuinely hasn't punched.
+     * checked in today rather than wrongly appear in "Not in yet today". A candidate list with
+     * no match on either date means the employee genuinely hasn't punched for either day.
      */
     private Attendance resolveRosterRecord(List<Attendance> candidates, Employee employee, LocalDate day) {
         if (candidates == null || candidates.isEmpty()) {
@@ -1649,33 +1611,15 @@ public class AttendanceService {
         }
         LocalDate employeeToday = LocalDate.now(attendanceRulesService.resolveEmployeeZoneId(employee));
         Attendance fallback = null;
-        Attendance openFromPreviousDay = null;
         for (Attendance candidate : candidates) {
             if (candidate.getWorkDate().equals(day)) {
                 return candidate;
             }
             if (candidate.getWorkDate().equals(employeeToday)) {
                 fallback = candidate;
-            } else if (candidate.getWorkDate().equals(day.minusDays(1))
-                    && candidate.getCheckInAt() != null && candidate.getCheckOutAt() == null) {
-                openFromPreviousDay = candidate;
             }
         }
-        if (fallback != null) {
-            return fallback;
-        }
-        return openFromPreviousDay != null && !isStaleOpenSession(openFromPreviousDay, employee)
-                ? openFromPreviousDay : null;
-    }
-
-    /** A forgotten check-out from a past shift-day is stale, not "still in" — same staleness test
-     * as flagMissingCheckoutIfStale (the session's interpreted workDate has moved past its own). A
-     * legacy row whose shift can't be resolved is treated as stale, never guessed as "in". */
-    private boolean isStaleOpenSession(Attendance record, Employee employee) {
-        AttendanceInterpretation interpretation =
-                attendanceInterpretationService.interpretExistingSession(record, now(employee));
-        return interpretation.isLegacyUnresolved()
-                || interpretation.getWorkDate().isAfter(record.getWorkDate());
+        return fallback;
     }
 
     private AttendanceResponse toResponse(Attendance record, Employee employee) {

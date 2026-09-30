@@ -7,14 +7,11 @@ import com.nforce.onehr.entity.PolicyAcknowledgment;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
-import com.nforce.onehr.util.AttachmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -45,8 +42,8 @@ public class PolicyService {
         Set<String> actorRoles = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
         UUID actorId = actor.getId();
 
-        List<PolicyListItem> active = policyRepo.findActiveListItems();
-        List<PolicyListItem> applicable = active.stream()
+        List<Policy> active = policyRepo.findByActiveTrueOrderByPublishedAtDesc();
+        List<Policy> applicable = active.stream()
                 .filter(p -> matchesAudience(p.getAudience(), actorRoles))
                 .collect(Collectors.toList());
 
@@ -83,15 +80,15 @@ public class PolicyService {
     @Transactional(readOnly = true)
     public List<PolicyResponse> listAll(String actorEmail) {
         requireAdminRole(actorEmail);
-        return policyRepo.findAllListItems().stream()
-                .map(p -> PolicyResponse.from(p, null, null))
+        return policyRepo.findAllByOrderByPublishedAtDesc().stream()
+                .map(PolicyResponse::from)
                 .collect(Collectors.toList());
     }
 
     // ── HR/SA: publish new policy ──
 
     @Transactional
-    public PolicyResponse publish(String actorEmail, PublishPolicyRequest req, MultipartFile attachment) throws IOException {
+    public PolicyResponse publish(String actorEmail, PublishPolicyRequest req) {
         User actor = requireUser(actorEmail);
         requireAdminRole(actorEmail);
 
@@ -100,44 +97,21 @@ public class PolicyService {
             policyRepo.save(old);
         });
 
-        Policy.PolicyBuilder builder = Policy.builder()
+        Policy p = Policy.builder()
                 .title(req.getTitle())
                 .version(req.getVersion())
                 .description(req.getDescription())
                 .audience(req.getAudience() != null ? req.getAudience() : "All Employees")
                 .required(req.isRequired())
                 .publishedBy(actor.getId())
-                .publishedAt(Instant.now());
-        if (attachment != null && !attachment.isEmpty()) {
-            attachBuilder(builder, attachment);
-        }
-        Policy p = builder.build();
+                .publishedAt(Instant.now())
+                .build();
         p = policyRepo.save(p);
 
         seedAcknowledgmentsAndNotify(p, "New Policy: " + p.getTitle(),
                 "Please review and acknowledge version " + p.getVersion() + ".");
 
         return PolicyResponse.from(p);
-    }
-
-    // ── HR/SA: attach a document (image/PDF/Word) to a policy ──
-    // Same validate-then-store pattern as HelpdeskService#applyAttachment (10MB/allow-list rule
-    // shared via AttachmentValidator) — a policy has at most one attachment, so a re-upload
-    // simply replaces it rather than versioning like EmployeeDocument does. Separate from
-    // publish()/publishNewVersion() (which also accept an attachment inline) so HR can attach or
-    // replace a document without republishing.
-
-    @Transactional
-    public PolicyResponse uploadAttachment(String actorEmail, Long policyId, MultipartFile file) throws IOException {
-        requireAdminRole(actorEmail);
-        Policy p = policyRepo.findById(policyId)
-                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
-        AttachmentValidator.validate(file);
-        p.setAttachmentName(file.getOriginalFilename());
-        p.setAttachmentType(file.getContentType());
-        p.setAttachmentSize(file.getSize());
-        p.setAttachmentData(file.getBytes());
-        return PolicyResponse.from(policyRepo.save(p));
     }
 
     // ── HR/SA: publish a substantive new version of an existing policy ──
@@ -148,8 +122,7 @@ public class PolicyService {
     // are preserved for audit, never deleted or mutated.
 
     @Transactional
-    public PolicyResponse publishNewVersion(String actorEmail, Long policyId, PublishPolicyVersionRequest req,
-                                             MultipartFile attachment) throws IOException {
+    public PolicyResponse publishNewVersion(String actorEmail, Long policyId, PublishPolicyVersionRequest req) {
         User actor = requireUser(actorEmail);
         requireAdminRole(actorEmail);
 
@@ -169,7 +142,7 @@ public class PolicyService {
         boolean required = req.getRequired() != null ? req.getRequired() : current.isRequired();
         String version = notBlank(req.getVersion(), suggestNextVersion(current.getVersion()));
 
-        Policy.PolicyBuilder builder = Policy.builder()
+        Policy p = Policy.builder()
                 .title(title)
                 .version(version)
                 .versionNumber(current.getVersionNumber() + 1)
@@ -179,18 +152,8 @@ public class PolicyService {
                 .required(required)
                 .publishedBy(actor.getId())
                 .publishedAt(Instant.now())
-                .active(true);
-        if (attachment != null && !attachment.isEmpty()) {
-            attachBuilder(builder, attachment);
-        } else {
-            // No new file supplied — carry the previous version's attachment forward so it isn't
-            // silently dropped when HR only changes text fields.
-            builder.attachmentName(current.getAttachmentName())
-                    .attachmentType(current.getAttachmentType())
-                    .attachmentSize(current.getAttachmentSize())
-                    .attachmentData(current.getAttachmentData());
-        }
-        Policy p = builder.build();
+                .active(true)
+                .build();
         p = policyRepo.save(p);
 
         seedAcknowledgmentsAndNotify(p, "Updated Policy: " + p.getTitle(),
@@ -242,27 +205,6 @@ public class PolicyService {
             ackRepo.save(ack);
             notificationService.send(emp.getUserId(), "POLICY_PUBLISHED", notificationTitle, notificationMessage, POLICIES_TAB_LINK);
         }
-    }
-
-    private static void attachBuilder(Policy.PolicyBuilder builder, MultipartFile attachment) throws IOException {
-        AttachmentValidator.validate(attachment);
-        builder.attachmentName(attachment.getOriginalFilename())
-                .attachmentType(attachment.getContentType())
-                .attachmentSize(attachment.getSize())
-                .attachmentData(attachment.getBytes());
-    }
-
-    // ── Attachment download (any authenticated user who can see the policy) ──
-
-    @Transactional(readOnly = true)
-    public Policy getAttachment(String actorEmail, Long policyId) {
-        requireUser(actorEmail);
-        Policy p = policyRepo.findById(policyId)
-                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
-        if (p.getAttachmentData() == null) {
-            throw new NoSuchElementException("Policy has no attachment: " + policyId);
-        }
-        return p;
     }
 
     private static String notBlank(String candidate, String fallback) {

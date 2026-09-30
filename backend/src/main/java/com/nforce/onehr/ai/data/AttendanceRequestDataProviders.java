@@ -39,7 +39,6 @@ public final class AttendanceRequestDataProviders {
         private final AttendanceRequestService attendanceRequestService;
 
         @Override public String id() { return "attendance-request.my-requests"; }
-        @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your recent Work From Home and Partial Day requests"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
         @Override public Set<String> modules() { return Set.of("attendance", "requests"); }
@@ -49,8 +48,10 @@ public final class AttendanceRequestDataProviders {
             List<AttendanceRequestResponse> requests = attendanceRequestService.listMine(context.getActorEmail());
             if (requests == null || requests.isEmpty()) return Optional.empty();
 
-            return Optional.of(LiveDataText.cappedList(requests, MAX_ROWS, "Work From Home / Partial Day request(s) raised by you",
-                    "most recent", r -> "%s, %s: %s".formatted(typeLabel(r.getRequestType()), r.getRequestDate(), r.getStatus())));
+            return Optional.of(requests.stream()
+                    .limit(MAX_ROWS)
+                    .map(r -> "- %s, %s: %s".formatted(typeLabel(r.getRequestType()), r.getRequestDate(), r.getStatus()))
+                    .collect(Collectors.joining("\n")));
         }
     }
 
@@ -64,7 +65,6 @@ public final class AttendanceRequestDataProviders {
         private final AttendanceRequestService attendanceRequestService;
 
         @Override public String id() { return "attendance-request.pending-approvals"; }
-        @Override public DataScope scope() { return DataScope.APPROVALS; }
         @Override public String title() { return "Work From Home and Partial Day requests waiting for your decision"; }
 
         @Override

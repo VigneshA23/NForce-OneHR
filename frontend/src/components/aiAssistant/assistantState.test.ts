@@ -4,6 +4,7 @@ import {
   canSend,
   describeSendFailure,
   initialAssistantState,
+  lastAssistantMessage,
   MAX_MESSAGE_CHARS,
 } from './assistantState';
 import { AssistantRateLimitedError } from '../../api/aiAssistant';
@@ -97,6 +98,7 @@ describe('assistantReducer', () => {
     const cleared = assistantReducer(answered, { type: 'CLEAR' });
 
     expect(cleared.messages).toEqual([]);
+    expect(cleared.ratings).toEqual({});
     // Matches the server's clear endpoint, which empties the conversation and keeps its id.
     expect(cleared.conversationId).toBe('conv-1');
   });
@@ -116,6 +118,15 @@ describe('assistantReducer', () => {
     // Only the prose was stored. Re-offering a destination without the reasoning that produced it
     // would be worse than not offering one.
     expect(state.messages[1].navigation).toBeUndefined();
+  });
+
+  it('records a rating per message', () => {
+    const answered = assistantReducer(afterAsking(), { type: 'ANSWER', pendingId: 'a1', response: answer() });
+    const rated = assistantReducer(answered, { type: 'RATE', id: 'a1', rating: 'DOWN' });
+    expect(rated.ratings).toEqual({ a1: 'DOWN' });
+
+    const changed = assistantReducer(rated, { type: 'RATE', id: 'a1', rating: 'UP' });
+    expect(changed.ratings).toEqual({ a1: 'UP' });
   });
 
   it('does not mutate the state it is given', () => {
@@ -142,6 +153,19 @@ describe('canSend', () => {
   it('enforces the same length limit as the server', () => {
     expect(canSend('x'.repeat(MAX_MESSAGE_CHARS), false)).toBe(true);
     expect(canSend('x'.repeat(MAX_MESSAGE_CHARS + 1), false)).toBe(false);
+  });
+});
+
+describe('lastAssistantMessage', () => {
+  it('finds the newest completed answer', () => {
+    const state = assistantReducer(afterAsking(), { type: 'ANSWER', pendingId: 'a1', response: answer() });
+    expect(lastAssistantMessage(state)?.id).toBe('a1');
+  });
+
+  it('ignores a pending or failed turn', () => {
+    expect(lastAssistantMessage(afterAsking())).toBeNull();
+    const failed = assistantReducer(afterAsking(), { type: 'FAIL', pendingId: 'a1', message: 'nope' });
+    expect(lastAssistantMessage(failed)).toBeNull();
   });
 });
 

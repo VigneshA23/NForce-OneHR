@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Users, CalendarCheck, Clock, Download, ShieldAlert } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell,
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { useAuthStore } from '../store/authStore';
@@ -357,15 +357,11 @@ export default function ReportsPage() {
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No employees in scope.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
-                  {/* Legend added — this donut previously communicated Active/Inactive by slice
-                      color alone with no labels, so a colorblind viewer (or a share as small as
-                      Inactive often is) had no way to read it (hr-ux-audit finding UI-007). */}
                   <PieChart>
                     <Pie data={headcountPieData} cx="50%" cy="50%" innerRadius="55%" outerRadius="85%" dataKey="value" strokeWidth={0}>
                       <Cell fill={PIE_COLORS.active} />
                       <Cell fill={PIE_COLORS.inactive} />
                     </Pie>
-                    <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
                     <Tooltip contentStyle={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' }} />
                   </PieChart>
                 </ResponsiveContainer>

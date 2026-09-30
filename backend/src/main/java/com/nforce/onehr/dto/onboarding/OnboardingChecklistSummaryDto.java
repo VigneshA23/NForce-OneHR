@@ -15,7 +15,6 @@ public class OnboardingChecklistSummaryDto {
     private String departmentName;
     private String designationName;
     private LocalDate joiningDate;
-    private boolean active;         // false = employee deactivated (User.active) — Inactive badge
 
     private boolean archived;
     private String status;          // ON_TRACK | ATTENTION | OVERDUE | COMPLETE

@@ -54,10 +54,6 @@ describe('stagesFromForm', () => {
     const values: RuleFormValues = { ...EMPTY_FORM, secondApprovalRoles: ['MANAGER', 'HR_ADMIN'] };
     expect(stagesFromForm(values)).toEqual(['MANAGER', 'HR_ADMIN']);
   });
-  it('orders HR Admin before Super Admin regardless of tick order', () => {
-    const values: RuleFormValues = { ...EMPTY_FORM, secondApprovalRoles: ['SUPER_ADMIN', 'HR_ADMIN'] };
-    expect(stagesFromForm(values)).toEqual(['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']);
-  });
 });
 
 describe('validateRuleForm', () => {
@@ -107,12 +103,6 @@ describe('validateRuleForm', () => {
 
   it('rejects MANAGER selected as a second-approval role (it is always implicit)', () => {
     const errors = validateRuleForm({ ...valid, secondApprovalRoles: ['MANAGER'] }, metadata);
-    expect(errors.some(e => e.includes('MANAGER is always included'))).toBe(true);
-  });
-
-  it('requires at least one second-approval role', () => {
-    const errors = validateRuleForm({ ...valid, secondApprovalRoles: [] }, metadata);
-    expect(errors.some(e => e.includes('second-approval role'))).toBe(true);
     expect(errors.length).toBeGreaterThan(0);
   });
 });

@@ -12,21 +12,6 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-function buildQuery(params: Record<string, string | number | undefined>): string {
-  const search = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== '') search.set(k, String(v));
-  }
-  const qs = search.toString();
-  return qs ? `?${qs}` : '';
-}
-
-export interface Paged<T> {
-  content: T[];
-  totalElements: number;
-  totalPages: number;
-}
-
 export interface OnboardingItem {
   id: string | null;
   itemKey: string;
@@ -54,8 +39,6 @@ export interface TimelineEntry {
 
 export type OnboardingStatus = 'ON_TRACK' | 'ATTENTION' | 'OVERDUE' | 'COMPLETE';
 
-export type OnboardingQueueStatus = 'IN_PROGRESS' | 'COMPLETED' | 'DEACTIVATED';
-
 export interface OnboardingSummary {
   checklistId: string;
   employeeUserId: string;
@@ -64,7 +47,6 @@ export interface OnboardingSummary {
   departmentName: string | null;
   designationName: string | null;
   joiningDate: string;
-  active: boolean;           // false = employee deactivated — rendered with the Inactive badge
   archived: boolean;
   status: OnboardingStatus;
   totalItems: number;
@@ -85,11 +67,9 @@ export interface OnboardingDetail {
   locationName: string | null;
   managerName: string | null;
   joiningDate: string;
-  active: boolean;           // false = employee deactivated — rendered with the Inactive badge
   archived: boolean;
   status: OnboardingStatus;
   completedAt: string | null;
-  readyToComplete: boolean;
   totalItems: number;
   doneItems: number;
   preBoarding: OnboardingItem[];
@@ -103,29 +83,12 @@ export interface StartOnboardingPayload {
   employeeUserId: string;
 }
 
-export interface OnboardingStats {
-  pendingCount: number;
-  startedCount: number;
-  completedCount: number;
-  overdueCount: number;
-  deactivatedCount: number;  // in-progress flows of deactivated employees — excluded from startedCount/overdueCount
-  completedThisMonthCount: number;
-  avgCompletionDays: number;
-}
-
 export const onboardingApi = {
-  // status: 'IN_PROGRESS' (Onboarding Started tab), 'COMPLETED' (Successfully Onboarded tab) or
-  // 'DEACTIVATED' (in-progress flows of since-deactivated employees — history only).
-  queue: (status: OnboardingQueueStatus, search: string, page: number, size: number, token: string) =>
-    fetch(`${BASE}${buildQuery({ status, search, page, size })}`, { headers: authHeaders(token) })
-      .then(r => handle<Paged<OnboardingSummary>>(r)),
+  queue: (token: string) =>
+    fetch(BASE, { headers: authHeaders(token) }).then(r => handle<OnboardingSummary[]>(r)),
 
-  stats: (token: string) =>
-    fetch(`${BASE}/stats`, { headers: authHeaders(token) }).then(r => handle<OnboardingStats>(r)),
-
-  eligibleEmployees: (search: string, page: number, size: number, token: string) =>
-    fetch(`${BASE}/eligible-employees${buildQuery({ search, page, size })}`, { headers: authHeaders(token) })
-      .then(r => handle<Paged<EmployeeRecord>>(r)),
+  eligibleEmployees: (token: string) =>
+    fetch(`${BASE}/eligible-employees`, { headers: authHeaders(token) }).then(r => handle<EmployeeRecord[]>(r)),
 
   start: (payload: StartOnboardingPayload, token: string) =>
     fetch(BASE, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(r => handle<OnboardingDetail>(r)),
@@ -135,7 +98,4 @@ export const onboardingApi = {
 
   toggleItem: (checklistId: string, itemId: string, token: string) =>
     fetch(`${BASE}/${checklistId}/items/${itemId}`, { method: 'PATCH', headers: authHeaders(token) }).then(r => handle<OnboardingDetail>(r)),
-
-  complete: (checklistId: string, token: string) =>
-    fetch(`${BASE}/${checklistId}/complete`, { method: 'POST', headers: authHeaders(token) }).then(r => handle<OnboardingDetail>(r)),
 };
