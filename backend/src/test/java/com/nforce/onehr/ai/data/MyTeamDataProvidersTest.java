@@ -4,6 +4,7 @@ import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.ShellRole;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
+import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.dto.assignments.EmployeeAssignmentRow;
 import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
 import com.nforce.onehr.dto.attendance.PunctualityLeaderboardEntry;
@@ -11,6 +12,8 @@ import com.nforce.onehr.dto.attendance.TeamEffortEntry;
 import com.nforce.onehr.dto.attendance.TeamNegligenceResponse;
 import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
 import com.nforce.onehr.dto.reports.AttendanceRequestReportRow;
+import com.nforce.onehr.entity.Attendance;
+import com.nforce.onehr.entity.AttendanceException;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.service.AttendanceRequestService;
 import com.nforce.onehr.service.AttendanceRulesService;
@@ -62,6 +65,9 @@ class MyTeamDataProvidersTest {
     @Mock private LeaveService leaveService;
     @Mock private DirectReportScopeService directReportScopeService;
     @Mock private AttendanceRulesService attendanceRulesService;
+    @Mock private com.nforce.onehr.service.WorkingDayService workingDayService;
+    @Mock private com.nforce.onehr.repository.AttendanceRepository attendanceRepository;
+    @Mock private com.nforce.onehr.repository.AttendanceExceptionRepository attendanceExceptionRepository;
 
     private LocalDate today;
 
@@ -293,6 +299,7 @@ class MyTeamDataProvidersTest {
     @Test
     void overview_wfhTodayAndLeaveBalances_namesJoinedFromTheDirectReportScopeService() {
         UUID ashaId = UUID.randomUUID();
+        when(directReportScopeService.directReportIds(EMAIL)).thenReturn(Set.of(ashaId));
         when(attendanceRequestService.listTeamApprovedWfh(EMAIL, today, today))
                 .thenReturn(List.of(wfh("Asha", "FIRST_HALF")));
         when(leaveService.listTeamBalances(EMAIL)).thenReturn(List.of(
@@ -311,7 +318,8 @@ class MyTeamDataProvidersTest {
     }
 
     @Test
-    void overview_emptyBothWays_returnsNoSection() {
+    void overview_nobodyOnWfh_saysSoInsteadOfDroppingTheBlock() {
+        when(directReportScopeService.directReportIds(EMAIL)).thenReturn(Set.of(UUID.randomUUID()));
         when(attendanceRequestService.listTeamApprovedWfh(EMAIL, today, today)).thenReturn(List.of());
         when(leaveService.listTeamBalances(EMAIL)).thenReturn(List.of());
 
@@ -319,7 +327,57 @@ class MyTeamDataProvidersTest {
                 attendanceRequestService, leaveService, directReportScopeService, attendanceRulesService)
                 .fetch(as(ShellRole.MANAGER, AudienceBucket.MANAGER, AudienceBucket.EMPLOYEE));
 
-        assertThat(out).isEmpty();
+        assertThat(out).hasValueSatisfying(text -> assertThat(text).contains("approved (0): none"));
+    }
+
+    @Test
+    void overview_noDirectReports_returnsNoSection() {
+        when(directReportScopeService.directReportIds(EMAIL)).thenReturn(Set.of());
+
+        assertThat(new MyTeamDataProviders.MyTeamOverviewExtras(
+                attendanceRequestService, leaveService, directReportScopeService, attendanceRulesService)
+                .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE))).isEmpty();
+    }
+
+    // ---------------------------------------------------------------- MyTeamAttendanceDiscrepancies
+
+    @Test
+    void discrepancies_countAbsenceMissedPunchAndRepeatedLatenessPerPerson() {
+        UUID ashaId = UUID.randomUUID(), raviId = UUID.randomUUID();
+        LocalDate d1 = today.minusDays(1), d2 = today.minusDays(2), d3 = today.minusDays(3);
+        List<Employee> team = List.of(Employee.builder().userId(ashaId).fullName("Asha").build(),
+                Employee.builder().userId(raviId).fullName("Ravi").build());
+        when(directReportScopeService.directReports(EMAIL)).thenReturn(team);
+        when(workingDayService.computeExpectedWorkingDaysBulk(eq(team), any(), any())).thenReturn(java.util.Map.of(
+                ashaId, WorkingDaySchedule.builder().employeeUserId(ashaId).workingDates(Set.of(d1, d2, d3)).build(),
+                raviId, WorkingDaySchedule.builder().employeeUserId(raviId).workingDates(Set.of(d1, d2, d3)).build()));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(eq(List.of(ashaId, raviId)), any(), any())).thenReturn(List.of(
+                // Asha: late twice, absent on d1
+                Attendance.builder().employeeUserId(ashaId).workDate(d2).status("LATE")
+                        .checkInAt(d2.atTime(9, 30)).checkOutAt(d2.atTime(18, 0)).build(),
+                Attendance.builder().employeeUserId(ashaId).workDate(d3).status("LATE")
+                        .checkInAt(d3.atTime(9, 30)).checkOutAt(d3.atTime(18, 0)).build(),
+                // Ravi: every day punched, one never checked out
+                Attendance.builder().employeeUserId(raviId).workDate(d1).status("PRESENT").checkInAt(d1.atTime(9, 0)).build(),
+                Attendance.builder().employeeUserId(raviId).workDate(d2).status("PRESENT")
+                        .checkInAt(d2.atTime(9, 0)).checkOutAt(d2.atTime(18, 0)).build(),
+                Attendance.builder().employeeUserId(raviId).workDate(d3).status("PRESENT")
+                        .checkInAt(d3.atTime(9, 0)).checkOutAt(d3.atTime(18, 0)).build()));
+        when(attendanceExceptionRepository.findByEmployeeUserIdInAndExceptionDateBetweenOrderByExceptionDateDescCreatedAtDesc(
+                eq(List.of(ashaId, raviId)), any(), any())).thenReturn(List.of(
+                AttendanceException.builder().employeeUserId(raviId).exceptionDate(d2).exceptionType("EARLY_DEPARTURE").build()));
+
+        String out = new MyTeamDataProviders.MyTeamAttendanceDiscrepancies(directReportScopeService,
+                attendanceRepository, attendanceExceptionRepository, workingDayService, attendanceRulesService)
+                .fetch(as(ShellRole.MANAGER, AudienceBucket.MANAGER), "who was absent or late in my team in the last 7 days").orElseThrow();
+
+        assertThat(out).contains("started) - exactly 1 day(s) across 1 of 2 direct report(s)")
+                .contains("Asha 1 (" + d1 + " (yesterday))");
+        assertThat(out).contains("Late arrivals (status LATE) - exactly 2 day(s) across 1 of 2")
+                .contains("Repeated late arrivals - more than once (1): Asha 2");
+        assertThat(out).contains("Missed punches (checked in but never checked out) - exactly 1 day(s)")
+                .contains("- Most missed punches: Ravi with 1");
+        assertThat(out).contains("Left before the shift ended - exactly 1 day(s) across 1 of 2");
     }
 
     // ---------------------------------------------------------------- helpers

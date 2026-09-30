@@ -92,7 +92,8 @@ public final class ConfidentialityGuard {
      */
     private static final int QUOTED_WORDS_ALLOWED = 15;
     private static final Set<String> PROMPT_NGRAMS =
-            ngrams(words(SystemPromptTemplate.POLICY.replace(UnknownResponses.INTERNALS_NOT_DISCLOSED, " ")));
+            ngrams(words(SystemPromptTemplate.POLICY.replace(UnknownResponses.INTERNALS_NOT_DISCLOSED, " ")
+                    .replace(UnknownResponses.NEEDS_MORE_DETAIL, " ")));
 
     /** A question about the assistant itself or OneHR's internals: instructions, sources, secrets, code. */
     public static boolean asksAboutInternals(String question) {

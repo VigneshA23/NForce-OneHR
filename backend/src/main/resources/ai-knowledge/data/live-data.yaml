@@ -429,6 +429,29 @@ knowledge:
       Not checked in yet is not the same as absent - it includes people on a weekly off or holiday
       and people whose shift has not started.
 
+  - knowledgeId: data.team.attendance-discrepancies
+    type: FAQ
+    module: team-attendance
+    pageId: my-team-reports-attendance
+    version: 1
+    audience: [MANAGER, HR, ADMIN]
+    title: Your team's absences, late arrivals and missed punches over a period
+    synonyms:
+      - how many employees in my team were absent yesterday
+      - who has the highest number of missed punches this month
+      - show employees with repeated late arrivals this month
+      - which team members were absent last week
+      - who in my team has the most late arrivals
+      - team attendance discrepancies
+      - who left early in my team
+    body: |
+      Whoever is somebody's reporting manager can ask, for any period (yesterday, this week, this
+      month, a date range), which of their own direct reports were absent, late, missed a punch
+      (checked in but never checked out), worked a half day or left before their shift ended - with
+      a count per person and who has the most. Absent means a working day for that person (not a
+      weekly off, holiday or approved leave day) with no check-in. The same rows are on My Team →
+      Reports → Attendance Reports.
+
   - knowledgeId: data.team.leave
     type: FAQ
     module: team-leave
