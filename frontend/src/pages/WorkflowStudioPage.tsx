@@ -443,6 +443,24 @@ export default function WorkflowStudioPage() {
         )}
       </div>
 
+      {/* Approval Center's own routing never goes unconfigured — ApprovalRuleEvaluationService
+       * falls back to Manager -> HR Admin, unconditionally, whenever a request type has no active
+       * rule (see its legacyDefault()). That fallback is otherwise invisible here: this page only
+       * ever showed configured rules, never the routing new requests actually get without one. */}
+      {metadata && !loading && !loadError && metadata.requestTypes
+        .filter(rt => !rules.some(r => r.requestType === rt && r.active))
+        .map(rt => (
+          <div key={rt} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 16px', marginBottom: 14,
+            borderRadius: 8, background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.28)',
+          }}>
+            <ShieldAlert size={16} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 12.5, color: 'var(--txt)', lineHeight: 1.5 }}>
+              No active rule for <b>{rt}</b> — new {rt.toLowerCase()} requests default to <b>Manager → HR Admin</b> approval until a rule is activated.
+            </span>
+          </div>
+        ))}
+
       <div style={card}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
