@@ -404,6 +404,16 @@ class ExpenseServiceTest {
         return claim;
     }
 
+    // pendingForFinalApprover reads the lighter ExpenseClaimSummary projection (see
+    // ExpenseClaimRepository#findSummaryByStatusIn), not full entities — this mirrors an
+    // ExpenseClaim onto the same fields for that one test.
+    private ExpenseClaimSummary toSummary(ExpenseClaim c) {
+        return new ExpenseClaimSummary(c.getId(), c.getEmployeeUserId(), c.getCategoryId(), c.getAmount(),
+                c.getExpenseDate(), c.getBusinessPurpose(), c.getStatus(), c.getManagerDecidedBy(), c.getManagerDecidedAt(),
+                c.getManagerRejectionReason(), c.getFinalDecidedBy(), c.getFinalDecidedAt(), c.getFinalRejectionReason(),
+                c.getPaidAt(), c.getCreatedAt(), c.isRequiresSecondApproval(), c.getPendingFinalStage());
+    }
+
     private void stubFinalStage(User actor, ExpenseClaim claim) {
         when(userRepo.findByEmail(actor.getEmail())).thenReturn(Optional.of(actor));
         when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
@@ -463,7 +473,7 @@ class ExpenseServiceTest {
     @Test
     void pendingForFinalApprover_claimAwaitingSuperAdmin_shownToSuperAdmin_hiddenFromHrAdmin() {
         ExpenseClaim claim = threeStageClaimAwaiting("SUPER_ADMIN");
-        when(claimRepo.findByStatusIn(any())).thenReturn(List.of(claim));
+        when(claimRepo.findSummaryByStatusIn(any())).thenReturn(List.of(toSummary(claim)));
         lenient().when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
         User hr = hrAdminUser();
         User sa = superAdminUser();
