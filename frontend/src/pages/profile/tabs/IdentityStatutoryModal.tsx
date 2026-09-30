@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useToast } from '../../../context/ToastContext';
-import { profileApi, type ProfileData } from '../../../api/profile';
+import { profileApi, type ProfileData, type UpdateProfilePayload } from '../../../api/profile';
 import { EditModal, EditField, ReadField } from '../shared';
 
 // National ID and Bank Account Number are masked by the backend on read (e.g. "•••• •••• 5591")
@@ -24,7 +24,12 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
   async function handleSave() {
     setSaving(true);
     try {
-      const payload: Record<string, string> = { passportNumber, passportExpiry, bankName, bankIfsc };
+      const payload: UpdateProfilePayload = {
+        passportNumber, bankName, bankIfsc,
+        // A cleared field sends no passportExpiry at all, plus the explicit clear flag — see
+        // UpdateProfilePayload's doc comment for why "" / omitted alone isn't enough.
+        ...(passportExpiry ? { passportExpiry } : { clearPassportExpiry: true }),
+      };
       // Only send if the employee actually typed a new value — otherwise leave the masked value
       // stored server-side untouched instead of overwriting it with an empty string.
       if (nationalId) payload.nationalId = nationalId;

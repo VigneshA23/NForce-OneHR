@@ -257,7 +257,7 @@ class LeaveServiceTest {
         LocalDate start = LocalDate.now().plusDays(5);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
-        assertEquals("You have 10 day(s) of paid leave available — use that before applying for Loss of Pay.", ex.getMessage());
+        assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
 

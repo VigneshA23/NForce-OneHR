@@ -12,6 +12,14 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
+      # Logs the acquiring thread's stack trace (at WARN) the moment a checked-out connection is
+      # held longer than this — the pool has repeatedly filled to active=10/idle=0 and stayed
+      # there, and static review of the AI assistant's transaction boundaries didn't turn up an
+      # obvious leak (every DB-touching method is its own short @Transactional, entirely separate
+      # from the ~7s/up-to-~95s-on-retry Mistral HTTP calls). This won't fix a leak by itself, but
+      # the next time the pool fills up, this trace is what actually identifies which code is
+      # holding the connection instead of guessing again from a generic timeout error.
+      leak-detection-threshold: 30000
       data-source-properties:
         # Required for Shift.startTime/endTime's LocalTimeTextConverter (see its own Javadoc):
         # that converter binds a plain String against a native `TIME WITHOUT TIME ZONE` column
@@ -25,6 +33,14 @@ spring:
         # which continue to bind with their own explicit types exactly as before.
         stringtype: unspecified
   jpa:
+    # Off, not the default true: with it on, every request holds a pooled DB connection open for
+    # its entire duration (not just while actually querying), including the time spent waiting on
+    # a slow/failing outbound call (e.g. the AI assistant's Mistral request, which averages
+    # several seconds and sometimes times out). Enough of those piling up exhausts the 10-
+    # connection Hikari pool outright ("Connection is not available, request timed out") even
+    # though no individual query is slow. Turning this off means a request only holds a
+    # connection while a @Transactional method is actually using it.
+    open-in-view: false
     hibernate:
       # Override validate — Flyway owns the schema; ddl-auto: validate
       # fails on citext/timestamptz column types reported by Postgres metadata

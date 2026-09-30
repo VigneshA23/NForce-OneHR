@@ -62,6 +62,10 @@ export interface ProfileData {
 export interface UpdateProfilePayload {
   phone?: string;
   dateOfBirth?: string;
+  // Omitting dateOfBirth (or sending it as null) is indistinguishable, on the backend, from
+  // "this save didn't touch the date" — there's no JSON representation of "empty date" the way
+  // there is for an empty string. Set this true (and omit dateOfBirth) to explicitly clear it.
+  clearDateOfBirth?: boolean;
   gender?: string;
   personalEmail?: string;
   address?: string;
@@ -79,6 +83,8 @@ export interface UpdateProfilePayload {
   permanentAddress?: string;
   passportNumber?: string;
   passportExpiry?: string;
+  // Same reasoning as clearDateOfBirth above.
+  clearPassportExpiry?: boolean;
   bankAccountNumber?: string;
   bankName?: string;
   bankIfsc?: string;
