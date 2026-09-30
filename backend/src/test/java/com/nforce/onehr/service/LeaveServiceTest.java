@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
+import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.LeaveTypeClassification;
@@ -140,6 +141,7 @@ class LeaveServiceTest {
         req.setStartDate(start);
         req.setEndDate(end);
         req.setHalfDay(halfDay);
+        if (halfDay) req.setHalfDaySession(LeaveHalfDaySession.FIRST_HALF);
         req.setReason(reason);
         return req;
     }

@@ -9,6 +9,7 @@ import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
+import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
@@ -181,6 +182,10 @@ public class LeaveService {
         if (req.isHalfDay() && !req.getEndDate().isEqual(req.getStartDate())) {
             throw new IllegalArgumentException("A half-day request must use the same start and end date");
         }
+        if (req.isHalfDay() && !(LeaveHalfDaySession.FIRST_HALF.equals(req.getHalfDaySession())
+                || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
+            throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
+        }
 
         // "Today" is resolved in the business timezone (same convention as AttendanceProperties'
         // other consumers), not the JVM default, so a server running in UTC doesn't roll the day
@@ -256,6 +261,7 @@ public class LeaveService {
                 .startDate(req.getStartDate())
                 .endDate(req.getEndDate())
                 .halfDay(req.isHalfDay())
+                .halfDaySession(req.isHalfDay() ? req.getHalfDaySession() : null)
                 .totalDays(totalDays)
                 .status("PENDING")
                 .employeeReason(req.getReason().trim())
@@ -791,6 +797,7 @@ public class LeaveService {
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
                 .halfDay(r.isHalfDay())
+                .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())
@@ -822,6 +829,7 @@ public class LeaveService {
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
                 .halfDay(r.isHalfDay())
+                .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())
