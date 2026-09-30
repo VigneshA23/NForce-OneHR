@@ -4213,7 +4213,7 @@ function mockLeaves(): LeaveRequestRecord[] {
   const iso = isoDaysAgo(7);
   return [{
     id: 'mock-leave-1', employeeUserId: 'mock-me', employeeName: 'Preview User', employeeCode: null, leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', leaveTypeClassification: 'PAID',
-    startDate: iso, endDate: iso, halfDay: false, totalDays: 1, status: 'APPROVED',
+    startDate: iso, endDate: iso, halfDay: false, halfDaySession: null, totalDays: 1, status: 'APPROVED',
     employeeReason: 'Personal work', decisionReason: null, decidedByName: 'Priya Sharma', decidedAt: `${iso}T10:00:00+05:30`, createdAt: `${iso}T08:00:00+05:30`,
   }];
 }
