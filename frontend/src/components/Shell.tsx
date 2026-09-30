@@ -13,10 +13,12 @@ import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
 import { publishNewNotifications, subscribeToNewNotifications } from '../lib/notificationEvents';
 import { KudosCelebrationToast, type KudosCelebrationItem } from './KudosCelebrationToast';
+import { NotificationToast, type NotificationToastItem } from './NotificationToast';
 import { authApi } from '../api/auth';
 import { stashSessionMessageForLogin, SESSION_PROFILE_UPDATED_MESSAGE } from '../lib/authFetch';
 import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
+import { RequiredPolicyGate } from './RequiredPolicyGate';
 import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
 import { EmployeeAvatar } from './EmployeeAvatar';
@@ -164,6 +166,9 @@ export function Shell() {
   // Small on-page "you've been appreciated" celebration — see KudosCelebrationToast. Fed by the
   // notification poll below via notificationEvents, so it's not its own network call.
   const [kudosQueue, setKudosQueue] = useState<KudosCelebrationItem[]>([]);
+  // Real-time popup for any other newly-arrived notification — see NotificationToast. Same feed
+  // as kudosQueue above, just the non-KUDOS half of it.
+  const [notifToastQueue, setNotifToastQueue] = useState<NotificationToastItem[]>([]);
   // Mobile-only off-canvas nav toggle (≤767px). Defaults closed; the CSS that
   // reads this className only exists inside the ≤767px media query, so this
   // state never affects rendering at tablet/desktop widths.
@@ -447,8 +452,15 @@ export function Shell() {
   useEffect(() => {
     return subscribeToNewNotifications((items) => {
       const kudos = items.filter(n => n.type === 'KUDOS');
-      if (kudos.length === 0) return;
-      setKudosQueue(prev => [...prev, ...kudos.map(n => ({ id: n.id, title: n.title, message: n.message }))]);
+      if (kudos.length > 0) {
+        setKudosQueue(prev => [...prev, ...kudos.map(n => ({ id: n.id, title: n.title, message: n.message }))]);
+      }
+      // Everything else gets the plain real-time popup instead — kudos already has its own
+      // celebratory treatment above, so it's excluded here to avoid showing both for one item.
+      const others = items.filter(n => n.type !== 'KUDOS');
+      if (others.length > 0) {
+        setNotifToastQueue(prev => [...prev, ...others.map(n => ({ id: n.id, title: n.title, message: n.message, linkPath: n.linkPath }))]);
+      }
     });
   }, []);
 
@@ -910,9 +922,16 @@ export function Shell() {
 
         <main className="nf-main-content" style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
           <ComplianceBanner />
-          {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
+          {/* Keyed by path so React remounts this div per navigation, re-triggering
+              .nf-section-enter's entrance animation (same class DashboardPage etc. already use
+              for section reveals) instead of the routed page just appearing instantly. */}
+          <div key={location.pathname} className="nf-section-enter">
+            {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
+          </div>
         </main>
       </div>
+
+      <RequiredPolicyGate />
 
       <WorkAnniversaryOverlay
         open={anniversaryYears !== null}
@@ -933,6 +952,11 @@ export function Shell() {
       <KudosCelebrationToast
         items={kudosQueue}
         onDismiss={(id) => setKudosQueue(prev => prev.filter(k => k.id !== id))}
+      />
+
+      <NotificationToast
+        items={notifToastQueue}
+        onDismiss={(id) => setNotifToastQueue(prev => prev.filter(n => n.id !== id))}
       />
 
       {/* Outside <main> so the panel is not inside its 26px padding or the sticky header's
