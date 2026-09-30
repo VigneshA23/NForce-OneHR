@@ -7,6 +7,8 @@ import {
   validateName, validatePhone, nameCharsOnly, digitsOnly,
 } from '../shared';
 
+const NAME_FILTER_HINT = 'Only letters, spaces, hyphens, apostrophes, and periods are allowed.';
+
 export function PrimaryDetailsModal({ profile, token, onClose, onSaved }: {
   profile: ProfileData;
   token: string;
@@ -27,6 +29,10 @@ export function PrimaryDetailsModal({ profile, token, onClose, onSaved }: {
 
   const errors = {
     firstName: validateName(firstName, 'First name'),
+    // Middle Name is validated by the exact same backend @Pattern as First/Last Name, but had no
+    // matching frontend check — an invalid value (e.g. a trailing hyphen) would silently pass
+    // client-side, then fail server-side with a raw error instead of this same inline feedback.
+    middleName: validateName(middleName, 'Middle name'),
     lastName: validateName(lastName, 'Last name'),
     emName: validateName(emName, 'Contact name'),
     emPhone: validatePhone(emPhone, 'Contact phone'),
@@ -41,7 +47,10 @@ export function PrimaryDetailsModal({ profile, token, onClose, onSaved }: {
     setSaving(true);
     try {
       const updated = await profileApi.update(token, {
-        firstName, middleName, lastName, dateOfBirth, gender, maritalStatus,
+        firstName, middleName, lastName, gender, maritalStatus,
+        // A cleared field sends no dateOfBirth at all, plus the explicit clear flag — see
+        // UpdateProfilePayload's doc comment for why "" / omitted alone isn't enough.
+        ...(dateOfBirth ? { dateOfBirth } : { clearDateOfBirth: true }),
         emergencyContactName: emName,
         emergencyContactRelationship: emRelation,
         emergencyContactPhone: digitsOnly(emPhone),
@@ -64,13 +73,13 @@ export function PrimaryDetailsModal({ profile, token, onClose, onSaved }: {
   return (
     <EditModal title="Edit Primary Details" onClose={onClose} onSave={handleSave} saving={saving} saveDisabled={hasErrors} width={640}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
-        <EditField label="First Name" value={firstName} onChange={v => setFirstName(nameCharsOnly(v))} error={errors.firstName} />
-        <EditField label="Middle Name" value={middleName} onChange={v => setMiddleName(nameCharsOnly(v))} />
-        <EditField label="Last Name" value={lastName} onChange={v => setLastName(nameCharsOnly(v))} error={errors.lastName} />
+        <EditField label="First Name" value={firstName} onChange={setFirstName} filter={nameCharsOnly} filterHint={NAME_FILTER_HINT} error={errors.firstName} />
+        <EditField label="Middle Name" value={middleName} onChange={setMiddleName} filter={nameCharsOnly} filterHint={NAME_FILTER_HINT} error={errors.middleName} />
+        <EditField label="Last Name" value={lastName} onChange={setLastName} filter={nameCharsOnly} filterHint={NAME_FILTER_HINT} error={errors.lastName} />
         <EditField label="Date of Birth" value={dateOfBirth} onChange={setDateOfBirth} type="date" />
         <SelectField label="Gender" value={gender} onChange={setGender} options={GENDERS} />
         <SelectField label="Marital Status" value={maritalStatus} onChange={setMaritalStatus} options={MARITAL_STATUSES} />
-        <EditField label="Emergency Contact Name" value={emName} onChange={v => setEmName(nameCharsOnly(v))} error={errors.emName} />
+        <EditField label="Emergency Contact Name" value={emName} onChange={setEmName} filter={nameCharsOnly} filterHint={NAME_FILTER_HINT} error={errors.emName} />
         <EditField label="Emergency Contact Relationship" value={emRelation} onChange={setEmRelation} placeholder="e.g. Brother" />
         <PhoneField label="Emergency Contact Phone" value={emPhone} onChange={setEmPhone} error={errors.emPhone} />
       </div>
