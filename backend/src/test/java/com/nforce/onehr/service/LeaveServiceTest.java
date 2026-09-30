@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
+import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.LeaveTypeClassification;
@@ -140,6 +141,7 @@ class LeaveServiceTest {
         req.setStartDate(start);
         req.setEndDate(end);
         req.setHalfDay(halfDay);
+        if (halfDay) req.setHalfDaySession(LeaveHalfDaySession.FIRST_HALF);
         req.setReason(reason);
         return req;
     }
@@ -255,7 +257,7 @@ class LeaveServiceTest {
         LocalDate start = LocalDate.now().plusDays(5);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
-        assertEquals("You have 10 day(s) of paid leave available — use that before applying for Loss of Pay.", ex.getMessage());
+        assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
 

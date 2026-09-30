@@ -103,12 +103,14 @@ knowledge:
     module: leave
     pageId: leave
     actionId: leave.balance
-    version: 2
+    version: 3
     audience: [EMPLOYEE, MANAGER, HR, ADMIN]
     title: Checking your leave balance
     synonyms:
       - how much leave do I have
       - leave balance
+      - what leave types can I apply for
+      - which leaves are available to me
       - how many days left
       - remaining leave
       - my leave entitlement
@@ -129,8 +131,8 @@ knowledge:
       ones. Taking annual leave therefore reduces what is available for sick and casual leave too.
       This surprises people who expect separate pots.
 
-      The assistant cannot tell you your current balance. Balances are live data belonging to your
-      record; open Leave and Holidays to see the actual numbers.
+      Your current balance for each leave type you hold is live data belonging to your record. The
+      leave types listed there are the ones you can apply for.
 
   - knowledgeId: action.leave.approve
     type: ACTION

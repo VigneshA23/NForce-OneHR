@@ -58,7 +58,7 @@ public final class LeaveDataProviders {
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your current leave balances, and what reduced them"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
-        @Override public Set<String> modules() { return Set.of("leave"); }
+        @Override public Set<String> modules() { return Set.of("leave", "leave-balances"); }
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
@@ -68,7 +68,9 @@ public final class LeaveDataProviders {
             // Annual, Sick and Casual share one consolidated balance (V122), so the numbers can
             // legitimately look identical across those types. Listing them per type anyway, because
             // collapsing them here would hide a real property of the system from the model.
-            StringBuilder out = new StringBuilder(balances.stream()
+            StringBuilder out = new StringBuilder("Leave types available to you - exactly %d, each with its balance. "
+                    .formatted(balances.size()) + "These are the leave types you can apply for:\n");
+            out.append(balances.stream()
                     .map(b -> "- %s: %s of %s days remaining (%s used)".formatted(
                             b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays()))
                     .collect(Collectors.joining("\n")));

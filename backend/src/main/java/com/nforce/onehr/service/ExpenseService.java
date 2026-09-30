@@ -120,9 +120,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> myClaims(String actorEmail) {
         UUID actorId = requireActor(actorEmail).getId();
-        return claimRepo.findByEmployeeUserIdOrderByCreatedAtDesc(actorId).stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdOrderByCreatedAtDesc(actorId));
     }
 
     // ── Receipt (secure, on-demand — reuses the existing receiptUrl storage) ──
@@ -211,9 +209,7 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
-        return claimRepo.findByEmployeeUserIdInAndStatus(reportIds, "SUBMITTED").stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdInAndStatus(reportIds, "SUBMITTED"));
     }
 
     @Transactional
@@ -301,10 +297,9 @@ public class ExpenseService {
         // A multi-layer claim (see ExpenseClaim.pendingFinalStage) only shows at the final stage
         // for whoever can act on its CURRENT stage — an HR Admin who already approved a
         // Manager -> HR Admin -> Super Admin claim no longer sees it once it moves on to Super Admin.
-        return claimRepo.findByStatusIn(List.of("SUBMITTED", "MANAGER_APPROVED")).stream()
+        return toClaimResponses(claimRepo.findSummaryByStatusIn(List.of("SUBMITTED", "MANAGER_APPROVED")).stream()
                 .filter(c -> !"MANAGER_APPROVED".equals(c.getStatus()) || canActAtFinalStage(actor, c.getPendingFinalStage()))
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     @Transactional
@@ -379,9 +374,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> clearedForPayroll(String actorEmail) {
         requireFinalApprover(actorEmail);
-        return claimRepo.findByStatus("CLEARED_FOR_PAYROLL").stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByStatus("CLEARED_FOR_PAYROLL"));
     }
 
     @Transactional
@@ -410,9 +403,7 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
-        return claimRepo.findByEmployeeUserIdInOrderByCreatedAtDesc(reportIds).stream()
-                .map(c -> toClaimResponse(c, categoryName(c.getCategoryId())))
-                .collect(Collectors.toList());
+        return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdInOrderByCreatedAtDesc(reportIds));
     }
 
     // ── Manager tile summary ──────────────────────────────
@@ -552,7 +543,11 @@ public class ExpenseService {
                 .amount(c.getAmount())
                 .expenseDate(c.getExpenseDate())
                 .businessPurpose(c.getBusinessPurpose())
-                .receiptUrl(c.getReceiptUrl())
+                // receiptUrl deliberately omitted here: the stored value is the full base64 data:
+                // URI (can be several MB), and nothing on the frontend reads this field from a
+                // response — receipts are always fetched on demand via the dedicated, authorized
+                // GET /claims/{id}/receipt endpoint (see ReceiptViewerModal). Inlining it here was
+                // turning every claim in a list response into a multi-MB payload for no reader.
                 .status(c.getStatus())
                 .managerDecidedByName(c.getManagerDecidedBy() != null ? employeeName(c.getManagerDecidedBy()) : null)
                 .managerDecidedAt(c.getManagerDecidedAt())
@@ -574,5 +569,63 @@ public class ExpenseService {
 
     private String categoryName(Integer categoryId) {
         return categoryRepo.findById(categoryId).map(ExpenseCategory::getName).orElse("Unknown");
+    }
+
+    /**
+     * Batched equivalent of {@code claims.stream().map(c -> toClaimResponse(c,
+     * categoryName(c.getCategoryId())))} — that per-row form was an N+1 (up to 4 extra queries per
+     * row: category name + up to 3 employee-name lookups), which made every expense-claim list
+     * endpoint (My Claims, pending-for-manager, pending-for-final-approver, cleared-for-payroll,
+     * team claims) scale with row count against a remote DB. This resolves all category and
+     * employee names in bulk up front instead.
+     */
+    private List<ExpenseClaimResponse> toClaimResponses(List<ExpenseClaimSummary> claims) {
+        if (claims.isEmpty()) return List.of();
+        Set<Integer> categoryIds = claims.stream().map(ExpenseClaimSummary::getCategoryId).collect(Collectors.toSet());
+        Map<Integer, String> catNamesById = categoryRepo.findAllById(categoryIds).stream()
+                .collect(Collectors.toMap(ExpenseCategory::getId, ExpenseCategory::getName));
+
+        Set<UUID> employeeIds = new HashSet<>();
+        for (ExpenseClaimSummary c : claims) {
+            employeeIds.add(c.getEmployeeUserId());
+            if (c.getManagerDecidedBy() != null) employeeIds.add(c.getManagerDecidedBy());
+            if (c.getFinalDecidedBy() != null) employeeIds.add(c.getFinalDecidedBy());
+        }
+        Map<UUID, String> namesById = new HashMap<>();
+        for (Object[] row : employeeRepo.findNamesByUserIds(employeeIds)) {
+            namesById.put((UUID) row[0], (String) row[1]);
+        }
+        Set<UUID> missing = new HashSet<>(employeeIds);
+        missing.removeAll(namesById.keySet());
+        if (!missing.isEmpty()) {
+            for (User u : userRepo.findAllById(missing)) {
+                namesById.put(u.getId(), u.getEmail());
+            }
+        }
+
+        return claims.stream()
+                .map(c -> ExpenseClaimResponse.builder()
+                        .id(c.getId())
+                        .employeeUserId(c.getEmployeeUserId())
+                        .employeeName(namesById.getOrDefault(c.getEmployeeUserId(), "Unknown"))
+                        .categoryId(c.getCategoryId())
+                        .categoryName(catNamesById.getOrDefault(c.getCategoryId(), "Unknown"))
+                        .amount(c.getAmount())
+                        .expenseDate(c.getExpenseDate())
+                        .businessPurpose(c.getBusinessPurpose())
+                        // receiptUrl omitted — see toClaimResponse's comment above.
+                        .status(c.getStatus())
+                        .managerDecidedByName(c.getManagerDecidedBy() != null ? namesById.get(c.getManagerDecidedBy()) : null)
+                        .managerDecidedAt(c.getManagerDecidedAt())
+                        .managerRejectionReason(c.getManagerRejectionReason())
+                        .finalDecidedByName(c.getFinalDecidedBy() != null ? namesById.get(c.getFinalDecidedBy()) : null)
+                        .finalDecidedAt(c.getFinalDecidedAt())
+                        .finalRejectionReason(c.getFinalRejectionReason())
+                        .paidAt(c.getPaidAt())
+                        .createdAt(c.getCreatedAt())
+                        .requiresSecondApproval(c.isRequiresSecondApproval())
+                        .pendingFinalStage(c.getPendingFinalStage())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

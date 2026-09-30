@@ -25,6 +25,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -395,10 +396,11 @@ public final class TeamDataProviders {
 
     static String penaltySummary(List<AttendancePenaltyResponse> active, LocalDate from, LocalDate to, String population) {
         if (active.isEmpty()) return "No active attendance penalties for %s from %s to %s.".formatted(population, from, to);
+        // groupingBy throws on a null key, which would silently drop the whole block.
         Map<String, Long> byType = active.stream().collect(Collectors.groupingBy(
-                AttendancePenaltyResponse::getDiscrepancyType, TreeMap::new, Collectors.counting()));
+                p -> Objects.requireNonNullElse(p.getDiscrepancyType(), "(unknown)"), TreeMap::new, Collectors.counting()));
         Map<String, Long> byPerson = active.stream().collect(Collectors.groupingBy(
-                AttendancePenaltyResponse::getFullName, TreeMap::new, Collectors.counting()));
+                p -> Objects.requireNonNullElse(p.getFullName(), "(unknown)"), TreeMap::new, Collectors.counting()));
         StringBuilder out = new StringBuilder("Exactly %d active (PENDING_REVIEW) penalty(ies) for %s from %s to %s."
                 .formatted(active.size(), population, from, to));
         out.append("\nBy discrepancy type: ").append(byType.entrySet().stream()

@@ -23,7 +23,12 @@ export default defineConfig({
     // first then just hangs with nothing listening there. 0.0.0.0 covers both.
     host: '0.0.0.0',
     proxy: {
-      '/api': {
+      // Regex key (leading '^'), anchored with a trailing slash — a plain '/api' string key is a
+      // prefix match, not a path-segment match, so it was also swallowing '/api-usage' (the API
+      // Usage page route) and proxying it to the backend instead of serving the SPA shell, which
+      // has no route for it and 403'd. Same collision class as the build.assetsDir fix above,
+      // just for the dev proxy instead of the static file server.
+      '^/api/': {
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
@@ -35,7 +40,7 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     proxy: {
-      '/api': {
+      '^/api/': {
         target: 'http://localhost:8081',
         changeOrigin: true,
       },

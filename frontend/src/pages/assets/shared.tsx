@@ -20,26 +20,37 @@ export function fmtDate(s?: string | null) {
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Semantic status → the app's theme tokens (--ok/--warn/--risk/--info), not fixed hex values, so
+// badges follow the selected accent color and light/dark mode like the rest of the redesigned
+// app instead of always rendering the same colors regardless of theme.
+const STATUS_TONE: Record<string, string> = {
+  SUBMITTED: 'var(--warn)',
+  MANAGER_APPROVED: 'var(--info)',
+  CLEARED_FOR_PAYROLL: 'var(--ok)',
+  PAID: 'var(--ok)',
+  MANAGER_REJECTED: 'var(--risk)',
+  FINAL_REJECTED: 'var(--risk)',
+  PENDING: 'var(--warn)',
+  APPROVED: 'var(--ok)',
+  REJECTED: 'var(--risk)',
+  WITHDRAWN: 'var(--txt-dim)',
+  AVAILABLE: 'var(--ok)',
+  ASSIGNED: 'var(--info)',
+  IN_REPAIR: 'var(--warn)',
+  RETIRED: 'var(--txt-dim)',
+  FULFILLED: 'var(--ok)',
+};
+
 export function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; color: string }> = {
-    SUBMITTED: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-    MANAGER_APPROVED: { bg: 'rgba(99,102,241,.15)', color: '#818CF8' },
-    CLEARED_FOR_PAYROLL: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-    PAID: { bg: 'rgba(47,182,124,.15)', color: '#2FB67C' },
-    MANAGER_REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-    FINAL_REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-    PENDING: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-    APPROVED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-    REJECTED: { bg: 'rgba(228,55,61,.15)', color: '#E4373D' },
-    WITHDRAWN: { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' },
-    AVAILABLE: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-    ASSIGNED: { bg: 'rgba(99,102,241,.15)', color: '#818CF8' },
-    IN_REPAIR: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-    RETIRED: { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' },
-    FULFILLED: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-  };
-  const style = map[status] ?? { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' };
-  return <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: style.bg, color: style.color }}>{status.replace(/_/g, ' ')}</span>;
+  const tone = STATUS_TONE[status] ?? 'var(--txt-dim)';
+  return (
+    <span style={{
+      fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
+      background: `color-mix(in srgb, ${tone} 15%, transparent)`, color: tone,
+    }}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  );
 }
 
 export interface TileProps {
@@ -92,8 +103,8 @@ export function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
+    <div style={overlayStyle} className="nf-modal-overlay-in">
+      <div style={modalStyle} className="nf-modal-panel-in">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>

@@ -19,6 +19,49 @@ public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID
 
     List<ExpenseClaim> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
 
+    // ── Summary projections (every column except the potentially multi-MB receiptUrl) ──
+    // Used by every LIST endpoint (My Claims, pending-for-manager, pending-for-final-approver,
+    // cleared-for-payroll, team claims) — see ExpenseClaimSummary's Javadoc. The single-claim
+    // methods above still return full entities: approve/reject/markPaid etc. need the real
+    // entity to mutate and save, and there's only ever one row in flight there, not N.
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c WHERE c.employeeUserId = :employeeUserId ORDER BY c.createdAt DESC")
+    List<ExpenseClaimSummary> findSummaryByEmployeeUserIdOrderByCreatedAtDesc(@Param("employeeUserId") UUID employeeUserId);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds AND c.status = :status")
+    List<ExpenseClaimSummary> findSummaryByEmployeeUserIdInAndStatus(@Param("employeeUserIds") List<UUID> employeeUserIds, @Param("status") String status);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds ORDER BY c.createdAt DESC")
+    List<ExpenseClaimSummary> findSummaryByEmployeeUserIdInOrderByCreatedAtDesc(@Param("employeeUserIds") List<UUID> employeeUserIds);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
+         + "WHERE c.status = :status AND u.deletedAt IS NULL")
+    List<ExpenseClaimSummary> findSummaryByStatus(@Param("status") String status);
+
+    @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
+         + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
+         + "FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
+         + "WHERE c.status IN :statuses AND u.deletedAt IS NULL")
+    List<ExpenseClaimSummary> findSummaryByStatusIn(@Param("statuses") Collection<String> statuses);
+
     // Backs audit-log target search — resolves which expense claims belong to a set of employees.
     @Query("SELECT c.id FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds")
     Set<UUID> findIdsByEmployeeUserIdIn(Collection<UUID> employeeUserIds);

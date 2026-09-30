@@ -1868,7 +1868,15 @@ export default function OrgSetupPage() {
               width instead of forcing the row wider than the panel — overflowX then scrolls the
               tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
               squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
-          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', padding: '0 4px' }}>
+          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', padding: '0 4px', position: 'relative' }}>
+            {/* Right-edge fade: this row already scrolls (see the comment above on minWidth:0)
+                once there are more tabs than fit — the previous plain clip with no scrollbar or
+                affordance left the extra tabs undiscoverable (hr-ux-audit finding UI-005). This
+                hints "there's more" without adding a visible scrollbar. Absolutely positioned
+                against this same scrolling box, so top/right/bottom:0 stays pinned to its visible
+                edge regardless of scroll position, and it's outside the flex flow so it doesn't
+                consume tab-row space. */}
+            <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--panel))' }} />
             {(Object.keys(TABS) as OrgTab[])
               // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
               // load: unlike every other tab here (at least viewable via /organization by HR

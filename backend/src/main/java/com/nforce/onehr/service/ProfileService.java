@@ -97,7 +97,8 @@ public class ProfileService {
                 .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
 
         if (req.getPhone() != null)                   emp.setPhone(req.getPhone().trim());
-        if (req.getDateOfBirth() != null)              emp.setDateOfBirth(req.getDateOfBirth());
+        if (req.isClearDateOfBirth())                  emp.setDateOfBirth(null);
+        else if (req.getDateOfBirth() != null)          emp.setDateOfBirth(req.getDateOfBirth());
         if (req.getGender() != null)                   emp.setGender(req.getGender().trim());
         if (req.getPersonalEmail() != null)            emp.setPersonalEmail(req.getPersonalEmail().trim());
         if (req.getAddress() != null)                  emp.setAddress(req.getAddress().trim());
@@ -119,7 +120,8 @@ public class ProfileService {
                                                 emp.setEmergencyContactRelationship(req.getEmergencyContactRelationship().trim());
         if (req.getPermanentAddress() != null) emp.setPermanentAddress(req.getPermanentAddress().trim());
         if (req.getPassportNumber() != null)   emp.setPassportNumber(req.getPassportNumber().trim());
-        if (req.getPassportExpiry() != null)   emp.setPassportExpiry(req.getPassportExpiry());
+        if (req.isClearPassportExpiry())       emp.setPassportExpiry(null);
+        else if (req.getPassportExpiry() != null) emp.setPassportExpiry(req.getPassportExpiry());
         if (req.getBankAccountNumber() != null) emp.setBankAccountNumber(req.getBankAccountNumber().trim());
         if (req.getBankName() != null)         emp.setBankName(req.getBankName().trim());
         if (req.getBankIfsc() != null)         emp.setBankIfsc(req.getBankIfsc().trim());

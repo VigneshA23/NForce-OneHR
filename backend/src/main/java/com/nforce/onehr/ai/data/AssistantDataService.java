@@ -245,6 +245,25 @@ public class AssistantDataService {
 
     private static final Pattern ATTENDANCE = Pattern.compile("\\b(attendance|check[- ]?ins?|punch(es)?)\\b", Pattern.CASE_INSENSITIVE);
 
+    /** "my team", "employees", "who ..." - about the caller's reports (or the organisation), not the caller. */
+    private static final Pattern TEAM_SCOPE = Pattern.compile(
+            "\\b(my|our)\\s+(team|direct\\s+reports?|reportees|subordinates)\\b|\\bteam\\s*members?\\b"
+                    + "|\\b(employees?|reportees|subordinates|staff|members|people)\\b|\\bwho\\b|\\bwhich\\s+of\\b",
+            Pattern.CASE_INSENSITIVE);
+    /** Every attendance discrepancy My Team's attendance rows show. */
+    private static final Pattern DISCREPANCY = Pattern.compile(
+            "\\b(absent\\w*|absences?|late(ness|comers?)?|punch\\w*|check[- ]?(ins?|outs?)|left\\s+early|early\\s+(exit|departure|leaving|logout)s?"
+                    + "|half[- ]?days?|discrepanc\\w*|irregular\\w*|attendance|on\\s+time|punctual\\w*)\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern PENALTY = Pattern.compile("\\bpenal\\w*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern WFH = Pattern.compile(
+            "\\b(wfh|work(ing|s)?\\s+from\\s+home|remote(ly)?|on\\s+duty)\\b", Pattern.CASE_INSENSITIVE);
+    /** "what leave types can I apply for", "my leave balance" - the balance block lists every type held. */
+    private static final Pattern LEAVE_TYPES = Pattern.compile(
+            "\\bleave\\s+(types?|balances?|entitlements?)\\b|\\btypes?\\s+of\\s+leaves?\\b"
+                    + "|\\bleaves?\\b.*\\b(apply|avail\\w*|left|remaining)\\b|\\b(apply|avail\\w*)\\b.*\\bleaves?\\b",
+            Pattern.CASE_INSENSITIVE);
+
     private static Map<String, Double> questionRelevance(String question) {
         if (question == null) return Map.of();
         Map<String, Double> relevance = new HashMap<>();
@@ -256,6 +275,21 @@ public class AssistantDataService {
         if (ATTENDANCE.matcher(question).find() && MyTeamDateRange.named(question, java.time.LocalDate.now())
                 .filter(r -> !"today".equals(r.label())).isPresent()) {
             relevance.put("attendance-history", QUESTION_RELEVANCE);
+        }
+        if (LEAVE_TYPES.matcher(question).find()) relevance.put("leave-balances", QUESTION_RELEVANCE);
+        // A team question gets the team's rows, never only the caller's own: "how many in my team
+        // were absent yesterday" was answered from the manager's own empty record (ONEHR).
+        if (TEAM_SCOPE.matcher(question).find()) {
+            relevance.remove("attendance-history");
+            if (DISCREPANCY.matcher(question).find()) relevance.put("my-team-attendance", QUESTION_RELEVANCE);
+            if (PENALTY.matcher(question).find()) {
+                relevance.put("team-penalties", QUESTION_RELEVANCE);
+                relevance.put("org-penalties", QUESTION_RELEVANCE);
+            }
+            if (WFH.matcher(question).find()) {
+                relevance.put("my-team-overview", QUESTION_RELEVANCE);
+                relevance.put("org-attendance", QUESTION_RELEVANCE);
+            }
         }
         return relevance;
     }

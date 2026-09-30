@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { X, Sparkles, Check, Pencil, RotateCcw } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
 
@@ -29,7 +29,7 @@ const EMOJI_RE = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u{1F1E6}-\u
 export const stripEmoji = (v: string) => v.replace(EMOJI_RE, '');
 
 export function validateEmail(v: string): string | null {
-  if (!v) return null;
+  if (!v.trim()) return null;
   if (!EMAIL_RE.test(v)) return 'Enter a valid email address (e.g. name@example.com).';
   const tld = v.slice(v.lastIndexOf('.') + 1);
   if (TLD_COM_WITH_TRAILING_CHARS_RE.test(tld)) return 'Enter a valid email address (e.g. name@example.com).';
@@ -37,12 +37,19 @@ export function validateEmail(v: string): string | null {
 }
 
 export function validatePhone(v: string, label: string): string | null {
-  if (!v) return null;
+  // digitsOnly(v), not v itself — a value that's only whitespace/punctuation with no actual
+  // digits (e.g. a stray space left in an otherwise-untouched optional field) has nothing to
+  // validate and should count as "not provided", not fail the 10-digit check below.
+  if (!digitsOnly(v)) return null;
   return digitsOnly(v).length === 10 ? null : `${label} must be exactly 10 digits.`;
 }
 
 export function validateName(v: string, label: string): string | null {
-  if (!v) return null;
+  // v.trim(), not v itself — these are optional fields (e.g. Emergency Contact Name), and a
+  // string that's only whitespace is truthy in JS, so a stray space left in an otherwise-empty
+  // field would otherwise reach NAME_RE.test below and fail (no letters to match), incorrectly
+  // blocking the whole form's save over a field the person never actually meant to fill in.
+  if (!v.trim()) return null;
   return NAME_RE.test(v) ? null : `${label} can only contain letters, spaces, hyphens, apostrophes, and periods.`;
 }
 
@@ -98,20 +105,48 @@ export function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function EditField({ label, value, onChange, type = 'text', placeholder, error }: {
+// How long a "that character isn't allowed" hint stays visible after the last rejected
+// keystroke — long enough to read, short enough to not linger once the person's moved on.
+const REJECT_HINT_MS = 2000;
+
+export function EditField({ label, value, onChange, type = 'text', placeholder, error, filter, filterHint }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
   error?: string | null;
+  // Previously callers wrapped onChange themselves (e.g. `onChange={v => setX(nameCharsOnly(v))}`)
+  // — invisible characters just vanished with no feedback. Passing the filter in here instead
+  // lets the field notice when a keystroke actually got rejected and show filterHint briefly,
+  // rather than the input silently ignoring what was typed.
+  filter?: (v: string) => string;
+  filterHint?: string;
 }) {
+  const [showHint, setShowHint] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function handleChange(raw: string) {
+    if (!filter) { onChange(raw); return; }
+    const filtered = filter(raw);
+    if (filtered.length < raw.length) {
+      setShowHint(true);
+      clearTimeout(hintTimer.current);
+      hintTimer.current = setTimeout(() => setShowHint(false), REJECT_HINT_MS);
+    }
+    onChange(filtered);
+  }
+
   return (
     <div>
       <FieldLabel>{label}</FieldLabel>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+      <input type={type} value={value} onChange={e => handleChange(e.target.value)} placeholder={placeholder}
         style={{ ...INPUT_STYLE, ...(error ? { borderColor: 'var(--risk)' } : {}) }} />
-      {error && <div style={{ fontSize: 11, color: 'var(--risk)', marginTop: 4 }}>{error}</div>}
+      {error ? (
+        <div style={{ fontSize: 11, color: 'var(--risk)', marginTop: 4 }}>{error}</div>
+      ) : showHint && filterHint ? (
+        <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }}>{filterHint}</div>
+      ) : null}
     </div>
   );
 }
@@ -123,6 +158,21 @@ export function PhoneField({ label, value, onChange, placeholder, error }: {
   placeholder?: string;
   error?: string | null;
 }) {
+  const [showHint, setShowHint] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function handleChange(raw: string) {
+    const filtered = digitsOnly(raw).slice(0, 10);
+    // Same reasoning as EditField's filter above — this field has always silently stripped
+    // non-digits and truncated past 10, with no feedback for either case.
+    if (/\D/.test(raw) || raw.length > 10) {
+      setShowHint(true);
+      clearTimeout(hintTimer.current);
+      hintTimer.current = setTimeout(() => setShowHint(false), REJECT_HINT_MS);
+    }
+    onChange(filtered);
+  }
+
   return (
     <div>
       <FieldLabel>{label}</FieldLabel>
@@ -131,11 +181,15 @@ export function PhoneField({ label, value, onChange, placeholder, error }: {
         inputMode="numeric"
         maxLength={10}
         value={value}
-        onChange={e => onChange(digitsOnly(e.target.value).slice(0, 10))}
+        onChange={e => handleChange(e.target.value)}
         placeholder={placeholder}
         style={{ ...INPUT_STYLE, ...(error ? { borderColor: 'var(--risk)' } : {}) }}
       />
-      {error && <div style={{ fontSize: 11, color: 'var(--risk)', marginTop: 4 }}>{error}</div>}
+      {error ? (
+        <div style={{ fontSize: 11, color: 'var(--risk)', marginTop: 4 }}>{error}</div>
+      ) : showHint ? (
+        <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }}>Only numbers are allowed (10 digits).</div>
+      ) : null}
     </div>
   );
 }

@@ -121,9 +121,7 @@ public class AssetService {
     @Transactional(readOnly = true)
     public List<AssetRequestResponse> myRequests(String actorEmail) {
         UUID actorId = requireActor(actorEmail).getId();
-        return requestRepo.findByEmployeeUserIdOrderByCreatedAtDesc(actorId).stream()
-                .map(r -> toRequestResponse(r, categoryName(r.getCategoryId())))
-                .collect(Collectors.toList());
+        return toRequestResponses(requestRepo.findByEmployeeUserIdOrderByCreatedAtDesc(actorId));
     }
 
     // ── Approval Center: pending asset requests ───────────
@@ -133,18 +131,14 @@ public class AssetService {
         User actor = requireActor(actorEmail);
         if (isAdminRole(actor)) {
             // HR/Super Admin see PENDING (to approve) + APPROVED (ready to fulfill)
-            List<AssetRequest> requests = requestRepo.findByStatusIn(List.of("PENDING", "APPROVED"));
-            return requests.stream()
-                    .map(r -> toRequestResponse(r, categoryName(r.getCategoryId())))
-                    .collect(Collectors.toList());
+            return toRequestResponses(requestRepo.findByStatusIn(List.of("PENDING", "APPROVED")));
         }
         // Manager: only own direct reports, only PENDING
         List<AssetRequest> pending = requestRepo.findByStatus("PENDING");
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
-        return pending.stream()
+        return toRequestResponses(pending.stream()
                 .filter(r -> reportIds.contains(r.getEmployeeUserId()))
-                .map(r -> toRequestResponse(r, categoryName(r.getCategoryId())))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     @Transactional
@@ -414,9 +408,7 @@ public class AssetService {
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
         List<String> statuses = List.of("PENDING", "APPROVED", "FULFILLED", "REJECTED", "WITHDRAWN");
-        return requestRepo.findByStatusInAndEmployeeUserIdIn(statuses, reportIds).stream()
-                .map(r -> toRequestResponse(r, categoryName(r.getCategoryId())))
-                .collect(Collectors.toList());
+        return toRequestResponses(requestRepo.findByStatusInAndEmployeeUserIdIn(statuses, reportIds));
     }
 
     // ── Tile summary data ─────────────────────────────────
@@ -680,6 +672,50 @@ public class AssetService {
                 .rejectionReason(r.getRejectionReason())
                 .createdAt(r.getCreatedAt())
                 .build();
+    }
+
+    /**
+     * Batched equivalent of {@code requests.stream().map(r -> toRequestResponse(r,
+     * categoryName(r.getCategoryId())))} — that per-row form was an N+1 (up to 4 extra queries per
+     * row: category name + up to 3 employee-name lookups), which made every asset-request list
+     * endpoint (My Requests, Approval Center, team requests) scale with row count against a remote
+     * DB. This resolves all category and employee names in two bulk queries up front instead.
+     */
+    private List<AssetRequestResponse> toRequestResponses(List<AssetRequest> requests) {
+        if (requests.isEmpty()) return List.of();
+        Set<Integer> categoryIds = requests.stream().map(AssetRequest::getCategoryId).collect(Collectors.toSet());
+        Map<Integer, String> catNamesById = categoryRepo.findAllById(categoryIds).stream()
+                .collect(Collectors.toMap(AssetCategory::getId, AssetCategory::getName));
+
+        Set<UUID> employeeIds = new HashSet<>();
+        for (AssetRequest r : requests) {
+            employeeIds.add(r.getEmployeeUserId());
+            if (r.getManagerDecidedBy() != null) employeeIds.add(r.getManagerDecidedBy());
+            if (r.getFulfilledBy() != null) employeeIds.add(r.getFulfilledBy());
+        }
+        Map<UUID, String> namesById = new HashMap<>();
+        for (Object[] row : employeeRepo.findNamesByUserIds(employeeIds)) {
+            namesById.put((UUID) row[0], (String) row[1]);
+        }
+
+        return requests.stream()
+                .map(r -> AssetRequestResponse.builder()
+                        .id(r.getId())
+                        .employeeUserId(r.getEmployeeUserId())
+                        .employeeName(namesById.get(r.getEmployeeUserId()))
+                        .categoryId(r.getCategoryId())
+                        .categoryName(catNamesById.getOrDefault(r.getCategoryId(), "Unknown"))
+                        .reason(r.getReason())
+                        .requiredByDate(r.getRequiredByDate())
+                        .status(r.getStatus())
+                        .managerDecidedByName(r.getManagerDecidedBy() != null ? namesById.get(r.getManagerDecidedBy()) : null)
+                        .managerDecidedAt(r.getManagerDecidedAt())
+                        .fulfilledByName(r.getFulfilledBy() != null ? namesById.get(r.getFulfilledBy()) : null)
+                        .fulfilledAt(r.getFulfilledAt())
+                        .rejectionReason(r.getRejectionReason())
+                        .createdAt(r.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     private String employeeName(UUID userId) {

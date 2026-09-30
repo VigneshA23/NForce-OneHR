@@ -161,9 +161,14 @@ public class ResponseValidator {
         }
         int start = json.indexOf('{');
         int end = json.lastIndexOf('}');
-        if (start < 0 || end <= start) {
+        if (start < 0) {
             log.info("Model output contained no JSON object");
             return Optional.empty();
+        }
+        if (end <= start) {
+            // Cut off at the token limit mid-answer: a long team list did this (ONEHR).
+            log.info("Model output was cut off before the JSON closed ({} chars); salvaging its answer", json.length());
+            return salvageCutOff(json.substring(start));
         }
         json = json.substring(start, end + 1);
 
@@ -173,6 +178,32 @@ public class ResponseValidator {
             // Deliberately not logging the payload: it can contain the user's question verbatim,
             // and com.nforce.onehr runs at DEBUG in every environment.
             log.info("Model output was not parseable as an AssistantResponse: {}", e.getClass().getSimpleName());
+            return Optional.empty();
+        }
+    }
+
+    /** The "answer" string of a reply cut off mid-way - escapes intact, however far it got. */
+    private static final java.util.regex.Pattern ANSWER_SO_FAR =
+            java.util.regex.Pattern.compile("\"answer\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)");
+
+    /**
+     * Keeps the answer's complete lines, the same trade {@link #MAX_ANSWER_CHARS} already makes for
+     * a long answer. Typed EXPLANATION with LOW confidence; nothing after the answer (steps,
+     * navigation) survives, and the leak checks in {@link #validate} still run over what does.
+     */
+    private Optional<AssistantResponse> salvageCutOff(String json) {
+        java.util.regex.Matcher m = ANSWER_SO_FAR.matcher(json);
+        if (!m.find()) return Optional.empty();
+        String escaped = m.group(1);
+        int lastLine = escaped.lastIndexOf("\\n");
+        // No complete line yet is half a sentence - decline rather than show it.
+        if (lastLine <= 0) return Optional.empty();
+        escaped = escaped.substring(0, lastLine);
+        try {
+            String answer = mapper.readValue("\"" + escaped + "\"", String.class);
+            return answer.isBlank() ? Optional.empty() : Optional.of(AssistantResponse.builder()
+                    .type(AssistantResponseType.EXPLANATION).answer(answer).confidence(ConfidenceLevel.LOW).build());
+        } catch (Exception e) {
             return Optional.empty();
         }
     }

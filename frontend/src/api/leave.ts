@@ -56,6 +56,7 @@ export interface LeaveRequestRecord {
   startDate: string;
   endDate: string;
   halfDay: boolean;
+  halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   employeeReason: string;
@@ -70,6 +71,7 @@ export interface SubmitLeaveRequestPayload {
   startDate: string;
   endDate: string;
   halfDay: boolean;
+  halfDaySession?: 'FIRST_HALF' | 'SECOND_HALF';
   reason: string;
 }
 

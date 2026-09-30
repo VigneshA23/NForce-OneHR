@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { UserPlus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, MoreVertical } from 'lucide-react';
+import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, MoreVertical } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi, type ShiftRow } from '../api/org';
@@ -1276,8 +1276,11 @@ export default function UserManagementPage() {
           </div>
         </div>
         <div className="nf-policy-actions" style={{ display: 'flex' }}>
-          <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, var(--brand-bright), var(--brand))', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 18px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', boxShadow: '0 6px 16px rgba(177,17,22,.28)', justifyContent: 'center' }}>
-            <UserPlus size={15} /> Add User
+          {/* Matches the primary "Add/Create" button used across Organization Masters and Workflow
+              Studio (var(--brand) fill, '+' glyph) rather than a one-off gradient + custom icon —
+              see hr-ux-audit finding UI-003. */}
+          <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
+            <Plus size={14} /> Add User
           </button>
         </div>
       </div>

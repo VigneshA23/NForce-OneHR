@@ -4213,7 +4213,7 @@ function mockLeaves(): LeaveRequestRecord[] {
   const iso = isoDaysAgo(7);
   return [{
     id: 'mock-leave-1', employeeUserId: 'mock-me', employeeName: 'Preview User', employeeCode: null, leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', leaveTypeClassification: 'PAID',
-    startDate: iso, endDate: iso, halfDay: false, totalDays: 1, status: 'APPROVED',
+    startDate: iso, endDate: iso, halfDay: false, halfDaySession: null, totalDays: 1, status: 'APPROVED',
     employeeReason: 'Personal work', decisionReason: null, decidedByName: 'Priya Sharma', decidedAt: `${iso}T10:00:00+05:30`, createdAt: `${iso}T08:00:00+05:30`,
   }];
 }
@@ -7206,6 +7206,16 @@ function AttendancePageInner() {
       ? 'Review daily attendance for the selected month, and attendance across the organization.'
       : 'Review daily attendance for the selected month.';
 
+  // Matches this page's own sidebar nav label per role (nav.config.ts) — the page heading
+  // previously always read "My Attendance" even for HR Admin/Super Admin, whose nav item reads
+  // "Attendance Administration", which read as a wrong-page moment for the org-wide admin
+  // audience most likely to expect that framing first (hr-ux-audit finding UI-006).
+  const title = role === 'Manager'
+    ? 'Team Attendance'
+    : role === 'HR Admin' || role === 'Super Admin'
+      ? 'Attendance Administration'
+      : 'My Attendance';
+
   const myAttendanceRef = useRef<MyAttendanceHandle>(null);
   const regularizationRef = useRef<RegularizationSectionHandle>(null);
   // "View full record" (AttendanceHeroBanner, Home dashboard) links here with ?tab=calendar so
@@ -7260,7 +7270,7 @@ function AttendancePageInner() {
             <h1 style={{
               fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700,
               color: 'var(--txt)', margin: 0, letterSpacing: '-.01em',
-            }}>My Attendance</h1>
+            }}>{title}</h1>
             <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--txt-mut)', marginTop: 4, minHeight: 'calc(13px * 1.5 * 2)' }}>{subtitle}</p>
             {isPreviewMode && (
               <div style={{
