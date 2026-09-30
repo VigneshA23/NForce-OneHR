@@ -315,9 +315,6 @@ export default function UserPreferencesPage() {
                 onChange={setKeyboardNavFocus}
                 last
               />
-              <PlaceholderNote>
-                All four of these are live app-wide — try them now.
-              </PlaceholderNote>
             </div>
           )}
         </div>

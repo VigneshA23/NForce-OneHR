@@ -167,6 +167,38 @@ body {
   scroll-behavior: auto !important;
 }
 
+/* Universal button press/hover feedback — nothing app-wide existed before this (every hover
+   treatment was previously opt-in per component class), so most of the app's ~670 plain
+   <button style={{...}}> elements had zero interaction feedback at all. Excludes the handful of
+   classes that already define their own hover/press transition (sidebar/topbar nav, dropdown
+   menu items, calendar cells, segmented tabs, the generic .nf-clickable affordance) so timings
+   never double up. Respects [data-motion="reduce"] above like everything else in this file. */
+@media (prefers-reduced-motion: no-preference) {
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled) {
+    transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+  }
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled):hover {
+    filter: brightness(1.04);
+  }
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled):active {
+    transform: scale(.97);
+  }
+}
+
+/* Modal/dialog entrance — a reusable overlay+panel keyframe pair for the app's many bespoke
+   modal implementations (there is no single shared modal component), applied via className to
+   each one's own backdrop/panel divs. Panel uses the same fade+translateY+scale shape as
+   .nf-section-enter/nf-assistant-panel-in for a consistent "arriving" feel across the app. */
+@keyframes nf-modal-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nf-modal-panel-in {
+  from { opacity: 0; transform: translateY(14px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nf-modal-overlay-in { animation: nf-modal-overlay-in 180ms ease both; }
+  .nf-modal-panel-in { animation: nf-modal-panel-in 280ms cubic-bezier(.22,.61,.36,1) both; }
+}
+
 /* Accessibility: "Keyboard navigation" (User Preferences → Accessibility) — a stronger,
    high-visibility focus ring on whatever element currently has keyboard focus, for anyone who
    navigates by Tab rather than mouse. Scoped to :focus-visible so it never appears on a mouse
@@ -379,14 +411,15 @@ input[type="date"] {
   }
 }
 
-/* Employee dashboard — Leave Balance + Upcoming Holidays stacked in the
+/* Employee dashboard — Leave Balance + Recent Notifications stacked in the
    Attendance Calendar row's right column (.nf-dash-right-col). The grid row
-   stretches that column to the calendar's height by default; Upcoming
-   Holidays keeps its natural content height and Leave Balance grows to
+   stretches that column to the calendar's height by default; Recent
+   Notifications keeps its natural content height and Leave Balance grows to
    absorb the rest, so the two stacked panels' combined height always
    matches the calendar's height exactly instead of drifting apart. */
 .nf-dash-right-col > .nf-leave-panel { flex: 1 1 auto; min-height: 0; justify-content: center; }
 .nf-dash-right-col > .nf-holiday-panel { flex: 0 0 auto; }
+.nf-dash-right-col > .nf-notif-panel { flex: 0 0 auto; }
 
 /* ============================================================
    Responsive — tablet ≤1024px, mobile ≤767px.
@@ -1050,7 +1083,13 @@ input[type="date"] {
    calendar cell polish, sticky log header. No business logic here.
    ============================================================ */
 
-@keyframes nf-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* Opacity-only, no transform: .nf-section-enter wraps an entire routed page (Shell.tsx) or a
+   large page section (Attendance/Holidays/Leave), and any element with an active/filled CSS
+   animation touching `transform` becomes the positioning reference for `position: fixed`
+   descendants instead of the viewport — every modal opened from inside one of these sections
+   would render relative to that section's box (scrolling with the page) instead of staying
+   centered in the viewport. Opacity alone can't trigger that. */
+@keyframes nf-fade-up { from { opacity: 0; } to { opacity: 1; } }
 @keyframes nf-ring-in { from { stroke-dashoffset: var(--nf-ring-circumference, 251); } to { stroke-dashoffset: var(--nf-ring-offset, 0); } }
 
 @media (prefers-reduced-motion: no-preference) {

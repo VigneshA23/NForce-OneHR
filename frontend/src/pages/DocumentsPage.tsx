@@ -104,6 +104,45 @@ function AnnouncementModal({ announcement, onClose }: { announcement: Announceme
   );
 }
 
+// ── Loading skeleton ──────────────────────────────────────
+// Same shimmer treatment as NotificationsPage's SkeletonRow — mirrors the page's real shape
+// (title, KPI tiles, tab bar, a few card rows) instead of a bare "Loading…" line.
+
+function PageSkeleton() {
+  return (
+    <div>
+      <div className="nf-skeleton" style={{ height: 22, width: 240, borderRadius: 5, marginBottom: 8 }} />
+      <div className="nf-skeleton" style={{ height: 13, width: 340, borderRadius: 4, marginBottom: 22 }} />
+      <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
+        {[0, 1, 2, 3, 4].map(i => (
+          <div key={i} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
+            <div className="nf-skeleton" style={{ height: 26, width: 40, borderRadius: 5, marginBottom: 8 }} />
+            <div className="nf-skeleton" style={{ height: 11, width: 70, borderRadius: 4 }} />
+          </div>
+        ))}
+      </div>
+      <div className="nf-skeleton" style={{ height: 38, width: 300, borderRadius: 8, marginBottom: 20 }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20 }}>
+            <div className="nf-skeleton" style={{ height: 14, width: '40%', borderRadius: 4, marginBottom: 10 }} />
+            <div className="nf-skeleton" style={{ height: 11, width: '85%', borderRadius: 4, marginBottom: 6 }} />
+            <div className="nf-skeleton" style={{ height: 11, width: '60%', borderRadius: 4 }} />
+          </div>
+        ))}
+      </div>
+      <style>{`
+        .nf-skeleton {
+          background: linear-gradient(90deg, var(--raised2) 25%, var(--line) 50%, var(--raised2) 75%);
+          background-size: 200% 100%;
+          animation: nf-doc-shimmer 1.5s infinite;
+        }
+        @keyframes nf-doc-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      `}</style>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────
 
 export default function DocumentsPage() {
@@ -158,7 +197,7 @@ export default function DocumentsPage() {
     ? announcements.filter(a => a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
     : announcements;
 
-  if (loading) return <p style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</p>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div>

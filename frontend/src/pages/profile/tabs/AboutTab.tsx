@@ -82,7 +82,7 @@ function TimelineSubTab({ entries, loading }: { entries: ProfileTimelineEvent[];
           <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: i === sorted.length - 1 ? 0 : 22 }}>
             <div style={{
               position: 'relative', zIndex: 1, width: 36, height: 36, borderRadius: '50%',
-              background: e.type === 'JOINED_COMPANY' ? '#2FB67C' : '#4C8DD6',
+              background: e.type === 'JOINED_COMPANY' ? 'var(--ok)' : 'var(--info)',
               display: 'grid', placeItems: 'center', color: '#fff', flexShrink: 0,
               boxShadow: '0 0 0 4px var(--panel)',
             }}>
@@ -114,7 +114,7 @@ export function AboutTab({ profile, token, onSaved }: { profile: ProfileData; to
   }, [token]);
 
   const subTabStyle = (t: typeof subTab): React.CSSProperties => ({
-    background: t === subTab ? 'rgba(177,17,22,.12)' : 'var(--raised)',
+    background: t === subTab ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--raised)',
     border: `1px solid ${t === subTab ? 'var(--brand)' : 'var(--line2)'}`,
     color: t === subTab ? 'var(--brand-bright)' : 'var(--txt-mut)',
     fontSize: 12, fontWeight: 600, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
