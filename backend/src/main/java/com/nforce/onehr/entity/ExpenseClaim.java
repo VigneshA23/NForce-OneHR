@@ -50,6 +50,15 @@ public class ExpenseClaim {
     @Column(name = "manager_rejection_reason", columnDefinition = "TEXT")
     private String managerRejectionReason;
 
+    // Which role actually decided the Manager stage (MANAGER / HR_ADMIN / SUPER_ADMIN), snapshotted
+    // at decision time — see ExpenseService#resolveManagerStageApproverRole. HR_ADMIN/SUPER_ADMIN
+    // here means that decision was an override of the real reporting manager (see
+    // requireCurrentManagerOf), which the claim's own history can otherwise never distinguish from
+    // an ordinary manager decision. Null until the Manager stage is decided, and on claims that
+    // predate this column (V206).
+    @Column(name = "manager_approved_by_role", length = 30)
+    private String managerApprovedByRole;
+
     @Column(name = "final_decided_by")
     private UUID finalDecidedBy;
 

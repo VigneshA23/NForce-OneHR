@@ -30,8 +30,13 @@ public class CreateUserRequest {
 
     private String employeeCode;
     private UUID businessUnitId;
+
+    @NotNull
     private UUID departmentId;
+
+    @NotNull
     private UUID designationId;
+
     private UUID shiftId;
 
     // Required whenever shiftId is set (validated in UserManagementService#createUser, not here,

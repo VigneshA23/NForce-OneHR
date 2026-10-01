@@ -504,6 +504,8 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.role) { setError('Role is required.'); return; }
     if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
+    if (!form.departmentId) { setError('Department is required.'); return; }
+    if (!form.designationId) { setError('Designation is required.'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
     // Defense-in-depth: the date input's own `required`/`min` already keep this from happening
     // through normal use — the backend independently rejects it too regardless.
@@ -666,12 +668,12 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
               <option value="">Select Business Unit</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
-          <Field label="Department">
+          <Field label="Department *">
             <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
               <option value="">Select Department</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
-          <Field label="Designation">
+          <Field label="Designation *">
             <select style={inputStyle} value={form.designationId ?? ''} disabled={!form.departmentId} onChange={e => set('designationId', e.target.value)}>
               <option value="">{form.departmentId ? 'Select Designation' : 'Select a Department first'}</option>
               {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
