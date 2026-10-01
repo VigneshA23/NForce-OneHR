@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
 
 export type ProfileDayStatus = 'holiday' | 'weekly-off' | null;
@@ -69,9 +70,18 @@ export const ROLE_LABELS: Record<string, string> = {
   EMPLOYEE: 'Employee',
 };
 
-export function SectionHeader({ title, badge }: { title: string; badge?: string }) {
+export function SectionHeader({ title, badge, icon: Icon }: { title: string; badge?: string; icon?: LucideIcon }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+      {Icon && (
+        <span style={{
+          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+          background: 'color-mix(in srgb, var(--brand) 14%, var(--raised2))',
+          color: 'var(--brand-bright)', display: 'grid', placeItems: 'center',
+        }}>
+          <Icon size={12} />
+        </span>
+      )}
       <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '.06em' }}>
         {title}
       </h2>

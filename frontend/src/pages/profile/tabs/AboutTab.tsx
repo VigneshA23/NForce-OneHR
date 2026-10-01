@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Calendar, RefreshCw, UserRound } from 'lucide-react';
+import { Calendar, RefreshCw, UserRound, Building2, History } from 'lucide-react';
 import { profileApi, type ProfileData, type ProfileTimelineEvent } from '../../../api/profile';
 import { SectionHeader, ReadField, computeDisplayName } from '../shared';
 import { PreferredNameBioModal } from './PreferredNameBioModal';
@@ -9,7 +9,7 @@ function SummaryCard({ profile, token, onSaved }: { profile: ProfileData; token:
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <SectionHeader title="Personal Summary & Bio" />
+        <SectionHeader title="Personal Summary & Bio" icon={UserRound} />
         <button onClick={() => setEditing(true)}
           style={{ padding: '5px 12px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', cursor: 'pointer' }}>
           Edit
@@ -46,7 +46,7 @@ function EmploymentContextCard({ profile }: { profile: ProfileData }) {
 
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <SectionHeader title="Employment & Organization Context" />
+      <SectionHeader title="Employment & Organization Context" icon={Building2} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
         <ReadField label="Job Title" value={profile.designationName} />
         <ReadField label="Department" value={profile.departmentName} />
@@ -75,7 +75,7 @@ function TimelineSubTab({ entries, loading }: { entries: ProfileTimelineEvent[];
   const sorted = [...entries].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <SectionHeader title="Employee Life Cycle & Career History" badge="System History" />
+      <SectionHeader title="Employee Life Cycle & Career History" badge="System History" icon={History} />
       <div style={{ position: 'relative', paddingLeft: 8 }}>
         <div style={{ position: 'absolute', left: 23, top: 10, bottom: 10, width: 2, background: 'var(--line2)' }} />
         {sorted.map((e, i) => (

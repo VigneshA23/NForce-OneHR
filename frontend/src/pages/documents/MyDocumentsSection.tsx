@@ -47,9 +47,9 @@ export function MyDocumentsSection({
 
   const secStyle = (s: Section): React.CSSProperties => ({
     padding: '6px 16px', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 12,
-    background: section === s ? 'var(--txt)' : 'var(--shell)',
-    color: section === s ? 'var(--panel)' : 'var(--txt-dim)',
-    border: '1px solid var(--line)',
+    background: section === s ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--shell)',
+    color: section === s ? 'var(--brand-bright)' : 'var(--txt-dim)',
+    border: `1px solid ${section === s ? 'var(--brand)' : 'var(--line)'}`,
   });
 
   const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : section === 'rejected' ? rejected : missing;
@@ -60,16 +60,16 @@ export function MyDocumentsSection({
     <>
       <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         <button className="nf-doc-tab-btn" style={secStyle('pending')} onClick={() => setSection('pending')}>
-          <span className="nf-doc-tab-label">Pending Review</span> {pending.length > 0 && <span style={{ marginLeft: 4, background: '#eab308', color: '#000', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{pending.length}</span>}
+          <span className="nf-doc-tab-label">Pending Review</span> {pending.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--warn) 20%, transparent)', color: 'var(--warn)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{pending.length}</span>}
         </button>
         <button className="nf-doc-tab-btn" style={secStyle('verified')} onClick={() => setSection('verified')}>
-          <span className="nf-doc-tab-label">Verified</span> {verified.length > 0 && <span style={{ marginLeft: 4, background: '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{verified.length}</span>}
+          <span className="nf-doc-tab-label">Verified</span> {verified.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--ok) 20%, transparent)', color: 'var(--ok)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{verified.length}</span>}
         </button>
         <button className="nf-doc-tab-btn" style={secStyle('rejected')} onClick={() => setSection('rejected')}>
-          <span className="nf-doc-tab-label">Rejected</span> {rejected.length > 0 && <span style={{ marginLeft: 4, background: '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{rejected.length}</span>}
+          <span className="nf-doc-tab-label">Rejected</span> {rejected.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--risk) 20%, transparent)', color: 'var(--risk)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{rejected.length}</span>}
         </button>
         <button className="nf-doc-tab-btn" style={secStyle('missing')} onClick={() => setSection('missing')}>
-          <span className="nf-doc-tab-label">Not Submitted</span> {missing.length > 0 && <span style={{ marginLeft: 4, background: '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{missing.length}</span>}
+          <span className="nf-doc-tab-label">Not Submitted</span> {missing.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--risk) 20%, transparent)', color: 'var(--risk)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{missing.length}</span>}
         </button>
       </div>
 
@@ -108,7 +108,7 @@ export function MyDocumentsSection({
                     <td style={tdS}><StatusBadge status={r.status} /></td>
                     <td style={tdS}>
                       {doc?.expiryDate ? (
-                        <span style={{ color: r.expiringSoon ? '#eab308' : 'var(--txt-mut)', fontSize: 13 }}>
+                        <span style={{ color: r.expiringSoon ? 'var(--warn)' : 'var(--txt-mut)', fontSize: 13 }}>
                           {r.expiringSoon && <AlertTriangle size={12} style={{ marginRight: 4 }} />}
                           {new Date(doc.expiryDate).toLocaleDateString()}
                         </span>
@@ -116,7 +116,7 @@ export function MyDocumentsSection({
                     </td>
                     <td style={tdS}>
                       {doc?.rejectionReason
-                        ? <span style={{ color: '#ef4444', fontSize: 12 }}>{doc.rejectionReason}</span>
+                        ? <span style={{ color: 'var(--risk)', fontSize: 12 }}>{doc.rejectionReason}</span>
                         : '—'}
                     </td>
                     <td style={tdS}>
@@ -125,7 +125,7 @@ export function MyDocumentsSection({
                           doc && <WithdrawButton doc={doc} onWithdrawn={handleWithdrawn} />
                         ) : (
                           <button onClick={() => setUploadTarget({ type: r, existing: doc })}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A01418', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'var(--brand)', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                             <Upload size={12} /> {doc ? 'Update' : 'Upload'}
                           </button>
                         )}

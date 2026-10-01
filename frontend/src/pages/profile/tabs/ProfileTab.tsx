@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Trash2, Pencil, Plus } from 'lucide-react';
+import { Trash2, Pencil, Plus, IdCard, Mail, MapPin, GraduationCap, ShieldCheck } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { profileEducationApi, type ProfileData, type EducationEntry } from '../../../api/profile';
 import { SectionHeader, ReadField } from '../shared';
@@ -9,13 +10,13 @@ import { AddressesModal } from './AddressesModal';
 import { IdentityStatutoryModal } from './IdentityStatutoryModal';
 import { EducationModal } from './EducationModal';
 
-function SectionCard({ title, badge, onEdit, children }: {
-  title: string; badge?: string; onEdit?: () => void; children: React.ReactNode;
+function SectionCard({ title, badge, icon, onEdit, children }: {
+  title: string; badge?: string; icon?: LucideIcon; onEdit?: () => void; children: React.ReactNode;
 }) {
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <SectionHeader title={title} badge={badge} />
+        <SectionHeader title={title} badge={badge} icon={icon} />
         {onEdit && (
           <button onClick={onEdit}
             style={{ padding: '5px 12px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', cursor: 'pointer' }}>
@@ -54,7 +55,7 @@ function EducationCard({ token }: { token: string }) {
   return (
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <SectionHeader title="Education" />
+        <SectionHeader title="Education" icon={GraduationCap} />
         <button onClick={() => setModalTarget('new')}
           style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
           <Plus size={13} /> Add Education
@@ -111,7 +112,7 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <SectionCard title="Primary Details" onEdit={() => setModal('primary')}>
+      <SectionCard title="Primary Details" icon={IdCard} onEdit={() => setModal('primary')}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="First Name" value={profile.firstName} />
           <ReadField label="Middle Name" value={profile.middleName} />
@@ -125,7 +126,7 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
         </div>
       </SectionCard>
 
-      <SectionCard title="Contact Details" onEdit={() => setModal('contact')}>
+      <SectionCard title="Contact Details" icon={Mail} onEdit={() => setModal('contact')}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Work Email" value={profile.email} />
           <ReadField label="Personal Email" value={profile.personalEmail} />
@@ -133,7 +134,7 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
         </div>
       </SectionCard>
 
-      <SectionCard title="Addresses" onEdit={() => setModal('addresses')}>
+      <SectionCard title="Addresses" icon={MapPin} onEdit={() => setModal('addresses')}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="Current Address" value={profile.address} />
           <ReadField label="Permanent Address" value={profile.permanentAddress} />
@@ -142,7 +143,7 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
 
       <EducationCard token={token} />
 
-      <SectionCard title="Identity & Statutory" badge="PII Masked" onEdit={() => setModal('identity')}>
+      <SectionCard title="Identity & Statutory" badge="PII Masked" icon={ShieldCheck} onEdit={() => setModal('identity')}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
           <ReadField label="National ID" value={profile.nationalId} />
           <ReadField label="Passport Number" value={profile.passportNumber} />
