@@ -42,16 +42,18 @@ public class UpdateProfileRequest {
     // required-ness are applied here (no existing precedent in this codebase to match), consistent
     // with the "plain columns, UI masking only" decision for the PII fields below.
     //
-    // "^$|..." on all three — same reasoning as emergencyContactName above: these are optional
-    // (e.g. Middle Name is routinely blank), and without explicitly accepting an empty string the
-    // regex rejected it, even though the frontend already treats a blank field as "not provided".
-    @Pattern(regexp = "^$|^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
+    // firstName/lastName deliberately do NOT get the "^$|" blank-allowed escape hatch middleName
+    // has below — a profile can't exist without a name. This still can't break any OTHER modal's
+    // save (Contact/Addresses/Identity never include these keys at all, and @Pattern only runs
+    // against a key that's actually present — an absent/null key always passes regardless of
+    // regex): only PrimaryDetailsModal ever sends firstName/lastName, and it always sends both.
+    @Pattern(regexp = "^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
             message = "Name can only contain letters, spaces, hyphens, apostrophes, and periods")
     private String firstName;
     @Pattern(regexp = "^$|^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
             message = "Name can only contain letters, spaces, hyphens, apostrophes, and periods")
     private String middleName;
-    @Pattern(regexp = "^$|^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
+    @Pattern(regexp = "^[A-Za-z]+(?:[ '.-][A-Za-z]+)*$",
             message = "Name can only contain letters, spaces, hyphens, apostrophes, and periods")
     private String lastName;
     private String preferredName;
