@@ -217,10 +217,12 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         ExpenseClaim claim = requireClaimInStatus(claimId, "SUBMITTED");
         requireCurrentManagerOf(actor, claim.getEmployeeUserId());
+        String approverRole = resolveManagerStageApproverRole(actor, claim.getEmployeeUserId());
 
         String before = auditSnapshot.toJson(Map.of("status", "SUBMITTED"));
         claim.setManagerDecidedBy(actor.getId());
         claim.setManagerDecidedAt(Instant.now());
+        claim.setManagerApprovedByRole(approverRole);
 
         // Workflow Studio: a claim whose submission-time rule evaluation decided the HR/final
         // stage wasn't required (see ExpenseClaim.requiresSecondApproval) is fully cleared by
@@ -235,15 +237,16 @@ public class ExpenseService {
             claim.setStatus("CLEARED_FOR_PAYROLL");
         }
         claimRepo.save(claim);
-        String after = auditSnapshot.toJson(Map.of("status", claim.getStatus(), "managerDecidedBy", actor.getId().toString()));
+        String after = auditSnapshot.toJson(Map.of("status", claim.getStatus(), "managerDecidedBy", actor.getId().toString(), "managerApprovedByRole", approverRole));
         auditService.log(actor.getId(), "EXPENSE_MANAGER_APPROVED", claimId, before, after);
 
         String amountStr = String.format("₹%.2f", claim.getAmount());
         String catName = categoryName(claim.getCategoryId());
+        String approverPhrase = managerStageApproverPhrase(approverRole);
         if (claim.isRequiresSecondApproval()) {
             notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
                     "Expense Claim Approved",
-                    "Your " + catName + " claim for " + amountStr + " was approved by your manager.",
+                    "Your " + catName + " claim for " + amountStr + " was approved " + approverPhrase + ".",
                     "/assets");
         } else {
             // No HR/final stage required for this claim — Manager approval was the only approval
@@ -251,7 +254,7 @@ public class ExpenseService {
             // manager" (which would incorrectly imply an HR step still remains).
             notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
                     "Expense Cleared for Payroll",
-                    "Your " + catName + " claim for " + amountStr + " was approved by your manager and cleared for payroll — no further approval required.",
+                    "Your " + catName + " claim for " + amountStr + " was approved " + approverPhrase + " and cleared for payroll — no further approval required.",
                     "/assets");
         }
         return toClaimResponse(claim, catName);
@@ -262,14 +265,16 @@ public class ExpenseService {
         User actor = requireActor(actorEmail);
         ExpenseClaim claim = requireClaimInStatus(claimId, "SUBMITTED");
         requireCurrentManagerOf(actor, claim.getEmployeeUserId());
+        String approverRole = resolveManagerStageApproverRole(actor, claim.getEmployeeUserId());
 
         String before = auditSnapshot.toJson(Map.of("status", "SUBMITTED"));
         claim.setStatus("MANAGER_REJECTED");
         claim.setManagerDecidedBy(actor.getId());
         claim.setManagerDecidedAt(Instant.now());
         claim.setManagerRejectionReason(reason.trim());
+        claim.setManagerApprovedByRole(approverRole);
         claimRepo.save(claim);
-        String after = auditSnapshot.toJson(Map.of("status", "MANAGER_REJECTED", "managerRejectionReason", claim.getManagerRejectionReason()));
+        String after = auditSnapshot.toJson(Map.of("status", "MANAGER_REJECTED", "managerRejectionReason", claim.getManagerRejectionReason(), "managerApprovedByRole", approverRole));
         auditService.log(actor.getId(), "EXPENSE_MANAGER_REJECTED", claimId, before, after);
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_REJECTED",
                 "Expense Claim Rejected",
@@ -308,6 +313,7 @@ public class ExpenseService {
         requireFinalApproverRole(actor);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
         requireCanActAtFinalStage(actor, claim);
+        requireNotSameApproverAsManagerStage(actor, claim);
 
         // Multi-layer approval: this approval satisfies the current stage, plus any immediately
         // following stages this same actor also holds the role for (a Super Admin approving at the
@@ -352,6 +358,7 @@ public class ExpenseService {
         requireFinalApproverRole(actor);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
         requireCanActAtFinalStage(actor, claim);
+        requireNotSameApproverAsManagerStage(actor, claim);
 
         String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED"));
         claim.setPendingFinalStage(null);
@@ -475,6 +482,17 @@ public class ExpenseService {
         }
     }
 
+    // Closes the loophole an HR Admin/Super Admin override at the Manager stage would otherwise
+    // open: without this, the same person could clear BOTH the Manager stage (via
+    // requireCurrentManagerOf's override) and the HR/final stage of one claim, single-handedly.
+    // Not currently an intentional part of the workflow for any role — every stage is meant to be
+    // a distinct check by a distinct person.
+    private void requireNotSameApproverAsManagerStage(User actor, ExpenseClaim claim) {
+        if (actor.getId().equals(claim.getManagerDecidedBy())) {
+            throw new AccessDeniedException("You already decided this claim at the Manager stage — a different approver is required for final approval.");
+        }
+    }
+
     /** The HR_ADMIN/SUPER_ADMIN stage after {@code current} in the claim's snapshotted stage list,
      * or null when {@code current} is the last one (or the claim predates V201's stage list). */
     private String nextFinalStage(ExpenseClaim claim, String current) {
@@ -491,6 +509,25 @@ public class ExpenseService {
         if ("SUPER_ADMIN".equals(stage)) return "Super Admin";
         if ("HR_ADMIN".equals(stage)) return "HR Admin";
         return "HR Admin or Super Admin";
+    }
+
+    /** MANAGER if {@code actor} is the employee's actual current reporting manager, otherwise
+     * whichever final-approver role they used to clear requireCurrentManagerOf's override branch
+     * (HR_ADMIN/SUPER_ADMIN) — i.e. this IS an override of the real manager. Snapshotted onto the
+     * claim at decision time rather than re-derived later, since the employee's reporting manager
+     * can change afterward. */
+    private String resolveManagerStageApproverRole(User actor, UUID employeeUserId) {
+        Optional<EmployeeManagerHistory> current = historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(employeeUserId);
+        if (current.isPresent() && current.get().getManagerUserId().equals(actor.getId())) {
+            return ApprovalRuleEvaluationService.ROLE_MANAGER;
+        }
+        boolean isSuperAdmin = actor.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getCode()));
+        return isSuperAdmin ? "SUPER_ADMIN" : "HR_ADMIN";
+    }
+
+    private static String managerStageApproverPhrase(String approverRole) {
+        if (ApprovalRuleEvaluationService.ROLE_MANAGER.equals(approverRole)) return "by your manager";
+        return "by " + stageLabel(approverRole) + " on behalf of your manager";
     }
 
     private void requireCurrentManagerOf(User actor, UUID employeeUserId) {
@@ -552,6 +589,7 @@ public class ExpenseService {
                 .managerDecidedByName(c.getManagerDecidedBy() != null ? employeeName(c.getManagerDecidedBy()) : null)
                 .managerDecidedAt(c.getManagerDecidedAt())
                 .managerRejectionReason(c.getManagerRejectionReason())
+                .managerApprovedByRole(c.getManagerApprovedByRole())
                 .finalDecidedByName(c.getFinalDecidedBy() != null ? employeeName(c.getFinalDecidedBy()) : null)
                 .finalDecidedAt(c.getFinalDecidedAt())
                 .finalRejectionReason(c.getFinalRejectionReason())
@@ -618,6 +656,7 @@ public class ExpenseService {
                         .managerDecidedByName(c.getManagerDecidedBy() != null ? namesById.get(c.getManagerDecidedBy()) : null)
                         .managerDecidedAt(c.getManagerDecidedAt())
                         .managerRejectionReason(c.getManagerRejectionReason())
+                        .managerApprovedByRole(c.getManagerApprovedByRole())
                         .finalDecidedByName(c.getFinalDecidedBy() != null ? namesById.get(c.getFinalDecidedBy()) : null)
                         .finalDecidedAt(c.getFinalDecidedAt())
                         .finalRejectionReason(c.getFinalRejectionReason())
