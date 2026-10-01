@@ -922,7 +922,24 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                     <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
-                    <td style={tdStyle}>{c.finalDecidedByName ?? c.managerDecidedByName ?? '—'}</td>
+                    <td style={tdStyle}>
+                      {c.finalDecidedByName ?? (
+                        c.managerDecidedByName
+                          ? <div>
+                              <div>{c.managerDecidedByName}</div>
+                              {/* An HR Admin/Super Admin can approve the Manager stage as an override
+                                  of the real reporting manager (see ExpenseService#requireCurrentManagerOf)
+                                  — flagged here so the claim's history never reads as an ordinary
+                                  manager decision when it wasn't one. */}
+                              {c.managerApprovedByRole && c.managerApprovedByRole !== 'MANAGER' && (
+                                <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>
+                                  ({c.managerApprovedByRole === 'SUPER_ADMIN' ? 'Super Admin' : 'HR Admin'} on behalf of Manager)
+                                </div>
+                              )}
+                            </div>
+                          : '—'
+                      )}
+                    </td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
                       <button onClick={() => handleMarkPaid(c.id)} style={{ background: 'rgba(47,182,124,.12)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>
                         Mark as Paid

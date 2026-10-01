@@ -27,28 +27,28 @@ public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID
 
     @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
          + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
-         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.managerApprovedByRole, c.finalDecidedBy, c.finalDecidedAt, "
          + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
          + "FROM ExpenseClaim c WHERE c.employeeUserId = :employeeUserId ORDER BY c.createdAt DESC")
     List<ExpenseClaimSummary> findSummaryByEmployeeUserIdOrderByCreatedAtDesc(@Param("employeeUserId") UUID employeeUserId);
 
     @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
          + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
-         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.managerApprovedByRole, c.finalDecidedBy, c.finalDecidedAt, "
          + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
          + "FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds AND c.status = :status")
     List<ExpenseClaimSummary> findSummaryByEmployeeUserIdInAndStatus(@Param("employeeUserIds") List<UUID> employeeUserIds, @Param("status") String status);
 
     @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
          + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
-         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.managerApprovedByRole, c.finalDecidedBy, c.finalDecidedAt, "
          + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
          + "FROM ExpenseClaim c WHERE c.employeeUserId IN :employeeUserIds ORDER BY c.createdAt DESC")
     List<ExpenseClaimSummary> findSummaryByEmployeeUserIdInOrderByCreatedAtDesc(@Param("employeeUserIds") List<UUID> employeeUserIds);
 
     @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
          + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
-         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.managerApprovedByRole, c.finalDecidedBy, c.finalDecidedAt, "
          + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
          + "FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
          + "WHERE c.status = :status AND u.deletedAt IS NULL")
@@ -56,7 +56,7 @@ public interface ExpenseClaimRepository extends JpaRepository<ExpenseClaim, UUID
 
     @Query("SELECT new com.nforce.onehr.repository.ExpenseClaimSummary(c.id, c.employeeUserId, "
          + "c.categoryId, c.amount, c.expenseDate, c.businessPurpose, c.status, c.managerDecidedBy, "
-         + "c.managerDecidedAt, c.managerRejectionReason, c.finalDecidedBy, c.finalDecidedAt, "
+         + "c.managerDecidedAt, c.managerRejectionReason, c.managerApprovedByRole, c.finalDecidedBy, c.finalDecidedAt, "
          + "c.finalRejectionReason, c.paidAt, c.createdAt, c.requiresSecondApproval, c.pendingFinalStage) "
          + "FROM ExpenseClaim c JOIN User u ON u.id = c.employeeUserId "
          + "WHERE c.status IN :statuses AND u.deletedAt IS NULL")
