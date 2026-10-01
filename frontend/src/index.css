@@ -1072,6 +1072,13 @@ input[type="date"] {
 .nf-leave-row { transition: background-color .12s; }
 .nf-leave-row:hover { background: var(--raised); }
 
+/* My Profile — section cards (Primary Details, Contact, Addresses, Education, Job Details,
+   Skills & Expertise, etc.) across About/Profile/Job/Growth tabs. Same hover-lift idiom as
+   .nf-leave-balance-card above, applied broadly via one shared class since these cards are
+   otherwise static/flat with no interaction feedback at all. */
+.nf-profile-card { transition: border-color .15s, box-shadow .15s, transform .15s; }
+.nf-profile-card:hover { border-color: var(--line2); box-shadow: 0 4px 16px rgba(0,0,0,.12); transform: translateY(-1px); }
+
 /* Subtle zebra striping + row hover for dense data tables (Attendance Log) ->
    improves scannability on long lists without changing row height/columns. */
 .nf-zebra-table tbody tr:nth-of-type(even) td { background: color-mix(in srgb, var(--txt-dim) 4%, transparent); }

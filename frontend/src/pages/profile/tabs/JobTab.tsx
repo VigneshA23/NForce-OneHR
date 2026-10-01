@@ -8,7 +8,7 @@ import { SectionHeader, ReadField } from '../shared';
 
 function Card({ title, badge, icon, children }: { title: string; badge?: string; icon?: LucideIcon; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <SectionHeader title={title} badge={badge} icon={icon} />
       {children}
     </div>

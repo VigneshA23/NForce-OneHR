@@ -209,3 +209,92 @@ export const profileEducationApi = {
       if (!res.ok) throw new Error('Failed to delete education entry');
     }),
 };
+
+export type ProficiencyLevel = 'Beginner' | 'Intermediate' | 'Expert';
+export const PROFICIENCY_LEVELS: ProficiencyLevel[] = ['Beginner', 'Intermediate', 'Expert'];
+
+export interface SkillEntry {
+  id: string;
+  skillName: string;
+  proficiencyLevel: ProficiencyLevel;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillPayload {
+  skillName: string;
+  proficiencyLevel: ProficiencyLevel;
+}
+
+export const profileSkillsApi = {
+  list: (token: string) =>
+    fetch(`${BASE}/skills`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<SkillEntry[]>),
+
+  create: (token: string, payload: SkillPayload) =>
+    fetch(`${BASE}/skills`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<SkillEntry>),
+
+  update: (token: string, id: string, payload: SkillPayload) =>
+    fetch(`${BASE}/skills/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<SkillEntry>),
+
+  remove: (token: string, id: string) =>
+    fetch(`${BASE}/skills/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Failed to delete skill');
+    }),
+};
+
+export interface LearningEntry {
+  id: string;
+  title: string;
+  description: string | null;
+  entryDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LearningPayload {
+  title: string;
+  description?: string;
+  entryDate: string;
+}
+
+// "What I learned" entries — self-service growth tracking (phase 1). Manager/lead visibility
+// into this is an explicit later phase, not implemented here.
+export const profileLearningApi = {
+  list: (token: string) =>
+    fetch(`${BASE}/learning`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<LearningEntry[]>),
+
+  create: (token: string, payload: LearningPayload) =>
+    fetch(`${BASE}/learning`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<LearningEntry>),
+
+  update: (token: string, id: string, payload: LearningPayload) =>
+    fetch(`${BASE}/learning/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<LearningEntry>),
+
+  remove: (token: string, id: string) =>
+    fetch(`${BASE}/learning/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Failed to delete learning entry');
+    }),
+};
