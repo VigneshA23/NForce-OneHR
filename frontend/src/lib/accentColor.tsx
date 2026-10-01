@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useAuthStore } from '../store/authStore';
+import { userScopedKey } from './userScopedStorageKey';
 
 // "Theme color" — a persisted accent-color override layered on top of dark/light mode. Applied
 // as inline custom properties on <html> so it wins over the --brand/--brand-bright/--brand-deep
@@ -43,7 +45,7 @@ function isAccentColor(v: string | null): v is AccentColor {
 
 function readStoredAccent(): AccentColor {
   try {
-    const v = window.localStorage.getItem(ACCENT_STORAGE_KEY);
+    const v = window.localStorage.getItem(userScopedKey(ACCENT_STORAGE_KEY));
     return isAccentColor(v) ? v : 'red';
   } catch {
     return 'red';
@@ -83,13 +85,26 @@ const AccentContext = createContext<AccentContextValue>({
 
 export function AccentColorProvider({ children }: { children: ReactNode }) {
   const [accent, setAccentState] = useState<AccentColor>(_accent);
+  const email = useAuthStore(s => s.user?.email);
 
   function setAccent(next: AccentColor) {
     _accent = next;
-    try { window.localStorage.setItem(ACCENT_STORAGE_KEY, next); } catch { /* best effort */ }
+    try { window.localStorage.setItem(userScopedKey(ACCENT_STORAGE_KEY), next); } catch { /* best effort */ }
     applyAccent(next);
     setAccentState(next);
   }
+
+  // Re-reads and re-applies whenever the signed-in user changes (login/logout/switching
+  // accounts within the same tab, not just a fresh page load) — otherwise whichever account's
+  // color was applied at module-load time would keep showing for the next person who signs in
+  // without a full page reload.
+  useEffect(() => {
+    const next = readStoredAccent();
+    _accent = next;
+    applyAccent(next);
+    setAccentState(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
 
   return (
     <AccentContext.Provider value={{ accent, setAccent }}>

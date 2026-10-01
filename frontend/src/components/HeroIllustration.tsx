@@ -4,25 +4,29 @@ import { profileApi } from '../api/profile';
 import nf1Logo from '../assets/nforce-logo.png';
 import heroPersonMale from '../assets/hero-person-male.png';
 import heroPersonFemale from '../assets/hero-person-female.png';
+import heroPersonNonBinary from '../assets/hero-person-non-binary.png';
 import heroMaskMale from '../assets/hero-person-male-accent-mask.png';
 import heroMaskFemale from '../assets/hero-person-female-accent-mask.png';
+import heroMaskNonBinary from '../assets/hero-person-non-binary-accent-mask.png';
 
 // ── Gender-aware illustration for the right side of AttendanceHeroBanner ─────────
 // Gender comes from the existing GET /api/profile (ProfileData.gender) — no new backend field.
-// Anything other than a clear Male/Female value (null, "Non-binary", "Prefer not to say") gets
-// the person-free workspace scene rather than a guessed figure.
+// Anything other than a clear Male/Female/Non-binary value (null, "Prefer not to say") gets the
+// person-free workspace scene rather than a guessed figure.
 //
-// Male/female are an IMAGE-ASSET SWAP, not generated artwork: hero-person-male.png and
-// hero-person-female.png are used exactly as supplied (see PersonPhoto below) — never redrawn,
-// recolored, or reshaped. Only the calendar/shift-timing text is live, overlaid on top of the
-// image so it can reflect the viewer's own assigned shift instead of the image's baked-in time.
+// Male/female/non-binary are an IMAGE-ASSET SWAP, not generated artwork: hero-person-male.png,
+// hero-person-female.png and hero-person-non-binary.png are used exactly as supplied (see
+// PersonPhoto below) — never redrawn, recolored, or reshaped. Only the calendar/shift-timing
+// text is live, overlaid on top of the image so it can reflect the viewer's own assigned shift
+// instead of the image's baked-in time.
 
-export type HeroIllustrationVariant = 'female' | 'male' | 'neutral';
+export type HeroIllustrationVariant = 'female' | 'male' | 'non-binary' | 'neutral';
 
 function variantFromGender(gender: string | null | undefined): HeroIllustrationVariant {
   const g = (gender ?? '').trim().toLowerCase();
   if (g === 'female' || g === 'f' || g === 'woman') return 'female';
   if (g === 'male' || g === 'm' || g === 'man') return 'male';
+  if (g === 'non-binary' || g === 'nonbinary' || g === 'non binary' || g === 'nb') return 'non-binary';
   return 'neutral';
 }
 
@@ -75,11 +79,12 @@ const EDGE_FADE_MASK =
 // excludes the person (face, hair, skin, the female's red jacket), laptop, cup, both NF1 logos,
 // plant/pot and chart bars. The employee PNG itself is never modified.
 const PHOTO = {
-  female: { src: heroPersonFemale, mask: heroMaskFemale, aspect: 935 / 308, x: 0.275, w: 0.18, todayBase: 0.243, timeBase: 0.334, font: 5.5 },
-  male:   { src: heroPersonMale,   mask: heroMaskMale,   aspect: 874 / 277, x: 0.281, w: 0.19, todayBase: 0.253, timeBase: 0.345, font: 6.1 },
+  female:      { src: heroPersonFemale,     mask: heroMaskFemale,     aspect: 935 / 308,  x: 0.275, w: 0.18,  todayBase: 0.243, timeBase: 0.334, font: 5.5 },
+  male:        { src: heroPersonMale,       mask: heroMaskMale,       aspect: 874 / 277,  x: 0.281, w: 0.19,  todayBase: 0.253, timeBase: 0.345, font: 6.1 },
+  'non-binary':{ src: heroPersonNonBinary,  mask: heroMaskNonBinary,  aspect: 2000 / 668, x: 0.276, w: 0.175, todayBase: 0.25,  timeBase: 0.32,  font: 5.8 },
 } as const;
 
-function PersonPhoto({ variant, shiftLabel }: { variant: 'male' | 'female'; shiftLabel?: string | null }) {
+function PersonPhoto({ variant, shiftLabel }: { variant: 'male' | 'female' | 'non-binary'; shiftLabel?: string | null }) {
   const p = PHOTO[variant];
   const label = shiftLabel ?? '—';
   const line = (base: number, extra: React.CSSProperties, scale = 1): React.CSSProperties => ({
@@ -246,7 +251,7 @@ export function HeroIllustrationArt({
   variant: HeroIllustrationVariant | null;
   shiftLabel?: string | null;
 }) {
-  if (variant === 'female' || variant === 'male') {
+  if (variant === 'female' || variant === 'male' || variant === 'non-binary') {
     return <PersonPhoto variant={variant} shiftLabel={shiftLabel} />;
   }
   // null = the profile read is still in flight. Rendering FallbackScene here (as if gender were

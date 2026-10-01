@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
-import { X, Sparkles, Check, Pencil, RotateCcw } from 'lucide-react';
+import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
+
+export type ProfileDayStatus = 'holiday' | 'weekly-off' | null;
 
 export const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'] as const;
 export const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -67,9 +70,18 @@ export const ROLE_LABELS: Record<string, string> = {
   EMPLOYEE: 'Employee',
 };
 
-export function SectionHeader({ title, badge }: { title: string; badge?: string }) {
+export function SectionHeader({ title, badge, icon: Icon }: { title: string; badge?: string; icon?: LucideIcon }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+      {Icon && (
+        <span style={{
+          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+          background: 'color-mix(in srgb, var(--brand) 14%, var(--raised2))',
+          color: 'var(--brand-bright)', display: 'grid', placeItems: 'center',
+        }}>
+          <Icon size={12} />
+        </span>
+      )}
       <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '.06em' }}>
         {title}
       </h2>
@@ -353,6 +365,39 @@ export function ProfileCoverBanner({ coverDataUrl, themeBackground, editable, up
         </div>
       )}
     </div>
+  );
+}
+
+// Small work/role icon beside the designation line — purely decorative (aria-hidden), same
+// idiom as the sub-meta bar's Mail/Phone/MapPin icons elsewhere on this page, just applied to
+// the designation itself. Kept as its own component so both ProfilePage.tsx and its preview
+// render identical markup.
+export function DesignationLine({ text }: { text: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13.5, color: 'var(--txt-mut)', marginBottom: 8 }}>
+      <Briefcase size={12} aria-hidden="true" style={{ flexShrink: 0 }} />
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+    </div>
+  );
+}
+
+// "Today" status badge — only rendered for a weekly-off or holiday day (null renders nothing, so
+// a normal working day looks exactly as it did before this feature). Deliberately just another
+// entry in ProfilePage's existing flex-wrap badge row (Role/Active/In-Out/Employee Code) rather
+// than a separately-positioned element, so it inherits that row's already-responsive wrapping
+// instead of needing its own overlap-avoidance logic on narrow screens.
+export function ProfileDayStatusBadge({ status }: { status: ProfileDayStatus }) {
+  if (!status) return null;
+  const isHoliday = status === 'holiday';
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+      textTransform: 'uppercase', letterSpacing: '.03em', whiteSpace: 'nowrap',
+      background: isHoliday ? 'rgba(76,141,214,.15)' : 'rgba(155,161,172,.15)',
+      color: isHoliday ? '#4C8DD6' : '#9BA1AC',
+    }}>
+      {isHoliday ? 'Holiday' : 'Weekly Off'}
+    </span>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Paperclip, Plus } from 'lucide-react';
+import { Paperclip, Plus, Package, ClipboardList, Wallet } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { assetsApi, type AssetAssignmentResponse, type AssetRequestResponse } from '../../../api/assets';
 import { expensesApi, type ExpenseCategory, type ExpenseClaimResponse } from '../../../api/expenses';
@@ -123,7 +123,7 @@ function EmployeeAssetsTab({ token }: { token: string }) {
   }
 
   const subTabStyle = (t: typeof subTab): React.CSSProperties => ({
-    background: t === subTab ? 'rgba(177,17,22,.12)' : 'var(--raised)',
+    background: t === subTab ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--raised)',
     border: `1px solid ${t === subTab ? 'var(--brand)' : 'var(--line2)'}`,
     color: t === subTab ? 'var(--brand-bright)' : 'var(--txt-mut)',
     fontSize: 12, fontWeight: 600, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
@@ -139,7 +139,7 @@ function EmployeeAssetsTab({ token }: { token: string }) {
 
       {subTab === 'assets' && (
         <div style={panelStyle}>
-          <div style={{ padding: '14px 18px 0' }}><SectionHeader title={`My Assets (${assignments.length})`} /></div>
+          <div style={{ padding: '14px 18px 0' }}><SectionHeader title={`My Assets (${assignments.length})`} icon={Package} /></div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -171,7 +171,7 @@ function EmployeeAssetsTab({ token }: { token: string }) {
       {subTab === 'requests' && (
         <div style={panelStyle}>
           <div style={{ padding: '14px 18px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <SectionHeader title={`My Asset Requests (${requests.length})`} />
+            <SectionHeader title={`My Asset Requests (${requests.length})`} icon={ClipboardList} />
             <button onClick={() => setShowRequestModal(true)}
               style={{ marginBottom: 14, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               + New Asset Request
@@ -217,7 +217,7 @@ function EmployeeAssetsTab({ token }: { token: string }) {
       {subTab === 'claims' && (
         <div style={panelStyle}>
           <div style={{ padding: '14px 18px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <SectionHeader title={`My Expense Claims (${claims.length})`} />
+            <SectionHeader title={`My Expense Claims (${claims.length})`} icon={Wallet} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
               <select value={claimStatusFilter} onChange={e => setClaimStatusFilter(e.target.value)} style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--txt)' }}>
                 <option value="">All Statuses</option>
@@ -247,7 +247,7 @@ function EmployeeAssetsTab({ token }: { token: string }) {
                     <td style={tdStyle}>
                       <StatusBadge status={c.status} />
                       {(c.managerRejectionReason || c.finalRejectionReason) && (
-                        <div style={{ fontSize: 10, color: '#E4373D', marginTop: 2 }}>Reason: {c.managerRejectionReason ?? c.finalRejectionReason}</div>
+                        <div style={{ fontSize: 10, color: 'var(--risk)', marginTop: 2 }}>Reason: {c.managerRejectionReason ?? c.finalRejectionReason}</div>
                       )}
                     </td>
                     <td style={tdStyle}>{fmtDate(c.createdAt)}</td>

@@ -1315,7 +1315,8 @@ input[type="date"] {
    edges; the card's `overflow: hidden` + radius clips it. The fallback SVG keeps the boxed card. */
 :has(> .nf-hero-illus) { isolation: isolate; }
 .nf-hero-illus[data-variant="male"],
-.nf-hero-illus[data-variant="female"] {
+.nf-hero-illus[data-variant="female"],
+.nf-hero-illus[data-variant="non-binary"] {
   position: relative;
   z-index: -1;
   align-self: stretch;
@@ -1335,7 +1336,8 @@ input[type="date"] {
    backdrop follows the same accent (HeroIllustration.tsx), so dark → accent wash → accent artwork
    is one continuous ramp for every Theme color. Smootherstep stops, no visible start or end. */
 .nf-hero-illus[data-variant="male"]::before,
-.nf-hero-illus[data-variant="female"]::before {
+.nf-hero-illus[data-variant="female"]::before,
+.nf-hero-illus[data-variant="non-binary"]::before {
   content: '';
   position: absolute;
   top: 0; bottom: 0; left: -260px;
@@ -1345,6 +1347,7 @@ input[type="date"] {
 /* Same row height as before the image went absolute (its aspect used to size the row). */
 .nf-hero-illus[data-variant="female"] { aspect-ratio: 935 / 308; }
 .nf-hero-illus[data-variant="male"] { aspect-ratio: 874 / 277; }
+.nf-hero-illus[data-variant="non-binary"] { aspect-ratio: 2000 / 668; }
 @keyframes nf-hero-illus-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .nf-hero-illus-fig { animation: nf-hero-illus-in 420ms cubic-bezier(.22,.61,.36,1) both; }
 @media (max-width: 767px) {
