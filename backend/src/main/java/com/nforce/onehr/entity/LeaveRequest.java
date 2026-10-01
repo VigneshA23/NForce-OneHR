@@ -35,7 +35,7 @@ public class LeaveRequest {
     private boolean halfDay = false;
 
     // Which half of the day, when halfDay is true; null otherwise. See LeaveHalfDaySession.
-    @Column(name = "half_day_session", length = 10)
+    @Column(name = "half_day_session", length = 20)
     private String halfDaySession;
 
     @Column(name = "total_days", nullable = false)
