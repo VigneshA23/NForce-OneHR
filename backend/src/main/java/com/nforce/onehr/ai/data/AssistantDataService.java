@@ -238,7 +238,15 @@ public class AssistantDataService {
                     + "|\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b.*\\bleaves?\\b"
                     + "|\\bleaves?\\b.*\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b", Pattern.CASE_INSENSITIVE), "leave-requests",
             Pattern.compile("\\b(employees|people|staff|department|how\\s+many)\\b.*\\b(absent|present|checked\\s+in|late|attendance)\\b",
-                    Pattern.CASE_INSENSITIVE), "org-attendance");
+                    Pattern.CASE_INSENSITIVE), "org-attendance",
+            // The caller's own work details. On a page whose own providers fill every slot (six
+            // families on Attendance), "who is my manager" got no profile and the model invented one (ONEHR).
+            Pattern.compile("\\bmy\\s+(reporting\\s+|line\\s+)?(manager|supervisor|boss)\\b"
+                    + "|\\b(who|whom)\\s+(do|should)\\s+i\\s+report\\b|\\bi\\s+report\\s+to\\b"
+                    + "|\\bmy\\s+(employee\\s+(code|id|number)|designation|department|business\\s+unit|employment\\s+type"
+                    + "|work\\s+(mode|location)|joining\\s+date|date\\s+of\\s+joining|probation|confirmation\\s+date)\\b"
+                    + "|\\bwhat\\s+department\\s+am\\s+i\\b|\\bwhich\\s+department\\s+am\\s+i\\b|\\bwhen\\s+did\\s+i\\s+join\\b"
+                    + "|\\bam\\s+i\\s+(still\\s+)?on\\s+probation\\b", Pattern.CASE_INSENSITIVE), "my-profile");
 
     /** As strong as a direct retrieval hit: the question named the record type in so many words. */
     private static final double QUESTION_RELEVANCE = 0.9;
