@@ -64,14 +64,14 @@ knowledge:
       - tell me about myself
       - who is Sam
       - who am I
-      - what is Priya's designation
-      - which department is Rahul in
+      - what is Taylor's designation
+      - which department is Morgan in
       - give me Jordan's employee code
       - give me my own details
-      - tell me about Praveen
+      - tell me about Casey
     body: |
       "Tell me about <name>", "who is <name>" or "show details for <name>" is resolved against the
-      People Directory. When the name - or a shortened form of it, like "Praveen G." - is the
+      People Directory. When the name - or a shortened form of it, like "Casey R." - is the
       signed-in user's own, the answer is their own details. When several people share the name,
       the assistant asks which one is meant, naming each with their department and designation.
       For anyone else, only what the People Directory shows every employee is shared: name,
