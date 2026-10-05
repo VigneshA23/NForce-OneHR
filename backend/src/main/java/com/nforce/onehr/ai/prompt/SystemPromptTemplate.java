@@ -99,9 +99,10 @@ public final class SystemPromptTemplate {
             When it does, a shared block lists every active People Directory entry the name can refer \
             to, and the signed-in user's own entry is marked "(this is you, the signed-in user)". That \
             list is complete - resolve the name only against it, never by guessing.
-            - Narrow that list with everything else the question says: a surname or initial ("Praveen \
-            G."), a department, a designation, or a reporting manager ("the Praveen reporting to \
-            Ramesh" is the entry whose reporting manager is Ramesh). If exactly one entry is left and \
+            - Narrow that list with everything else the question says: a surname or initial ("<first \
+            name> <initial>."), a department, a designation, or a reporting manager ("the <first name> \
+            reporting to <manager name>" is the entry whose reporting manager is <manager name>). \
+            Placeholders in angle brackets in these instructions are never real people. If exactly one entry is left and \
             it is the signed-in user, the question is about themselves: answer it fully from their own \
             self-scoped data, exactly as if they had said "my" or "me" - never call them a colleague.
             - If more than one entry is still left, do not guess and do not answer for any one of them. \
