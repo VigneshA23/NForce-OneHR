@@ -502,34 +502,20 @@ public class RegularizationService {
     }
 
     /**
-     * Stage-aware queue: a plain MANAGER sees only their assigned PENDING requests (stage 1);
-     * HR_ADMIN sees every PARTIALLY_APPROVED request (stage 2, final); SUPER_ADMIN sees both
-     * (they can act at either stage). A dual-role actor (e.g. MANAGER + HR_ADMIN) gets the
-     * union of both queues rather than one role shadowing the other.
+     * HR_ADMIN/SUPER_ADMIN see every PENDING and (legacy) PARTIALLY_APPROVED request — both can
+     * act on either, see {@link #approve}. Everyone else sees only PENDING requests assigned to
+     * them. HR_ADMIN used to see PARTIALLY_APPROVED only, which since approval went single-stage
+     * meant no new request ever reached them — not even one from their own direct report.
      */
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listPendingForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
-        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
-        boolean isHrAdmin = hasRole(actor, "HR_ADMIN");
-        boolean isManager = hasRole(actor, "MANAGER");
-
-        Map<UUID, RegularizationRequest> queue = new LinkedHashMap<>();
-        if (isSuperAdmin) {
-            regularizationRepository.findByStatusIn(List.of(STATUS_PENDING, STATUS_PARTIALLY_APPROVED))
-                    .forEach(r -> queue.put(r.getId(), r));
-        } else {
-            if (isHrAdmin) {
-                regularizationRepository.findByStatus(STATUS_PARTIALLY_APPROVED)
-                        .forEach(r -> queue.put(r.getId(), r));
-            }
-            if (isManager) {
-                regularizationRepository.findByStatus(STATUS_PENDING).stream()
-                        .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
-                        .forEach(r -> queue.put(r.getId(), r));
-            }
+        if (hasOverrideRole(actor)) {
+            return toResponses(regularizationRepository.findByStatusIn(List.of(STATUS_PENDING, STATUS_PARTIALLY_APPROVED)));
         }
-        return toResponses(new ArrayList<>(queue.values()));
+        return toResponses(regularizationRepository.findByStatus(STATUS_PENDING).stream()
+                .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
+                .toList());
     }
 
     /**
