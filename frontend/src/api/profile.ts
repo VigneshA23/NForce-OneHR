@@ -210,8 +210,8 @@ export const profileEducationApi = {
     }),
 };
 
-export type ProficiencyLevel = 'Beginner' | 'Intermediate' | 'Expert';
-export const PROFICIENCY_LEVELS: ProficiencyLevel[] = ['Beginner', 'Intermediate', 'Expert'];
+export type ProficiencyLevel = 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
+export const PROFICIENCY_LEVELS: ProficiencyLevel[] = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
 
 export interface SkillEntry {
   id: string;
@@ -254,11 +254,35 @@ export const profileSkillsApi = {
     }),
 };
 
+export type LearningType =
+  | 'Course' | 'Certification' | 'Self Learning' | 'Workshop'
+  | 'Training' | 'Conference' | 'Internal Training' | 'Other';
+export const LEARNING_TYPES: LearningType[] = [
+  'Course', 'Certification', 'Self Learning', 'Workshop',
+  'Training', 'Conference', 'Internal Training', 'Other',
+];
+
+export type LearningStatus = 'Planned' | 'In Progress' | 'Completed';
+export const LEARNING_STATUSES: LearningStatus[] = ['Planned', 'In Progress', 'Completed'];
+
+export type VerificationStatus = 'Self Reported' | 'Pending Verification' | 'Verified';
+
 export interface LearningEntry {
   id: string;
   title: string;
   description: string | null;
-  entryDate: string;
+  learningType: LearningType;
+  status: LearningStatus;
+  provider: string | null;
+  startDate: string | null;
+  completedDate: string | null;
+  skillsDeveloped: string[];
+  certificateName: string | null;
+  certificateIssueDate: string | null;
+  certificateExpiryDate: string | null;
+  certificateUrl: string | null;
+  verificationStatus: VerificationStatus;
+  notes: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -266,11 +290,21 @@ export interface LearningEntry {
 export interface LearningPayload {
   title: string;
   description?: string;
-  entryDate: string;
+  learningType: LearningType;
+  status: LearningStatus;
+  provider?: string;
+  startDate?: string;
+  completedDate?: string;
+  skillsDeveloped?: string[];
+  certificateName?: string;
+  certificateIssueDate?: string;
+  certificateExpiryDate?: string;
+  certificateUrl?: string;
+  notes?: string;
 }
 
-// "What I learned" entries — self-service growth tracking (phase 1). Manager/lead visibility
-// into this is an explicit later phase, not implemented here.
+// "Learning & Development" entries — self-service growth tracking (phase 1). Manager/lead
+// visibility into this is an explicit later phase, not implemented here.
 export const profileLearningApi = {
   list: (token: string) =>
     fetch(`${BASE}/learning`, { headers: { Authorization: `Bearer ${token}` } })

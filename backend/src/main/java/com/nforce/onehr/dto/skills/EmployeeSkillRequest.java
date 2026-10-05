@@ -9,6 +9,6 @@ public class EmployeeSkillRequest {
     @NotBlank private String skillName;
     // Plain readable value, not a separate enum code — matches how gender/maritalStatus already
     // store their chosen label directly (see UpdateProfileRequest) rather than a code+label pair.
-    @Pattern(regexp = "^(Beginner|Intermediate|Expert)$", message = "Proficiency level must be Beginner, Intermediate, or Expert")
+    @Pattern(regexp = "^(Beginner|Intermediate|Advanced|Expert)$", message = "Proficiency level must be Beginner, Intermediate, Advanced, or Expert")
     private String proficiencyLevel;
 }

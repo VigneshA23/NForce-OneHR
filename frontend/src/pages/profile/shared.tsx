@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -235,74 +235,6 @@ export function ProfileCompletionCard({ detail, onJumpTo }: { detail: ProfileCom
   );
 }
 
-// A smaller set than PROFILE_COMPLETION_FIELDS above, and judged differently: not "how much is
-// filled in overall" but "is the handful of fields that actually matter for safety/HR purposes
-// in place" — phone and emergency contact details specifically, since those are what someone
-// would actually need in an emergency. A profile can be 100% complete and still fail this (if,
-// say, personalEmail/bio are filled but phone isn't) or vice versa.
-const PROFILE_HEALTH_CRITICAL_FIELDS: CompletionFieldMeta[] = [
-  { key: 'phone', label: 'Mobile Number', target: 'profile' },
-  { key: 'dateOfBirth', label: 'Date of Birth', target: 'profile' },
-  { key: 'emergencyContactName', label: 'Emergency Contact Name', target: 'profile' },
-  { key: 'emergencyContactPhone', label: 'Emergency Contact Phone', target: 'profile' },
-];
-
-export interface ProfileHealth {
-  good: boolean;
-  missing: ProfileFieldStatus[];
-}
-
-export function computeProfileHealth(profile: ProfileData): ProfileHealth {
-  const missing = PROFILE_HEALTH_CRITICAL_FIELDS.filter(f => isBlank(profile[f.key]));
-  return { good: missing.length === 0, missing: missing.map(({ label, target }) => ({ label, target })) };
-}
-
-export function ProfileHealthCard({ health, onJumpTo }: { health: ProfileHealth; onJumpTo: (target: ProfileFieldTarget) => void }) {
-  const [open, setOpen] = useState(false);
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const tone = health.good ? 'var(--ok)' : 'var(--warn)';
-
-  function toggleOpen() {
-    if (health.good) return;
-    if (!open && btnRef.current) setAnchorRect(btnRef.current.getBoundingClientRect());
-    setOpen(o => !o);
-  }
-
-  return (
-    <div className="nf-profile-completion" style={{ position: 'relative', alignSelf: 'center' }}>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={toggleOpen}
-        style={{
-          all: 'unset', display: 'block', boxSizing: 'border-box', minWidth: 200,
-          background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 10,
-          padding: '10px 16px', cursor: health.good ? 'default' : 'pointer',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: tone, flexShrink: 0 }} aria-hidden="true" />
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-            Profile Health
-          </span>
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 800, color: tone, marginBottom: 4, textAlign: 'left' }}>
-          {health.good ? 'Good' : 'Needs Attention'}
-        </div>
-        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textAlign: 'left' }}>
-          {health.good
-            ? 'All critical information is complete.'
-            : `${health.missing.length} critical item${health.missing.length === 1 ? '' : 's'} missing — click to see`}
-        </div>
-      </button>
-      {open && !health.good && anchorRect && (
-        <MissingItemsDropdown items={health.missing} anchorRect={anchorRect} onJumpTo={onJumpTo} onCloseRequest={() => setOpen(false)} />
-      )}
-    </div>
-  );
-}
-
 export const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',
   HR_ADMIN: 'HR Admin',
@@ -496,7 +428,24 @@ export function EditModal({ title, onClose, onSave, saving, saveDisabled, childr
   children: React.ReactNode;
   width?: number;
 }) {
-  return (
+  // Without this, scrolling the modal's own body once it runs out of content chains into the
+  // page behind the fixed overlay — the page jumps/re-renders under your cursor mid-scroll,
+  // which reads as the whole modal "glitching". Locking body scroll while open stops that;
+  // restoring the previous value (not assuming '') avoids clobbering another modal's own lock.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+
+  // Portaled to <body>: every caller renders this inline inside a `.nf-profile-card`, which has
+  // its own `:hover { transform: translateY(-1px) }`. A `transform` on any ancestor becomes the
+  // positioning reference for a `position: fixed` descendant instead of the viewport — so with
+  // the cursor still resting over the card right after clicking Edit (hover active), this overlay
+  // would render positioned relative to the card, then visibly snap to the real viewport-centered
+  // position the instant the mouse leaves the card. Portaling escapes that entirely — the same
+  // fix MissingItemsDropdown already uses in this file for the same reason.
+  return createPortal(
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: 'clamp(16px, 4vw, 40px)' }}
       onClick={onClose}
@@ -527,7 +476,8 @@ export function EditModal({ title, onClose, onSave, saving, saveDisabled, childr
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

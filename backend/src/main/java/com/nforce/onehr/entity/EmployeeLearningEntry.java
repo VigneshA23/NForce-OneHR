@@ -25,8 +25,43 @@ public class EmployeeLearningEntry {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "entry_date", nullable = false)
-    private LocalDate entryDate;
+    @Column(name = "learning_type", nullable = false, length = 30)
+    private String learningType;
+
+    @Column(name = "status", nullable = false, length = 20)
+    private String status;
+
+    @Column(name = "provider", length = 150)
+    private String provider;
+
+    @Column(name = "start_date")
+    private LocalDate startDate;
+
+    // Completion date. Nullable: a Planned or In Progress entry has none yet.
+    @Column(name = "entry_date")
+    private LocalDate completedDate;
+
+    // Comma-separated skill names (see EmployeeLearningEntryService#toCsv/fromCsv).
+    @Column(name = "skills_developed", length = 500)
+    private String skillsDeveloped;
+
+    @Column(name = "certificate_name", length = 255)
+    private String certificateName;
+
+    @Column(name = "certificate_issue_date")
+    private LocalDate certificateIssueDate;
+
+    @Column(name = "certificate_expiry_date")
+    private LocalDate certificateExpiryDate;
+
+    @Column(name = "certificate_url", length = 500)
+    private String certificateUrl;
+
+    @Column(name = "verification_status", nullable = false, length = 25)
+    private String verificationStatus;
+
+    @Column(name = "notes", columnDefinition = "TEXT")
+    private String notes;
 
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
     @Builder.Default

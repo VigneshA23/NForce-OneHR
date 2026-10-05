@@ -11,7 +11,7 @@ import profileBannerBlue from '../assets/profile-banner-blue.png';
 import profileBannerPink from '../assets/profile-banner-pink.png';
 import profileBannerGreen from '../assets/profile-banner-green.png';
 import profileBannerPurple from '../assets/profile-banner-purple.png';
-import { PhotoModal, AvatarPickerModal, ProfileCoverBanner, ProfileDayStatusBadge, DesignationLine, dicebearUrl, ROLE_LABELS, computeDisplayName, computeProfileCompletion, ProfileCompletionCard, computeProfileHealth, ProfileHealthCard, type ProfileDayStatus, type ProfileFieldTarget } from './profile/shared';
+import { PhotoModal, AvatarPickerModal, ProfileCoverBanner, ProfileDayStatusBadge, DesignationLine, dicebearUrl, ROLE_LABELS, computeDisplayName, computeProfileCompletion, ProfileCompletionCard, type ProfileDayStatus, type ProfileFieldTarget } from './profile/shared';
 import { attendanceApi } from '../api/attendance';
 import { holidaysApi } from '../api/holidays';
 import { AboutTab } from './profile/tabs/AboutTab';
@@ -312,7 +312,6 @@ export default function ProfilePage() {
           {profile.hasEmployeeRecord && (
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <ProfileCompletionCard detail={computeProfileCompletion(profile, hasEducation)} onJumpTo={handleJumpTo} />
-              <ProfileHealthCard health={computeProfileHealth(profile)} onJumpTo={handleJumpTo} />
             </div>
           )}
         </div>

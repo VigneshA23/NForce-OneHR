@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Sparkles, BookOpen } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Plus, Pencil, Trash2, Sparkles, BookOpen, CheckCircle2, Target,
+  Clock, Award, ArrowRight,
+} from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
-import { profileSkillsApi, profileLearningApi, type SkillEntry, type LearningEntry } from '../../../api/profile';
+import { profileSkillsApi, profileLearningApi, type SkillEntry, type LearningEntry, type LearningStatus } from '../../../api/profile';
 import { SectionHeader } from '../shared';
 import { SkillModal } from './SkillModal';
 import { LearningEntryModal } from './LearningEntryModal';
@@ -17,8 +20,52 @@ const ICON_BTN_STYLE: React.CSSProperties = {
 };
 
 const LEVEL_TONE: Record<string, string> = {
-  Beginner: 'var(--txt-dim)', Intermediate: 'var(--info)', Expert: 'var(--ok)',
+  Beginner: 'var(--txt-dim)', Intermediate: 'var(--info)', Advanced: 'var(--brand-bright)', Expert: 'var(--ok)',
 };
+
+function Pill({ tone, children }: { tone: string; children: React.ReactNode }) {
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+      background: `color-mix(in srgb, ${tone} 15%, transparent)`, color: tone,
+      whiteSpace: 'nowrap',
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function SkillChip({ name }: { name: string }) {
+  return (
+    <span style={{
+      fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 20,
+      background: 'var(--raised2)', border: '1px solid var(--line2)', color: 'var(--txt-mut)',
+    }}>
+      {name}
+    </span>
+  );
+}
+
+// `new Date("2026-09-30")` parses as UTC midnight, so toLocaleDateString in a negative-offset
+// timezone (e.g. US Central) rolls it back to the previous day. Parsing the Y/M/D components
+// into a *local* Date instead avoids that shift regardless of the viewer's timezone.
+function parseLocalDate(d: string): Date {
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day);
+}
+
+function formatDate(d: string | null): string {
+  if (!d) return '—';
+  return parseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function certificateStatus(expiry: string | null): { label: string; tone: string } | null {
+  if (!expiry) return null;
+  const days = (parseLocalDate(expiry).getTime() - Date.now()) / 86_400_000;
+  if (days < 0) return { label: 'Expired', tone: 'var(--risk)' };
+  if (days <= 60) return { label: 'Expiring Soon', tone: 'var(--warn)' };
+  return { label: 'Active', tone: 'var(--ok)' };
+}
 
 function SkillsCard({ token }: { token: string }) {
   const { showToast } = useToast();
@@ -92,10 +139,104 @@ function SkillsCard({ token }: { token: string }) {
   );
 }
 
-function LearningCard({ token }: { token: string }) {
+type LearningTabKey = 'recent' | 'inProgress' | 'history';
+const LEARNING_TABS: { key: LearningTabKey; label: string }[] = [
+  { key: 'recent', label: 'Recent Learning' },
+  { key: 'inProgress', label: 'In Progress' },
+  { key: 'history', label: 'Learning History' },
+];
+
+function EntryActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+      <button onClick={onEdit} aria-label="Edit entry" style={ICON_BTN_STYLE}><Pencil size={13} /></button>
+      <button onClick={onDelete} aria-label="Delete entry" style={{ ...ICON_BTN_STYLE, color: 'var(--risk)' }}><Trash2 size={13} /></button>
+    </div>
+  );
+}
+
+function CompletedEntryCard({ entry, onEdit, onDelete }: { entry: LearningEntry; onEdit: () => void; onDelete: () => void }) {
+  const cert = entry.certificateName ? certificateStatus(entry.certificateExpiryDate) : null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '14px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8 }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+          <CheckCircle2 size={14} color="var(--ok)" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.title}</span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>
+          {entry.learningType} · Completed {formatDate(entry.completedDate)}
+          {entry.provider ? ` · ${entry.provider}` : ''}
+        </div>
+        {entry.description && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 6 }}>{entry.description}</div>}
+        {entry.skillsDeveloped.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+            {entry.skillsDeveloped.map(s => <SkillChip key={s} name={s} />)}
+          </div>
+        )}
+        {entry.certificateName && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+            <Pill tone="var(--info)"><Award size={9} style={{ marginRight: 3, verticalAlign: -1 }} />{entry.certificateName}</Pill>
+            {cert && <Pill tone={cert.tone}>{cert.label}</Pill>}
+          </div>
+        )}
+      </div>
+      <EntryActions onEdit={onEdit} onDelete={onDelete} />
+    </div>
+  );
+}
+
+function InProgressEntryCard({ entry, onEdit, onDelete }: { entry: LearningEntry; onEdit: () => void; onDelete: () => void }) {
+  const isPlanned = entry.status === 'Planned';
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '14px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8 }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+          {isPlanned ? <Target size={14} color="var(--info)" style={{ flexShrink: 0 }} /> : <Clock size={14} color="var(--warn)" style={{ flexShrink: 0 }} />}
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.title}</span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>
+          {entry.learningType} · {entry.status}
+          {entry.provider ? ` · ${entry.provider}` : ''}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
+          {isPlanned ? `Starts ${formatDate(entry.startDate)}` : `Started ${formatDate(entry.startDate)}`}
+        </div>
+        {entry.description && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 6 }}>{entry.description}</div>}
+        {entry.skillsDeveloped.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+            {entry.skillsDeveloped.map(s => <SkillChip key={s} name={s} />)}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+        <button onClick={onEdit} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 11px', background: 'var(--raised2)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer' }}>
+          {isPlanned ? 'View' : 'Continue'} <ArrowRight size={11} />
+        </button>
+        <EntryActions onEdit={onEdit} onDelete={onDelete} />
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ text, onAdd }: { text: string; onAdd?: () => void }) {
+  return (
+    <div style={{ textAlign: 'center', padding: '28px 12px', color: 'var(--txt-dim)', fontSize: 13 }}>
+      <div>{text}</div>
+      {onAdd && (
+        <button onClick={onAdd} style={{ ...ADD_BTN_STYLE, margin: '14px auto 0' }}>
+          <Plus size={13} /> Add Learning
+        </button>
+      )}
+    </div>
+  );
+}
+
+function LearningDevelopmentCard({ token }: { token: string }) {
   const { showToast } = useToast();
   const [entries, setEntries] = useState<LearningEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<LearningTabKey>('recent');
   const [modalTarget, setModalTarget] = useState<LearningEntry | 'new' | null>(null);
 
   function reload() {
@@ -114,43 +255,107 @@ function LearningCard({ token }: { token: string }) {
     }
   }
 
+  const { recent, inProgress, historyByYear } = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 12);
+
+    const completed = entries.filter(e => e.status === 'Completed' && e.completedDate);
+    const recent = completed
+      .filter(e => parseLocalDate(e.completedDate as string) >= cutoff)
+      .sort((a, b) => (b.completedDate as string).localeCompare(a.completedDate as string));
+    const history = completed
+      .filter(e => parseLocalDate(e.completedDate as string) < cutoff)
+      .sort((a, b) => (b.completedDate as string).localeCompare(a.completedDate as string));
+    const inProgress = entries
+      .filter(e => e.status === 'In Progress' || e.status === 'Planned')
+      .sort((a, b) => (b.startDate ?? b.createdAt).localeCompare(a.startDate ?? a.createdAt));
+
+    const historyByYear = new Map<string, LearningEntry[]>();
+    for (const e of history) {
+      const year = (e.completedDate as string).slice(0, 4);
+      if (!historyByYear.has(year)) historyByYear.set(year, []);
+      historyByYear.get(year)!.push(e);
+    }
+
+    return { recent, inProgress, historyByYear };
+  }, [entries]);
+
   return (
     <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <SectionHeader title="What I Learned" badge="Last 6–12 months" icon={BookOpen} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <SectionHeader title="Learning & Development" icon={BookOpen} />
         <button onClick={() => setModalTarget('new')} style={ADD_BTN_STYLE}>
-          <Plus size={13} /> Add Entry
+          <Plus size={13} /> Add Learning
         </button>
       </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--line)', paddingBottom: 10, flexWrap: 'wrap' }}>
+        {LEARNING_TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            style={{
+              padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              border: '1px solid ' + (tab === t.key ? 'var(--brand)' : 'var(--line2)'),
+              background: tab === t.key ? 'color-mix(in srgb, var(--brand) 14%, transparent)' : 'var(--raised)',
+              color: tab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>
-      ) : entries.length === 0 ? (
-        <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>
-          No entries yet — add a course, certification, project, or new skill you picked up.
-        </div>
+      ) : tab === 'recent' ? (
+        recent.length === 0 ? (
+          <EmptyState text="Your recent learning activities will appear here." onAdd={() => setModalTarget('new')} />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {recent.map(e => <CompletedEntryCard key={e.id} entry={e} onEdit={() => setModalTarget(e)} onDelete={() => handleDelete(e.id)} />)}
+          </div>
+        )
+      ) : tab === 'inProgress' ? (
+        inProgress.length === 0 ? (
+          <EmptyState text="Nothing in progress right now." onAdd={() => setModalTarget('new')} />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {inProgress.map(e => <InProgressEntryCard key={e.id} entry={e} onEdit={() => setModalTarget(e)} onDelete={() => handleDelete(e.id)} />)}
+          </div>
+        )
+      ) : historyByYear.size === 0 ? (
+        <EmptyState text="No previous learning records yet." />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {entries.map(e => (
-            <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '12px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{e.title}</div>
-                {e.description && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>{e.description}</div>}
-                <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
-                  {new Date(e.entryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {Array.from(historyByYear.keys()).sort((a, b) => b.localeCompare(a)).map(year => (
+            <div key={year}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', letterSpacing: '.05em', marginBottom: 8, borderBottom: '1px solid var(--line)', paddingBottom: 6 }}>
+                {year}
               </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <button onClick={() => setModalTarget(e)} aria-label="Edit entry" style={ICON_BTN_STYLE}><Pencil size={13} /></button>
-                <button onClick={() => handleDelete(e.id)} aria-label="Delete entry" style={{ ...ICON_BTN_STYLE, color: 'var(--risk)' }}><Trash2 size={13} /></button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {historyByYear.get(year)!.map(e => (
+                  <CompletedEntryCard key={e.id} entry={e} onEdit={() => setModalTarget(e)} onDelete={() => handleDelete(e.id)} />
+                ))}
               </div>
             </div>
           ))}
         </div>
       )}
+
       {modalTarget && (
         <LearningEntryModal
           token={token}
           existing={modalTarget === 'new' ? null : modalTarget}
+          // Add Learning is one shared button above the tabs, not scoped to whichever tab is
+          // open — so a brand-new entry's selectable statuses are restricted to match the active
+          // tab instead (Recent Learning/History is specifically the "already learned" list, so
+          // only Completed applies there; In Progress covers both Planned and actively underway).
+          // Editing an existing entry keeps all three (the modal's own default), since you still
+          // need to move it along its lifecycle — e.g. marking a Planned one Completed.
+          statusOptions={modalTarget === 'new'
+            ? (tab === 'inProgress' ? ['Planned', 'In Progress'] : ['Completed']) as LearningStatus[]
+            : undefined}
           onClose={() => setModalTarget(null)}
           onSaved={saved => {
             setEntries(prev => {
@@ -165,12 +370,12 @@ function LearningCard({ token }: { token: string }) {
 }
 
 // Employee self-service only (ONEHR profile growth tracking, phase 1). Manager/lead visibility
-// into Skills & Expertise / What I Learned is an explicit later phase, not implemented here.
+// into Skills & Expertise / Learning & Development is an explicit later phase, not implemented here.
 export function GrowthTab({ token }: { token: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <SkillsCard token={token} />
-      <LearningCard token={token} />
+      <LearningDevelopmentCard token={token} />
     </div>
   );
 }

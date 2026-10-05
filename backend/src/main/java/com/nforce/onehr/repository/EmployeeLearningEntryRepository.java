@@ -10,5 +10,5 @@ import java.util.UUID;
 @Repository
 public interface EmployeeLearningEntryRepository extends JpaRepository<EmployeeLearningEntry, UUID> {
 
-    List<EmployeeLearningEntry> findByEmployeeUserIdOrderByEntryDateDesc(UUID employeeUserId);
+    List<EmployeeLearningEntry> findByEmployeeUserIdOrderByCreatedAtDesc(UUID employeeUserId);
 }
