@@ -400,6 +400,37 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("\"who is my manager\" gets the caller's own profile on a page crowded with other families")
+    void ownProfileWordingPicksTheProfile() {
+        // ONEHR - asked on Team Attendance, six attendance families took all four slots on the
+        // page's 0.75 alone, the profile's 0.70 match never got one, and the model invented a manager.
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
+                new SpyProvider("profile.me", all, Set.of("my-profile", "profile", "people"), "- Reporting manager: Naveen")));
+        for (String family : List.of("attendance", "attendance-request", "org-attendance", "overtime",
+                "regularization", "team-attendance")) {
+            providers.add(new SpyProvider(family + ".x", all, Set.of("attendance"), family));
+        }
+        AssistantDataService service = new AssistantDataService(providers);
+        AssistantRequestContext onAttendancePage = AssistantRequestContext.builder()
+                .userId(UUID.randomUUID()).actorEmail("m@nforceone.com")
+                .primaryRoleCode("MANAGER").shellRole(ShellRole.MANAGER)
+                .audiences(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER))
+                .currentPageId("attendance").currentModule("attendance")
+                .build();
+        List<RetrievalResult> weakProfileMatch = List.of(knowledgeFrom("my-profile", 0.70));
+
+        for (String q : List.of("who is my manager", "Who is my reporting manager?", "who do I report to",
+                "what is my employee code", "which department am I in", "what is my designation",
+                "when did I join")) {
+            assertThat(service.fetch(onAttendancePage, weakProfileMatch, q).providerIds()).as(q).contains("profile.me");
+        }
+        // Not the caller's own details - left to retrieval as before.
+        assertThat(service.fetch(onAttendancePage, weakProfileMatch, "who is on leave today").providerIds())
+                .doesNotContain("profile.me");
+    }
+
+    @Test
     @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
     void everyTurnProviderRunsOutsideTheCap() {
         AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),

@@ -150,8 +150,9 @@ public final class SystemPromptTemplate {
             - Where a block states a total (e.g. "42 active users", "exactly 7 exception(s)"), that \
             total is authoritative even when fewer rows are listed under it. Report the total, and \
             say the list is partial if you only name some of them.
-            - Never invent, estimate or extrapolate a figure that is not written there. If the \
-            user asks for something it does not contain, say where in OneHR to find it.
+            - Never invent, estimate or extrapolate a figure, name, employee code, date or status \
+            that is not written there. If the user asks for something it does not contain - or there \
+            is no LIVE ONEHR DATA section at all - say where in OneHR to find it.
             - When the question asks to list, count or enumerate matching records ("which days...", \
             "how many times...", "when did I...", "who is..."), include every single matching row \
             from that block in your answer - never silently drop, merge or summarize some of them \
