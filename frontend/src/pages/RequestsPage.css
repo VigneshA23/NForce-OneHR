@@ -73,6 +73,144 @@
 }
 .nf-rq-subtitle { margin: 0; font-size: 13.5px; color: var(--txt-mut); line-height: 1.45; }
 
+/* ── "+ New Request" header dropdown ─────────────── */
+.nf-rq-new-request { position: relative; flex-shrink: 0; }
+.nf-rq-new-request-menu {
+  z-index: 700;
+  min-width: 190px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .25);
+}
+.nf-rq-new-request-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--txt);
+  text-decoration: none;
+  border-radius: 7px;
+  transition: background .12s;
+}
+.nf-rq-new-request-item:hover { background: var(--rq-tint); color: var(--rq-accent-txt); }
+.nf-rq-new-request-item svg { color: var(--txt-dim); flex-shrink: 0; }
+.nf-rq-new-request-item:hover svg { color: var(--rq-accent-txt); }
+
+/* ── Overview row: Request Overview (rings) + Next Request ── */
+.nf-rq-overview-row { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: stretch; }
+
+.nf-rq-ring-row { display: flex; gap: 28px; flex-wrap: wrap; }
+.nf-rq-ring-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px 6px 6px;
+  margin: -6px -10px -6px -6px;
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s, transform .1s;
+}
+.nf-rq-ring-item:hover { background: color-mix(in srgb, var(--txt-dim) 6%, transparent); }
+.nf-rq-ring-item:active { transform: scale(.97); }
+.nf-rq-ring-item--active { background: color-mix(in srgb, var(--tone, var(--brand)) 10%, transparent); border-color: color-mix(in srgb, var(--tone, var(--brand)) 30%, transparent); }
+.nf-rq-ring-item:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.nf-rq-ring {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--tone) calc(var(--pct) * 3.6deg), color-mix(in srgb, var(--tone) 14%, transparent) 0);
+}
+.nf-rq-ring::after { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: var(--panel); }
+.nf-rq-ring-value { position: relative; z-index: 1; font-size: 17px; font-weight: 800; color: var(--txt); font-family: Inter, sans-serif; }
+.nf-rq-ring-label { font-size: 13px; font-weight: 700; color: var(--txt); }
+.nf-rq-ring-caption { font-size: 11px; color: var(--txt-dim); margin-top: 1px; }
+
+.nf-rq-next { position: relative; }
+.nf-rq-next-body { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-right: 8px; }
+.nf-rq-next-info { min-width: 0; }
+.nf-rq-next-title { font-size: 15px; font-weight: 700; color: var(--txt); }
+.nf-rq-next-date { font-size: 12.5px; color: var(--txt-mut); margin-top: 2px; }
+.nf-rq-next-pill { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--rq-accent-txt); }
+.nf-rq-next-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--rq-accent-txt); flex-shrink: 0; }
+.nf-rq-next-sub { margin-top: 6px; font-size: 12px; color: var(--txt-dim); }
+.nf-rq-next-empty { padding: 20px 0; font-size: 13px; color: var(--txt-dim); }
+.nf-rq-next-arrow {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--brand);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--brand) 35%, transparent);
+}
+.nf-rq-next-arrow:hover { background: color-mix(in srgb, var(--brand) 88%, #000); }
+
+/* ── Sidebar: Quick Actions + Need Help ──────────── */
+.nf-rq-quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nf-rq-quick-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  text-decoration: none;
+  background: var(--raised2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  transition: border-color .15s, background .15s;
+}
+.nf-rq-quick-tile:hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--line2)); background: var(--rq-tint); }
+.nf-rq-quick-tile-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+}
+.nf-rq-quick-tile-label { font-size: 12px; font-weight: 600; color: var(--txt); }
+
+.nf-rq-help-stack { display: flex; flex-direction: column; gap: 16px; }
+.nf-rq-help {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--brand) 16%, var(--panel)) 0%, color-mix(in srgb, var(--brand) 5%, var(--panel)) 100%);
+}
+.nf-rq-help-decor {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  color: color-mix(in srgb, var(--brand) 32%, transparent);
+  transform: rotate(18deg);
+}
+.nf-rq-help-title { position: relative; font-size: 15px; font-weight: 700; color: var(--txt); margin-bottom: 5px; }
+.nf-rq-help-text { position: relative; font-size: 12.5px; color: var(--txt-mut); line-height: 1.5; margin-bottom: 14px; }
+
+.nf-rq-encourage { background: color-mix(in srgb, var(--brand) 7%, var(--panel)); }
+.nf-rq-encourage-body { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.nf-rq-encourage-text { font-family: 'Caveat', cursive; font-size: 27px; font-weight: 700; line-height: 1.1; color: var(--rq-accent-txt); }
+.nf-rq-encourage-body svg { color: var(--rq-accent-txt); flex-shrink: 0; }
+
 /* ── KPI cards ───────────────────────────────────── */
 .nf-rq-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
 .nf-rq-kpi {
@@ -151,18 +289,18 @@
 .nf-rq-tab--active { color: var(--rq-accent-txt); }
 .nf-rq-tab--active::after { background: var(--brand); }
 .nf-rq-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -4px; border-radius: 8px; }
-.nf-rq-tab svg { opacity: .85; }
-.nf-rq-tab-count {
-  min-width: 20px;
-  padding: 1px 7px;
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
-  border-radius: 999px;
-  color: var(--txt-mut);
-  background: color-mix(in srgb, var(--txt-dim) 15%, transparent);
+.nf-rq-tab-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
 }
-.nf-rq-tab--active .nf-rq-tab-count { color: var(--rq-accent-txt); background: var(--rq-tint); }
+.nf-rq-tab-count { font-size: 12px; font-weight: 600; color: var(--txt-dim); }
+.nf-rq-tab--active .nf-rq-tab-count { color: var(--rq-accent-txt); }
 
 .nf-rq-filters {
   display: flex;
@@ -227,7 +365,12 @@
 .nf-rq-narrowing { padding: 0 18px 14px; margin-top: -4px; font-size: 11.5px; color: var(--txt-dim); }
 
 /* Table */
-.nf-rq-table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
+/* Scrolls within itself once there are enough rows, instead of growing the whole page — the
+   sidebar (Quick Actions/Need Help) is much shorter than a long request list, and without this
+   the page just kept growing under the table while the sidebar sat still, so a long scroll down
+   showed a huge empty gap next to it. Paired with .nf-rq-stack's sticky position below. */
+.nf-rq-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 620px; border-top: 1px solid var(--line); }
+.nf-rq-table thead th { position: sticky; top: 0; z-index: 1; }
 .nf-rq-table { width: 100%; border-collapse: collapse; }
 .nf-rq-table th {
   padding: 12px 16px;
@@ -250,7 +393,21 @@
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
-.nf-rq-table td.nf-rq-td-actions { text-align: right; }
+/* Sticky, not just right-aligned: a wide row (the two-line Type/Summary/Submitted cells push this
+   past most viewports) would otherwise scroll its own action buttons out of view — "View Details
+   not showing fully" — with no visual hint that there's more to scroll to. Pinning it to the
+   scroll container's right edge keeps it reachable at any scroll position. */
+.nf-rq-table th.nf-rq-th-actions,
+.nf-rq-table td.nf-rq-td-actions {
+  position: sticky;
+  right: 0;
+  text-align: right;
+  background: var(--panel);
+  box-shadow: -8px 0 8px -8px rgba(0, 0, 0, .12);
+}
+.nf-rq-table th.nf-rq-th-actions { background: var(--rq-head-bg); box-shadow: none; }
+.nf-rq-table tbody tr:hover td.nf-rq-td-actions { background: color-mix(in srgb, var(--brand) 4%, var(--panel)); }
+.nf-rq-row-actions { display: inline-flex; align-items: center; gap: 6px; }
 .nf-rq-table tbody tr { cursor: pointer; transition: background-color .12s; }
 .nf-rq-table tbody tr:hover { background: color-mix(in srgb, var(--brand) 4%, transparent); }
 .nf-rq-table tbody tr:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
@@ -275,10 +432,11 @@
   background: color-mix(in srgb, var(--tone) 12%, transparent);
 }
 .nf-rq-type-label { font-weight: 600; font-size: 13.5px; color: var(--txt); white-space: nowrap; }
+.nf-rq-type-sub { font-size: 11.5px; color: var(--txt-dim); margin-top: 1px; white-space: nowrap; }
 
-.nf-rq-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12.5px; color: var(--txt-mut); }
-.nf-rq-summary strong { font-weight: 600; color: var(--txt); }
-.nf-rq-summary-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--txt-dim); opacity: .7; }
+.nf-rq-summary { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-rq-summary-line { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-dim); }
+.nf-rq-summary-line svg { flex-shrink: 0; opacity: .8; }
 
 /* Person (initials avatar + name) */
 .nf-rq-person { display: flex; align-items: center; gap: 10px; min-width: 150px; }
@@ -416,6 +574,7 @@
 .nf-rq-btn--ghost:hover:not(:disabled) { color: var(--txt); }
 .nf-rq-btn--sm { height: 34px; padding: 0 12px; font-size: 12.5px; }
 .nf-rq-btn--block { width: 100%; }
+.nf-rq-btn--pill { border-radius: 999px; }
 .nf-rq-link {
   display: inline-flex;
   align-items: center;
@@ -451,7 +610,16 @@
 
 /* ── Ticket preview / workspace ──────────────────── */
 .nf-rq-split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
-.nf-rq-stack { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.nf-rq-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+}
 .nf-rq-panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -697,12 +865,23 @@
 @media (max-width: 1023px) {
   .nf-rq-split { grid-template-columns: minmax(0, 1fr); }
   .nf-rq-select { max-width: none; }
+  .nf-rq-overview-row { grid-template-columns: minmax(0, 1fr); }
+  /* Single-column layout here (sidebar stacks below the table) — sticky/internal-scroll is a
+     two-column-only affordance, and would just pin the sidebar mid-page on a normal mobile
+     scroll otherwise. */
+  .nf-rq-stack { position: static; max-height: none; overflow-y: visible; }
+  .nf-rq-table-wrap { max-height: none; }
 }
 @media (max-width: 767px) {
   .nf-rq { gap: 14px; }
   .nf-rq-header { padding: 18px; }
   .nf-rq-header-icon { width: 44px; height: 44px; border-radius: 12px; }
   .nf-rq-title { font-size: 20px; }
+  .nf-rq-ring-row { gap: 16px 24px; }
+  .nf-rq-ring { width: 48px; height: 48px; }
+  .nf-rq-ring::after { inset: 6px; }
+  .nf-rq-ring-value { font-size: 14px; }
+  .nf-rq-quick-grid { grid-template-columns: 1fr; }
   .nf-rq-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .nf-rq-kpi { padding: 14px; gap: 10px; }
   .nf-rq-kpi-icon { width: 38px; height: 38px; }
@@ -747,6 +926,10 @@
   .nf-rq-table td.nf-rq-td-lead::before { display: none; }
   .nf-rq-table td.nf-rq-td-actions { position: absolute; top: 12px; right: 12px; width: auto; padding: 0; }
   .nf-rq-table td.nf-rq-td-actions::before { display: none; }
+  /* My Requests' row action is a labelled "View Details" button (not the bare icon this rule was
+     originally written for) — too wide for the absolute top-right corner, so only the icon shows. */
+  .nf-rq-view-btn { padding: 0 9px; }
+  .nf-rq-view-btn-label { display: none; }
   .nf-rq-summary { justify-content: flex-end; }
   .nf-rq-type,
   .nf-rq-person { min-width: 0; }
