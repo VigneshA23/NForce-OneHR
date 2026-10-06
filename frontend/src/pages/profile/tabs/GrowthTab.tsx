@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Pencil, Trash2, Sparkles, BookOpen, CheckCircle2, Target,
-  Clock, Award, ArrowRight,
+  Clock, Award, ArrowRight, ExternalLink,
 } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
-import { profileSkillsApi, profileLearningApi, type SkillEntry, type LearningEntry, type LearningStatus } from '../../../api/profile';
+import { profileSkillsApi, profileLearningApi, profileCertificatesApi, type SkillEntry, type LearningEntry, type LearningStatus, type CertificateEntry } from '../../../api/profile';
 import { SectionHeader } from '../shared';
 import { SkillModal } from './SkillModal';
 import { LearningEntryModal } from './LearningEntryModal';
+import { CertificateModal } from './CertificateModal';
 
 const ADD_BTN_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
@@ -139,6 +140,93 @@ function SkillsCard({ token }: { token: string }) {
   );
 }
 
+function CertificateCard({ cert, onEdit, onDelete }: { cert: CertificateEntry; onEdit: () => void; onDelete: () => void }) {
+  const status = certificateStatus(cert.expiryDate);
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '14px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8 }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+          <Award size={14} color="var(--info)" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{cert.name}</span>
+          {status && <Pill tone={status.tone}>{status.label}</Pill>}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>
+          {cert.issuingOrganization ?? 'Issuer not specified'}
+          {cert.credentialId ? ` · ID ${cert.credentialId}` : ''}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
+          {cert.issueDate ? `Issued ${formatDate(cert.issueDate)}` : ''}
+          {cert.expiryDate ? `${cert.issueDate ? ' · ' : ''}Expires ${formatDate(cert.expiryDate)}` : ''}
+        </div>
+        {cert.credentialUrl && (
+          <a href={cert.credentialUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 12, fontWeight: 600, color: 'var(--brand-bright)', textDecoration: 'none' }}>
+            View credential <ExternalLink size={11} />
+          </a>
+        )}
+      </div>
+      <EntryActions onEdit={onEdit} onDelete={onDelete} />
+    </div>
+  );
+}
+
+function CertificatesCard({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const [certs, setCerts] = useState<CertificateEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalTarget, setModalTarget] = useState<CertificateEntry | 'new' | null>(null);
+
+  function reload() {
+    setLoading(true);
+    profileCertificatesApi.list(token).then(setCerts).catch(() => {}).finally(() => setLoading(false));
+  }
+  useEffect(reload, [token]);
+
+  async function handleDelete(id: string) {
+    try {
+      await profileCertificatesApi.remove(token, id);
+      setCerts(prev => prev.filter(c => c.id !== id));
+      showToast('success', 'Certificate removed');
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Delete failed');
+    }
+  }
+
+  return (
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <SectionHeader title="Certificates" icon={Award} />
+        <button onClick={() => setModalTarget('new')} style={ADD_BTN_STYLE}>
+          <Plus size={13} /> Add Certificate
+        </button>
+      </div>
+      {loading ? (
+        <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>
+      ) : certs.length === 0 ? (
+        <EmptyState text="No certificates added yet." onAdd={() => setModalTarget('new')} addLabel="Add Certificate" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {certs.map(c => (
+            <CertificateCard key={c.id} cert={c} onEdit={() => setModalTarget(c)} onDelete={() => handleDelete(c.id)} />
+          ))}
+        </div>
+      )}
+      {modalTarget && (
+        <CertificateModal
+          token={token}
+          existing={modalTarget === 'new' ? null : modalTarget}
+          onClose={() => setModalTarget(null)}
+          onSaved={saved => {
+            setCerts(prev => {
+              const idx = prev.findIndex(c => c.id === saved.id);
+              return idx >= 0 ? prev.map((c, i) => i === idx ? saved : c) : [...prev, saved];
+            });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 type LearningTabKey = 'recent' | 'inProgress' | 'history';
 const LEARNING_TABS: { key: LearningTabKey; label: string }[] = [
   { key: 'recent', label: 'Recent Learning' },
@@ -219,13 +307,13 @@ function InProgressEntryCard({ entry, onEdit, onDelete }: { entry: LearningEntry
   );
 }
 
-function EmptyState({ text, onAdd }: { text: string; onAdd?: () => void }) {
+function EmptyState({ text, onAdd, addLabel = 'Add Learning' }: { text: string; onAdd?: () => void; addLabel?: string }) {
   return (
     <div style={{ textAlign: 'center', padding: '28px 12px', color: 'var(--txt-dim)', fontSize: 13 }}>
       <div>{text}</div>
       {onAdd && (
         <button onClick={onAdd} style={{ ...ADD_BTN_STYLE, margin: '14px auto 0' }}>
-          <Plus size={13} /> Add Learning
+          <Plus size={13} /> {addLabel}
         </button>
       )}
     </div>
@@ -375,6 +463,7 @@ export function GrowthTab({ token }: { token: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <SkillsCard token={token} />
+      <CertificatesCard token={token} />
       <LearningDevelopmentCard token={token} />
     </div>
   );

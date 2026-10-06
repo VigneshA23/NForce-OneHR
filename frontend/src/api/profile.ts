@@ -303,6 +303,57 @@ export interface LearningPayload {
   notes?: string;
 }
 
+export interface CertificateEntry {
+  id: string;
+  name: string;
+  issuingOrganization: string | null;
+  credentialId: string | null;
+  credentialUrl: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificatePayload {
+  name: string;
+  issuingOrganization?: string;
+  credentialId?: string;
+  credentialUrl?: string;
+  issueDate?: string;
+  expiryDate?: string;
+}
+
+// Standalone certificates — separate from the certificate fields embedded on a Learning entry,
+// for certifications earned outside any logged "Learning & Development" item.
+export const profileCertificatesApi = {
+  list: (token: string) =>
+    fetch(`${BASE}/certificates`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<CertificateEntry[]>),
+
+  create: (token: string, payload: CertificatePayload) =>
+    fetch(`${BASE}/certificates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<CertificateEntry>),
+
+  update: (token: string, id: string, payload: CertificatePayload) =>
+    fetch(`${BASE}/certificates/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<CertificateEntry>),
+
+  remove: (token: string, id: string) =>
+    fetch(`${BASE}/certificates/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Failed to delete certificate');
+    }),
+};
+
 // "Learning & Development" entries — self-service growth tracking (phase 1). Manager/lead
 // visibility into this is an explicit later phase, not implemented here.
 export const profileLearningApi = {

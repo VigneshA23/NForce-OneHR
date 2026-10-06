@@ -26,7 +26,7 @@ const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
   { key: 'about', label: 'About', icon: UserRound },
   { key: 'profile', label: 'Profile', icon: IdCard },
   { key: 'job', label: 'Job', icon: Briefcase },
-  { key: 'growth', label: 'Growth', icon: TrendingUp },
+  { key: 'growth', label: 'Skills', icon: TrendingUp },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'assets', label: 'Assets', icon: Package },
 ];
