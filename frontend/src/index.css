@@ -417,9 +417,9 @@ input[type="date"] {
    Notifications keeps its natural content height and Leave Balance grows to
    absorb the rest, so the two stacked panels' combined height always
    matches the calendar's height exactly instead of drifting apart. */
-.nf-dash-right-col > .nf-leave-panel { flex: 1 1 auto; min-height: 0; justify-content: center; }
-.nf-dash-right-col > .nf-holiday-panel { flex: 0 0 auto; }
-.nf-dash-right-col > .nf-notif-panel { flex: 0 0 auto; }
+.nf-dash-right-col > .nf-leave-panel { flex: 1 1 auto; min-height: 0; min-width: 0; justify-content: center; }
+.nf-dash-right-col > .nf-holiday-panel { flex: 0 0 auto; min-width: 0; }
+.nf-dash-right-col > .nf-notif-panel { flex: 0 0 auto; min-width: 0; }
 
 /* ============================================================
    Responsive — tablet ≤1024px, mobile ≤767px.
@@ -437,6 +437,14 @@ input[type="date"] {
    Handles both column orders (side col first or second) and both border
    conventions seen in the codebase (border-right on non-last child,
    border-left on last child). */
+/* A `3fr 2fr`-style grid column refuses to shrink below its own content's min-content width
+   unless each item opts out — without this, a column whose content happens to need a few extra
+   pixels (a long notification line, a wider leave-balance state, a different zoom level, etc.)
+   forces the whole grid wider than its container, leaking into page-level horizontal scroll.
+   min-width: 0 lets every column actually honor its fr share and rely on its own internal
+   overflow handling (ellipsis, wrapping) instead. */
+.nf-grid-side-collapse > * { min-width: 0; }
+
 @media (max-width: 1024px) {
   .nf-grid-side-collapse { grid-template-columns: 1fr !important; }
   .nf-grid-side-collapse > *:not(:last-child) { border-right: none !important; border-bottom: 1px solid var(--line); }
@@ -1071,6 +1079,13 @@ input[type="date"] {
 .nf-leave-balance-card:hover { border-color: var(--line2); transform: translateY(-1px); }
 .nf-leave-row { transition: background-color .12s; }
 .nf-leave-row:hover { background: var(--raised); }
+
+/* My Profile — section cards (Primary Details, Contact, Addresses, Education, Job Details,
+   Skills & Expertise, etc.) across About/Profile/Job/Growth tabs. Same hover-lift idiom as
+   .nf-leave-balance-card above, applied broadly via one shared class since these cards are
+   otherwise static/flat with no interaction feedback at all. */
+.nf-profile-card { transition: border-color .15s, box-shadow .15s, transform .15s; }
+.nf-profile-card:hover { border-color: var(--line2); box-shadow: 0 4px 16px rgba(0,0,0,.12); transform: translateY(-1px); }
 
 /* Subtle zebra striping + row hover for dense data tables (Attendance Log) ->
    improves scannability on long lists without changing row height/columns. */

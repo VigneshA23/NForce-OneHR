@@ -17,6 +17,11 @@ public class AuditService {
 
     private final AuditLogRepository auditLogRepository;
 
+    // Must carry its own REQUIRES_NEW, not just delegate to the 5-arg overload: a plain internal
+    // call to another method on this same bean is a self-invocation that bypasses Spring's AOP
+    // proxy, so the 5-arg overload's @Transactional would silently never apply and this write
+    // would run inside the caller's own transaction instead of an isolated one.
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = Exception.class)
     public void log(UUID actorId, String action, UUID targetId) {
         log(actorId, action, targetId, null, null);
     }

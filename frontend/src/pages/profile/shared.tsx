@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
@@ -56,11 +57,182 @@ export function validateName(v: string, label: string): string | null {
   return NAME_RE.test(v) ? null : `${label} can only contain letters, spaces, hyphens, apostrophes, and periods.`;
 }
 
+// Unlike validateName above, blank is NOT accepted here — First/Last Name are the one case where
+// an empty value genuinely is invalid (a profile can't exist without a name), not just "not
+// provided yet".
+export function validateRequiredName(v: string, label: string): string | null {
+  if (!v.trim()) return `${label} is required.`;
+  return NAME_RE.test(v) ? null : `${label} can only contain letters, spaces, hyphens, apostrophes, and periods.`;
+}
+
 // Display Name is derived, not a separately stored/edited field — First/Middle/Last Name
 // (edited via Primary Details) are the single source of truth. Falls back to fullName for the
 // rare account with no employee record / no name parts set yet.
 export function computeDisplayName(profile: Pick<ProfileData, 'firstName' | 'middleName' | 'lastName' | 'fullName'>): string {
   return [profile.firstName, profile.middleName, profile.lastName].filter(Boolean).join(' ').trim() || profile.fullName;
+}
+
+// Where clicking a missing item in the Profile Completion/Health dropdowns should take the
+// employee — 'about'/'profile' switch ProfilePage's tab, 'photo' opens the photo modal directly
+// (there's no tab for it; it lives on the header itself).
+export type ProfileFieldTarget = 'about' | 'profile' | 'photo';
+
+export interface ProfileFieldStatus {
+  label: string;
+  target: ProfileFieldTarget;
+}
+
+interface CompletionFieldMeta { key: keyof ProfileData; label: string; target: ProfileFieldTarget; }
+
+// Fields the employee can actually fill in themselves, that are genuinely useful to have on
+// file — deliberately excludes passportNumber/nationalId/bank details (sensitive, often not
+// applicable to every employee, and already called out elsewhere as "no format validators
+// beyond required-ness... consistent with plain columns, UI masking only") and middleName
+// (frequently and legitimately blank, not a sign of an incomplete profile).
+const PROFILE_COMPLETION_FIELDS: CompletionFieldMeta[] = [
+  { key: 'photoDataUrl', label: 'Profile Photo', target: 'photo' },
+  { key: 'phone', label: 'Mobile Number', target: 'profile' },
+  { key: 'dateOfBirth', label: 'Date of Birth', target: 'profile' },
+  { key: 'gender', label: 'Gender', target: 'profile' },
+  { key: 'maritalStatus', label: 'Marital Status', target: 'profile' },
+  { key: 'personalEmail', label: 'Personal Email', target: 'profile' },
+  { key: 'address', label: 'Current Address', target: 'profile' },
+  { key: 'permanentAddress', label: 'Permanent Address', target: 'profile' },
+  { key: 'emergencyContactName', label: 'Emergency Contact Name', target: 'profile' },
+  { key: 'emergencyContactPhone', label: 'Emergency Contact Phone', target: 'profile' },
+  { key: 'emergencyContactRelationship', label: 'Emergency Contact Relationship', target: 'profile' },
+  { key: 'bio', label: 'About Me / Bio', target: 'about' },
+];
+
+function isBlank(v: unknown): boolean {
+  return typeof v === 'string' ? !v.trim() : !v;
+}
+
+export interface ProfileCompletionDetail {
+  percent: number;
+  missing: ProfileFieldStatus[];
+}
+
+// hasEducation isn't part of ProfileData — it's a separate list (EducationEntry[], fetched via
+// profileEducationApi), not a single field, so it's passed in rather than read off profile
+// directly. Counts as "complete" once at least one entry exists, same all-or-nothing shape as
+// every other item here.
+export function computeProfileCompletion(profile: ProfileData, hasEducation: boolean): ProfileCompletionDetail {
+  const missing: ProfileFieldStatus[] = PROFILE_COMPLETION_FIELDS
+    .filter(f => isBlank(profile[f.key]))
+    .map(({ label, target }) => ({ label, target }));
+  if (!hasEducation) missing.push({ label: 'Education History', target: 'profile' });
+
+  const totalFields = PROFILE_COMPLETION_FIELDS.length + 1;
+  const percent = Math.round(((totalFields - missing.length) / totalFields) * 100);
+  return { percent, missing };
+}
+
+// Shared "click to see a dropdown of what's missing" shell for both cards below — closes on
+// picking an item, or clicking anywhere outside it (a borderless full-viewport backdrop behind
+// the dropdown, same trick used for the app's other popovers).
+//
+// Rendered through a portal to document.body, positioned via `anchorRect` (the trigger button's
+// own getBoundingClientRect(), captured by the caller right as it opens) rather than a plain
+// `position: absolute` next to the button — the profile hero card this sits inside has its own
+// `overflow: hidden` (to round the cover banner's corners), which would otherwise silently clip
+// off whichever items don't fit before that card's bottom edge.
+function MissingItemsDropdown({ items, anchorRect, onJumpTo, onCloseRequest }: {
+  items: ProfileFieldStatus[];
+  anchorRect: DOMRect;
+  onJumpTo: (target: ProfileFieldTarget) => void;
+  onCloseRequest: () => void;
+}) {
+  return createPortal(
+    <>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }} onClick={onCloseRequest} />
+      <div
+        role="menu"
+        style={{
+          position: 'fixed', top: anchorRect.bottom + 6, left: anchorRect.left, zIndex: 1001,
+          background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8,
+          boxShadow: '0 8px 24px rgba(0,0,0,.3)', minWidth: 230, maxHeight: '60vh', overflowY: 'auto',
+          padding: 6,
+        }}
+      >
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', padding: '4px 8px 6px' }}>
+          Still missing
+        </div>
+        {items.map(item => (
+          <button
+            key={item.label}
+            type="button"
+            onClick={() => { onJumpTo(item.target); onCloseRequest(); }}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left', padding: '7px 8px',
+              background: 'none', border: 'none', borderRadius: 6, fontSize: 12.5,
+              color: 'var(--txt)', cursor: 'pointer',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--raised)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body
+  );
+}
+
+/** Sits beside the identity block in the profile header, on the solid panel background below
+ * the (user-uploadable, unpredictable-contrast) cover image — never overlaid on the image
+ * itself, unlike the reference mockup's clean gradient banner, since a real photo cover could
+ * make overlaid text illegible. Clickable: shows exactly which fields are still missing, and
+ * clicking one jumps straight to where it's edited. */
+export function ProfileCompletionCard({ detail, onJumpTo }: { detail: ProfileCompletionDetail; onJumpTo: (target: ProfileFieldTarget) => void }) {
+  const [open, setOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const hasMissing = detail.missing.length > 0;
+
+  function toggleOpen() {
+    if (!hasMissing) return;
+    if (!open && btnRef.current) setAnchorRect(btnRef.current.getBoundingClientRect());
+    setOpen(o => !o);
+  }
+
+  return (
+    <div className="nf-profile-completion" style={{ position: 'relative', alignSelf: 'center' }}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggleOpen}
+        style={{
+          all: 'unset', display: 'block', boxSizing: 'border-box', minWidth: 200,
+          background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 10,
+          padding: '10px 16px', cursor: hasMissing ? 'pointer' : 'default',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            Profile Completion
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--brand-bright)', fontVariantNumeric: 'tabular-nums' }}>
+            {detail.percent}%
+          </span>
+        </div>
+        <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', width: `${detail.percent}%`, borderRadius: 4,
+            background: 'linear-gradient(90deg, var(--brand) 0%, var(--brand-bright) 100%)',
+            transition: 'width .4s ease',
+          }} />
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 7, textAlign: 'left' }}>
+          {hasMissing ? `${detail.missing.length} item${detail.missing.length === 1 ? '' : 's'} left — click to see` : "You're all set!"}
+        </div>
+      </button>
+      {open && hasMissing && anchorRect && (
+        <MissingItemsDropdown items={detail.missing} anchorRect={anchorRect} onJumpTo={onJumpTo} onCloseRequest={() => setOpen(false)} />
+      )}
+    </div>
+  );
 }
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -98,7 +270,9 @@ export function ReadField({ label, value }: { label: string; value: string | nul
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, color: value ? 'var(--txt)' : 'var(--txt-dim)', minHeight: 20 }}>{value || '—'}</div>
+      <div style={{ fontSize: 13, color: value ? 'var(--txt)' : 'var(--txt-dim)', fontStyle: value ? 'normal' : 'italic', minHeight: 20 }}>
+        {value || 'Not set'}
+      </div>
     </div>
   );
 }
@@ -254,7 +428,24 @@ export function EditModal({ title, onClose, onSave, saving, saveDisabled, childr
   children: React.ReactNode;
   width?: number;
 }) {
-  return (
+  // Without this, scrolling the modal's own body once it runs out of content chains into the
+  // page behind the fixed overlay — the page jumps/re-renders under your cursor mid-scroll,
+  // which reads as the whole modal "glitching". Locking body scroll while open stops that;
+  // restoring the previous value (not assuming '') avoids clobbering another modal's own lock.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+
+  // Portaled to <body>: every caller renders this inline inside a `.nf-profile-card`, which has
+  // its own `:hover { transform: translateY(-1px) }`. A `transform` on any ancestor becomes the
+  // positioning reference for a `position: fixed` descendant instead of the viewport — so with
+  // the cursor still resting over the card right after clicking Edit (hover active), this overlay
+  // would render positioned relative to the card, then visibly snap to the real viewport-centered
+  // position the instant the mouse leaves the card. Portaling escapes that entirely — the same
+  // fix MissingItemsDropdown already uses in this file for the same reason.
+  return createPortal(
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: 'clamp(16px, 4vw, 40px)' }}
       onClick={onClose}
@@ -285,7 +476,8 @@ export function EditModal({ title, onClose, onSave, saving, saveDisabled, childr
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

@@ -7,7 +7,7 @@ import { PreferredNameBioModal } from './PreferredNameBioModal';
 function SummaryCard({ profile, token, onSaved }: { profile: ProfileData; token: string; onSaved: (p: ProfileData) => void }) {
   const [editing, setEditing] = useState(false);
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <SectionHeader title="Personal Summary & Bio" icon={UserRound} />
         <button onClick={() => setEditing(true)}
@@ -45,7 +45,7 @@ function EmploymentContextCard({ profile }: { profile: ProfileData }) {
   })();
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <SectionHeader title="Employment & Organization Context" icon={Building2} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
         <ReadField label="Job Title" value={profile.designationName} />
@@ -74,7 +74,7 @@ function TimelineSubTab({ entries, loading }: { entries: ProfileTimelineEvent[];
   // timestamp, not just the date, so same-day changes still order correctly.
   const sorted = [...entries].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <SectionHeader title="Employee Life Cycle & Career History" badge="System History" icon={History} />
       <div style={{ position: 'relative', paddingLeft: 8 }}>
         <div style={{ position: 'absolute', left: 23, top: 10, bottom: 10, width: 2, background: 'var(--line2)' }} />
