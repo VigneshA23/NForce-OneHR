@@ -158,17 +158,12 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Early-UX only, mirroring the backend's own day-count formula (LeaveService#submitRequest) —
-  // the backend independently re-validates against the same status-aware balance regardless of
-  // what's computed here, so this can never be relied on to enforce the limit by itself.
+  // No client-side "exceeds balance" check: the backend counts only the employee's shift working
+  // days (LeaveService#submitRequest), which this form doesn't know — a calendar-day count here
+  // would wrongly block e.g. a Fri–Mon request on a Mon–Fri shift. The server's error is shown below.
   const selectedBalance = balances.find(b =>
     b.leaveTypeCode === form.leaveTypeCode
     || (isAnnualBalanceLeaveType(form.leaveTypeCode) && isAnnualBalanceLeaveType(b.leaveTypeCode)));
-  const effectiveEndDate = form.halfDay ? form.startDate : form.endDate;
-  const requestedDays = form.halfDay
-    ? 0.5
-    : (new Date(effectiveEndDate).getTime() - new Date(form.startDate).getTime()) / 86400000 + 1;
-  const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && requestedDays > selectedBalance.remainingDays;
 
   // Early-UX only, mirroring the backend's own classification-based rule (LeaveService#submitRequest)
   // — the backend independently re-validates against ALL of the employee's paid balances regardless
@@ -184,10 +179,6 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     // this against its own (timezone-correct) notion of "today" regardless of what's checked here.
     if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
     if (form.halfDay && !form.halfDaySession) { setError('Select First Half or Second Half.'); return; }
-    if (exceedsBalance && selectedBalance) {
-      setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${selectedBalance.remainingDays} days.`);
-      return;
-    }
     if (blockedUnpaidWithPaidBalance) {
       setError('You cannot apply for unpaid leave while you have an available paid leave balance.');
       return;
@@ -218,9 +209,8 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
               </select>
             </Field>
             {selectedBalance && (
-              <div style={{ fontSize: 11.5, color: exceedsBalance ? 'var(--risk)' : 'var(--txt-dim)', marginTop: 5 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 5 }}>
                 Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
-                {exceedsBalance && ' — this request exceeds your available balance'}
               </div>
             )}
             {blockedUnpaidWithPaidBalance && (
@@ -258,7 +248,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
           </div>
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
+            <button type="submit" disabled={submitting || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
           </div>
         </form>
       </div>

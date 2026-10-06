@@ -62,14 +62,13 @@ public class Shift {
     // "Applicable Days" in the UI — comma-separated java.time.DayOfWeek names, e.g.
     // "MONDAY,TUESDAY", same convention as WeeklyOffPolicy.offDays. Set at creation (see
     // OrgService#createShift; defaults to ALL_WORKING_DAYS) and optionally replaced immediately
-    // by updateShift — never versioned/effective-dated, unlike startTime/endTime/etc, since
-    // nothing below ever reads it (see OrgService#applyApplicableDaysUpdate's own comment).
-    // Purely a display/record attribute — deliberately NOT read by ShiftDayPolicy,
-    // WorkingDayService, or any other workday/weekly-off computation, which all remain sourced
-    // exclusively from the employee's own WeeklyOffPolicy; wiring this into any of them would
-    // reintroduce the exact conflict this field was once pulled off the API surface for. Null
-    // only for a shift created before this field existed (treated as "all 7 days" on read — see
-    // ShiftResponse#from).
+    // by updateShift — never versioned/effective-dated, unlike startTime/endTime/etc.
+    // Read by LeaveService (via #worksOn) to count only the employee's working days in a leave
+    // request — a change here affects future submissions only, since each request stores its own
+    // totalDays. Still deliberately NOT read by ShiftDayPolicy, WorkingDayService, or any other
+    // attendance workday/weekly-off computation, which remain sourced from the employee's own
+    // WeeklyOffPolicy. Null only for a shift created before this field existed (treated as "all
+    // 7 days" — see #worksOn and ShiftResponse#from).
     @Column(name = "working_days", length = 60)
     private String workingDays;
 
@@ -83,5 +82,11 @@ public class Shift {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    /** Whether {@code day} is one of this shift's Applicable Days; null/blank means all 7. */
+    public boolean worksOn(DayOfWeek day) {
+        return workingDays == null || workingDays.isBlank()
+                || Arrays.stream(workingDays.split(",")).map(String::trim).anyMatch(day.name()::equals);
     }
 }
