@@ -218,16 +218,10 @@ public final class LeaveDataProviders {
             List<LeaveRequestResponse> pending = leaveService.listPendingApprovals(context.getActorEmail());
             if (pending == null || pending.isEmpty()) return Optional.empty();
 
-            String rows = pending.stream()
-                    .limit(MAX_ROWS)
-                    .map(r -> "- %s: %s, %s to %s (%s days)".formatted(
+            return Optional.of(LiveDataText.cappedList(pending, MAX_ROWS, "leave request(s) awaiting your decision", "first",
+                    r -> "%s: %s, %s to %s (%s days)".formatted(
                             r.getEmployeeName(), r.getLeaveTypeName(),
-                            r.getStartDate(), r.getEndDate(), r.getTotalDays()))
-                    .collect(Collectors.joining("\n"));
-
-            // The count is stated separately because it is what the person actually asked for, and
-            // the rows are capped.
-            return Optional.of("%d awaiting your decision.\n%s".formatted(pending.size(), rows));
+                            r.getStartDate(), r.getEndDate(), r.getTotalDays())));
         }
     }
 }

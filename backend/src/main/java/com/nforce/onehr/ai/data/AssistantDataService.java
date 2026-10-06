@@ -264,6 +264,7 @@ public class AssistantDataService {
                     + "|half[- ]?days?|discrepanc\\w*|irregular\\w*|attendance|on\\s+time|punctual\\w*)\\b",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PENALTY = Pattern.compile("\\bpenal\\w*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern REGULARIZATION = Pattern.compile("\\bregulari[sz]\\w*", Pattern.CASE_INSENSITIVE);
     private static final Pattern WFH = Pattern.compile(
             "\\b(wfh|work(ing|s)?\\s+from\\s+home|remote(ly)?|on\\s+duty)\\b", Pattern.CASE_INSENSITIVE);
     /** "what leave types can I apply for", "my leave balance" - the balance block lists every type held. */
@@ -285,10 +286,16 @@ public class AssistantDataService {
             relevance.put("attendance-history", QUESTION_RELEVANCE);
         }
         if (LEAVE_TYPES.matcher(question).find()) relevance.put("leave-balances", QUESTION_RELEVANCE);
+        // Regularization shares "attendance" with five other families and sorts fifth for four
+        // slots, so "how many regularizations did I raise" got no rows at all (ONEHR).
+        if (REGULARIZATION.matcher(question).find()) relevance.put("regularization", QUESTION_RELEVANCE);
         // A team question gets the team's rows, never only the caller's own: "how many in my team
         // were absent yesterday" was answered from the manager's own empty record (ONEHR).
         if (TEAM_SCOPE.matcher(question).find()) {
             relevance.remove("attendance-history");
+            // The team's regularizations are the approver queue (ONEHR - "pending regularization
+            // requests for my team" got only a link to My Team's reports).
+            if (relevance.remove("regularization") != null) relevance.put("regularization-approvals", QUESTION_RELEVANCE);
             if (DISCREPANCY.matcher(question).find()) relevance.put("my-team-attendance", QUESTION_RELEVANCE);
             if (PENALTY.matcher(question).find()) {
                 relevance.put("team-penalties", QUESTION_RELEVANCE);

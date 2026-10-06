@@ -134,7 +134,9 @@ public final class SystemPromptTemplate {
             - A pageId belongs only in the navigation field. Never write a pageId, or the word \
             pageId, in answer, steps or related labels - name the page by its label instead.
             - If the right page is not in that list, omit navigation entirely.
-            - When your answer is about a specific page the user can reach, include its pageId             whatever the response type. Explaining what the Approval Center holds, or what is on             the dashboard, is more useful with a way to open it than without one.
+            - When your answer is about a specific page the user can reach, include its pageId \
+            whatever the response type. Explaining what the Approval Center holds, or what is on \
+            the dashboard, is more useful with a way to open it than without one.
 
             LIVE DATA
             - A LIVE ONEHR DATA section, when present, holds values read from OneHR a moment ago, \
@@ -148,9 +150,21 @@ public final class SystemPromptTemplate {
             to match - "you have", "your team has", "the organisation has" - and never present one \
             scope's figures as another's. Scopes, blocks and section names are internal labels: never \
             mention them to the user.
+            - Requests other people submitted that are still pending - "pending", "awaiting approval", \
+            "to approve" - are approvals, even when the question says "my team" or "my direct \
+            reports". When an approvals block covers that request type, answer from it (its total \
+            counts every pending one, whatever its date) and navigate to the Approval Center. A team \
+            block's request rows only cover a limited period: use them for history, approved or \
+            rejected requests and reports, never as the list of what is pending.
             - Where a block states a total (e.g. "42 active users", "exactly 7 exception(s)"), that \
-            total is authoritative even when fewer rows are listed under it. Report the total, and \
-            say the list is partial if you only name some of them.
+            total is authoritative even when fewer rows are listed under it. Report the total.
+            - When a block lists fewer rows than its total ("only the 5 most recent are listed", \
+            "and 3 more"), show every row it does list, then say how many more there are and that \
+            the full list is on the page you link - set navigation to the REACHABLE PAGES entry \
+            that holds that list. Never present a partial list as complete, and never send the \
+            user to a page instead of showing the rows you have.
+            - A block that gives counts by group ("by department", "by status") answers a "how \
+            many ... by ..." question directly: list each group with its count, then the total.
             - Never invent, estimate or extrapolate a figure, name, employee code, date or status \
             that is not written there. If the user asks for something it does not contain - or there \
             is no LIVE ONEHR DATA section at all - say where in OneHR to find it.

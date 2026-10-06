@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /** The caller's own overtime requests, both sides — mirrors {@code LeaveDataProviders} exactly. */
 public final class OvertimeDataProviders {
@@ -67,12 +66,8 @@ public final class OvertimeDataProviders {
             List<OvertimeRequestResponse> pending = overtimeRequestService.listPendingForApprover(context.getActorEmail());
             if (pending == null || pending.isEmpty()) return Optional.empty();
 
-            String rows = pending.stream()
-                    .limit(MAX_ROWS)
-                    .map(r -> "- %s: %s".formatted(r.getEmployeeName(), r.getWorkDate()))
-                    .collect(Collectors.joining("\n"));
-
-            return Optional.of("%d awaiting your decision.\n%s".formatted(pending.size(), rows));
+            return Optional.of(LiveDataText.cappedList(pending, MAX_ROWS, "overtime request(s) awaiting your decision", "first",
+                    r -> "%s: %s".formatted(r.getEmployeeName(), r.getWorkDate())));
         }
     }
 }

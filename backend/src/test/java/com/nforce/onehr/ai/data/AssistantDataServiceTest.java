@@ -431,6 +431,30 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("regularization wording gets the regularization rows on a crowded page - the caller's own, or the queue for \"my team\"")
+    void regularizationWordingPicksRegularizations() {
+        // ONEHR - regularization sorted fifth among six "attendance" families for four slots, so
+        // "how many regularization requests did I raise" was answered with "I cannot access that".
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        Set<AudienceBucket> approvers = Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
+        List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
+                new SpyProvider("regularization.my-requests", all, Set.of("attendance", "requests", "regularization"), "mine"),
+                new SpyProvider("regularization.pending-approvals", approvers,
+                        Set.of("attendance", "approvals", "regularization-approvals"), "queue")));
+        for (String family : List.of("attendance", "attendance-request", "org-attendance", "overtime", "team-attendance")) {
+            providers.add(new SpyProvider(family + ".x", all, Set.of("attendance"), family));
+        }
+        AssistantDataService service = new AssistantDataService(providers);
+        List<RetrievalResult> attendance = List.of(knowledgeFrom("attendance", 0.8));
+
+        assertThat(service.fetch(employee(), attendance,
+                "How many regularization requests did I raise this month and how many were approved?").providerIds())
+                .contains("regularization.my-requests");
+        assertThat(service.fetch(manager(), attendance, "Show pending regularization requests only for my team").providerIds())
+                .contains("regularization.pending-approvals");
+    }
+
+    @Test
     @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
     void everyTurnProviderRunsOutsideTheCap() {
         AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),

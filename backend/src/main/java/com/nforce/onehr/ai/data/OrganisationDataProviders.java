@@ -97,8 +97,9 @@ public final class OrganisationDataProviders {
             out.append("\nActive users by role: ").append(groupCounts(active, u -> PeopleDataProviders.roleLabel(u.getRole())));
             out.append("\nActive users by department: ").append(groupCounts(active, EmployeeResponse::getDepartmentName));
             out.append("\nActive users by location: ").append(groupCounts(active, EmployeeResponse::getLocationName));
-            long joined = users.stream().filter(u -> u.getJoiningDate() != null && !u.getJoiningDate().isBefore(monthStart)).count();
-            out.append("\nJoined this month (joining date on or after %s): %d".formatted(monthStart, joined));
+            List<EmployeeResponse> joined = users.stream().filter(u -> u.getJoiningDate() != null && !u.getJoiningDate().isBefore(monthStart)).toList();
+            out.append("\nJoined this month (joining date on or after %s): %d".formatted(monthStart, joined.size()));
+            if (!joined.isEmpty()) out.append("\nJoined this month by department: ").append(groupCounts(joined, EmployeeResponse::getDepartmentName));
             List<String> noManager = active.stream()
                     .filter(u -> u.getCurrentManager() == null && "EMPLOYEE".equals(u.getRole()))
                     .map(EmployeeResponse::getFullName).sorted(String.CASE_INSENSITIVE_ORDER).toList();
@@ -152,8 +153,11 @@ public final class OrganisationDataProviders {
                     .toList();
             out.append("\nNew joiners in the last 12 months: ").append(joiners.size());
             out.append("\nNew joiners this month (since %s) (%d): %s".formatted(monthStart, thisMonth.size(),
-                    thisMonth.isEmpty() ? "none" : thisMonth.stream().map(j -> j.getFullName() + " on " + j.getJoinedTeamOn())
-                            .collect(Collectors.joining(", "))));
+                    thisMonth.isEmpty() ? "none" : LiveDataText.names(thisMonth.stream().map(j -> j.getFullName() + " on " + j.getJoinedTeamOn())
+                            .toList(), MAX_NAMES)));
+            if (!thisMonth.isEmpty()) {
+                out.append("\nNew joiners this month by department: ").append(groupCounts(thisMonth, ManagerDashboardDto.TeamJoiner::getDepartmentName));
+            }
             return Optional.of(out.toString());
         }
     }
