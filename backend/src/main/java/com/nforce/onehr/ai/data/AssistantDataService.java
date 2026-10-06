@@ -265,6 +265,11 @@ public class AssistantDataService {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PENALTY = Pattern.compile("\\bpenal\\w*", Pattern.CASE_INSENSITIVE);
     private static final Pattern REGULARIZATION = Pattern.compile("\\bregulari[sz]\\w*", Pattern.CASE_INSENSITIVE);
+    /** "how many employees joined this month", "new joiners" - the organisation's joiners, never "when did I join". */
+    private static final Pattern JOINERS = Pattern.compile(
+            "\\b(who|how\\s+many|employees?|people|staff|users?)\\b.*\\b(joined|joining|joiners?|hired)\\b|\\bnew\\s+(joiners?|hires?|employees)\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern MY_TEAM = Pattern.compile("\\b(my|our)\\s+(team|direct\\s+reports?|reportees)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern WFH = Pattern.compile(
             "\\b(wfh|work(ing|s)?\\s+from\\s+home|remote(ly)?|on\\s+duty)\\b", Pattern.CASE_INSENSITIVE);
     /** "what leave types can I apply for", "my leave balance" - the balance block lists every type held. */
@@ -289,6 +294,10 @@ public class AssistantDataService {
         // Regularization shares "attendance" with five other families and sorts fifth for four
         // slots, so "how many regularizations did I raise" got no rows at all (ONEHR).
         if (REGULARIZATION.matcher(question).find()) relevance.put("regularization", QUESTION_RELEVANCE);
+        // Team joiners, onboarding, departments and "when did I join" all retrieve on joiner wording
+        // and pushed the headcount out: a Super Admin was told "I can't see when they joined" (ONEHR).
+        // Both org headcount providers (HR's and Super Admin's) declare this module.
+        if (JOINERS.matcher(question).find() && !MY_TEAM.matcher(question).find()) relevance.put("headcount", QUESTION_RELEVANCE);
         // A team question gets the team's rows, never only the caller's own: "how many in my team
         // were absent yesterday" was answered from the manager's own empty record (ONEHR).
         if (TEAM_SCOPE.matcher(question).find()) {

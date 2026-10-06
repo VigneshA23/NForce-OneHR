@@ -124,7 +124,7 @@ class LiveDataProvidersTest {
         assertThat(out).contains("Active users by role: Employee 2, Manager 1");
         assertThat(out).contains("Active employees with no reporting manager (1): Bala");
         assertThat(out).contains("Joined this month").contains(": 1");
-        assertThat(out).contains("Joined this month by department: Engineering 1");
+        assertThat(out).contains("- " + java.time.YearMonth.from(today) + " (this month): 1 - Engineering 1");
         assertThat(out).contains("Inactive users (1): Dev");
     }
 
@@ -158,7 +158,7 @@ class LiveDataProvidersTest {
     }
 
     @Test
-    @DisplayName("headcount: this month's joiners are broken down by department, older joiners left out")
+    @DisplayName("headcount: joiners are broken down by department per month, this month and last month labelled")
     void headcountJoinersByDepartment() {
         LocalDate monthStart = today.withDayOfMonth(1);
         when(employeeService.getOrgDashboard()).thenReturn(ManagerDashboardDto.builder()
@@ -167,13 +167,17 @@ class LiveDataProvidersTest {
                         joiner("Asha", "Engineering", monthStart),
                         joiner("Bala", "Engineering", monthStart),
                         joiner("Chitra", "Finance", monthStart),
-                        joiner("Old", "Finance", monthStart.minusMonths(2))))
+                        joiner("Dev", "Finance", monthStart.minusMonths(1)),
+                        joiner("Old", "Sales", monthStart.minusMonths(3))))
                 .build());
 
         String out = new OrganisationDataProviders.Headcount(employeeService, attendanceRulesService)
                 .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)).orElseThrow();
 
-        assertThat(out).contains("New joiners this month by department: Engineering 2, Finance 1");
+        java.time.YearMonth month = java.time.YearMonth.from(today);
+        assertThat(out).contains("\n- " + month + " (this month): 3 - Engineering 2, Finance 1"
+                + "\n- " + month.minusMonths(1) + " (last month): 1 - Finance 1"
+                + "\n- " + month.minusMonths(3) + ": 1 - Sales 1");
     }
 
     @Test
