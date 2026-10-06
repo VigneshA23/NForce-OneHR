@@ -203,33 +203,29 @@ class LeaveServiceTest {
         return leaveService.submitRequest(request(start, end, false, "Trip"), employeeEmail);
     }
 
-    @Test
-    void submitRequest_skipsShiftOffDays_soWeekendIsNotDeducted() {
-        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
-        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
-
-        // Fri..Mon = 4 calendar days, 2 working days.
-        assertEquals(new BigDecimal("2"), submitAnnual(friday, friday.plusDays(3)).getTotalDays());
+    private void assertRejected(LocalDate start, LocalDate end, String expectedMessagePart) {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> submitAnnual(start, end));
+        assertTrue(ex.getMessage().contains(expectedMessagePart), ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
     }
 
     @Test
-    void submitRequest_countsWeekendWhenShiftWorksIt() {
+    void submitRequest_rangeIncludingShiftOffDay_isRejectedNamingTheDate() {
+        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+
+        assertRejected(friday, friday.plusDays(3), "Saturday, " + friday.plusDays(1).getDayOfMonth() + " ");
+    }
+
+    @Test
+    void submitRequest_weekendAllowedWhenShiftWorksIt() {
         stubShiftWorkingDays("TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY");
         LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
 
-        // Fri, Sat, Sun count; Monday is this shift's off day.
-        assertEquals(new BigDecimal("3"), submitAnnual(friday, friday.plusDays(3)).getTotalDays());
-    }
-
-    @Test
-    void submitRequest_onlyShiftOffDays_isRejected() {
-        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
-        LocalDate saturday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.SATURDAY));
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> submitAnnual(saturday, saturday.plusDays(1)));
-        assertTrue(ex.getMessage().contains("non-working days"));
-        verify(leaveRequestRepository, never()).save(any());
+        assertEquals(new BigDecimal("3"), submitAnnual(friday, friday.plusDays(2)).getTotalDays());
+        // ...but Monday is this shift's off day.
+        clearInvocations(leaveRequestRepository);
+        assertRejected(friday, friday.plusDays(3), "non-working day for your shift");
     }
 
     private void stubLocationHoliday(LocalDate date) {
@@ -237,27 +233,15 @@ class LeaveServiceTest {
         when(employeeRepository.findById(employeeId))
                 .thenReturn(Optional.of(Employee.builder().userId(employeeId).location(location).build()));
         when(holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId()))
-                .thenReturn(List.of(Holiday.builder().holidayDate(date).location(location).build()));
+                .thenReturn(List.of(Holiday.builder().holidayName("Diwali").holidayDate(date).location(location).build()));
     }
 
     @Test
-    void submitRequest_skipsLocationHolidays() {
-        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+    void submitRequest_rangeIncludingHoliday_isRejectedNamingTheHoliday() {
         LocalDate monday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         stubLocationHoliday(monday.plusDays(2));
 
-        // Mon..Fri = 5 working days, minus Wednesday's holiday.
-        assertEquals(new BigDecimal("4"), submitAnnual(monday, monday.plusDays(4)).getTotalDays());
-    }
-
-    @Test
-    void submitRequest_onlyOnHoliday_isRejected() {
-        LocalDate holiday = LocalDate.now().plusDays(10);
-        stubLocationHoliday(holiday);
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> submitAnnual(holiday, holiday));
-        assertTrue(ex.getMessage().contains("holidays"));
-        verify(leaveRequestRepository, never()).save(any());
+        assertRejected(monday, monday.plusDays(4), "it is a holiday (Diwali)");
     }
 
     @Test
