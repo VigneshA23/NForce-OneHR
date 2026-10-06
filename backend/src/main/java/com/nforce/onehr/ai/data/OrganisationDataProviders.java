@@ -26,7 +26,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.TextStyle;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -99,7 +101,8 @@ public final class OrganisationDataProviders {
             out.append("\nActive users by location: ").append(groupCounts(active, EmployeeResponse::getLocationName));
             List<EmployeeResponse> joined = users.stream().filter(u -> u.getJoiningDate() != null && !u.getJoiningDate().isBefore(monthStart)).toList();
             out.append("\nJoined this month (joining date on or after %s): %d".formatted(monthStart, joined.size()));
-            if (!joined.isEmpty()) out.append("\nJoined this month by department: ").append(groupCounts(joined, EmployeeResponse::getDepartmentName));
+            out.append("\nJoined per month over the last 12 months, by department:")
+                    .append(joinersByMonth(users, EmployeeResponse::getJoiningDate, EmployeeResponse::getDepartmentName, monthStart));
             List<String> noManager = active.stream()
                     .filter(u -> u.getCurrentManager() == null && "EMPLOYEE".equals(u.getRole()))
                     .map(EmployeeResponse::getFullName).sorted(String.CASE_INSENSITIVE_ORDER).toList();
@@ -155,9 +158,9 @@ public final class OrganisationDataProviders {
             out.append("\nNew joiners this month (since %s) (%d): %s".formatted(monthStart, thisMonth.size(),
                     thisMonth.isEmpty() ? "none" : LiveDataText.names(thisMonth.stream().map(j -> j.getFullName() + " on " + j.getJoinedTeamOn())
                             .toList(), MAX_NAMES)));
-            if (!thisMonth.isEmpty()) {
-                out.append("\nNew joiners this month by department: ").append(groupCounts(thisMonth, ManagerDashboardDto.TeamJoiner::getDepartmentName));
-            }
+            out.append("\nNew joiners per month over the last 12 months, by department:").append(joinersByMonth(joiners,
+                    j -> j.getJoinedTeamOn() == null ? null : LocalDate.parse(j.getJoinedTeamOn()),
+                    ManagerDashboardDto.TeamJoiner::getDepartmentName, monthStart));
             return Optional.of(out.toString());
         }
     }
@@ -368,6 +371,30 @@ public final class OrganisationDataProviders {
                     all.size() - live.size(), listed.isEmpty() ? "none" : listed,
                     live.size() > MAX_GROUPS ? " (and %d more)".formatted(live.size() - MAX_GROUPS) : "");
         }
+    }
+
+    /**
+     * One "- 2026-09 (last month): 33 - Engineering 11, ..." line per month with joiners, newest first,
+     * over the 12 months ending with {@code monthStart}'s. Early in a month "this month" is usually
+     * empty and "last month by department" was answered with directions (ONEHR), so every month is
+     * given - with this month and last month labelled, as {@link LiveDataText#relative} does for days.
+     */
+    static <T> String joinersByMonth(List<T> people, Function<T, LocalDate> joined, Function<T, String> department, LocalDate monthStart) {
+        YearMonth thisMonth = YearMonth.from(monthStart);
+        Map<YearMonth, List<T>> byMonth = new TreeMap<>(Comparator.reverseOrder());
+        for (T person : people) {
+            LocalDate date = joined.apply(person);
+            if (date == null) continue;
+            YearMonth month = YearMonth.from(date);
+            if (month.isBefore(thisMonth.minusMonths(11)) || month.isAfter(thisMonth)) continue;
+            byMonth.computeIfAbsent(month, m -> new ArrayList<>()).add(person);
+        }
+        if (byMonth.isEmpty()) return " none";
+        return byMonth.entrySet().stream()
+                .map(e -> "\n- %s%s: %d - %s".formatted(e.getKey(),
+                        e.getKey().equals(thisMonth) ? " (this month)" : e.getKey().equals(thisMonth.minusMonths(1)) ? " (last month)" : "",
+                        e.getValue().size(), groupCounts(e.getValue(), department)))
+                .collect(Collectors.joining());
     }
 
     /** "Name count, Name count" by descending count, empty/blank keys shown as "(not set)". */

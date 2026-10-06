@@ -455,6 +455,31 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("joiner wording gets the organisation headcount even when team, onboarding and profile matches retrieve higher")
+    void joinerWordingPicksTheHeadcount() {
+        // ONEHR - a Super Admin's "how many employees joined this month by department" retrieved the
+        // user-accounts knowledge but the block lost its slot to four closer-scoring families.
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        AssistantDataService service = new AssistantDataService(List.of(
+                new SpyProvider("org-users.summary", Set.of(AudienceBucket.ADMIN), Set.of("users", "headcount", "access", "administration"), "users"),
+                new SpyProvider("profile.me", all, Set.of("my-profile", "profile", "people"), "me"),
+                new SpyProvider("team.members", all, Set.of("team", "people"), "team"),
+                new SpyProvider("org-onboarding.summary", all, Set.of("onboarding"), "onboarding"),
+                new SpyProvider("org-structure.summary", all, Set.of("organization", "administration"), "structure")));
+        AssistantRequestContext superAdmin = context(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE), ShellRole.SUPER_ADMIN);
+        List<RetrievalResult> crowded = List.of(knowledgeFrom("team", 0.82), knowledgeFrom("onboarding", 0.8),
+                knowledgeFrom("my-profile", 0.79), knowledgeFrom("organization", 0.78), knowledgeFrom("users", 0.7));
+
+        for (String q : List.of("How many employees joined this month by department?", "who joined this month", "new joiners this month")) {
+            assertThat(service.fetch(superAdmin, crowded, q).providerIds()).as(q).contains("org-users.summary");
+        }
+        // The caller's own joining date and their own team's joiners stay with retrieval.
+        for (String q : List.of("when did I join", "what is my joining date", "who joined my team recently")) {
+            assertThat(service.fetch(superAdmin, crowded, q).providerIds()).as(q).doesNotContain("org-users.summary");
+        }
+    }
+
+    @Test
     @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
     void everyTurnProviderRunsOutsideTheCap() {
         AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),
