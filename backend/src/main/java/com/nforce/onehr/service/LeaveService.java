@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
@@ -15,6 +16,7 @@ import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
@@ -30,7 +32,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -79,6 +80,8 @@ public class LeaveService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
+    private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    private final HolidayRepository holidayRepository;
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
     // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
     // depended on LeaveService since before this change). A lazy proxy defers resolving the real
@@ -203,9 +206,15 @@ public class LeaveService {
             throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
         }
 
-        BigDecimal totalDays = req.isHalfDay()
-                ? new BigDecimal("0.5")
-                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+        // Only the employee's shift working days (Shift#worksOn) that aren't Location holidays
+        // count — a weekend inside the range is free for a Mon-Fri shift, but a Saturday is a real
+        // leave day for a shift that works it. A request covering no such day (e.g. a single
+        // holiday, or a half-day on one) can't be applied for at all.
+        long workingDays = countChargeableLeaveDays(actor.getId(), req.getStartDate(), req.getEndDate());
+        if (workingDays == 0) {
+            throw new IllegalArgumentException("The selected dates fall only on holidays or non-working days of your shift.");
+        }
+        BigDecimal totalDays = req.isHalfDay() ? new BigDecimal("0.5") : BigDecimal.valueOf(workingDays);
 
         // An employee with an available paid leave balance must exhaust/use that before falling
         // back to an Unpaid-classified type — this is a business rule (not day-count-based), so it
@@ -275,6 +284,29 @@ public class LeaveService {
         auditService.log(actor.getId(), "LEAVE_REQUEST_SUBMITTED", request.getId());
         notifySubmission(request, type, actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Dates in [start, end] that are neither an active holiday of the employee's Location nor an
+     * off day of the Shift governing that date — the shift is resolved per date via
+     * {@link EmployeeShiftAssignmentResolver}, since a reassignment can land inside the range. A
+     * date with no effective assignment (a valid no-shift state) counts as a working day, i.e.
+     * the pre-shift behaviour; an employee with no Location has no holidays to skip.
+     */
+    // ponytail: one assignment lookup per date — fine for leave-sized ranges; batch-fetch the
+    // employee's assignments if multi-month requests ever become common.
+    private long countChargeableLeaveDays(UUID employeeUserId, LocalDate start, LocalDate end) {
+        Set<LocalDate> holidays = employeeRepository.findById(employeeUserId)
+                .map(Employee::getLocation)
+                .map(location -> holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId())
+                        .stream().map(Holiday::getHolidayDate).collect(Collectors.toSet()))
+                .orElse(Set.of());
+        return start.datesUntil(end.plusDays(1))
+                .filter(date -> !holidays.contains(date))
+                .filter(date -> employeeShiftAssignmentResolver.resolveIfPresent(employeeUserId, date)
+                        .map(a -> a.getShift().worksOn(date.getDayOfWeek()))
+                        .orElse(true))
+                .count();
     }
 
     @Transactional(readOnly = true)

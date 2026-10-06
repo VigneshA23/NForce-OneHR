@@ -3,7 +3,12 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
+import com.nforce.onehr.entity.Holiday;
+import com.nforce.onehr.entity.Location;
+import com.nforce.onehr.entity.EmployeeShiftAssignment;
+import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveHalfDaySession;
@@ -14,6 +19,7 @@ import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
@@ -28,8 +34,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -67,6 +75,9 @@ class LeaveServiceTest {
     @Mock private NotificationService notificationService;
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private ExceptionService exceptionService;
+    // Unstubbed by default → Optional.empty() (no shift) → every date counts, the pre-shift rule.
+    @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    @Mock private HolidayRepository holidayRepository;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -175,6 +186,78 @@ class LeaveServiceTest {
         assertEquals(new BigDecimal("3"), resp.getTotalDays()); // inclusive day count
         verify(leaveBalanceRepository, never()).save(any());
         verify(auditService).log(employeeId, "LEAVE_REQUEST_SUBMITTED", resp.getId());
+    }
+
+    private void stubShiftWorkingDays(String workingDays) {
+        Shift shift = Shift.builder().name("Test Shift").workingDays(workingDays).build();
+        when(employeeShiftAssignmentResolver.resolveIfPresent(eq(employeeId), any()))
+                .thenReturn(Optional.of(EmployeeShiftAssignment.builder().employeeUserId(employeeId).shift(shift).build()));
+    }
+
+    private LeaveRequestResponse submitAnnual(LocalDate start, LocalDate end) {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        lenient().when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        lenient().when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        return leaveService.submitRequest(request(start, end, false, "Trip"), employeeEmail);
+    }
+
+    @Test
+    void submitRequest_skipsShiftOffDays_soWeekendIsNotDeducted() {
+        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+
+        // Fri..Mon = 4 calendar days, 2 working days.
+        assertEquals(new BigDecimal("2"), submitAnnual(friday, friday.plusDays(3)).getTotalDays());
+    }
+
+    @Test
+    void submitRequest_countsWeekendWhenShiftWorksIt() {
+        stubShiftWorkingDays("TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY");
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+
+        // Fri, Sat, Sun count; Monday is this shift's off day.
+        assertEquals(new BigDecimal("3"), submitAnnual(friday, friday.plusDays(3)).getTotalDays());
+    }
+
+    @Test
+    void submitRequest_onlyShiftOffDays_isRejected() {
+        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+        LocalDate saturday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.SATURDAY));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> submitAnnual(saturday, saturday.plusDays(1)));
+        assertTrue(ex.getMessage().contains("non-working days"));
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    private void stubLocationHoliday(LocalDate date) {
+        Location location = Location.builder().id(UUID.randomUUID()).build();
+        when(employeeRepository.findById(employeeId))
+                .thenReturn(Optional.of(Employee.builder().userId(employeeId).location(location).build()));
+        when(holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId()))
+                .thenReturn(List.of(Holiday.builder().holidayDate(date).location(location).build()));
+    }
+
+    @Test
+    void submitRequest_skipsLocationHolidays() {
+        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+        LocalDate monday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+        stubLocationHoliday(monday.plusDays(2));
+
+        // Mon..Fri = 5 working days, minus Wednesday's holiday.
+        assertEquals(new BigDecimal("4"), submitAnnual(monday, monday.plusDays(4)).getTotalDays());
+    }
+
+    @Test
+    void submitRequest_onlyOnHoliday_isRejected() {
+        LocalDate holiday = LocalDate.now().plusDays(10);
+        stubLocationHoliday(holiday);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> submitAnnual(holiday, holiday));
+        assertTrue(ex.getMessage().contains("holidays"));
+        verify(leaveRequestRepository, never()).save(any());
     }
 
     @Test
