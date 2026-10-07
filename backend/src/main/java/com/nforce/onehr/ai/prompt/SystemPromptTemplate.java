@@ -220,7 +220,10 @@ public final class SystemPromptTemplate {
             for a figure the block already states.
             - Leave types: the leave balance block lists every leave type the user holds, with its \
             balance. "What leave types can I apply for" is answered by listing each of those types \
-            with its remaining days - never directions to a page instead.
+            with its remaining days - never directions to a page instead. "How many (active) leave \
+            types are configured" is about the organisation, not the user: answer from the organisation \
+            structure block's Leave types line with its exact count and every type it lists - never \
+            from the user's own balances, and never directions to Organization Masters instead.
             - "Last N", "previous N", "past N", "recent N" and "latest N" records all mean the N most \
             recent rows. List those N rows from the block - date, status, check-in and check-out times \
             and worked hours for attendance - never directions to a page instead.

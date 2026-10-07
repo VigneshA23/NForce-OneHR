@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.ManagerDashboardDto;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.org.BusinessUnitResponse;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -318,21 +320,22 @@ public final class OrganisationDataProviders {
     }
 
     /**
-     * The organisation masters - departments, designations, locations, business units, shifts and
-     * weekly-off policies - with the employee counts Organization Structure / Organization Masters
-     * show beside each one.
+     * The organisation masters - departments, designations, locations, business units, shifts,
+     * weekly-off policies and leave types - with the employee counts Organization Structure /
+     * Organization Masters show beside each one.
      */
     @Component
     @RequiredArgsConstructor
     public static class OrgStructure implements AssistantDataProvider {
 
         private final OrgService orgService;
+        private final LeaveService leaveService;
 
         @Override public String id() { return "org-structure.summary"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Organisation structure and master data"; }
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
-        @Override public Set<String> modules() { return Set.of("organization", "administration"); }
+        @Override public Set<String> modules() { return Set.of("organization", "administration", "leave-types"); }
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
@@ -355,6 +358,15 @@ public final class OrganisationDataProviders {
             out.append(master("Weekly-off policies", policies, p -> true,
                     p -> p.getName() + " (" + String.join("/", p.getOffDays() == null ? List.of() : p.getOffDays()) + ")",
                     WeeklyOffPolicyResponse::getEmployeeCount));
+            // The masters' Leave tab, from the same listTypes read. A leave type has no active flag
+            // (no column, no toggle), so every configured type is an active one. A Super Admin with no
+            // balances got no leave types at all and was sent to Organization Masters (ONEHR).
+            List<LeaveTypeResponse> leaveTypes = Objects.requireNonNullElse(leaveService.listTypes(), List.of());
+            out.append("\nLeave types: exactly %d configured, all active (leave types have no inactive state): %s".formatted(
+                    leaveTypes.size(), leaveTypes.isEmpty() ? "none" : leaveTypes.stream()
+                            .map(t -> "%s (%s)".formatted(t.getName(), t.getClassification().toLowerCase(Locale.ROOT)))
+                            .sorted(String.CASE_INSENSITIVE_ORDER)
+                            .collect(Collectors.joining(", "))));
             return Optional.of(out.toString());
         }
 

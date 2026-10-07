@@ -480,6 +480,26 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("leave type wording gets the organisation masters' leave types, not only the caller's balances")
+    void leaveTypeWordingPicksTheMasters() {
+        // ONEHR - a Super Admin's "how many active leave types are configured" was sent to Organization Masters.
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        AssistantDataService service = new AssistantDataService(List.of(
+                new SpyProvider("leave.balances", all, Set.of("leave", "leave-balances"), "balances"),
+                new SpyProvider("org-structure.summary", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN),
+                        Set.of("organization", "administration", "leave-types"), "structure")));
+        AssistantRequestContext superAdmin = context(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE), ShellRole.SUPER_ADMIN);
+
+        for (String q : List.of("How many active leave types are configured?", "list all types of leave")) {
+            assertThat(service.fetch(superAdmin, List.of(knowledgeFrom("leave")), q).providerIds()).as(q)
+                    .contains("org-structure.summary");
+        }
+        // An employee never runs the organisation block, whatever the wording.
+        assertThat(service.fetch(employee(), List.of(knowledgeFrom("leave")), "How many leave types are configured?").providerIds())
+                .containsExactly("leave.balances");
+    }
+
+    @Test
     @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
     void everyTurnProviderRunsOutsideTheCap() {
         AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),
