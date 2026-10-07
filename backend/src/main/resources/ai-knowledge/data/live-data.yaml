@@ -771,9 +771,11 @@ knowledge:
       - how many business units
       - weekly off policies
       - how many employees are in each department
+      - how many active leave types are configured
+      - list all leave types in the organisation
     body: |
       HR Admins and Super Admins can ask about the organisation's master data - departments,
-      designations, locations, business units, shifts and weekly-off policies - including how many
+      designations, locations, business units, shifts, weekly-off policies and leave types - including how many
       are active and how many employees each one has. HR Admins maintain these on Organization
       Structure; Super Admins on Organization Masters.
 

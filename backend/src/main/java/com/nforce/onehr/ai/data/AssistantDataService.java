@@ -277,6 +277,9 @@ public class AssistantDataService {
             "\\bleave\\s+(types?|balances?|entitlements?)\\b|\\btypes?\\s+of\\s+leaves?\\b"
                     + "|\\bleaves?\\b.*\\b(apply|avail\\w*|left|remaining)\\b|\\b(apply|avail\\w*)\\b.*\\bleaves?\\b",
             Pattern.CASE_INSENSITIVE);
+    /** "how many active leave types are configured" - the masters' list, which only HR/Admin's org-structure block holds. */
+    private static final Pattern LEAVE_TYPE_NAMES = Pattern.compile(
+            "\\bleave\\s+types?\\b|\\btypes?\\s+of\\s+leaves?\\b", Pattern.CASE_INSENSITIVE);
 
     private static Map<String, Double> questionRelevance(String question) {
         if (question == null) return Map.of();
@@ -291,6 +294,9 @@ public class AssistantDataService {
             relevance.put("attendance-history", QUESTION_RELEVANCE);
         }
         if (LEAVE_TYPES.matcher(question).find()) relevance.put("leave-balances", QUESTION_RELEVANCE);
+        // The caller's balances omit unpaid types and are empty for a Super Admin with none, so
+        // "how many leave types are configured" was sent to Organization Masters (ONEHR).
+        if (LEAVE_TYPE_NAMES.matcher(question).find()) relevance.put("leave-types", QUESTION_RELEVANCE);
         // Regularization shares "attendance" with five other families and sorts fifth for four
         // slots, so "how many regularizations did I raise" got no rows at all (ONEHR).
         if (REGULARIZATION.matcher(question).find()) relevance.put("regularization", QUESTION_RELEVANCE);
