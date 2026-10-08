@@ -284,6 +284,14 @@ pages:
         route: /organization
         description: "Business units, departments, designations, locations, shifts and weekly-off policies."
 
+  - pageId: allocations
+    module: allocations
+    variants:
+      - roles: [HR_ADMIN]
+        label: "Project Allocations"
+        route: /allocations
+        description: "Allocate one or more employees to a project at once, with capacity percent and a date range, and see which allocations succeeded or failed."
+
   - pageId: masters
     module: organization
     variants:

@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -85,6 +85,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('policies', 'Policies & Announcements', FileText, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('organization', 'Organization Structure', GitBranch, 1),
+    item('allocations', 'Project Allocations', Briefcase, 1),
     item('performance', 'Performance & Engagement', GitBranch, 2),
     item('assets', 'Assets & Expenses', Package, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
@@ -153,7 +154,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
-  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'performance', 'documents', 'policies', 'my-documents'] },
+  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'allocations', 'performance', 'documents', 'policies', 'my-documents'] },
   'help',
 ];
 
