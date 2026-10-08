@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Mail, Phone as PhoneIcon, MapPin, Hash, UserRound, IdCard, Briefcase, TrendingUp, ArrowLeft,
   Building2, Clock, Network, Sparkles, Award, BookOpen, CheckCircle2, Target, ExternalLink,
+  Copy, Check,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -27,6 +28,35 @@ const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
   { key: 'job', label: 'Job', icon: Briefcase },
   { key: 'skills', label: 'Skills', icon: TrendingUp },
 ];
+
+function CopyValueButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch { /* clipboard unavailable — nothing to recover into */ }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label={copied ? 'Copied' : `Copy ${value}`}
+      title={copied ? 'Copied' : 'Copy'}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 20, height: 20, padding: 0, background: 'none', border: 'none',
+        borderRadius: 4, color: copied ? 'var(--ok)' : 'var(--txt-dim)', cursor: 'pointer', flexShrink: 0,
+      }}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  );
+}
 
 function Card({ title, icon, badge, children }: { title: string; icon?: LucideIcon; badge?: string; children: React.ReactNode }) {
   return (
@@ -360,8 +390,8 @@ export default function EmployeeProfileViewPage() {
     : 'linear-gradient(135deg, var(--brand-deep) 0%, var(--brand) 100%)';
 
   const isIn = p.attendanceStatus === 'IN';
-  const subMetaItems: { icon: LucideIcon; label: string; value: string }[] = [
-    { icon: Mail, label: 'Work Email', value: p.email },
+  const subMetaItems: { icon: LucideIcon; label: string; value: string; copyable?: boolean }[] = [
+    { icon: Mail, label: 'Work Email', value: p.email, copyable: true },
     { icon: PhoneIcon, label: 'Mobile Number', value: p.phone || '—' },
     { icon: MapPin, label: 'Location', value: p.locationName || '—' },
     { icon: Hash, label: 'Employee Code', value: p.employeeCode },
@@ -433,10 +463,11 @@ export default function EmployeeProfileViewPage() {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 28px', padding: '14px 24px', borderTop: '1px solid var(--line)' }}>
-          {subMetaItems.map(({ icon: Icon, label, value }) => (
+          {subMetaItems.map(({ icon: Icon, label, value, copyable }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <Icon size={13} color="var(--txt-dim)" aria-hidden />
               <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{value}</span>
+              {copyable && <CopyValueButton value={value} />}
             </div>
           ))}
         </div>
