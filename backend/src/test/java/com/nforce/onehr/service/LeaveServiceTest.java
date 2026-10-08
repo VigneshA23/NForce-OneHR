@@ -1602,7 +1602,12 @@ class LeaveServiceTest {
                 .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
                 .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
 
-        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(userWithRole(superAdminId, "sa@test.com", "SUPER_ADMIN")));
+        User superAdminRequester = userWithRole(superAdminId, "sa@test.com", "SUPER_ADMIN");
+        // The override-queue branch (see listPendingApprovals) resolves this via the batched
+        // superAdminApproverByEmployeeId, which calls findAllById, not findById — stubbing only
+        // findById (as this test previously did) leaves it resolving to an empty map, so the
+        // exclusion below silently never applies.
+        when(userRepository.findAllById(Set.of(superAdminId))).thenReturn(List.of(superAdminRequester));
         when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
                 .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
 
@@ -1639,7 +1644,9 @@ class LeaveServiceTest {
                 .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
                 .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
 
-        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        // See the sibling test's identical comment: the override-queue branch resolves this via
+        // findAllById, not findById.
+        when(userRepository.findAllById(Set.of(superAdminId))).thenReturn(List.of(superAdminUser));
         // No manager on file -> fallback approver is the requester themselves.
         when(leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING")).thenReturn(List.of(saRequest));
 

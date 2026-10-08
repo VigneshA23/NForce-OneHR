@@ -3,6 +3,10 @@ import type { ProfileData, SkillEntry, CertificateEntry, LearningEntry } from '.
 
 export interface DirectoryProfileData {
   profile: ProfileData;
+  // Whether the VIEWER holds HR_ADMIN/SUPER_ADMIN — use this, not a null-check on profile's own
+  // sensitive fields, to decide whether to show them: an authorized viewer looking at an employee
+  // who simply never filled those fields in would otherwise look identical to a redacted response.
+  hasSensitiveAccess: boolean;
   skills: SkillEntry[];
   certificates: CertificateEntry[];
   learningEntries: LearningEntry[];

@@ -346,7 +346,10 @@ export default function EmployeeProfileViewPage() {
   const p = data.profile;
   const displayName = p.fullName;
   const initials = displayName ? displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : p.email.slice(0, 2).toUpperCase();
-  const hasSensitiveAccess = p.dateOfBirth != null || p.nationalId != null || p.bankAccountNumber != null || p.address != null;
+  // From the backend (ProfileService#hasSensitiveAccess), not inferred from field nullness here —
+  // an authorized HR/Super Admin viewer looking at an employee who never filled these fields in
+  // would otherwise be indistinguishable from an unauthorized viewer seeing redacted nulls.
+  const hasSensitiveAccess = data.hasSensitiveAccess;
 
   const BANNER_IMAGES: Partial<Record<AccentColor, string>> = {
     red: profileBannerRed, blue: profileBannerBlue, pink: profileBannerPink, green: profileBannerGreen, purple: profileBannerPurple,

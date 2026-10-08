@@ -85,9 +85,9 @@ class EmployeeSearchProviderTest {
     }
 
     @Test
-    void detailUrl_pointsAtExistingDirectoryDeepLink() {
+    void detailUrl_pointsAtFullProfilePage() {
         SearchResultItem item = provider.preview(anyActor(), "john", 10).items().get(0);
-        assertEquals("/directory?userId=u-exact", item.getDetailUrl());
+        assertEquals("/profile/u-exact", item.getDetailUrl());
     }
 
     @Test
