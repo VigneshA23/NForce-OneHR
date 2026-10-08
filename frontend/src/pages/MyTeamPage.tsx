@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronLeft, ChevronRight, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
 import { useToast } from '../context/ToastContext';
@@ -33,6 +34,9 @@ import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
 import { businessTodayIsoDate } from '../utils/businessDate';
+import { teamGrowthApi, type TeamGrowthSummary } from '../api/teamGrowth';
+import { DetailModalShell } from '../components/TeamGrowthModal';
+import type { CertificateEntry, LearningEntry } from '../api/profile';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -2769,8 +2773,315 @@ function PenaltiesTab({ token }: { token: string }) {
   );
 }
 
-type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports';
-const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'reports'];
+const GROWTH_PREVIEW_LIMIT = 2;
+const GROWTH_LEVEL_TONE: Record<string, string> = {
+  Beginner: 'var(--txt-dim)', Intermediate: 'var(--info)', Advanced: 'var(--brand-bright)', Expert: 'var(--ok)',
+};
+
+function growthParseLocalDate(d: string): Date {
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day);
+}
+function growthCertificateStatus(expiry: string | null): string | null {
+  if (!expiry) return null;
+  const days = (growthParseLocalDate(expiry).getTime() - Date.now()) / 86_400_000;
+  if (days < 0) return 'var(--risk)';
+  if (days <= 60) return 'var(--warn)';
+  return 'var(--ok)';
+}
+function growthLimit<T>(items: T[], expanded: boolean): { visible: T[]; overflow: number } {
+  if (expanded || items.length <= GROWTH_PREVIEW_LIMIT) return { visible: items, overflow: 0 };
+  return { visible: items.slice(0, GROWTH_PREVIEW_LIMIT), overflow: items.length - GROWTH_PREVIEW_LIMIT };
+}
+function growthFmtDate(d: string | null): string {
+  if (!d) return '—';
+  return growthParseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function growthCertificateStatusLabel(expiry: string | null): { label: string; tone: string } | null {
+  if (!expiry) return null;
+  const days = (growthParseLocalDate(expiry).getTime() - Date.now()) / 86_400_000;
+  if (days < 0) return { label: 'Expired', tone: 'var(--risk)' };
+  if (days <= 60) return { label: 'Expiring Soon', tone: 'var(--warn)' };
+  return { label: 'Active', tone: 'var(--ok)' };
+}
+
+function GrowthDetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{children}</div>
+    </div>
+  );
+}
+
+function CertificateDetailModal({ cert, onClose }: { cert: CertificateEntry; onClose: () => void }) {
+  const status = growthCertificateStatusLabel(cert.expiryDate);
+  return (
+    <DetailModalShell
+      title={cert.name}
+      subtitle={status && (
+        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: `color-mix(in srgb, ${status.tone} 15%, transparent)`, color: status.tone }}>
+          {status.label}
+        </span>
+      )}
+      onClose={onClose}
+    >
+      <GrowthDetailRow label="Issuing Organization">{cert.issuingOrganization ?? '—'}</GrowthDetailRow>
+      <GrowthDetailRow label="Credential ID">{cert.credentialId ?? '—'}</GrowthDetailRow>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <GrowthDetailRow label="Issue Date">{growthFmtDate(cert.issueDate)}</GrowthDetailRow>
+        <GrowthDetailRow label="Expiry Date">{growthFmtDate(cert.expiryDate)}</GrowthDetailRow>
+      </div>
+      <GrowthDetailRow label="Credential URL">
+        {cert.credentialUrl ? (
+          <a href={cert.credentialUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--brand-bright)', textDecoration: 'none', fontWeight: 600 }}>
+            View credential <ExternalLink size={12} />
+          </a>
+        ) : '—'}
+      </GrowthDetailRow>
+    </DetailModalShell>
+  );
+}
+
+function LearningDetailModal({ entry, onClose }: { entry: LearningEntry; onClose: () => void }) {
+  return (
+    <DetailModalShell
+      title={entry.title}
+      subtitle={
+        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'color-mix(in srgb, var(--txt-dim) 15%, transparent)', color: 'var(--txt-dim)' }}>
+          {entry.status}
+        </span>
+      }
+      onClose={onClose}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <GrowthDetailRow label="Type">{entry.learningType}</GrowthDetailRow>
+        <GrowthDetailRow label="Provider">{entry.provider ?? '—'}</GrowthDetailRow>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <GrowthDetailRow label="Started On">{growthFmtDate(entry.startDate)}</GrowthDetailRow>
+        <GrowthDetailRow label="Completed On">{growthFmtDate(entry.completedDate)}</GrowthDetailRow>
+      </div>
+      {entry.description && <GrowthDetailRow label="Description">{entry.description}</GrowthDetailRow>}
+      {entry.skillsDeveloped.length > 0 && (
+        <GrowthDetailRow label="Skills Developed">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {entry.skillsDeveloped.map(s => (
+              <span key={s} style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 20, background: 'var(--raised)', border: '1px solid var(--line2)', color: 'var(--txt)' }}>{s}</span>
+            ))}
+          </div>
+        </GrowthDetailRow>
+      )}
+      {entry.certificateName && (
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, marginTop: 4 }}>
+          <GrowthDetailRow label="Certificate">{entry.certificateName}</GrowthDetailRow>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <GrowthDetailRow label="Issue Date">{growthFmtDate(entry.certificateIssueDate)}</GrowthDetailRow>
+            <GrowthDetailRow label="Expiry Date">{growthFmtDate(entry.certificateExpiryDate)}</GrowthDetailRow>
+          </div>
+          {entry.certificateUrl && (
+            <GrowthDetailRow label="Credential URL">
+              <a href={entry.certificateUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--brand-bright)', textDecoration: 'none', fontWeight: 600 }}>
+                View credential <ExternalLink size={12} />
+              </a>
+            </GrowthDetailRow>
+          )}
+        </div>
+      )}
+      {entry.notes && <GrowthDetailRow label="Notes">{entry.notes}</GrowthDetailRow>}
+    </DetailModalShell>
+  );
+}
+
+function growthChipStyle(tone?: string): React.CSSProperties {
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
+    padding: '4px 10px', borderRadius: 20, maxWidth: 170,
+    background: tone ? `color-mix(in srgb, ${tone} 12%, var(--raised))` : 'var(--raised)',
+    border: `1px solid ${tone ? `color-mix(in srgb, ${tone} 30%, var(--line2))` : 'var(--line2)'}`,
+    color: 'var(--txt)',
+    transition: 'transform .12s ease, box-shadow .12s ease',
+  };
+}
+const GROWTH_CHIP_TEXT_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
+function GrowthOverflowChip({ count }: { count: number }) {
+  return (
+    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '4px 9px', borderRadius: 20, background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px dashed var(--line2)' }}>
+      +{count}
+    </span>
+  );
+}
+
+const GROWTH_CATEGORY_TONE: Record<'skills' | 'certificates' | 'learning', string> = {
+  skills: 'var(--brand-bright)', certificates: 'var(--info)', learning: 'var(--warn)',
+};
+
+function GrowthColumn({ icon: Icon, label, category, count, empty, children }: {
+  icon: LucideIcon; label: string; category: 'skills' | 'certificates' | 'learning'; count: number; empty: boolean; children: React.ReactNode;
+}) {
+  const tone = GROWTH_CATEGORY_TONE[category];
+  return (
+    <div style={{ flex: '1 1 190px', minWidth: 170, paddingLeft: 18, borderLeft: '1px solid var(--line)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
+        <span style={{
+          width: 20, height: 20, borderRadius: 6, flexShrink: 0, display: 'grid', placeItems: 'center',
+          background: `color-mix(in srgb, ${tone} 16%, var(--raised2))`, color: tone,
+        }}>
+          <Icon size={11} />
+        </span>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
+        {count > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)' }}>({count})</span>
+        )}
+      </div>
+      {empty ? <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>—</span> : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{children}</div>
+      )}
+    </div>
+  );
+}
+
+function TeamGrowthRow({ row }: { row: TeamGrowthSummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [selectedCert, setSelectedCert] = useState<CertificateEntry | null>(null);
+  const [selectedLearning, setSelectedLearning] = useState<LearningEntry | null>(null);
+
+  const skills = growthLimit(row.skills, expanded);
+  const certs = growthLimit(row.certificates, expanded);
+  const learning = growthLimit(row.learningEntries, expanded);
+  const canExpand = row.skills.length > GROWTH_PREVIEW_LIMIT || row.certificates.length > GROWTH_PREVIEW_LIMIT || row.learningEntries.length > GROWTH_PREVIEW_LIMIT;
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: 'relative', overflow: 'hidden',
+        background: hovered
+          ? 'linear-gradient(135deg, color-mix(in srgb, var(--brand) 4%, var(--panel)), var(--panel))'
+          : 'var(--panel)',
+        border: `1px solid ${hovered ? 'color-mix(in srgb, var(--brand) 35%, var(--line))' : 'var(--line)'}`,
+        borderRadius: 14, padding: '16px 20px 16px 18px',
+        transition: 'box-shadow .18s ease, transform .18s ease, border-color .18s ease, background .18s ease',
+        boxShadow: hovered ? '0 10px 28px rgba(0,0,0,.12)' : '0 1px 2px rgba(0,0,0,.03)',
+        transform: hovered ? 'translateY(-2px)' : 'none',
+      }}
+    >
+      <div style={{
+        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+        background: hovered ? 'var(--brand)' : 'var(--line2)', transition: 'background .18s ease',
+      }} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 170, flexShrink: 0 }}>
+          <EmployeeAvatar userId={row.employeeUserId} name={row.employeeName} size={36} fontSize={13} />
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--txt)', fontSize: 13.5 }}>{row.employeeName}</div>
+            <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 1 }}>{row.employeeCode}</div>
+          </div>
+        </div>
+
+        <GrowthColumn icon={Sparkles} label="Skills" category="skills" count={row.skills.length} empty={row.skills.length === 0}>
+          {skills.visible.map(s => (
+            <span key={s.id} style={growthChipStyle(GROWTH_LEVEL_TONE[s.proficiencyLevel])}>
+              <span style={GROWTH_CHIP_TEXT_STYLE}>{s.skillName}</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: GROWTH_LEVEL_TONE[s.proficiencyLevel], flexShrink: 0 }}>{s.proficiencyLevel}</span>
+            </span>
+          ))}
+          {skills.overflow > 0 && <GrowthOverflowChip count={skills.overflow} />}
+        </GrowthColumn>
+
+        <GrowthColumn icon={Award} label="Certificates" category="certificates" count={row.certificates.length} empty={row.certificates.length === 0}>
+          {certs.visible.map(c => {
+            const tone = growthCertificateStatus(c.expiryDate) ?? 'var(--info)';
+            return (
+              <button key={c.id} onClick={() => setSelectedCert(c)} style={{ ...growthChipStyle(tone), cursor: 'pointer' }}>
+                <Award size={11} color={tone} style={{ flexShrink: 0 }} />
+                <span style={GROWTH_CHIP_TEXT_STYLE}>{c.name}</span>
+              </button>
+            );
+          })}
+          {certs.overflow > 0 && <GrowthOverflowChip count={certs.overflow} />}
+        </GrowthColumn>
+
+        <GrowthColumn icon={BookOpen} label="Learning" category="learning" count={row.learningEntries.length} empty={row.learningEntries.length === 0}>
+          {learning.visible.map(e => {
+            const Icon = e.status === 'Completed' ? CheckCircle2 : e.status === 'Planned' ? Target : Clock;
+            const color = e.status === 'Completed' ? 'var(--ok)' : e.status === 'Planned' ? 'var(--info)' : 'var(--warn)';
+            return (
+              <button key={e.id} onClick={() => setSelectedLearning(e)} style={{ ...growthChipStyle(color), cursor: 'pointer' }}>
+                <Icon size={11} color={color} style={{ flexShrink: 0 }} />
+                <span style={GROWTH_CHIP_TEXT_STYLE}>{e.title}</span>
+              </button>
+            );
+          })}
+          {learning.overflow > 0 && <GrowthOverflowChip count={learning.overflow} />}
+        </GrowthColumn>
+
+        {canExpand && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            aria-label={expanded ? 'Show less' : 'Show all'}
+            style={{
+              flexShrink: 0, alignSelf: 'center', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: expanded ? 'color-mix(in srgb, var(--brand) 14%, transparent)' : 'var(--raised)',
+              border: `1px solid ${expanded ? 'var(--brand)' : 'var(--line2)'}`,
+              borderRadius: '50%', cursor: 'pointer', color: expanded ? 'var(--brand-bright)' : 'var(--txt-mut)',
+              transition: 'background .15s ease, border-color .15s ease, color .15s ease',
+            }}
+          >
+            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+        )}
+      </div>
+      {selectedCert && <CertificateDetailModal cert={selectedCert} onClose={() => setSelectedCert(null)} />}
+      {selectedLearning && <LearningDetailModal entry={selectedLearning} onClose={() => setSelectedLearning(null)} />}
+    </div>
+  );
+}
+
+// Read-only window into each direct report's own Skills & Expertise / Certificates / Learning &
+// Development — surfaced inline per row (chips + a per-row expand/collapse) instead of behind a
+// click-through modal, so the roster itself carries the information rather than empty space.
+function SkillsGrowthTab({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const [rows, setRows] = useState<TeamGrowthSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    teamGrowthApi.listSummaries(token).then(setRows).catch(e => {
+      showToast('error', e instanceof Error ? e.message : 'Could not load team skills & growth');
+    }).finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>;
+  if (rows.length === 0) return <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No direct reports yet.</div>;
+
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter(r => r.employeeName.toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q))
+    : rows;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ maxWidth: 320, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+        <Search size={13} />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee by name or code…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+      </div>
+      {filtered.length === 0 ? (
+        <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No employee matches "{search}".</div>
+      ) : (
+        filtered.map(r => <TeamGrowthRow key={r.employeeUserId} row={r} />)
+      )}
+    </div>
+  );
+}
+
+type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports' | 'growth';
+const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'growth', 'reports'];
 const HR_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'reports'];
 
 export default function MyTeamPage() {
@@ -3094,6 +3405,7 @@ export default function MyTeamPage() {
           ['negligence', 'Negligence'],
           ['penalties', 'Regularize & Cancel Penalties'],
           ['assignments', 'Employee Assignments'],
+          ['growth', 'Performance'],
           ['reports', 'Reports'],
         ] as const).filter(([key]) => allowedTabs.includes(key)).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
@@ -3433,6 +3745,7 @@ export default function MyTeamPage() {
       {tab === 'negligence' && <NegligenceTab token={token} />}
       {tab === 'penalties' && <PenaltiesTab token={token} />}
       {tab === 'assignments' && <AssignmentsTab token={token} />}
+      {tab === 'growth' && <SkillsGrowthTab token={token} />}
       {tab === 'reports' && <ReportsTab token={token} />}
       </>
       )}

@@ -68,7 +68,7 @@ public class EmployeeSearchProvider implements SearchProvider {
                         .id(e.getUserId())
                         .title(e.getFullName())
                         .subtitle(subtitleFor(e))
-                        .detailUrl("/directory?userId=" + e.getUserId())
+                        .detailUrl("/profile/" + e.getUserId())
                         .build())
                 .collect(Collectors.toList());
         return new SearchProviderResult(items, ranked.size());

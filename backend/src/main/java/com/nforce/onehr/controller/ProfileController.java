@@ -14,6 +14,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/profile")
@@ -25,6 +26,14 @@ public class ProfileController {
     @GetMapping
     public ResponseEntity<ProfileResponse> getProfile(Authentication auth) {
         return ResponseEntity.ok(profileService.getProfile(auth.getName()));
+    }
+
+    // "View Profile" from the People Directory — any other employee's About/Job detail, with
+    // sensitive self-service fields redacted unless the caller is HR_ADMIN/SUPER_ADMIN. See
+    // ProfileService#getProfileForViewer.
+    @GetMapping("/{userId}")
+    public ResponseEntity<ProfileResponse> getProfileForViewer(@PathVariable UUID userId, Authentication auth) {
+        return ResponseEntity.ok(profileService.getProfileForViewer(auth.getName(), userId));
     }
 
     @GetMapping("/timeline")

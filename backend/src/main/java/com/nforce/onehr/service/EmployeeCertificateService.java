@@ -25,9 +25,28 @@ public class EmployeeCertificateService {
     @Transactional(readOnly = true)
     public List<EmployeeCertificateResponse> listMine(String actorEmail) {
         UUID actorId = requireActor(actorEmail).getId();
-        return repository.findByEmployeeUserIdOrderByCreatedAtAsc(actorId).stream()
+        return listForEmployee(actorId);
+    }
+
+    // Caller must already have verified it's entitled to see this employee's certificates (e.g.
+    // via DirectReportScopeService#isDirectReport) — no permission check here, unlike listMine.
+    @Transactional(readOnly = true)
+    public List<EmployeeCertificateResponse> listForEmployee(UUID employeeUserId) {
+        return repository.findByEmployeeUserIdOrderByCreatedAtAsc(employeeUserId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+    }
+
+    // Same no-permission-check contract as listForEmployee above, for a whole team at once —
+    // backs the Team Performance roster's inline certificate badges without one query per
+    // employee. Grouped on the raw entity, not the response: EmployeeCertificateResponse itself
+    // has no employeeUserId field.
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, List<EmployeeCertificateResponse>> listForEmployees(java.util.Collection<UUID> employeeUserIds) {
+        if (employeeUserIds.isEmpty()) return java.util.Map.of();
+        return repository.findByEmployeeUserIdInOrderByCreatedAtAsc(employeeUserIds).stream()
+                .collect(Collectors.groupingBy(EmployeeCertificate::getEmployeeUserId, java.util.LinkedHashMap::new,
+                        Collectors.mapping(this::toResponse, Collectors.toList())));
     }
 
     @Transactional
