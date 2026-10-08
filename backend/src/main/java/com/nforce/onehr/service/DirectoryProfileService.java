@@ -27,6 +27,7 @@ public class DirectoryProfileService {
     public DirectoryProfileResponse getDirectoryProfile(String viewerEmail, UUID targetUserId) {
         return DirectoryProfileResponse.builder()
                 .profile(profileService.getProfileForViewer(viewerEmail, targetUserId))
+                .hasSensitiveAccess(profileService.hasSensitiveAccess(viewerEmail))
                 .skills(skillService.listForEmployee(targetUserId))
                 .certificates(certificateService.listForEmployee(targetUserId))
                 .learningEntries(learningEntryService.listForEmployee(targetUserId))

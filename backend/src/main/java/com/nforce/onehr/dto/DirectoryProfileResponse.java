@@ -17,6 +17,12 @@ import java.util.List;
 @Data @Builder
 public class DirectoryProfileResponse {
     private ProfileResponse profile;
+    // Whether the VIEWER (not the target) holds HR_ADMIN/SUPER_ADMIN — i.e. whether profile's
+    // sensitive fields are genuinely redacted or just empty on the target's own record. The
+    // frontend must use this flag rather than checking those fields for null itself: an
+    // authorized viewer looking at an employee who never filled in DOB/address/bank details would
+    // otherwise be shown the same "restricted" notice as an unauthorized one.
+    private boolean hasSensitiveAccess;
     private List<EmployeeSkillResponse> skills;
     private List<EmployeeCertificateResponse> certificates;
     private List<EmployeeLearningEntryResponse> learningEntries;

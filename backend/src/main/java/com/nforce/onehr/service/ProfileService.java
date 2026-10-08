@@ -69,9 +69,7 @@ public class ProfileService {
                 .map(emp -> toResponse(target, emp))
                 .orElse(toMinimalResponse(target));
 
-        boolean isOverride = viewer.getRoles().stream()
-                .anyMatch(r -> SENSITIVE_PROFILE_OVERRIDE_ROLES.contains(r.getCode()));
-        if (!isOverride) {
+        if (!hasSensitiveProfileAccess(viewer)) {
             response.setDateOfBirth(null);
             response.setPersonalEmail(null);
             response.setAddress(null);
@@ -88,6 +86,20 @@ public class ProfileService {
             response.setNationalId(null);
         }
         return response;
+    }
+
+    // Exposed separately (not inferred from field nullness on the client) because a legitimate
+    // HR_ADMIN/SUPER_ADMIN viewer looking at an employee who simply never filled in DOB/address/
+    // bank details would otherwise see every sensitive field null anyway — indistinguishable from
+    // being redacted. DirectoryProfileService surfaces this on its response for exactly that reason.
+    @Transactional(readOnly = true)
+    public boolean hasSensitiveAccess(String viewerEmail) {
+        return hasSensitiveProfileAccess(requireUser(viewerEmail));
+    }
+
+    private boolean hasSensitiveProfileAccess(User viewer) {
+        return viewer.getRoles().stream()
+                .anyMatch(r -> SENSITIVE_PROFILE_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
     @Transactional(readOnly = true)
