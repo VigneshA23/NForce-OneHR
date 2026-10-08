@@ -25,9 +25,29 @@ public class EmployeeSkillService {
     @Transactional(readOnly = true)
     public List<EmployeeSkillResponse> listMine(String actorEmail) {
         UUID actorId = requireActor(actorEmail).getId();
-        return repository.findByEmployeeUserIdOrderByCreatedAtAsc(actorId).stream()
+        return listForEmployee(actorId);
+    }
+
+    // Caller must already have verified it's entitled to see this employee's skills (e.g. via
+    // DirectReportScopeService#isDirectReport) — this does no permission check of its own, unlike
+    // listMine above, which only ever resolves the caller's own id.
+    @Transactional(readOnly = true)
+    public List<EmployeeSkillResponse> listForEmployee(UUID employeeUserId) {
+        return repository.findByEmployeeUserIdOrderByCreatedAtAsc(employeeUserId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+    }
+
+    // Same no-permission-check contract as listForEmployee above, for a whole team at once —
+    // backs the Team Performance roster's inline skill chips without one query per employee.
+    // Grouped on the raw entity (not the response) since EmployeeSkillResponse itself has no
+    // employeeUserId field — it's always scoped to one employee's request elsewhere.
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, List<EmployeeSkillResponse>> listForEmployees(java.util.Collection<UUID> employeeUserIds) {
+        if (employeeUserIds.isEmpty()) return java.util.Map.of();
+        return repository.findByEmployeeUserIdInOrderByCreatedAtAsc(employeeUserIds).stream()
+                .collect(Collectors.groupingBy(EmployeeSkill::getEmployeeUserId, java.util.LinkedHashMap::new,
+                        Collectors.mapping(this::toResponse, Collectors.toList())));
     }
 
     @Transactional

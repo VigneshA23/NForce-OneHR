@@ -14,6 +14,7 @@ import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
 import ProfilePage from './pages/ProfilePage';
+import EmployeeProfileViewPage from './pages/EmployeeProfileViewPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
 import NotificationsPage from './pages/NotificationsPage';
 import DirectoryPage from './pages/DirectoryPage';
@@ -176,6 +177,7 @@ export default function App() {
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />
+          <Route path="/profile/:userId" element={<EmployeeProfileViewPage />} />
           <Route path="/user-preferences" element={<UserPreferencesPage />} />
           <Route path="/notifications"  element={<NotificationsPage />} />
           <Route path="/directory"      element={<DirectoryPage />} />

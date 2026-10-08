@@ -51,6 +51,45 @@ public class ProfileService {
                 .orElse(toMinimalResponse(user));
     }
 
+    private static final Set<String> SENSITIVE_PROFILE_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+
+    // Read-only "View Profile" from the People Directory — any authenticated employee can look up
+    // any other employee's safe/public-facing fields (About + Job), same exposure level the
+    // directory listing itself already has (EmployeeController#directory, no role restriction).
+    // Sensitive self-service fields (DOB, personal email, address, emergency contact, passport,
+    // bank details) are nulled out here unless the viewer holds HR_ADMIN/SUPER_ADMIN — those
+    // roles already see this detail elsewhere (e.g. onboarding, offboarding), everyone else never
+    // should just by clicking a directory row.
+    @Transactional(readOnly = true)
+    public ProfileResponse getProfileForViewer(String viewerEmail, java.util.UUID targetUserId) {
+        User viewer = requireUser(viewerEmail);
+        User target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+        ProfileResponse response = employeeRepository.findById(target.getId())
+                .map(emp -> toResponse(target, emp))
+                .orElse(toMinimalResponse(target));
+
+        boolean isOverride = viewer.getRoles().stream()
+                .anyMatch(r -> SENSITIVE_PROFILE_OVERRIDE_ROLES.contains(r.getCode()));
+        if (!isOverride) {
+            response.setDateOfBirth(null);
+            response.setPersonalEmail(null);
+            response.setAddress(null);
+            response.setPermanentAddress(null);
+            response.setEmergencyContactName(null);
+            response.setEmergencyContactPhone(null);
+            response.setEmergencyContactRelationship(null);
+            response.setMaritalStatus(null);
+            response.setPassportNumber(null);
+            response.setPassportExpiry(null);
+            response.setBankAccountNumber(null);
+            response.setBankName(null);
+            response.setBankIfsc(null);
+            response.setNationalId(null);
+        }
+        return response;
+    }
+
     @Transactional(readOnly = true)
     public List<ProfileTimelineEvent> getTimeline(String email) {
         User user = requireUser(email);

@@ -5,13 +5,19 @@ import com.nforce.onehr.dto.search.SearchPageResponse;
 import com.nforce.onehr.dto.search.SearchPreviewResponse;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Orchestrates every registered {@link SearchProvider} (Spring injects one per module — see that
@@ -21,23 +27,53 @@ import java.util.Objects;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GlobalSearchService {
 
     static final int MIN_QUERY_LENGTH = 2;
     static final int MAX_QUERY_LENGTH = 100;
     private static final int PREVIEW_LIMIT_PER_MODULE = 5;
     private static final int MAX_PAGE_SIZE = 50;
+    // Bounds how long one module can hold up the others. preview() fans out across every
+    // SearchProvider (Employees, Documents, Announcements, ...), each backed by its own query/
+    // transaction (see toGroup) — without this, a single stuck/slow module (confirmed: Neon's
+    // pooled endpoint can leave one connection's query running for minutes — see application.yml's
+    // transaction.default-timeout comment) silently blocks every OTHER module's results too, even
+    // though they're otherwise independent and most finish in milliseconds.
+    private static final long PROVIDER_TIMEOUT_SECONDS = 8;
 
     private final List<SearchProvider> providers;
     private final UserRepository userRepo;
+    // Not request-request-scoped — one small shared pool reused across all preview() calls.
+    // toGroup() opens its own @Transactional (each on a separate thread/connection here), so
+    // providers never contend over the request thread's transaction/connection.
+    private final ExecutorService searchExecutor = Executors.newFixedThreadPool(8, r -> {
+        Thread t = new Thread(r, "global-search-provider");
+        t.setDaemon(true);
+        return t;
+    });
 
-    @Transactional(readOnly = true)
+    @PreDestroy
+    void shutdown() {
+        searchExecutor.shutdownNow();
+    }
+
     public SearchPreviewResponse preview(String actorEmail, String rawQuery) {
         String query = validate(rawQuery);
         User actor = requireUser(actorEmail);
 
-        List<SearchGroupDto> groups = providers.stream()
-                .map(p -> toGroup(p, actor, query))
+        List<CompletableFuture<SearchGroupDto>> futures = providers.stream()
+                .map(p -> CompletableFuture.supplyAsync(() -> toGroup(p, actor, query), searchExecutor)
+                        .orTimeout(PROVIDER_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .exceptionally(ex -> {
+                            log.warn("Search module '{}' timed out or failed for query '{}' — omitting it from results",
+                                    p.moduleKey(), query, ex);
+                            return null;
+                        }))
+                .toList();
+
+        List<SearchGroupDto> groups = futures.stream()
+                .map(CompletableFuture::join)
                 .filter(Objects::nonNull)
                 .toList();
 

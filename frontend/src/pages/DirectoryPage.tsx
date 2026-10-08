@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, MoreHorizontal } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
@@ -71,7 +71,7 @@ function HeaderArt() {
 }
 
 /* ── Detail drawer ────────────────────────────────── */
-function DetailPanel({ entry, onClose, onAppreciate }: { entry: DirectoryEntry; onClose: () => void; onAppreciate?: () => void }) {
+function DetailPanel({ entry, onClose, onAppreciate, onViewProfile }: { entry: DirectoryEntry; onClose: () => void; onAppreciate?: () => void; onViewProfile: () => void }) {
   const rows: [string, string | null | undefined][] = [
     ['Employee Code', entry.employeeCode],
     ['Work Email', entry.email],
@@ -107,6 +107,13 @@ function DetailPanel({ entry, onClose, onAppreciate }: { entry: DirectoryEntry; 
             <StatusChip active={entry.active} />
           </div>
         </div>
+        <button onClick={onViewProfile} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)',
+          borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer',
+        }}>
+          View Full Profile
+        </button>
         {onAppreciate && <AppreciateButton label="Appreciate" onClick={onAppreciate} />}
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {rows.map(([label, value]) => (
@@ -158,6 +165,7 @@ function exportToExcel(data: DirectoryEntry[]) {
 /* ── Main page ────────────────────────────────────── */
 export default function DirectoryPage() {
   const token = useAuthStore(s => s.token) ?? '';
+  const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
   // HR/Super Admin can appreciate any active employee org-wide (KudosService#canAppreciate);
   // everyone else keeps My Team's relationship-scoped Appreciate buttons.
@@ -487,6 +495,7 @@ export default function DirectoryPage() {
           <DetailPanel
             entry={selected}
             onClose={closeDetail}
+            onViewProfile={() => navigate(`/profile/${selected.userId}`)}
             onAppreciate={canAppreciateAnyone && selected.active && selected.email !== user?.email
               ? () => setKudosTarget({ userId: selected.userId, name: selected.fullName })
               : undefined}
