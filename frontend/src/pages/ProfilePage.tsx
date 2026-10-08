@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Mail, Phone as PhoneIcon, MapPin, Hash } from 'lucide-react';
-import { profileApi, type ProfileData } from '../api/profile';
+import { Camera, Mail, Phone as PhoneIcon, MapPin, Hash, UserRound, IdCard, Briefcase, TrendingUp, FileText, Package } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { profileApi, profileEducationApi, type ProfileData } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { invalidateEmployeePhoto } from '../components/EmployeeAvatar';
@@ -10,7 +11,7 @@ import profileBannerBlue from '../assets/profile-banner-blue.png';
 import profileBannerPink from '../assets/profile-banner-pink.png';
 import profileBannerGreen from '../assets/profile-banner-green.png';
 import profileBannerPurple from '../assets/profile-banner-purple.png';
-import { PhotoModal, AvatarPickerModal, ProfileCoverBanner, ProfileDayStatusBadge, DesignationLine, dicebearUrl, ROLE_LABELS, computeDisplayName, type ProfileDayStatus } from './profile/shared';
+import { PhotoModal, AvatarPickerModal, ProfileCoverBanner, ProfileDayStatusBadge, DesignationLine, dicebearUrl, ROLE_LABELS, computeDisplayName, computeProfileCompletion, ProfileCompletionCard, type ProfileDayStatus, type ProfileFieldTarget } from './profile/shared';
 import { attendanceApi } from '../api/attendance';
 import { holidaysApi } from '../api/holidays';
 import { AboutTab } from './profile/tabs/AboutTab';
@@ -18,14 +19,16 @@ import { ProfileTab } from './profile/tabs/ProfileTab';
 import { JobTab } from './profile/tabs/JobTab';
 import { DocumentsTab } from './profile/tabs/DocumentsTab';
 import { AssetsTab } from './profile/tabs/AssetsTab';
+import { GrowthTab } from './profile/tabs/GrowthTab';
 
-type TabKey = 'about' | 'profile' | 'job' | 'documents' | 'assets';
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'about', label: 'About' },
-  { key: 'profile', label: 'Profile' },
-  { key: 'job', label: 'Job' },
-  { key: 'documents', label: 'Documents' },
-  { key: 'assets', label: 'Assets' },
+type TabKey = 'about' | 'profile' | 'job' | 'growth' | 'documents' | 'assets';
+const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
+  { key: 'about', label: 'About', icon: UserRound },
+  { key: 'profile', label: 'Profile', icon: IdCard },
+  { key: 'job', label: 'Job', icon: Briefcase },
+  { key: 'growth', label: 'Skills', icon: TrendingUp },
+  { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'assets', label: 'Assets', icon: Package },
 ];
 
 export default function ProfilePage() {
@@ -47,6 +50,12 @@ export default function ProfilePage() {
   const [coverRemoving, setCoverRemoving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('about');
   const [dayStatus, setDayStatus] = useState<ProfileDayStatus>(null);
+  // Profile Completion counts "has logged at least one Education entry" as one of its items —
+  // Education itself lives in ProfileTab/EducationCard, not on `profile`, so it needs its own
+  // lightweight fetch here just to know whether the list is non-empty. Reflects the count as of
+  // this page load; adding/removing an entry from the Education section updates it on next load,
+  // not live, since EducationCard owns that list's state independently.
+  const [hasEducation, setHasEducation] = useState(false);
 
   useEffect(() => {
     profileApi.get(token)
@@ -59,6 +68,7 @@ export default function ProfilePage() {
       })
       .catch(() => showToast('error', 'Failed to load profile'))
       .finally(() => setLoading(false));
+    profileEducationApi.list(token).then(list => setHasEducation(list.length > 0)).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -172,6 +182,14 @@ export default function ProfilePage() {
     }
   }
 
+  // Profile Completion/Health cards' "click a missing item" dropdown — 'about'/'profile' just
+  // switch the tab the field actually lives on; 'photo' has no tab of its own (it's the header's
+  // own button), so it opens that modal directly instead.
+  function handleJumpTo(target: ProfileFieldTarget) {
+    if (target === 'photo') setShowPhotoModal(true);
+    else setActiveTab(target);
+  }
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
@@ -210,6 +228,13 @@ export default function ProfilePage() {
     { icon: MapPin,    label: 'Location',      value: profile.locationName || '—' },
     { icon: Hash,      label: 'Employee Code', value: profile.employeeCode },
   ];
+
+  // Growth (Skills & Expertise, What I Learned) is self-service career tracking for individual
+  // contributors — Super Admin/HR Admin don't need it on their own profile. Managers keep it:
+  // they're still individual contributors tracking their own growth, same as Employees.
+  const visibleTabs = (profile.role === 'SUPER_ADMIN' || profile.role === 'HR_ADMIN')
+    ? TABS.filter(t => t.key !== 'growth')
+    : TABS;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -283,6 +308,12 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {profile.hasEmployeeRecord && (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <ProfileCompletionCard detail={computeProfileCompletion(profile, hasEducation)} onJumpTo={handleJumpTo} />
+            </div>
+          )}
         </div>
 
         {/* Sub-meta bar */}
@@ -297,12 +328,14 @@ export default function ProfilePage() {
 
         {/* Primary tabs */}
         <div style={{ display: 'flex', gap: 4, padding: '0 24px', borderTop: '1px solid var(--line)', overflowX: 'auto' }}>
-          {TABS.map(t => (
+          {visibleTabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
               background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
               padding: '12px 14px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 600,
               color: activeTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
             }}>
+              <t.icon size={14} aria-hidden="true" />
               {t.label}
             </button>
           ))}
@@ -312,6 +345,7 @@ export default function ProfilePage() {
       {activeTab === 'about' && <AboutTab profile={profile} token={token} onSaved={setProfile} />}
       {activeTab === 'profile' && <ProfileTab profile={profile} token={token} onSaved={setProfile} />}
       {activeTab === 'job' && <JobTab profile={profile} token={token} />}
+      {activeTab === 'growth' && <GrowthTab token={token} />}
       {activeTab === 'documents' && <DocumentsTab token={token} />}
       {activeTab === 'assets' && <AssetsTab token={token} />}
 

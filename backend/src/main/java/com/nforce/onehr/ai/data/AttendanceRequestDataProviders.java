@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * The caller's own Work From Home and Partial Day requests.
@@ -79,12 +78,8 @@ public final class AttendanceRequestDataProviders {
             List<AttendanceRequestResponse> pending = attendanceRequestService.listPendingForApprover(context.getActorEmail());
             if (pending == null || pending.isEmpty()) return Optional.empty();
 
-            String rows = pending.stream()
-                    .limit(MAX_ROWS)
-                    .map(r -> "- %s: %s, %s".formatted(r.getEmployeeName(), typeLabel(r.getRequestType()), r.getRequestDate()))
-                    .collect(Collectors.joining("\n"));
-
-            return Optional.of("%d awaiting your decision.\n%s".formatted(pending.size(), rows));
+            return Optional.of(LiveDataText.cappedList(pending, MAX_ROWS, "Work From Home / Partial Day request(s) awaiting your decision",
+                    "first", r -> "%s: %s, %s".formatted(r.getEmployeeName(), typeLabel(r.getRequestType()), r.getRequestDate())));
         }
     }
 }

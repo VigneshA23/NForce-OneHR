@@ -48,8 +48,19 @@ public final class PeopleDataProviders {
         @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
         @Override public Set<String> modules() { return Set.of("my-profile", "profile", "people"); }
 
+        /**
+         * The entry point AssistantDataService actually calls, so the transaction goes here: on
+         * {@link #fetch(AssistantRequestContext)} alone it was skipped (the interface default calls it
+         * on {@code this}, not the proxy), designation/department failed to lazy-load, and the
+         * profile - manager included - never reached the model (ONEHR - invented reporting manager).
+         */
         @Override
         @Transactional(readOnly = true)
+        public Optional<String> fetch(AssistantRequestContext context, String question) {
+            return fetch(context);
+        }
+
+        @Override
         public Optional<String> fetch(AssistantRequestContext context) {
             Optional<Employee> found = employeeRepository.findByUser_Email(context.getActorEmail());
             if (found.isEmpty()) {

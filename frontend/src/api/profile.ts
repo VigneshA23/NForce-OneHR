@@ -209,3 +209,177 @@ export const profileEducationApi = {
       if (!res.ok) throw new Error('Failed to delete education entry');
     }),
 };
+
+export type ProficiencyLevel = 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
+export const PROFICIENCY_LEVELS: ProficiencyLevel[] = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
+
+export interface SkillEntry {
+  id: string;
+  skillName: string;
+  proficiencyLevel: ProficiencyLevel;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillPayload {
+  skillName: string;
+  proficiencyLevel: ProficiencyLevel;
+}
+
+export const profileSkillsApi = {
+  list: (token: string) =>
+    fetch(`${BASE}/skills`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<SkillEntry[]>),
+
+  create: (token: string, payload: SkillPayload) =>
+    fetch(`${BASE}/skills`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<SkillEntry>),
+
+  update: (token: string, id: string, payload: SkillPayload) =>
+    fetch(`${BASE}/skills/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<SkillEntry>),
+
+  remove: (token: string, id: string) =>
+    fetch(`${BASE}/skills/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Failed to delete skill');
+    }),
+};
+
+export type LearningType =
+  | 'Course' | 'Certification' | 'Self Learning' | 'Workshop'
+  | 'Training' | 'Conference' | 'Internal Training' | 'Other';
+export const LEARNING_TYPES: LearningType[] = [
+  'Course', 'Certification', 'Self Learning', 'Workshop',
+  'Training', 'Conference', 'Internal Training', 'Other',
+];
+
+export type LearningStatus = 'Planned' | 'In Progress' | 'Completed';
+export const LEARNING_STATUSES: LearningStatus[] = ['Planned', 'In Progress', 'Completed'];
+
+export type VerificationStatus = 'Self Reported' | 'Pending Verification' | 'Verified';
+
+export interface LearningEntry {
+  id: string;
+  title: string;
+  description: string | null;
+  learningType: LearningType;
+  status: LearningStatus;
+  provider: string | null;
+  startDate: string | null;
+  completedDate: string | null;
+  skillsDeveloped: string[];
+  certificateName: string | null;
+  certificateIssueDate: string | null;
+  certificateExpiryDate: string | null;
+  certificateUrl: string | null;
+  verificationStatus: VerificationStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LearningPayload {
+  title: string;
+  description?: string;
+  learningType: LearningType;
+  status: LearningStatus;
+  provider?: string;
+  startDate?: string;
+  completedDate?: string;
+  skillsDeveloped?: string[];
+  certificateName?: string;
+  certificateIssueDate?: string;
+  certificateExpiryDate?: string;
+  certificateUrl?: string;
+  notes?: string;
+}
+
+export interface CertificateEntry {
+  id: string;
+  name: string;
+  issuingOrganization: string | null;
+  credentialId: string | null;
+  credentialUrl: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificatePayload {
+  name: string;
+  issuingOrganization?: string;
+  credentialId?: string;
+  credentialUrl?: string;
+  issueDate?: string;
+  expiryDate?: string;
+}
+
+// Standalone certificates — separate from the certificate fields embedded on a Learning entry,
+// for certifications earned outside any logged "Learning & Development" item.
+export const profileCertificatesApi = {
+  list: (token: string) =>
+    fetch(`${BASE}/certificates`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<CertificateEntry[]>),
+
+  create: (token: string, payload: CertificatePayload) =>
+    fetch(`${BASE}/certificates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<CertificateEntry>),
+
+  update: (token: string, id: string, payload: CertificatePayload) =>
+    fetch(`${BASE}/certificates/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<CertificateEntry>),
+
+  remove: (token: string, id: string) =>
+    fetch(`${BASE}/certificates/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Failed to delete certificate');
+    }),
+};
+
+// "Learning & Development" entries — self-service growth tracking (phase 1). Manager/lead
+// visibility into this is an explicit later phase, not implemented here.
+export const profileLearningApi = {
+  list: (token: string) =>
+    fetch(`${BASE}/learning`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<LearningEntry[]>),
+
+  create: (token: string, payload: LearningPayload) =>
+    fetch(`${BASE}/learning`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<LearningEntry>),
+
+  update: (token: string, id: string, payload: LearningPayload) =>
+    fetch(`${BASE}/learning/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }).then(handle<LearningEntry>),
+
+  remove: (token: string, id: string) =>
+    fetch(`${BASE}/learning/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (!res.ok) throw new Error('Failed to delete learning entry');
+    }),
+};

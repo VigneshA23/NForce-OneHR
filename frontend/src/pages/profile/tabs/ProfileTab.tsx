@@ -14,7 +14,7 @@ function SectionCard({ title, badge, icon, onEdit, children }: {
   title: string; badge?: string; icon?: LucideIcon; onEdit?: () => void; children: React.ReactNode;
 }) {
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <SectionHeader title={title} badge={badge} icon={icon} />
         {onEdit && (
@@ -53,7 +53,7 @@ function EducationCard({ token }: { token: string }) {
   }
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <SectionHeader title="Education" icon={GraduationCap} />
         <button onClick={() => setModalTarget('new')}

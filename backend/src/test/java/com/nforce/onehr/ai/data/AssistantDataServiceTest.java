@@ -400,6 +400,106 @@ class AssistantDataServiceTest {
     }
 
     @Test
+    @DisplayName("\"who is my manager\" gets the caller's own profile on a page crowded with other families")
+    void ownProfileWordingPicksTheProfile() {
+        // ONEHR - asked on Team Attendance, six attendance families took all four slots on the
+        // page's 0.75 alone, the profile's 0.70 match never got one, and the model invented a manager.
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
+                new SpyProvider("profile.me", all, Set.of("my-profile", "profile", "people"), "- Reporting manager: Naveen")));
+        for (String family : List.of("attendance", "attendance-request", "org-attendance", "overtime",
+                "regularization", "team-attendance")) {
+            providers.add(new SpyProvider(family + ".x", all, Set.of("attendance"), family));
+        }
+        AssistantDataService service = new AssistantDataService(providers);
+        AssistantRequestContext onAttendancePage = AssistantRequestContext.builder()
+                .userId(UUID.randomUUID()).actorEmail("m@nforceone.com")
+                .primaryRoleCode("MANAGER").shellRole(ShellRole.MANAGER)
+                .audiences(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER))
+                .currentPageId("attendance").currentModule("attendance")
+                .build();
+        List<RetrievalResult> weakProfileMatch = List.of(knowledgeFrom("my-profile", 0.70));
+
+        for (String q : List.of("who is my manager", "Who is my reporting manager?", "who do I report to",
+                "what is my employee code", "which department am I in", "what is my designation",
+                "when did I join")) {
+            assertThat(service.fetch(onAttendancePage, weakProfileMatch, q).providerIds()).as(q).contains("profile.me");
+        }
+        // Not the caller's own details - left to retrieval as before.
+        assertThat(service.fetch(onAttendancePage, weakProfileMatch, "who is on leave today").providerIds())
+                .doesNotContain("profile.me");
+    }
+
+    @Test
+    @DisplayName("regularization wording gets the regularization rows on a crowded page - the caller's own, or the queue for \"my team\"")
+    void regularizationWordingPicksRegularizations() {
+        // ONEHR - regularization sorted fifth among six "attendance" families for four slots, so
+        // "how many regularization requests did I raise" was answered with "I cannot access that".
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        Set<AudienceBucket> approvers = Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
+        List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
+                new SpyProvider("regularization.my-requests", all, Set.of("attendance", "requests", "regularization"), "mine"),
+                new SpyProvider("regularization.pending-approvals", approvers,
+                        Set.of("attendance", "approvals", "regularization-approvals"), "queue")));
+        for (String family : List.of("attendance", "attendance-request", "org-attendance", "overtime", "team-attendance")) {
+            providers.add(new SpyProvider(family + ".x", all, Set.of("attendance"), family));
+        }
+        AssistantDataService service = new AssistantDataService(providers);
+        List<RetrievalResult> attendance = List.of(knowledgeFrom("attendance", 0.8));
+
+        assertThat(service.fetch(employee(), attendance,
+                "How many regularization requests did I raise this month and how many were approved?").providerIds())
+                .contains("regularization.my-requests");
+        assertThat(service.fetch(manager(), attendance, "Show pending regularization requests only for my team").providerIds())
+                .contains("regularization.pending-approvals");
+    }
+
+    @Test
+    @DisplayName("joiner wording gets the organisation headcount even when team, onboarding and profile matches retrieve higher")
+    void joinerWordingPicksTheHeadcount() {
+        // ONEHR - a Super Admin's "how many employees joined this month by department" retrieved the
+        // user-accounts knowledge but the block lost its slot to four closer-scoring families.
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        AssistantDataService service = new AssistantDataService(List.of(
+                new SpyProvider("org-users.summary", Set.of(AudienceBucket.ADMIN), Set.of("users", "headcount", "access", "administration"), "users"),
+                new SpyProvider("profile.me", all, Set.of("my-profile", "profile", "people"), "me"),
+                new SpyProvider("team.members", all, Set.of("team", "people"), "team"),
+                new SpyProvider("org-onboarding.summary", all, Set.of("onboarding"), "onboarding"),
+                new SpyProvider("org-structure.summary", all, Set.of("organization", "administration"), "structure")));
+        AssistantRequestContext superAdmin = context(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE), ShellRole.SUPER_ADMIN);
+        List<RetrievalResult> crowded = List.of(knowledgeFrom("team", 0.82), knowledgeFrom("onboarding", 0.8),
+                knowledgeFrom("my-profile", 0.79), knowledgeFrom("organization", 0.78), knowledgeFrom("users", 0.7));
+
+        for (String q : List.of("How many employees joined this month by department?", "who joined this month", "new joiners this month")) {
+            assertThat(service.fetch(superAdmin, crowded, q).providerIds()).as(q).contains("org-users.summary");
+        }
+        // The caller's own joining date and their own team's joiners stay with retrieval.
+        for (String q : List.of("when did I join", "what is my joining date", "who joined my team recently")) {
+            assertThat(service.fetch(superAdmin, crowded, q).providerIds()).as(q).doesNotContain("org-users.summary");
+        }
+    }
+
+    @Test
+    @DisplayName("leave type wording gets the organisation masters' leave types, not only the caller's balances")
+    void leaveTypeWordingPicksTheMasters() {
+        // ONEHR - a Super Admin's "how many active leave types are configured" was sent to Organization Masters.
+        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        AssistantDataService service = new AssistantDataService(List.of(
+                new SpyProvider("leave.balances", all, Set.of("leave", "leave-balances"), "balances"),
+                new SpyProvider("org-structure.summary", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN),
+                        Set.of("organization", "administration", "leave-types"), "structure")));
+        AssistantRequestContext superAdmin = context(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE), ShellRole.SUPER_ADMIN);
+
+        for (String q : List.of("How many active leave types are configured?", "list all types of leave")) {
+            assertThat(service.fetch(superAdmin, List.of(knowledgeFrom("leave")), q).providerIds()).as(q)
+                    .contains("org-structure.summary");
+        }
+        // An employee never runs the organisation block, whatever the wording.
+        assertThat(service.fetch(employee(), List.of(knowledgeFrom("leave")), "How many leave types are configured?").providerIds())
+                .containsExactly("leave.balances");
+    }
+
+    @Test
     @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
     void everyTurnProviderRunsOutsideTheCap() {
         AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),

@@ -4,7 +4,7 @@ import { profileApi, type ProfileData } from '../../../api/profile';
 import { invalidateHeroVariantCache } from '../../../components/HeroIllustration';
 import {
   EditModal, EditField, PhoneField, SelectField, GENDERS, MARITAL_STATUSES,
-  validateName, validatePhone, nameCharsOnly, digitsOnly,
+  validateName, validateRequiredName, validatePhone, nameCharsOnly, digitsOnly,
 } from '../shared';
 
 const NAME_FILTER_HINT = 'Only letters, spaces, hyphens, apostrophes, and periods are allowed.';
@@ -28,12 +28,14 @@ export function PrimaryDetailsModal({ profile, token, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
 
   const errors = {
-    firstName: validateName(firstName, 'First name'),
+    // Required — a profile can't exist without a name, unlike every other field on this form.
+    firstName: validateRequiredName(firstName, 'First name'),
+    lastName: validateRequiredName(lastName, 'Last name'),
     // Middle Name is validated by the exact same backend @Pattern as First/Last Name, but had no
     // matching frontend check — an invalid value (e.g. a trailing hyphen) would silently pass
     // client-side, then fail server-side with a raw error instead of this same inline feedback.
+    // Unlike First/Last Name, it stays optional (routinely blank).
     middleName: validateName(middleName, 'Middle name'),
-    lastName: validateName(lastName, 'Last name'),
     emName: validateName(emName, 'Contact name'),
     emPhone: validatePhone(emPhone, 'Contact phone'),
   };

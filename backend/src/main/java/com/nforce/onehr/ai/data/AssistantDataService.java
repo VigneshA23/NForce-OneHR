@@ -238,7 +238,15 @@ public class AssistantDataService {
                     + "|\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b.*\\bleaves?\\b"
                     + "|\\bleaves?\\b.*\\b(reject\\w*|approved|pending|cancell?ed|withdrawn)\\b", Pattern.CASE_INSENSITIVE), "leave-requests",
             Pattern.compile("\\b(employees|people|staff|department|how\\s+many)\\b.*\\b(absent|present|checked\\s+in|late|attendance)\\b",
-                    Pattern.CASE_INSENSITIVE), "org-attendance");
+                    Pattern.CASE_INSENSITIVE), "org-attendance",
+            // The caller's own work details. On a page whose own providers fill every slot (six
+            // families on Attendance), "who is my manager" got no profile and the model invented one (ONEHR).
+            Pattern.compile("\\bmy\\s+(reporting\\s+|line\\s+)?(manager|supervisor|boss)\\b"
+                    + "|\\b(who|whom)\\s+(do|should)\\s+i\\s+report\\b|\\bi\\s+report\\s+to\\b"
+                    + "|\\bmy\\s+(employee\\s+(code|id|number)|designation|department|business\\s+unit|employment\\s+type"
+                    + "|work\\s+(mode|location)|joining\\s+date|date\\s+of\\s+joining|probation|confirmation\\s+date)\\b"
+                    + "|\\bwhat\\s+department\\s+am\\s+i\\b|\\bwhich\\s+department\\s+am\\s+i\\b|\\bwhen\\s+did\\s+i\\s+join\\b"
+                    + "|\\bam\\s+i\\s+(still\\s+)?on\\s+probation\\b", Pattern.CASE_INSENSITIVE), "my-profile");
 
     /** As strong as a direct retrieval hit: the question named the record type in so many words. */
     private static final double QUESTION_RELEVANCE = 0.9;
@@ -256,6 +264,12 @@ public class AssistantDataService {
                     + "|half[- ]?days?|discrepanc\\w*|irregular\\w*|attendance|on\\s+time|punctual\\w*)\\b",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PENALTY = Pattern.compile("\\bpenal\\w*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern REGULARIZATION = Pattern.compile("\\bregulari[sz]\\w*", Pattern.CASE_INSENSITIVE);
+    /** "how many employees joined this month", "new joiners" - the organisation's joiners, never "when did I join". */
+    private static final Pattern JOINERS = Pattern.compile(
+            "\\b(who|how\\s+many|employees?|people|staff|users?)\\b.*\\b(joined|joining|joiners?|hired)\\b|\\bnew\\s+(joiners?|hires?|employees)\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern MY_TEAM = Pattern.compile("\\b(my|our)\\s+(team|direct\\s+reports?|reportees)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern WFH = Pattern.compile(
             "\\b(wfh|work(ing|s)?\\s+from\\s+home|remote(ly)?|on\\s+duty)\\b", Pattern.CASE_INSENSITIVE);
     /** "what leave types can I apply for", "my leave balance" - the balance block lists every type held. */
@@ -263,6 +277,9 @@ public class AssistantDataService {
             "\\bleave\\s+(types?|balances?|entitlements?)\\b|\\btypes?\\s+of\\s+leaves?\\b"
                     + "|\\bleaves?\\b.*\\b(apply|avail\\w*|left|remaining)\\b|\\b(apply|avail\\w*)\\b.*\\bleaves?\\b",
             Pattern.CASE_INSENSITIVE);
+    /** "how many active leave types are configured" - the masters' list, which only HR/Admin's org-structure block holds. */
+    private static final Pattern LEAVE_TYPE_NAMES = Pattern.compile(
+            "\\bleave\\s+types?\\b|\\btypes?\\s+of\\s+leaves?\\b", Pattern.CASE_INSENSITIVE);
 
     private static Map<String, Double> questionRelevance(String question) {
         if (question == null) return Map.of();
@@ -277,10 +294,23 @@ public class AssistantDataService {
             relevance.put("attendance-history", QUESTION_RELEVANCE);
         }
         if (LEAVE_TYPES.matcher(question).find()) relevance.put("leave-balances", QUESTION_RELEVANCE);
+        // The caller's balances omit unpaid types and are empty for a Super Admin with none, so
+        // "how many leave types are configured" was sent to Organization Masters (ONEHR).
+        if (LEAVE_TYPE_NAMES.matcher(question).find()) relevance.put("leave-types", QUESTION_RELEVANCE);
+        // Regularization shares "attendance" with five other families and sorts fifth for four
+        // slots, so "how many regularizations did I raise" got no rows at all (ONEHR).
+        if (REGULARIZATION.matcher(question).find()) relevance.put("regularization", QUESTION_RELEVANCE);
+        // Team joiners, onboarding, departments and "when did I join" all retrieve on joiner wording
+        // and pushed the headcount out: a Super Admin was told "I can't see when they joined" (ONEHR).
+        // Both org headcount providers (HR's and Super Admin's) declare this module.
+        if (JOINERS.matcher(question).find() && !MY_TEAM.matcher(question).find()) relevance.put("headcount", QUESTION_RELEVANCE);
         // A team question gets the team's rows, never only the caller's own: "how many in my team
         // were absent yesterday" was answered from the manager's own empty record (ONEHR).
         if (TEAM_SCOPE.matcher(question).find()) {
             relevance.remove("attendance-history");
+            // The team's regularizations are the approver queue (ONEHR - "pending regularization
+            // requests for my team" got only a link to My Team's reports).
+            if (relevance.remove("regularization") != null) relevance.put("regularization-approvals", QUESTION_RELEVANCE);
             if (DISCREPANCY.matcher(question).find()) relevance.put("my-team-attendance", QUESTION_RELEVANCE);
             if (PENALTY.matcher(question).find()) {
                 relevance.put("team-penalties", QUESTION_RELEVANCE);

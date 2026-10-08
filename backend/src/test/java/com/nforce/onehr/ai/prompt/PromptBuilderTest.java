@@ -153,6 +153,26 @@ class PromptBuilderTest {
     }
 
     @Test
+    @DisplayName("pending team requests are answered from approvals and linked to the Approval Center, not My Team reports")
+    void pendingTeamRequestsRouteToApprovals() {
+        String prompt = builder.buildSystemPrompt(employee(), List.of(), Optional.empty());
+
+        assertThat(prompt).contains("are approvals, even when the question says \"my team\"");
+        assertThat(prompt).contains("navigate to the Approval Center");
+        // Every line continuation in the template must be escaped, or runs of spaces reach the model.
+        assertThat(prompt).doesNotContain("     whatever the response type");
+    }
+
+    @Test
+    @DisplayName("a partial list is shown as far as it goes, then linked to the page for the rest")
+    void partialListsShowRowsThenLinkThePage() {
+        String prompt = builder.buildSystemPrompt(employee(), List.of(), Optional.empty());
+
+        assertThat(prompt).contains("show every row it does list, then say how many more there are");
+        assertThat(prompt).contains("never send the user to a page instead of showing the rows you have");
+    }
+
+    @Test
     @DisplayName("prior turns are included as transcript, with the question last")
     void historyIsPlainTranscript() {
         String prompt = builder.buildUserPrompt("what happens after I submit?",
