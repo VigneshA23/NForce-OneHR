@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage';
 import AttendancePage from './pages/AttendancePage';
 import SuperAdminRegularizationPage from './pages/SuperAdminRegularizationPage';
 import OrgSetupPage from './pages/OrgSetupPage';
+import TalentPerformancePage from './pages/talent/TalentPerformancePage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -172,6 +173,7 @@ export default function App() {
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
+          <Route path="/talent-performance" element={<TalentPerformancePage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />

@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, TrendingUp,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -85,7 +85,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('policies', 'Policies & Announcements', FileText, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('organization', 'Organization Structure', GitBranch, 1),
-    item('performance', 'Performance & Engagement', GitBranch, 2),
+    item('talent-performance', 'Performance', TrendingUp, 1),
     item('assets', 'Assets & Expenses', Package, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
     item('reports', 'Reports & Analytics', FileText, 1),
@@ -96,6 +96,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('dashboard', 'Home', Home, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
+    item('talent-performance', 'Performance', TrendingUp, 1),
     item('access', 'User Management', Shield, 1),
     item('attendance', 'Attendance Administration', Clock, 1),
     item('leave', 'Leave & Holidays', Calendar, 1),
@@ -146,7 +147,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
     key: 'people', label: 'People', icon: Users, children: [
       'my-team',
       'employees',
-      { key: 'people-organization', label: 'Organization', icon: GitBranch, children: ['hierarchy', 'organization', 'directory'] },
+      { key: 'people-organization', label: 'Organization', icon: GitBranch, children: ['hierarchy', 'organization', 'directory', 'talent-performance'] },
     ],
   },
   { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
