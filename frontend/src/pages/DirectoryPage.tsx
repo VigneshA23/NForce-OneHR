@@ -495,7 +495,10 @@ export default function DirectoryPage() {
           <DetailPanel
             entry={selected}
             onClose={closeDetail}
-            onViewProfile={() => navigate(`/profile/${selected.userId}`)}
+            // QA-reported: viewing YOURSELF from the Directory must land on the self-service
+            // /profile (editable, My Profile), not the read-only /profile/:id view meant for
+            // looking up someone else — same self-check the Appreciate button below already uses.
+            onViewProfile={() => navigate(selected.email === user?.email ? '/profile' : `/profile/${selected.userId}`)}
             onAppreciate={canAppreciateAnyone && selected.active && selected.email !== user?.email
               ? () => setKudosTarget({ userId: selected.userId, name: selected.fullName })
               : undefined}

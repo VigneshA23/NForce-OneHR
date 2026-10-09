@@ -91,6 +91,19 @@ class EmployeeSearchProviderTest {
     }
 
     @Test
+    void detailUrl_forActorsOwnRecord_pointsAtSelfServiceProfileNotReadOnlyView() {
+        User self = User.builder().id(UUID.randomUUID()).email("someone@test.com")
+                .roles(Set.of(Role.builder().code("EMPLOYEE").build())).build();
+        lenient().when(employeeService.listDirectory()).thenReturn(List.of(
+                DirectoryEntryDto.builder().userId(self.getId().toString()).fullName("John")
+                        .employeeCode("NF-300").email("john@test.com").active(true).build()
+        ));
+
+        SearchResultItem item = provider.preview(self, "john", 10).items().get(0);
+        assertEquals("/profile", item.getDetailUrl());
+    }
+
+    @Test
     void refineUrl_pointsAtDirectoryPageWithSearchTerm() {
         assertEquals("/directory?search=john", provider.refineUrl(anyActor(), "john"));
     }

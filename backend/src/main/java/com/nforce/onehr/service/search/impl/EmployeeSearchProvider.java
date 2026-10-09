@@ -40,12 +40,12 @@ public class EmployeeSearchProvider implements SearchProvider {
 
     @Override
     public SearchProviderResult preview(User actor, String query, int limit) {
-        return search(query, 0, limit);
+        return search(actor, query, 0, limit);
     }
 
     @Override
     public SearchProviderResult page(User actor, String query, int page, int size) {
-        return search(query, page, size);
+        return search(actor, query, page, size);
     }
 
     @Override
@@ -53,7 +53,7 @@ public class EmployeeSearchProvider implements SearchProvider {
         return "/directory?search=" + encode(query);
     }
 
-    private SearchProviderResult search(String query, int page, int size) {
+    private SearchProviderResult search(User actor, String query, int page, int size) {
         List<DirectoryEntryDto> ranked = employeeService.listDirectory().stream()
                 .map(e -> new Scored<>(e, RelevanceScorer.bestScore(query, e.getFullName(), e.getEmployeeCode(), e.getEmail())))
                 .filter(s -> s.score > 0)
@@ -68,7 +68,12 @@ public class EmployeeSearchProvider implements SearchProvider {
                         .id(e.getUserId())
                         .title(e.getFullName())
                         .subtitle(subtitleFor(e))
-                        .detailUrl("/profile/" + e.getUserId())
+                        // QA-reported: selecting YOURSELF from search must land on the self-service
+                        // /profile (editable, My Profile) rather than the read-only /profile/:id
+                        // view meant for looking up someone else.
+                        // DirectoryEntryDto#userId is a String, actor.getId() a UUID — compare by
+                        // string form, not reference/UUID equality, which would never match.
+                        .detailUrl(e.getUserId().equals(actor.getId().toString()) ? "/profile" : "/profile/" + e.getUserId())
                         .build())
                 .collect(Collectors.toList());
         return new SearchProviderResult(items, ranked.size());
