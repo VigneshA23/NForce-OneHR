@@ -37,6 +37,11 @@ public class EmployeeCertificate {
     @Column(name = "expiry_date")
     private LocalDate expiryDate;
 
+    // Nullable, additive — see V219/CertificateCategory. Certificate name itself stays free text
+    // per the Talent & Skills spec; only its category is drawn from the master list.
+    @Column(name = "category_id")
+    private UUID categoryId;
+
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
     @Builder.Default
     private Instant createdAt = Instant.now();
