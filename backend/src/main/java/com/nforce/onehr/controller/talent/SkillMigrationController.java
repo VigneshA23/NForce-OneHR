@@ -43,4 +43,9 @@ public class SkillMigrationController {
                                                     Authentication auth) {
         return service.resolve(id, req, auth.getName());
     }
+
+    @PostMapping("/candidates/{id}/reopen")
+    public SkillMigrationCandidateResponse reopen(@PathVariable UUID id, Authentication auth) {
+        return service.reopen(id, auth.getName());
+    }
 }

@@ -80,7 +80,7 @@ public enum AuditActionCategory {
             "CERTIFICATE_CATEGORY_CREATED", "CERTIFICATE_CATEGORY_UPDATED",
             "CERTIFICATE_CATEGORY_DEACTIVATED", "CERTIFICATE_CATEGORY_REACTIVATED",
             "SKILL_REQUEST_APPROVED", "SKILL_REQUEST_REJECTED", "SKILL_REQUEST_MAPPED",
-            "SKILL_MIGRATION_RESOLVED",
+            "SKILL_MIGRATION_RESOLVED", "SKILL_MIGRATION_REOPENED",
             // Talent & Skills' org-wide read side (Employee Directory drill-down, CSV/Excel
             // export) — the spec requires logging every HR/Super Admin view of an individual
             // employee profile and every export, unlike every *_SUBMITTED self-service action

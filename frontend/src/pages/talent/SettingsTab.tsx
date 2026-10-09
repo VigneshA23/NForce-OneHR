@@ -299,6 +299,7 @@ function SkillRequestsSection({ token }: { token: string }) {
 function MigrationReviewSection({ token }: { token: string }) {
   const { showToast } = useToast();
   const [candidates, setCandidates] = useState<SkillMigrationCandidate[]>([]);
+  const [discarded, setDiscarded] = useState<SkillMigrationCandidate[]>([]);
   const [skills, setSkills] = useState<SkillMasterOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -306,12 +307,17 @@ function MigrationReviewSection({ token }: { token: string }) {
   const [mapping, setMapping] = useState<Record<string, string>>({});
 
   function load() {
-    Promise.all([migrationReviewApi.listPending(token), skillSettingsApi.listAll(token)])
-      .then(([c, s]) => { setCandidates(c); setSkills(s); })
+    Promise.all([migrationReviewApi.listPending(token), migrationReviewApi.listAll(token), skillSettingsApi.listAll(token)])
+      .then(([pending, all, s]) => { setCandidates(pending); setDiscarded(all.filter(c => c.status === 'Discarded')); setSkills(s); })
       .catch(e => showToast('error', e instanceof Error ? e.message : 'Could not load migration candidates'))
       .finally(() => setLoading(false));
   }
   useEffect(load, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function reopen(id: string) {
+    try { await migrationReviewApi.reopen(token, id); load(); }
+    catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not reopen candidate'); }
+  }
 
   async function scan() {
     setScanning(true);
@@ -334,7 +340,7 @@ function MigrationReviewSection({ token }: { token: string }) {
     catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not create skill from candidate'); }
   }
   async function resolveDiscard(id: string) {
-    try { await migrationReviewApi.resolveDiscard(token, id); setCandidates(prev => prev.filter(c => c.id !== id)); }
+    try { await migrationReviewApi.resolveDiscard(token, id); load(); }
     catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not discard candidate'); }
   }
 
@@ -378,6 +384,26 @@ function MigrationReviewSection({ token }: { token: string }) {
           ))}
         </tbody>
       </table>
+      {discarded.length > 0 && (
+        <>
+          <div style={{ padding: '10px 16px', fontSize: 11.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', borderTop: '1px solid var(--line)' }}>
+            Discarded — can be reopened
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <tbody>
+              {discarded.map(c => (
+                <tr key={c.id}>
+                  <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{c.rawText}</td>
+                  <td style={tdS}>{c.occurrenceCount} occurrence{c.occurrenceCount === 1 ? '' : 's'}</td>
+                  <td style={{ ...tdS, textAlign: 'right' }}>
+                    <button onClick={() => reopen(c.id)} style={btnGhost}><RotateCcw size={11} /> Reopen</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </SubSection>
   );
 }

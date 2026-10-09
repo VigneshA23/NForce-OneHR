@@ -100,6 +100,33 @@ public class SkillMigrationService {
                 .map(this::toResponse).collect(Collectors.toList());
     }
 
+    /**
+     * Reopens a Discarded candidate back to Pending so it can be resolved properly — the
+     * "reversible" half of the spec's "idempotent and reversible" migration requirement.
+     * Deliberately Discarded-only: Mapped/NewSkillCreated already wrote skill_id onto employee
+     * rows (and NewSkillCreated also created a master-list skill), so undoing those would need to
+     * revert that data too — a discard never touched any row, so reopening it is a pure no-op on
+     * data and safe to allow unconditionally.
+     */
+    @Transactional
+    public SkillMigrationCandidateResponse reopen(UUID candidateId, String actorEmail) {
+        SkillMigrationCandidate candidate = candidateRepo.findById(candidateId)
+                .orElseThrow(() -> new NoSuchElementException("Migration candidate not found: " + candidateId));
+        if (!"Discarded".equals(candidate.getStatus())) {
+            throw new IllegalStateException("Only a discarded candidate can be reopened (current status: " + candidate.getStatus() + ")");
+        }
+        User reviewer = requireUser(actorEmail);
+        candidate.setStatus("Pending");
+        candidate.setReviewedBy(null);
+        candidate.setReviewedAt(null);
+        candidateRepo.save(candidate);
+
+        auditService.log(reviewer.getId(), "SKILL_MIGRATION_REOPENED", candidate.getId(),
+                auditSnapshot.toJson(Map.of("status", "Discarded")),
+                auditSnapshot.toJson(Map.of("status", "Pending")));
+        return toResponse(candidate);
+    }
+
     @Transactional
     public SkillMigrationCandidateResponse resolve(UUID candidateId, ResolveMigrationCandidateRequest req, String actorEmail) {
         SkillMigrationCandidate candidate = requirePendingCandidate(candidateId);

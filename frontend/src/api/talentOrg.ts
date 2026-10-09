@@ -238,4 +238,6 @@ export const migrationReviewApi = {
     fetch(`${BASE}/migration/candidates/${id}/resolve`, { method: 'POST', headers: jsonHeaders(token), body: JSON.stringify({ action: 'CREATE_NEW', category }) }).then(handle<SkillMigrationCandidate>),
   resolveDiscard: (token: string, id: string) =>
     fetch(`${BASE}/migration/candidates/${id}/resolve`, { method: 'POST', headers: jsonHeaders(token), body: JSON.stringify({ action: 'DISCARD' }) }).then(handle<SkillMigrationCandidate>),
+  reopen: (token: string, id: string) =>
+    fetch(`${BASE}/migration/candidates/${id}/reopen`, { method: 'POST', headers: authHeaders(token) }).then(handle<SkillMigrationCandidate>),
 };
