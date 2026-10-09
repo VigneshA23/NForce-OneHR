@@ -90,20 +90,21 @@ import java.util.UUID;
  * </ul>
  *
  * <h2>No-shift employees — there is no fallback, anywhere in this class</h2>
- * It is a product/domain invariant that every employee always has an assigned {@link Shift}: a
- * newly-created employee is server-side defaulted to the organization's default shift
- * ({@link Shift#DEFAULT_SHIFT_NAME}) unconditionally — {@code UserManagementService#createUser}/
- * {@code EmployeeService#createEmployee} now fail loudly rather than silently proceed if that
- * default can't be resolved — and {@code OrgService} refuses to rename/deactivate/delete the
- * default shift itself, so the "no assigned Shift" state is treated as an invariant violation, not
- * a normal or tolerated one. Consequently every method on this class — {@link #resolveShiftStart}/
- * {@link #shiftStartAt}/{@link #shiftEndAt} included, not just {@link #shiftDayOf}/
- * {@link #maximumAttendanceBoundary} — throws {@link IllegalStateException} for a null-shift
- * employee rather than silently substituting any fixed clock time (the previous
- * {@code AttendanceProperties.shiftStart}/{@code shiftDayCutover}-based fallbacks have both been
- * removed entirely, from this class and from {@code AttendanceProperties}). This is intentional: a
- * null-shift employee reaching any attendance computation is an anomaly that should fail clearly,
- * never be quietly worked around.
+ * A brand-new employee with no Shift explicitly assigned (or one whose first
+ * {@code EmployeeShiftAssignment} isn't effective yet) is a valid, permanent product state —
+ * see {@code AttendanceInterpretationService}'s NO_SHIFT_ASSIGNED handling, which is the ONLY
+ * place that state is ever handled: it checks
+ * {@code EmployeeShiftAssignmentResolver#resolveIfPresent} BEFORE ever calling into this class,
+ * and never routes a no-shift employee into any method here. Consequently every method on THIS
+ * class still assumes an assigned Shift is already known to exist for the date in question — it
+ * is never called speculatively for an employee that might not have one — and continues to throw
+ * {@link IllegalStateException} for a null-shift employee rather than silently substituting any
+ * fixed clock time (the previous {@code AttendanceProperties.shiftStart}/{@code shiftDayCutover}
+ * -based fallbacks have both been removed entirely, from this class and from
+ * {@code AttendanceProperties}). A null-shift employee reaching any method on THIS class directly
+ * is therefore still exactly the anomaly it always was — the invariant moved one layer up (from
+ * "every employee always has a Shift" to "every caller of ShiftDayPolicy already resolved one"),
+ * it was not removed.
  */
 @Component
 @RequiredArgsConstructor
@@ -303,8 +304,24 @@ public class ShiftDayPolicy {
      */
     public LocalDate shiftDayOf(UUID employeeUserId, LocalDateTime timestamp) {
         LocalDate candidate = timestamp.toLocalDate();
+        return shiftDayOf(employeeUserId, timestamp, employeeShiftAssignmentResolver.resolve(employeeUserId, candidate));
+    }
 
-        Employee pinnedToday = pin(employeeUserId, employeeShiftAssignmentResolver.resolve(employeeUserId, candidate));
+    /**
+     * {@link #shiftDayOf(UUID, LocalDateTime)}, given the assignment effective on {@code
+     * timestamp}'s own calendar date already resolved by the caller — e.g.
+     * {@code AttendanceInterpretationService}, which must resolve that same assignment anyway to
+     * distinguish {@code NO_SHIFT_ASSIGNED} before ever reaching here, so re-resolving it a second
+     * time for the identical employee+date would be a pure duplicate lookup. Skips ONLY that one
+     * redundant resolution — Rule 2's separate previousDay lookup below still resolves
+     * independently every time, exactly as {@link #shiftDayOf(UUID, LocalDateTime)}'s own Javadoc
+     * requires (a reassignment can land exactly on the today/yesterday boundary this method
+     * examines, so today's already-resolved assignment must never be reused for yesterday).
+     */
+    public LocalDate shiftDayOf(UUID employeeUserId, LocalDateTime timestamp, EmployeeShiftAssignment todaysAssignment) {
+        LocalDate candidate = timestamp.toLocalDate();
+
+        Employee pinnedToday = pin(employeeUserId, todaysAssignment);
         LocalDateTime todaysOwnStart = shiftStartAt(pinnedToday, candidate);
         if (!timestamp.isBefore(todaysOwnStart)) {
             return candidate;
@@ -326,9 +343,11 @@ public class ShiftDayPolicy {
             throw new IllegalStateException(
                     "Cannot compute shift-relative timing for an employee with no assigned Shift "
                             + "(employeeUserId=" + (employee != null ? employee.getUserId() : null) + "). Every "
-                            + "employee is expected to have one — see Shift.DEFAULT_SHIFT_NAME's server-side "
-                            + "default on creation and ShiftSeedCorrector's startup backfill. There is no fixed-"
-                            + "clock-time fallback anywhere in this class, by design.");
+                            + "caller of this class is expected to have already resolved an effective "
+                            + "EmployeeShiftAssignment before reaching here — a no-shift employee is a valid "
+                            + "state handled upstream (see AttendanceInterpretationService's NO_SHIFT_ASSIGNED "
+                            + "outcome), never routed into this class. There is no fixed-clock-time fallback "
+                            + "anywhere in this class, by design.");
         }
     }
 

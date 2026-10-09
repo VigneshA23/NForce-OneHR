@@ -5,8 +5,11 @@ import com.nforce.onehr.dto.attendance.PolicyDecisionType;
 import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.entity.AttendancePenalty;
+import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.ExceptionType;
+import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
+import com.nforce.onehr.repository.EmployeeRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,6 +40,8 @@ class AttendancePenaltyEvaluationServiceTest {
     @Mock private PenaltyDeductionService penaltyDeductionService;
     @Mock private NotificationService notificationService;
     @Mock private EmployeeService employeeService;
+    @Mock private EmployeeRepository employeeRepository;
+    @Mock private EmailService emailService;
     @Mock private AuditService auditService;
     @Spy private AuditSnapshotSerializer auditSnapshot = new AuditSnapshotSerializer(new ObjectMapper());
 
@@ -219,5 +224,117 @@ class AttendancePenaltyEvaluationServiceTest {
                 .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
 
         verifyNoInteractions(notificationService);
+        verifyNoInteractions(emailService);
+    }
+
+    // ── Penalty email ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void applyPenalty_emailsTheEmployee_whenAnAddressIsResolvable() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1)
+                .deductionDays(new java.math.BigDecimal("1")).build());
+        when(attendancePenaltyRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        Employee employee = Employee.builder().userId(employeeId).fullName("Jane Doe")
+                .user(User.builder().id(employeeId).email("jane.doe@example.com").build()).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        service.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+        verify(emailService).sendPenaltyEmail(org.mockito.ArgumentMatchers.eq("jane.doe@example.com"), any(),
+                org.mockito.ArgumentMatchers.eq("Jane Doe"), org.mockito.ArgumentMatchers.eq(date), any(), any(), any(), any());
+    }
+
+    @Test
+    void applyPenalty_noEmployeeProfile_noEmailSent() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1).build());
+        when(attendancePenaltyRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.empty());
+
+        service.evaluate(PolicyEvaluationContext.builder()
+                .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+        verifyNoInteractions(emailService);
+    }
+
+    // ── Bug: multiple duplicate "Attendance Penalty Applied" emails for one incident ────────────
+    //
+    // Root cause: notifyPenaltyApplied used to fire the email synchronously, from inside evaluate()'s
+    // still-open @Transactional method. If anything later in that same transaction (e.g.
+    // auditPenaltyCreated) had thrown and rolled back the just-flushed AttendancePenalty row, the
+    // email — an irreversible, non-transactional async HTTP call — would already be gone while the
+    // row it described never actually persisted. The next re-evaluation (a later dashboard load, or
+    // the nightly scheduler) would then see no existing row, treat the discrepancy as new again, and
+    // send a second email for what the employee experiences as the same penalty.
+    //
+    // Fix: defer the email/notification until the transaction actually commits (mirrors
+    // UserManagementService#forceLogoutAfterCommit's identical TransactionSynchronizationManager
+    // pattern). These two tests exercise that directly by driving a real
+    // TransactionSynchronizationManager synchronization (no full Spring context required).
+
+    @Test
+    void applyPenalty_withinAnActiveTransaction_emailIsDeferredUntilAfterCommit() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1).build());
+        when(attendancePenaltyRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            Optional<AttendancePenalty> result = service.evaluate(PolicyEvaluationContext.builder()
+                    .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+            assertTrue(result.isPresent(), "the row is still persisted immediately, only the notification is deferred");
+            // The transaction has not committed yet — the email must not have gone out.
+            verifyNoInteractions(emailService);
+            verifyNoInteractions(notificationService);
+
+            // Simulate the transaction rolling back after this point (e.g. auditPenaltyCreated
+            // throwing) — no afterCommit callback ever fires, so no email is ever sent for a row
+            // that ultimately never persisted.
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void applyPenalty_withinAnActiveTransaction_emailFiresExactlyOnceAfterCommit() {
+        UUID employeeId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        when(policyEngine.evaluate(any())).thenReturn(PolicyDecision.builder()
+                .type(PolicyDecisionType.APPLY_PENALTY).policyId(UUID.randomUUID()).policyVersion(1).build());
+        when(attendancePenaltyRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        Employee employee = Employee.builder().userId(employeeId).fullName("Jane Doe")
+                .user(User.builder().id(employeeId).email("jane.doe@example.com").build()).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.evaluate(PolicyEvaluationContext.builder()
+                    .employeeUserId(employeeId).attendanceDate(date).discrepancyType(ExceptionType.LATE_ARRIVAL).build());
+
+            // Drive every registered synchronization's afterCommit — exactly what Spring's real
+            // transaction manager does once the underlying DB transaction actually commits.
+            for (var sync : org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()) {
+                sync.afterCommit();
+            }
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        verify(emailService, org.mockito.Mockito.times(1)).sendPenaltyEmail(
+                org.mockito.ArgumentMatchers.eq("jane.doe@example.com"), any(),
+                org.mockito.ArgumentMatchers.eq("Jane Doe"), org.mockito.ArgumentMatchers.eq(date), any(), any(), any(), any());
+        verify(notificationService, org.mockito.Mockito.times(1)).send(org.mockito.ArgumentMatchers.eq(employeeId),
+                org.mockito.ArgumentMatchers.eq("ATTENDANCE_PENALTY_APPLIED"), any(), any(), any());
     }
 }

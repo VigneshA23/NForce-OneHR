@@ -40,11 +40,25 @@ public class ExceptionService {
     private static final String STATUS_LATE = "LATE";
 
     // Still detected and evaluated against the Penalization Policy exactly as before (see
-    // detectExceptions/runScheduledPenaltyEvaluation) — these three just no longer surface as
+    // detectExceptions/runScheduledPenaltyEvaluation) — these just no longer surface as
     // rows on the Exception Dashboard itself, per explicit request. Removing an entry here only
     // changes what getExceptionsForCaller returns, never what gets detected or penalized.
     private static final Set<String> HIDDEN_FROM_EXCEPTION_DASHBOARD = Set.of(
-            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
+            ExceptionType.NO_ATTENDANCE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
+            // Surfaced on Regularize & Cancel Penalties instead (see AttendancePenaltyService#list).
+            ExceptionType.EARLY_DEPARTURE);
+
+    // Every exception type emailed exclusively by the scheduled job (notifyUnnotifiedExceptions),
+    // never immediately on detection — see that method's own javadoc. LEAVE_ATTENDANCE_CONFLICT
+    // used to be a deliberate exception, emailed synchronously the moment an HR Admin/Manager
+    // opened the Exceptions dashboard and first detected it — which meant an employee could be
+    // emailed same-day, and once per admin who happened to view the dashboard before the row
+    // existed yet, instead of exactly once the following day like every other exception type.
+    // Folded in here to get the same once-per-row, notifiedAt-gated guarantee.
+    private static final Set<String> SCHEDULED_EMAIL_TYPES = Set.of(
+            ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH,
+            ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE,
+            ExceptionType.LEAVE_ATTENDANCE_CONFLICT);
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -106,22 +120,7 @@ public class ExceptionService {
      */
     @Transactional
     public List<ExceptionResponse> getExceptionsForCaller(String actorEmail, LocalDate from, LocalDate to) {
-        User actor = userRepository.findByEmail(actorEmail)
-                .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
-        Set<UUID> employeeRoleIds = userRepository.findEmployeeRoleUserIds();
-
-        List<UUID> scopeIds;
-        if (roleCodes.stream().anyMatch(HR_ROLES::contains)) {
-            scopeIds = new java.util.ArrayList<>(employeeRoleIds);
-        } else if (roleCodes.contains("MANAGER")) {
-            scopeIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
-                    .map(EmployeeManagerHistory::getEmployeeUserId)
-                    .filter(employeeRoleIds::contains)
-                    .collect(Collectors.toList());
-        } else {
-            throw new AccessDeniedException("Not authorized to view exceptions");
-        }
+        List<UUID> scopeIds = resolveCallerScopeIds(actorEmail);
 
         detectExceptions(scopeIds, from, to);
 
@@ -132,7 +131,6 @@ public class ExceptionService {
                 .filter(e -> !HIDDEN_FROM_EXCEPTION_DASHBOARD.contains(e.getExceptionType()))
                 .map(this::toResponse)
                 .collect(Collectors.toCollection(java.util.ArrayList::new));
-        responses.addAll(pendingLeaveApprovals(scopeIds, from, to));
         responses.sort(Comparator.comparing(ExceptionResponse::getExceptionDate)
                 .thenComparing(ExceptionResponse::getDetectedAt)
                 .reversed());
@@ -140,31 +138,32 @@ public class ExceptionService {
     }
 
     /**
-     * A leave request still awaiting approval, surfaced as a dashboard row alongside real
-     * attendance exceptions — see ExceptionType.PENDING_LEAVE_APPROVAL's javadoc. Dated by when
-     * it was requested (createdAt), not its leave start date, so the dashboard's From/To filter
-     * means the same thing here as it does for every other row: "when did this need attention."
+     * Runs the same detection/evaluation pass {@link #getExceptionsForCaller} runs on every
+     * Exceptions dashboard load, for the same caller scope, without building the dashboard's
+     * response — used by Regularize &amp; Cancel Penalties so its list reflects the latest late
+     * arrivals / early departures / missing punches even when nobody has opened the Exceptions
+     * dashboard since they happened and the nightly job hasn't run yet.
      */
-    private List<ExceptionResponse> pendingLeaveApprovals(Collection<UUID> scopeIds, LocalDate from, LocalDate to) {
-        return leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(scopeIds, "PENDING").stream()
-                .filter(r -> {
-                    LocalDate requestedOn = r.getCreatedAt().toLocalDate();
-                    return !requestedOn.isBefore(from) && !requestedOn.isAfter(to);
-                })
-                .map(r -> {
-                    Optional<Employee> employee = employeeRepository.findById(r.getEmployeeUserId());
-                    return ExceptionResponse.builder()
-                            .id(r.getId())
-                            .employeeUserId(r.getEmployeeUserId())
-                            .employeeCode(employee.map(Employee::getEmployeeCode).orElse(null))
-                            .employeeFullName(employee.map(Employee::getFullName).orElse(null))
-                            .exceptionDate(r.getCreatedAt().toLocalDate())
-                            .exceptionType(ExceptionType.PENDING_LEAVE_APPROVAL)
-                            .status("OPEN")
-                            .detectedAt(r.getCreatedAt())
-                            .build();
-                })
-                .collect(Collectors.toList());
+    @Transactional
+    public void detectForCaller(String actorEmail, LocalDate from, LocalDate to) {
+        detectExceptions(resolveCallerScopeIds(actorEmail), from, to);
+    }
+
+    private List<UUID> resolveCallerScopeIds(String actorEmail) {
+        User actor = userRepository.findByEmail(actorEmail)
+                .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
+        Set<UUID> employeeRoleIds = userRepository.findEmployeeRoleUserIds();
+
+        if (roleCodes.stream().anyMatch(HR_ROLES::contains)) {
+            return new java.util.ArrayList<>(employeeRoleIds);
+        } else if (roleCodes.contains("MANAGER")) {
+            return historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
+                    .map(EmployeeManagerHistory::getEmployeeUserId)
+                    .filter(employeeRoleIds::contains)
+                    .collect(Collectors.toList());
+        }
+        throw new AccessDeniedException("Not authorized to view exceptions");
     }
 
     /**
@@ -276,6 +275,25 @@ public class ExceptionService {
             if (isWorkingDay && record.isMissingCheckOut() && record.getWorkDate().isBefore(today)) {
                 upsertException(record, ExceptionType.MISSING_PUNCH,
                         null, record.getCheckInAt().toLocalTime(), null);
+            }
+            // Past days only, same as MISSING_PUNCH: today's check-out may still be followed by
+            // another session. Measured against THIS record's snapshotted shift, never the
+            // employee's current one; a legacy row with no snapshot can't be evaluated and is
+            // skipped rather than guessed at.
+            if (isWorkingDay && record.getCheckOutAt() != null && record.getWorkDate().isBefore(today)) {
+                resolveSnapshotShift(record)
+                        .map(shift -> shiftVersionResolver.resolve(shift, record.getWorkDate()))
+                        .ifPresent(version -> {
+                            // Overnight-aware, same rule as ShiftDayPolicy#shiftEndAt: an end not
+                            // after the start rolls into the next calendar day.
+                            LocalDate endDate = !version.getEndTime().isAfter(version.getStartTime())
+                                    ? record.getWorkDate().plusDays(1) : record.getWorkDate();
+                            LocalDateTime shiftEnd = LocalDateTime.of(endDate, version.getEndTime());
+                            if (record.getCheckOutAt().isBefore(shiftEnd)) {
+                                upsertException(record, ExceptionType.EARLY_DEPARTURE,
+                                        version.getEndTime(), record.getCheckOutAt().toLocalTime(), null);
+                            }
+                        });
             }
             if (record.getCheckInAt() != null && leaveCoveredDays.contains(record.getEmployeeUserId() + "|" + record.getWorkDate())) {
                 upsertException(record, ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
@@ -602,13 +620,18 @@ public class ExceptionService {
         exception.setMinutesLate(minutesLate);
         attendanceExceptionRepository.save(exception);
 
-        // Email once, and evaluate the configured Penalization Policy once, the moment an
-        // exception is first detected — never on later re-detection of the same row (every
-        // dashboard load re-runs detectExceptions). AttendancePenaltyEvaluationService has its
-        // own defensive duplicate guard regardless (see its class javadoc).
+        // Evaluate the configured Penalization Policy once, the moment an exception is first
+        // detected — never on later re-detection of the same row (every dashboard load re-runs
+        // detectExceptions). AttendancePenaltyEvaluationService has its own defensive duplicate
+        // guard regardless (see its class javadoc).
+        //
+        // Email is handled separately, and deliberately NOT here: detection (this method,
+        // reachable from the dashboard-load path) and notification are independent by design; see
+        // notifyUnnotifiedExceptions, the scheduled job's own step, which is the only path that
+        // ever emails the employee about any exception type, so the email time is never influenced
+        // by whether/when anyone opened the dashboard.
         if (isNew) {
             evaluatePolicy(record, exceptionType);
-            notifyEmployee(employeeUserId, exceptionType, exceptionDate, expectedTime, actualTime, minutesLate);
         }
     }
 
@@ -624,8 +647,35 @@ public class ExceptionService {
                 emailService.sendMissingPunchEmail(email, managerEmail, name, exceptionDate, actualTime);
             } else if (ExceptionType.LEAVE_ATTENDANCE_CONFLICT.equals(exceptionType)) {
                 emailService.sendLeaveAttendanceConflictEmail(email, managerEmail, name, exceptionDate, actualTime);
+            } else if (ExceptionType.NO_ATTENDANCE.equals(exceptionType)) {
+                emailService.sendNoAttendanceEmail(email, managerEmail, name, exceptionDate);
+            } else if (ExceptionType.WORK_HOURS_SHORTAGE.equals(exceptionType)) {
+                emailService.sendWorkHoursShortageEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime);
             }
         });
+    }
+
+    /**
+     * The one production entry point for emailing an employee about a LATE_ARRIVAL, MISSING_PUNCH,
+     * NO_ATTENDANCE, or WORK_HOURS_SHORTAGE occurrence — called exclusively by
+     * {@code PenaltyEvaluationScheduler}'s nightly run, never by the dashboard-load path (see
+     * {@link #upsertException}). This is what guarantees these four emails go out on a fixed daily
+     * schedule with zero manual intervention: whether an occurrence's {@code AttendanceException}
+     * row was created just now by this same scheduled run, or hours/days earlier by an HR Admin or
+     * Manager opening the Exceptions dashboard, it sits with {@code notifiedAt == null} until this
+     * method runs and emails it — detection and notification are intentionally decoupled.
+     */
+    @Transactional
+    public void notifyUnnotifiedExceptions() {
+        List<AttendanceException> pending = attendanceExceptionRepository
+                .findByExceptionTypeInAndNotifiedAtIsNull(new java.util.ArrayList<>(SCHEDULED_EMAIL_TYPES));
+        LocalDateTime now = LocalDateTime.now();
+        for (AttendanceException exception : pending) {
+            notifyEmployee(exception.getEmployeeUserId(), exception.getExceptionType(), exception.getExceptionDate(),
+                    exception.getExpectedTime(), exception.getActualTime(), exception.getMinutesLate());
+            exception.setNotifiedAt(now);
+            attendanceExceptionRepository.save(exception);
+        }
     }
 
     /**

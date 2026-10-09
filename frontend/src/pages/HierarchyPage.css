@@ -1,0 +1,830 @@
+/* ── Org Hierarchy page ──────────────────────────────────────────────────────
+   Scoped entirely under .nf-hier so nothing here can leak into other pages. Every colour is
+   an existing theme token (--panel/--line/--txt…/--brand…), so the page follows the user's
+   dark/light theme, high-contrast mode and accent colour exactly like the rest of the app.
+─────────────────────────────────────────────────────────────────────────── */
+
+.nf-hier {
+  --hier-radius: 14px;
+  --hier-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .04);
+  --hier-shadow-hover: 0 10px 24px -10px rgba(16, 24, 40, .22), 0 2px 4px rgba(16, 24, 40, .05);
+  --hier-conn: var(--line2);
+  --hier-tint: color-mix(in srgb, var(--brand-bright) 10%, transparent);
+
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  font-family: Inter, system-ui, sans-serif;
+}
+:root:not([data-theme="light"]) .nf-hier {
+  --hier-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  --hier-shadow-hover: 0 12px 28px -12px rgba(0, 0, 0, .7), 0 2px 4px rgba(0, 0, 0, .3);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.nf-hier-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.nf-hier-title {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.015em;
+  color: var(--txt);
+}
+.nf-hier-subtitle {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--txt-mut);
+}
+.nf-hier-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Native <select>, styled — keeps full keyboard + mobile picker behaviour for free. */
+.nf-hier-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.nf-hier-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 40px;
+  min-width: 190px;
+  max-width: 260px;
+  padding: 0 34px 0 34px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--hier-shadow);
+  font: inherit;
+  font-size: 13px;
+  color: var(--txt);
+  cursor: pointer;
+  text-overflow: ellipsis;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+.nf-hier-select select:hover { border-color: var(--line2); }
+.nf-hier-select select:focus-visible {
+  outline: none;
+  border-color: var(--brand-bright);
+  box-shadow: 0 0 0 3px var(--bm-ring);
+}
+.nf-hier-select.is-active select {
+  border-color: color-mix(in srgb, var(--brand-bright) 45%, var(--line));
+  background: color-mix(in srgb, var(--brand-bright) 5%, var(--panel));
+}
+.nf-hier-select-icon,
+.nf-hier-select-caret {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--txt-dim);
+  pointer-events: none;
+}
+.nf-hier-select-icon { left: 12px; }
+.nf-hier-select-caret { right: 12px; }
+
+/* Search */
+.nf-hier-search {
+  position: relative;
+  width: 320px;
+}
+.nf-hier-search input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 34px 0 36px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--hier-shadow);
+  font: inherit;
+  font-size: 13px;
+  color: var(--txt);
+  outline: none;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+.nf-hier-search input::placeholder { color: var(--txt-dim); }
+.nf-hier-search input:hover { border-color: var(--line2); }
+.nf-hier-search input:focus {
+  border-color: var(--brand-bright);
+  box-shadow: 0 0 0 3px var(--bm-ring);
+}
+.nf-hier-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--txt-dim);
+  pointer-events: none;
+}
+.nf-hier-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: none;
+  border: none;
+  color: var(--txt-dim);
+  cursor: pointer;
+}
+.nf-hier-search-clear:hover { background: var(--raised2); color: var(--txt); }
+
+.nf-hier-drop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, .35);
+  overflow: hidden;
+}
+.nf-hier-drop-head {
+  padding: 9px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--txt-dim);
+  border-bottom: 1px solid var(--line);
+}
+.nf-hier-drop-list {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.nf-hier-drop-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background 120ms;
+}
+.nf-hier-drop-item:last-child { border-bottom: none; }
+.nf-hier-drop-item:hover,
+.nf-hier-drop-item:focus-visible { background: var(--raised2); outline: none; }
+.nf-hier-drop-empty {
+  padding: 16px 12px;
+  font-size: 12.5px;
+  color: var(--txt-dim);
+  text-align: center;
+}
+
+/* ── Summary cards ──────────────────────────────────────────────────────── */
+.nf-hier-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.nf-hier-stat {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--hier-radius);
+  box-shadow: var(--hier-shadow);
+  min-width: 0;
+}
+.nf-hier-stat-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  color: var(--stat-accent);
+  background: color-mix(in srgb, var(--stat-accent) 12%, transparent);
+}
+.nf-hier-stat-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--txt-mut);
+  margin-bottom: 4px;
+}
+.nf-hier-stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+}
+.nf-hier-stat-sub {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--txt-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nf-hier-stat-skel {
+  display: inline-block;
+  width: 48px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--raised2);
+  vertical-align: middle;
+}
+
+/* ── Body: chart + side panels ──────────────────────────────────────────── */
+.nf-hier-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  gap: 18px;
+  align-items: start;
+}
+.nf-hier-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.nf-hier-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--hier-radius);
+  box-shadow: var(--hier-shadow);
+  min-width: 0;
+}
+.nf-hier-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 16px 18px 0;
+}
+.nf-hier-panel-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--txt);
+}
+.nf-hier-panel-body { padding: 14px 18px 18px; }
+
+/* Chart panel */
+.nf-hier-chart { display: flex; flex-direction: column; }
+.nf-hier-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.nf-hier-crumbs {
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+.nf-hier-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.nf-hier-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--txt-mut);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms, border-color 140ms, color 140ms;
+}
+.nf-hier-btn:hover:not(:disabled) {
+  background: var(--raised2);
+  border-color: var(--line2);
+  color: var(--txt);
+}
+.nf-hier-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--bm-ring);
+  border-color: var(--brand-bright);
+}
+.nf-hier-btn:disabled { opacity: .5; cursor: default; }
+
+.nf-hier-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.nf-hier-zoom button {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-width: 34px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--line);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--txt-mut);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: background 140ms, color 140ms;
+}
+.nf-hier-zoom button:last-child { border-right: none; }
+.nf-hier-zoom button:hover:not(:disabled) { background: var(--raised2); color: var(--txt); }
+.nf-hier-zoom button:disabled { opacity: .4; cursor: default; }
+.nf-hier-zoom button:focus-visible { outline: none; background: var(--raised2); color: var(--txt); }
+.nf-hier-zoom .nf-hier-zoom-pct { min-width: 52px; }
+
+/* Scrollable canvas — faint dot grid gives the chart a sense of "surface" without decoration */
+.nf-hier-canvas {
+  overflow: auto;
+  min-height: 420px;
+  padding: 28px clamp(12px, calc(8.57px + 1.07vw), 24px) 24px;
+  border-radius: 0 0 var(--hier-radius) var(--hier-radius);
+  background-color: var(--panel);
+  background-image: radial-gradient(color-mix(in srgb, var(--txt-dim) 22%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: -11px -11px;
+}
+
+/* Breadcrumb */
+.nf-hier-crumb {
+  background: none;
+  border: none;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--txt-mut);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.nf-hier-crumb:hover:not(.is-current) { background: var(--raised2); color: var(--txt); }
+.nf-hier-crumb.is-current { font-weight: 700; color: var(--txt); cursor: default; }
+
+/* ── Person card ────────────────────────────────────────────────────────── */
+.nf-hier-card {
+  position: relative;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--hier-shadow);
+  user-select: none;
+  transition: border-color 160ms, box-shadow 160ms, transform 160ms;
+}
+.nf-hier-card.is-clickable:hover {
+  border-color: var(--line2);
+  box-shadow: var(--hier-shadow-hover);
+  transform: translateY(-1px);
+}
+.nf-hier-card.is-focus {
+  border-color: color-mix(in srgb, var(--brand-bright) 60%, transparent);
+  background: color-mix(in srgb, var(--brand-bright) 4%, var(--panel));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-bright) 14%, transparent), var(--hier-shadow);
+}
+.nf-hier-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  padding: 12px;
+  background: none;
+  border: none;
+  border-radius: 12px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.nf-hier-card:not(.is-clickable) .nf-hier-card-main { cursor: default; }
+.nf-hier-card-main:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--bm-ring);
+}
+.nf-hier-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-right: 14px; /* keeps the name clear of the profile icon */
+}
+.nf-hier-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--txt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nf-hier-card-desig {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--txt-mut);
+  /* Up to two lines, then ellipsis — long titles stay readable instead of clipping at ~15 chars */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.nf-hier-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.nf-hier-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--txt-mut);
+}
+.nf-hier-card-profile {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 7px;
+  background: none;
+  border: none;
+  color: var(--txt-dim);
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity 140ms, background 140ms, color 140ms;
+}
+.nf-hier-card:hover .nf-hier-card-profile,
+.nf-hier-card-profile:focus-visible { opacity: 1; }
+.nf-hier-card-profile:hover,
+.nf-hier-card-profile:focus-visible {
+  outline: none;
+  background: var(--raised2);
+  color: var(--txt);
+}
+.nf-hier-card-tag {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+/* Pill badge (role / department) */
+.nf-hier-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--pill);
+  background: color-mix(in srgb, var(--pill) 12%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* "+N more peers" */
+.nf-hier-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 14px;
+  background: var(--panel);
+  border: 1px dashed var(--line2);
+  border-radius: 20px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--txt-mut);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms, color 140ms, border-color 140ms;
+}
+.nf-hier-more:hover { background: var(--raised2); color: var(--txt); border-style: solid; }
+
+.nf-hier-root-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--raised2);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--txt-mut);
+}
+.nf-hier-noreports {
+  margin-top: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px dashed var(--line2);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--txt-dim);
+}
+
+/* Skeleton */
+.nf-hier-skel {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.nf-hier-skel-bar {
+  height: 9px;
+  border-radius: 5px;
+  background: var(--raised2);
+  animation: nf-hier-pulse 1.4s ease-in-out infinite;
+}
+@keyframes nf-hier-pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) {
+  .nf-hier-skel-bar { animation: none; }
+  .nf-hier-card, .nf-hier-card.is-clickable:hover { transition: none; transform: none; }
+}
+
+/* Empty / error states */
+.nf-hier-state {
+  max-width: 380px;
+  margin: 0 auto;
+  padding: 56px 16px;
+  text-align: center;
+}
+.nf-hier-state-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  border-radius: 14px;
+  background: var(--raised2);
+  color: var(--txt-mut);
+}
+.nf-hier-state-title { font-size: 15px; font-weight: 700; color: var(--txt); margin-bottom: 6px; }
+.nf-hier-state-text { font-size: 13px; color: var(--txt-mut); margin-bottom: 18px; line-height: 1.5; }
+.nf-hier-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--brand);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: filter 140ms;
+}
+.nf-hier-cta:hover { filter: brightness(1.08); }
+.nf-hier-cta:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--bm-ring); }
+
+/* ── Side panels ────────────────────────────────────────────────────────── */
+.nf-hier-focus-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.nf-hier-facts {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+.nf-hier-fact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  min-width: 0;
+}
+.nf-hier-fact:last-child { border-bottom: none; }
+.nf-hier-fact-icon { color: var(--txt-dim); flex-shrink: 0; }
+.nf-hier-fact-label { color: var(--txt-mut); flex-shrink: 0; }
+.nf-hier-fact-value {
+  margin-left: auto;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--txt);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.nf-hier-fact-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--txt);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nf-hier-fact-link:hover { text-decoration-color: currentColor; }
+
+.nf-hier-actions { display: flex; flex-direction: column; gap: 8px; }
+.nf-hier-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms;
+}
+.nf-hier-action:hover:not(:disabled) { background: var(--raised2); border-color: var(--line2); }
+.nf-hier-action:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--bm-ring); }
+.nf-hier-action:disabled { opacity: .6; cursor: progress; }
+.nf-hier-action-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  color: var(--brand-bright);
+  background: var(--hier-tint);
+}
+.nf-hier-action-title { font-size: 13px; font-weight: 600; color: var(--txt); }
+.nf-hier-action-sub { font-size: 11.5px; color: var(--txt-dim); margin-top: 1px; }
+
+.nf-hier-dept-list { display: flex; flex-direction: column; gap: 2px; }
+.nf-hier-dept {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 6px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 8px;
+  margin: 0 -8px;
+  box-sizing: content-box;
+  background: none;
+  border: none;
+  border-radius: 9px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.nf-hier-dept:hover,
+.nf-hier-dept:focus-visible { background: var(--raised2); outline: none; }
+.nf-hier-dept.is-active { background: var(--hier-tint); }
+.nf-hier-dept-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pill); }
+.nf-hier-dept-name {
+  font-size: 12.5px;
+  color: var(--txt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nf-hier-dept-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--txt-mut);
+  font-variant-numeric: tabular-nums;
+}
+.nf-hier-dept-bar {
+  grid-column: 2 / 4;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--raised2);
+  overflow: hidden;
+}
+.nf-hier-dept-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--pill);
+  opacity: .75;
+}
+.nf-hier-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-bright);
+  cursor: pointer;
+}
+.nf-hier-link-btn:hover { text-decoration: underline; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 1279px) {
+  .nf-hier-body { grid-template-columns: minmax(0, 1fr); }
+  .nf-hier-side {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    align-items: start;
+  }
+}
+@media (max-width: 1099px) {
+  .nf-hier-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .nf-hier { gap: 14px; }
+  .nf-hier-title { font-size: 20px; }
+  .nf-hier-filters { width: 100%; flex-direction: column; align-items: stretch; }
+  .nf-hier-select select { width: 100%; max-width: none; min-width: 0; }
+  .nf-hier-search { width: 100%; }
+  .nf-hier-stats { gap: 10px; }
+  .nf-hier-stat { flex-direction: column; gap: 10px; padding: 14px; }
+  .nf-hier-stat-icon { width: 36px; height: 36px; border-radius: 10px; }
+  .nf-hier-stat-value { font-size: 22px; }
+  .nf-hier-stat-sub { white-space: normal; }
+  .nf-hier-toolbar { padding: 12px; }
+  .nf-hier-toolbar-right { width: 100%; margin-left: 0; }
+  .nf-hier-zoom { width: 100%; }
+  .nf-hier-zoom button { flex: 1; }
+  .nf-hier-canvas { min-height: 340px; padding-top: 22px; }
+  .nf-hier-side { grid-template-columns: minmax(0, 1fr); }
+}

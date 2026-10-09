@@ -27,6 +27,10 @@ export interface AuditLogEntry {
   targetId: string | null;
   targetLabel: string;
   targetEmployeeCode: string | null; // affected employee's business id (e.g. "NF-00001"), for the Excel export — never a UUID
+  // Populated only for actions where "affected user" is a set of employees rather than one
+  // (e.g. penalization policy content changes) — null/empty for every other action, where
+  // targetLabel already covers it.
+  affectedUsers: { userId: string; fullName: string }[] | null;
   beforeState: string | null;
   afterState: string | null;
 }

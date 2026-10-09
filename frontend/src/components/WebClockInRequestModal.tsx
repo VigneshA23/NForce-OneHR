@@ -24,7 +24,7 @@ function formatClockTime(iso: string | null): string | null {
  * every later cycle the same day skips this modal entirely (see the caller). Shared by
  * DashboardPage and AttendancePage's own Web Check-In action.
  */
-export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void }) {
+export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void | Promise<void> }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
   const [reason, setReason] = useState('');
@@ -49,7 +49,11 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
       const created = await webClockInApi.submit(trimmed, token);
       const at = formatClockTime(created.requestedCheckIn);
       showToast('success', `Checked in ${at ? `at ${at}` : 'successfully'}`);
-      onSubmitted(created);
+      // Awaited before closing — onSubmitted (see AttendanceHeroBanner's WebClockInRow) re-fetches
+      // webToday, which is what flips canCheckIn/canCheckOut. Closing the modal first used to let
+      // the parent render one frame with the pre-refresh state still showing (e.g. the Confirm
+      // button briefly reappearing before the fresh "checked in" state lands).
+      await onSubmitted(created);
       onClose();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to submit check-in');

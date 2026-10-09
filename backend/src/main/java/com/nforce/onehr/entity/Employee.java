@@ -45,12 +45,20 @@ public class Employee {
 
     // Shift/weekly-off/penalisation assignments (ONEHR-108) — separate from workMode above,
     // which is a self-service ONSITE/REMOTE/HYBRID profile attribute, not a policy assignment.
-    // Every employee is expected to always have a Shift (product invariant; see
-    // ShiftDayPolicy's class Javadoc) — nullable=false mirrors the DB-level NOT NULL added by
-    // V160, so a stray direct save with no shift set fails at flush time instead of silently
-    // persisting a shift-less employee.
+    //
+    // NULLABLE (V160's NOT NULL was reverted by V178 — ONEHR-355 follow-up): a brand-new employee
+    // with no Shift explicitly chosen is a valid, permanent state, not a defect to paper over with
+    // a fabricated Default Shift — see EmployeeService#createEmployee/UserManagementService
+    // #createUser. This field is ALSO only ever a best-effort display/roster cache, never the
+    // authoritative source for which Shift governs a given date, whether null or set —
+    // {@link EmployeeShiftAssignment} (resolved via {@link
+    // com.nforce.onehr.service.EmployeeShiftAssignmentResolver}, keyed by the specific date in
+    // question) is that source. Shift-dependent attendance interpretation (lateness, scheduled
+    // hours) is skipped entirely, never guessed, when no assignment is effective for the date in
+    // question — see {@link com.nforce.onehr.service.AttendanceInterpretationService}'s
+    // NO_SHIFT_ASSIGNED handling.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "shift_id", nullable = false)
+    @JoinColumn(name = "shift_id")
     private Shift shift;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -104,6 +112,59 @@ public class Employee {
     @Column(name = "emergency_contact_phone", length = 30)
     private String emergencyContactPhone;
 
+    // ESS "My Profile" redesign — additional self-service fields (V194).
+    @Column(name = "first_name", length = 100)
+    private String firstName;
+
+    @Column(name = "middle_name", length = 100)
+    private String middleName;
+
+    @Column(name = "last_name", length = 100)
+    private String lastName;
+
+    @Column(name = "preferred_name", length = 100)
+    private String preferredName;
+
+    @Column(name = "bio")
+    private String bio;
+
+    @Column(name = "marital_status", length = 30)
+    private String maritalStatus;
+
+    @Column(name = "emergency_contact_relationship", length = 50)
+    private String emergencyContactRelationship;
+
+    @Column(name = "permanent_address")
+    private String permanentAddress;
+
+    @Column(name = "passport_number", length = 50)
+    private String passportNumber;
+
+    @Column(name = "passport_expiry")
+    private LocalDate passportExpiry;
+
+    @Column(name = "bank_account_number", length = 50)
+    private String bankAccountNumber;
+
+    @Column(name = "bank_name", length = 150)
+    private String bankName;
+
+    @Column(name = "bank_ifsc", length = 20)
+    private String bankIfsc;
+
+    @Column(name = "national_id", length = 50)
+    private String nationalId;
+
+    // Job tab — read-only, HR-managed.
+    @Column(name = "job_code", length = 50)
+    private String jobCode;
+
+    @Column(name = "probation_end_date")
+    private LocalDate probationEndDate;
+
+    @Column(name = "confirmation_date")
+    private LocalDate confirmationDate;
+
     // Deliberately NO timezone field. The finalized Location/Timezone model (see V169's migration
     // comment) makes Location the single, non-bypassable source of an employee's effective
     // attendance timezone — Employee → Location → Location.timezone — so there is no per-employee
@@ -116,6 +177,17 @@ public class Employee {
 
     @Column(name = "profile_photo", columnDefinition = "BYTEA")
     private byte[] profilePhoto;
+
+    // Alternative to profilePhoto — a generated avatar (DiceBear) URL, mutually exclusive with
+    // an uploaded photo. See ProfileService.setAvatar/uploadPhoto/removePhoto.
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
+    // My Profile page header background — entirely independent of profilePhoto/avatarUrl above
+    // (the round avatar). Null means "no custom cover", in which case the page falls back to its
+    // existing theme-color banner image. See ProfileService.uploadCover/removeCover.
+    @Column(name = "profile_cover", columnDefinition = "BYTEA")
+    private byte[] profileCover;
 
     @Column(name = "created_by")
     private UUID createdBy;

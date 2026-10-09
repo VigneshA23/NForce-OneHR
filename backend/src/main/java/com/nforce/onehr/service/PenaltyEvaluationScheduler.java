@@ -27,9 +27,12 @@ public class PenaltyEvaluationScheduler {
     @Value("${app.attendance.penalty-evaluation.lookback-days:60}")
     private int lookbackDays;
 
-    // Once daily, well after the day's attendance is settled. Configurable so ops can move it
-    // without a redeploy, same convention as RegularizationService's @Value-backed windows.
-    @Scheduled(cron = "${app.attendance.penalty-evaluation.cron:0 0 2 * * *}")
+    // Once daily, late the same evening rather than after midnight (ONEHR-487) — attendance for
+    // the day is settled well before 23:30, and running same-day (not at 2 AM the next calendar
+    // day) is what lets exception emails, LEAVE_ATTENDANCE_CONFLICT included, reach the employee
+    // on the day the conflict happened instead of "the following day". Configurable so ops can
+    // move it without a redeploy, same convention as RegularizationService's @Value-backed windows.
+    @Scheduled(cron = "${app.attendance.penalty-evaluation.cron:0 30 23 * * *}")
     public void run() {
         log.info("Running scheduled attendance penalty evaluation (lookback={} days)", lookbackDays);
         try {
@@ -38,6 +41,14 @@ public class PenaltyEvaluationScheduler {
             // Never let a scheduled-job failure surface as an unhandled exception in the
             // scheduler thread — log and let the next scheduled run retry.
             log.error("Scheduled attendance penalty evaluation failed", e);
+        }
+        // Separate try/catch: a failure evaluating penalties above must never suppress emailing
+        // occurrences that were already detected (by this run or an earlier dashboard load) and
+        // are still waiting on notifiedAt — and vice versa.
+        try {
+            exceptionService.notifyUnnotifiedExceptions();
+        } catch (Exception e) {
+            log.error("Scheduled attendance exception notification failed", e);
         }
     }
 }

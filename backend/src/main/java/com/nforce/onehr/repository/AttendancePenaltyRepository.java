@@ -29,6 +29,12 @@ public interface AttendancePenaltyRepository extends JpaRepository<AttendancePen
     // AttendancePenaltyService#reverseForApprovedRegularization.
     List<AttendancePenalty> findByEmployeeUserIdAndIncidentDate(UUID employeeUserId, LocalDate incidentDate);
 
+    // Backs AttendanceService#historyFor's PENALIZED badge — which dates in this employee's own
+    // Attendance Log range have a still-active (PENDING_REVIEW) penalty. Never includes
+    // CANCELLED/REVERSED rows, so a badge only ever reflects a currently-applied penalty.
+    List<AttendancePenalty> findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
+            UUID employeeUserId, LocalDate from, LocalDate to, String status);
+
     // Backs PenalisationPolicyManagementService#delete's historical-integrity guard — AttendancePenalty
     // deliberately has no FK on policyId (a deleted policy must never orphan a historical penalty's
     // own record of what happened), so this existence check is the only way to detect the reference

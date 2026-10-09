@@ -19,14 +19,26 @@ public class PolicyResponse {
     boolean active;
     Boolean acknowledged;
     Instant acknowledgedAt;
+    int versionNumber;
+    Long previousVersionId;
+    boolean hasAttachment;
+    String attachmentFileName;
 
     public static PolicyResponse from(Policy p, Boolean acknowledged, Instant acknowledgedAt) {
         return new PolicyResponse(p.getId(), p.getTitle(), p.getVersion(), p.getDescription(),
                 p.getAudience(), p.isRequired(), p.getPublishedAt(), p.getPublishedBy(), p.isActive(),
-                acknowledged, acknowledgedAt);
+                acknowledged, acknowledgedAt, p.getVersionNumber(), p.getPreviousVersionId(),
+                p.getAttachmentData() != null, p.getAttachmentName());
     }
 
     public static PolicyResponse from(Policy p) {
         return from(p, null, null);
+    }
+
+    public static PolicyResponse from(PolicyListItem p, Boolean acknowledged, Instant acknowledgedAt) {
+        return new PolicyResponse(p.getId(), p.getTitle(), p.getVersion(), p.getDescription(),
+                p.getAudience(), p.isRequired(), p.getPublishedAt(), p.getPublishedBy(), p.isActive(),
+                acknowledged, acknowledgedAt, p.getVersionNumber(), p.getPreviousVersionId(),
+                p.getAttachmentName() != null, p.getAttachmentName());
     }
 }

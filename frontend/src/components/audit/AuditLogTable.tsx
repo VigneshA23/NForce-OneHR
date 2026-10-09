@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Users, CalendarCheck, Clock, Package, Shield, Tag, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ActionGroup, AuditLogEntry } from '../../api/audit';
+import { EmployeeAvatar } from '../EmployeeAvatar';
 
 // EMPLOYEE_UPDATED and USER_UPDATED both land under the Employee Management group (see
 // AuditActionCategory) and represent the same kind of edit — HR Admin's path vs Super Admin's
@@ -9,6 +11,16 @@ import type { ActionGroup, AuditLogEntry } from '../../api/audit';
 // surfacing the underlying action string's own naming.
 const ACTION_LABEL_OVERRIDES: Record<string, string> = {
   EMPLOYEE_UPDATED: 'User Updated',
+};
+
+// A penalization policy version carries ~30 rule-configuration fields (see
+// PenalizationPolicyService#snapshotFields) — showing every one that changed turns a simple
+// "here's what changed and when" into a wall of low-level rule toggles nobody reads. Only
+// `version`/`effectiveFrom` are kept as the human-relevant summary for these two actions; every
+// other action keeps showing its full changed-field diff, unrestricted, as before.
+const SNAPSHOT_FIELD_ALLOWLIST: Record<string, string[]> = {
+  PENALIZATION_POLICY_CREATED: ['version', 'effectiveFrom'],
+  PENALIZATION_POLICY_UPDATED: ['version', 'effectiveFrom'],
 };
 
 function humanizeAction(action: string): string {
@@ -44,6 +56,19 @@ function fmtValue(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   return String(v);
+}
+
+// "effectiveFrom" always means "the point this configuration starts governing behavior from" —
+// a previous version's own effective date isn't a "before" state worth comparing against (it's
+// simply when the SUPERSEDED version took effect, not something this change moved from), so this
+// renders just the new date rather than the generic key's "before → after" arrow. Formatted like
+// the Timestamp row above rather than left as the raw "2026-10-01T00:00:00" the backend sends.
+function fmtSnapshotValue(key: string, beforeVal: unknown, afterVal: unknown): string {
+  if (key === 'effectiveFrom') {
+    const raw = afterVal ?? beforeVal;
+    return typeof raw === 'string' ? fmtDateTime(raw) : fmtValue(raw);
+  }
+  return `${fmtValue(beforeVal)} → ${fmtValue(afterVal)}`;
 }
 
 // Icons/colors copied verbatim from AuditStatCards.tsx's CardDef[] (that file is not touched —
@@ -98,9 +123,47 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Snapshot key excluded from the detail popup — an internal actor-id reference, not part of
-// the human-readable summary (the "Performed By" row above already covers who acted).
-const HIDDEN_SNAPSHOT_KEYS = new Set(['managerDecidedBy', 'decidedBy']);
+// For actions where "affected user" is a whole set of employees (e.g. everyone governed by a
+// penalization policy whose rules just changed) rather than one — each name is clickable and
+// opens that employee's Company Directory profile, the same "/directory?userId=" deep link
+// DashboardPage's EmployeeCard/openProfile already use for "go look at this person" elsewhere
+// in the app. Capped height + independent scroll (same pattern as MyTeamPage's "Not in yet
+// today" roster) so a policy governing 100+ employees can't grow the modal without bound.
+function AffectedUsersList({ users, onNavigate }: {
+  users: { userId: string; fullName: string }[];
+  onNavigate: () => void;
+}) {
+  const navigate = useNavigate();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+      {users.map(u => (
+        <button
+          key={u.userId}
+          onClick={() => { onNavigate(); navigate(`/directory?userId=${u.userId}`); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, background: 'var(--raised)',
+            border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px',
+            cursor: 'pointer', font: 'inherit', textAlign: 'left', width: '100%',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised2)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised)'; }}
+        >
+          <EmployeeAvatar userId={u.userId} name={u.fullName} size={24} fontSize={10} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{u.fullName}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Snapshot values shaped like a raw UUID (e.g. managerDecidedBy/decidedBy/finalDecidedBy/
+// assignedTo, all stored as actor.getId().toString() or similar) are internal id references
+// with no human-readable label of their own — whoever acted is already covered by "Performed
+// By" above, and the affected user by "Affected User". Filtering by VALUE SHAPE rather than a
+// hardcoded key list means this holds for any audit event's snapshot fields, present or future,
+// without needing a matching frontend change every time a new id-valued field is introduced.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isRawId = (value: unknown): boolean => typeof value === 'string' && UUID_PATTERN.test(value);
 
 function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: () => void }) {
   const before = parseState(entry.beforeState);
@@ -110,9 +173,13 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
   // snapshots (they're built from the same entity right before/after the edit) and would only
   // repeat information already implied by "nothing shown = unchanged", so it's dropped rather
   // than listed as a flat, non-arrow value.
+  const allowlist = SNAPSHOT_FIELD_ALLOWLIST[entry.action];
   const keys = Array.from(new Set([...(after ? Object.keys(after) : []), ...(before ? Object.keys(before) : [])]))
-    .filter(key => !HIDDEN_SNAPSHOT_KEYS.has(key))
-    .filter(key => (before ? before[key] : undefined) !== (after ? after[key] : undefined));
+    .filter(key => (before ? before[key] : undefined) !== (after ? after[key] : undefined))
+    .filter(key => !isRawId(before ? before[key] : undefined) && !isRawId(after ? after[key] : undefined))
+    .filter(key => !allowlist || allowlist.includes(key));
+
+  const affectedUsers = entry.affectedUsers ?? [];
 
   return (
     <div style={overlayStyle}>
@@ -132,7 +199,14 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
             <DetailRow label="Timestamp" value={fmtDateTime(entry.occurredAt)} />
             <DetailRow label="Action" value={humanizeAction(entry.action)} />
             <DetailRow label="Performed By" value={entry.actorName ? `${entry.actorName}${entry.actorEmail ? ` (${entry.actorEmail})` : ''}` : 'System'} />
-            <DetailRow label="Affected User" value={entry.targetLabel} />
+            {affectedUsers.length > 0 ? (
+              <div>
+                <div style={labelStyle}>{affectedUsers.length === 1 ? 'Affected User' : `Affected Users (${affectedUsers.length})`}</div>
+                <AffectedUsersList users={affectedUsers} onNavigate={onClose} />
+              </div>
+            ) : (
+              <DetailRow label="Affected User" value={entry.targetLabel} />
+            )}
           </div>
 
           {keys.length > 0 && (
@@ -140,7 +214,7 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
               {keys.map(key => {
                 const beforeVal = before ? before[key] : undefined;
                 const afterVal = after ? after[key] : undefined;
-                return <DetailRow key={key} label={humanizeKey(key)} value={`${fmtValue(beforeVal)} → ${fmtValue(afterVal)}`} />;
+                return <DetailRow key={key} label={humanizeKey(key)} value={fmtSnapshotValue(key, beforeVal, afterVal)} />;
               })}
             </div>
           )}

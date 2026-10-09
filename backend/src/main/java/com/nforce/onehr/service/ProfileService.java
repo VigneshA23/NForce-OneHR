@@ -1,8 +1,11 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.ProfileResponse;
+import com.nforce.onehr.dto.ProfileTimelineEvent;
+import com.nforce.onehr.dto.SetAvatarRequest;
 import com.nforce.onehr.dto.UpdateProfileRequest;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -15,8 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -24,17 +32,113 @@ public class ProfileService {
 
     private static final long MAX_PHOTO_BYTES = 500 * 1024; // 500 KB
     private static final Set<String> ALLOWED_WORK_MODES = Set.of("REMOTE", "HYBRID", "ONSITE");
+    private static final String MASK_GROUP = "•••• ";
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final AttendanceService attendanceService;
 
-    @Transactional(readOnly = true)
+    // Not readOnly: isClockedIn() below can trigger a real write (flagging a stale open attendance
+    // session as MISSING_CHECKOUT) — the same write AttendanceService#getToday already relies on,
+    // and that method is deliberately not readOnly either. Nesting that write inside a readOnly
+    // transaction here would risk it being silently suppressed.
+    @Transactional
     public ProfileResponse getProfile(String email) {
         User user = requireUser(email);
         return employeeRepository.findById(user.getId())
                 .map(emp -> toResponse(user, emp))
                 .orElse(toMinimalResponse(user));
+    }
+
+    private static final Set<String> SENSITIVE_PROFILE_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+
+    // Read-only "View Profile" from the People Directory — any authenticated employee can look up
+    // any other employee's safe/public-facing fields (About + Job), same exposure level the
+    // directory listing itself already has (EmployeeController#directory, no role restriction).
+    // Sensitive self-service fields (DOB, personal email, address, emergency contact, passport,
+    // bank details) are nulled out here unless the viewer holds HR_ADMIN/SUPER_ADMIN — those
+    // roles already see this detail elsewhere (e.g. onboarding, offboarding), everyone else never
+    // should just by clicking a directory row.
+    @Transactional(readOnly = true)
+    public ProfileResponse getProfileForViewer(String viewerEmail, java.util.UUID targetUserId) {
+        User viewer = requireUser(viewerEmail);
+        User target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+        ProfileResponse response = employeeRepository.findById(target.getId())
+                .map(emp -> toResponse(target, emp))
+                .orElse(toMinimalResponse(target));
+
+        if (!hasSensitiveProfileAccess(viewer)) {
+            response.setDateOfBirth(null);
+            response.setPersonalEmail(null);
+            response.setAddress(null);
+            response.setPermanentAddress(null);
+            response.setEmergencyContactName(null);
+            response.setEmergencyContactPhone(null);
+            response.setEmergencyContactRelationship(null);
+            response.setMaritalStatus(null);
+            response.setPassportNumber(null);
+            response.setPassportExpiry(null);
+            response.setBankAccountNumber(null);
+            response.setBankName(null);
+            response.setBankIfsc(null);
+            response.setNationalId(null);
+        }
+        return response;
+    }
+
+    // Exposed separately (not inferred from field nullness on the client) because a legitimate
+    // HR_ADMIN/SUPER_ADMIN viewer looking at an employee who simply never filled in DOB/address/
+    // bank details would otherwise see every sensitive field null anyway — indistinguishable from
+    // being redacted. DirectoryProfileService surfaces this on its response for exactly that reason.
+    @Transactional(readOnly = true)
+    public boolean hasSensitiveAccess(String viewerEmail) {
+        return hasSensitiveProfileAccess(requireUser(viewerEmail));
+    }
+
+    private boolean hasSensitiveProfileAccess(User viewer) {
+        return viewer.getRoles().stream()
+                .anyMatch(r -> SENSITIVE_PROFILE_OVERRIDE_ROLES.contains(r.getCode()));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProfileTimelineEvent> getTimeline(String email) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+
+        List<ProfileTimelineEvent> events = new ArrayList<>();
+        if (emp.getJoiningDate() != null) {
+            events.add(ProfileTimelineEvent.builder()
+                    .type("JOINED_COMPANY")
+                    .date(emp.getJoiningDate())
+                    .timestamp(emp.getJoiningDate().atStartOfDay())
+                    .description("Joined the company")
+                    .build());
+        }
+
+        List<EmployeeManagerHistory> history =
+                historyRepository.findByEmployeeUserIdOrderByEffectiveFromAsc(user.getId());
+        // Skip the first row: that's the initial manager assignment at hire, not a "change".
+        for (int i = 1; i < history.size(); i++) {
+            EmployeeManagerHistory h = history.get(i);
+            String managerName = userRepository.findById(h.getManagerUserId())
+                    .map(mgr -> employeeRepository.findById(mgr.getId())
+                            .map(Employee::getFullName).orElse(mgr.getEmail()))
+                    .orElse("Unknown");
+            events.add(ProfileTimelineEvent.builder()
+                    .type("MANAGER_CHANGED")
+                    .date(h.getEffectiveFrom().toLocalDate())
+                    .timestamp(h.getEffectiveFrom())
+                    .description("Reporting manager changed to " + managerName)
+                    .build());
+        }
+
+        // Sort by the full timestamp, not just the date, so multiple changes on the same
+        // calendar day still order correctly relative to each other.
+        events.sort(Comparator.comparing(ProfileTimelineEvent::getTimestamp));
+        return events;
     }
 
     @Transactional
@@ -44,7 +148,8 @@ public class ProfileService {
                 .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
 
         if (req.getPhone() != null)                   emp.setPhone(req.getPhone().trim());
-        if (req.getDateOfBirth() != null)              emp.setDateOfBirth(req.getDateOfBirth());
+        if (req.isClearDateOfBirth())                  emp.setDateOfBirth(null);
+        else if (req.getDateOfBirth() != null)          emp.setDateOfBirth(req.getDateOfBirth());
         if (req.getGender() != null)                   emp.setGender(req.getGender().trim());
         if (req.getPersonalEmail() != null)            emp.setPersonalEmail(req.getPersonalEmail().trim());
         if (req.getAddress() != null)                  emp.setAddress(req.getAddress().trim());
@@ -55,8 +160,48 @@ public class ProfileService {
             if (ALLOWED_WORK_MODES.contains(wm)) emp.setWorkMode(wm);
         }
 
+        boolean nameChanged = false;
+        if (req.getFirstName() != null)        { emp.setFirstName(req.getFirstName().trim()); nameChanged = true; }
+        if (req.getMiddleName() != null)       { emp.setMiddleName(req.getMiddleName().trim()); nameChanged = true; }
+        if (req.getLastName() != null)         { emp.setLastName(req.getLastName().trim()); nameChanged = true; }
+        if (req.getPreferredName() != null)    emp.setPreferredName(req.getPreferredName().trim());
+        if (req.getBio() != null)              emp.setBio(req.getBio().trim());
+        if (req.getMaritalStatus() != null)    emp.setMaritalStatus(req.getMaritalStatus().trim());
+        if (req.getEmergencyContactRelationship() != null)
+                                                emp.setEmergencyContactRelationship(req.getEmergencyContactRelationship().trim());
+        if (req.getPermanentAddress() != null) emp.setPermanentAddress(req.getPermanentAddress().trim());
+        if (req.getPassportNumber() != null)   emp.setPassportNumber(req.getPassportNumber().trim());
+        if (req.isClearPassportExpiry())       emp.setPassportExpiry(null);
+        else if (req.getPassportExpiry() != null) emp.setPassportExpiry(req.getPassportExpiry());
+        if (req.getBankAccountNumber() != null) emp.setBankAccountNumber(req.getBankAccountNumber().trim());
+        if (req.getBankName() != null)         emp.setBankName(req.getBankName().trim());
+        if (req.getBankIfsc() != null)         emp.setBankIfsc(req.getBankIfsc().trim());
+        if (req.getNationalId() != null)       emp.setNationalId(req.getNationalId().trim());
+
+        // fullName is derived, never client-set: join non-blank first/middle/last with single spaces.
+        if (nameChanged) {
+            emp.setFullName(deriveFullName(emp));
+        }
+
         employeeRepository.save(emp);
         return toResponse(user, emp);
+    }
+
+    private String deriveFullName(Employee emp) {
+        return Stream.of(emp.getFirstName(), emp.getMiddleName(), emp.getLastName())
+                .filter(s -> s != null && !s.isBlank())
+                .collect(Collectors.joining(" "));
+    }
+
+    // Shows only the trailing 4 characters, grouped in 4s (prototype-style "•••• •••• 5591").
+    // Returns the input unchanged if null/blank/too short to mask meaningfully.
+    private String maskTrailing4(String value) {
+        if (value == null || value.isBlank()) return value;
+        String trimmed = value.trim();
+        if (trimmed.length() <= 4) return trimmed;
+        String last4 = trimmed.substring(trimmed.length() - 4);
+        int maskedGroups = (trimmed.length() - 4 + 3) / 4;
+        return MASK_GROUP.repeat(maskedGroups).trim() + " " + last4;
     }
 
     @Transactional
@@ -72,6 +217,18 @@ public class ProfileService {
         Employee emp = employeeRepository.findById(user.getId())
                 .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
         emp.setProfilePhoto(file.getBytes());
+        emp.setAvatarUrl(null); // uploading a real photo replaces any previously chosen avatar
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
+    @Transactional
+    public ProfileResponse setAvatar(String email, SetAvatarRequest req) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setAvatarUrl(req.getAvatarUrl());
+        emp.setProfilePhoto(null); // mutually exclusive with an uploaded photo
         employeeRepository.save(emp);
         return toResponse(user, emp);
     }
@@ -82,6 +239,37 @@ public class ProfileService {
         Employee emp = employeeRepository.findById(user.getId())
                 .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
         emp.setProfilePhoto(null);
+        emp.setAvatarUrl(null);
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
+    // Cover upload/remove — same validation and storage pattern as uploadPhoto/removePhoto above,
+    // but profileCover is a completely separate column: it never touches profilePhoto/avatarUrl,
+    // so the round avatar and the page header background stay fully independent of each other.
+    @Transactional
+    public ProfileResponse uploadCover(String email, MultipartFile file) throws IOException {
+        if (file.isEmpty()) throw new IllegalArgumentException("File is empty");
+        if (file.getSize() > MAX_PHOTO_BYTES)
+            throw new IllegalArgumentException("Cover image must be under 500 KB");
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/"))
+            throw new IllegalArgumentException("File must be an image");
+
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setProfileCover(file.getBytes());
+        employeeRepository.save(emp);
+        return toResponse(user, emp);
+    }
+
+    @Transactional
+    public ProfileResponse removeCover(String email) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("No employee record associated with this account — contact HR"));
+        emp.setProfileCover(null);
         employeeRepository.save(emp);
         return toResponse(user, emp);
     }
@@ -119,6 +307,14 @@ public class ProfileService {
         if (emp.getProfilePhoto() != null && emp.getProfilePhoto().length > 0) {
             photoDataUrl = "data:image/jpeg;base64,"
                     + Base64.getEncoder().encodeToString(emp.getProfilePhoto());
+        } else if (emp.getAvatarUrl() != null) {
+            photoDataUrl = emp.getAvatarUrl();
+        }
+
+        String coverDataUrl = null;
+        if (emp.getProfileCover() != null && emp.getProfileCover().length > 0) {
+            coverDataUrl = "data:image/jpeg;base64,"
+                    + Base64.getEncoder().encodeToString(emp.getProfileCover());
         }
 
         return ProfileResponse.builder()
@@ -128,6 +324,7 @@ public class ProfileService {
                 .role(role)
                 .hasEmployeeRecord(true)
                 .photoDataUrl(photoDataUrl)
+                .coverDataUrl(coverDataUrl)
                 .phone(emp.getPhone())
                 .dateOfBirth(emp.getDateOfBirth())
                 .gender(emp.getGender())
@@ -136,6 +333,20 @@ public class ProfileService {
                 .emergencyContactName(emp.getEmergencyContactName())
                 .emergencyContactPhone(emp.getEmergencyContactPhone())
                 .workMode(emp.getWorkMode())
+                .firstName(emp.getFirstName())
+                .middleName(emp.getMiddleName())
+                .lastName(emp.getLastName())
+                .preferredName(emp.getPreferredName())
+                .bio(emp.getBio())
+                .maritalStatus(emp.getMaritalStatus())
+                .emergencyContactRelationship(emp.getEmergencyContactRelationship())
+                .permanentAddress(emp.getPermanentAddress())
+                .passportNumber(emp.getPassportNumber())
+                .passportExpiry(emp.getPassportExpiry())
+                .bankAccountNumber(maskTrailing4(emp.getBankAccountNumber()))
+                .bankName(emp.getBankName())
+                .bankIfsc(emp.getBankIfsc())
+                .nationalId(maskTrailing4(emp.getNationalId()))
                 .employeeCode(emp.getEmployeeCode())
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
@@ -145,6 +356,15 @@ public class ProfileService {
                 .managerName(managerName)
                 .managerEmail(managerEmail)
                 .active(user.isActive())
+                .jobCode(emp.getJobCode())
+                .probationEndDate(emp.getProbationEndDate())
+                .confirmationDate(emp.getConfirmationDate())
+                .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
+                .shiftName(emp.getShift() != null ? emp.getShift().getName() : null)
+                .weeklyOffPolicyName(emp.getWeeklyOffPolicy() != null ? emp.getWeeklyOffPolicy().getName() : null)
+                .attendancePenalizationPolicyName(
+                        emp.getPenalisationPolicy() != null ? emp.getPenalisationPolicy().getName() : null)
+                .attendanceStatus(attendanceService.isClockedIn(user.getId()) ? "IN" : "OUT")
                 .build();
     }
 

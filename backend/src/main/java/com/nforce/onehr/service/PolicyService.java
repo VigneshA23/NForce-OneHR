@@ -7,11 +7,14 @@ import com.nforce.onehr.entity.PolicyAcknowledgment;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.AttachmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -22,6 +25,11 @@ public class PolicyService {
 
     private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final Set<String> ALL_ROLE_CODES = Set.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+
+    // Policy notification "Open Related Page" destination — every recipient, regardless of
+    // role, lands on their own self-scoped My Documents & Policies → Policies tab, never the
+    // HR/admin policy-management page.
+    private static final String POLICIES_TAB_LINK = "/my-documents?tab=policies";
 
     private final PolicyRepository policyRepo;
     private final PolicyAcknowledgmentRepository ackRepo;
@@ -37,8 +45,8 @@ public class PolicyService {
         Set<String> actorRoles = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
         UUID actorId = actor.getId();
 
-        List<Policy> active = policyRepo.findByActiveTrueOrderByPublishedAtDesc();
-        List<Policy> applicable = active.stream()
+        List<PolicyListItem> active = policyRepo.findActiveListItems();
+        List<PolicyListItem> applicable = active.stream()
                 .filter(p -> matchesAudience(p.getAudience(), actorRoles))
                 .collect(Collectors.toList());
 
@@ -75,15 +83,15 @@ public class PolicyService {
     @Transactional(readOnly = true)
     public List<PolicyResponse> listAll(String actorEmail) {
         requireAdminRole(actorEmail);
-        return policyRepo.findAllByOrderByPublishedAtDesc().stream()
-                .map(PolicyResponse::from)
+        return policyRepo.findAllListItems().stream()
+                .map(p -> PolicyResponse.from(p, null, null))
                 .collect(Collectors.toList());
     }
 
     // ── HR/SA: publish new policy ──
 
     @Transactional
-    public PolicyResponse publish(String actorEmail, PublishPolicyRequest req) {
+    public PolicyResponse publish(String actorEmail, PublishPolicyRequest req, MultipartFile attachment) throws IOException {
         User actor = requireUser(actorEmail);
         requireAdminRole(actorEmail);
 
@@ -92,17 +100,135 @@ public class PolicyService {
             policyRepo.save(old);
         });
 
-        Policy p = Policy.builder()
+        Policy.PolicyBuilder builder = Policy.builder()
                 .title(req.getTitle())
                 .version(req.getVersion())
                 .description(req.getDescription())
                 .audience(req.getAudience() != null ? req.getAudience() : "All Employees")
                 .required(req.isRequired())
                 .publishedBy(actor.getId())
-                .publishedAt(Instant.now())
-                .build();
+                .publishedAt(Instant.now());
+        if (attachment != null && !attachment.isEmpty()) {
+            attachBuilder(builder, attachment);
+        }
+        Policy p = builder.build();
         p = policyRepo.save(p);
 
+        seedAcknowledgmentsAndNotify(p, "New Policy: " + p.getTitle(),
+                "Please review and acknowledge version " + p.getVersion() + ".");
+
+        return PolicyResponse.from(p);
+    }
+
+    // ── HR/SA: attach a document (image/PDF/Word) to a policy ──
+    // Same validate-then-store pattern as HelpdeskService#applyAttachment (10MB/allow-list rule
+    // shared via AttachmentValidator) — a policy has at most one attachment, so a re-upload
+    // simply replaces it rather than versioning like EmployeeDocument does. Separate from
+    // publish()/publishNewVersion() (which also accept an attachment inline) so HR can attach or
+    // replace a document without republishing.
+
+    @Transactional
+    public PolicyResponse uploadAttachment(String actorEmail, Long policyId, MultipartFile file) throws IOException {
+        requireAdminRole(actorEmail);
+        Policy p = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+        AttachmentValidator.validate(file);
+        p.setAttachmentName(file.getOriginalFilename());
+        p.setAttachmentType(file.getContentType());
+        p.setAttachmentSize(file.getSize());
+        p.setAttachmentData(file.getBytes());
+        return PolicyResponse.from(policyRepo.save(p));
+    }
+
+    // ── HR/SA: publish a substantive new version of an existing policy ──
+    //
+    // Separate from editPolicy (metadata-only, same version, acknowledgments untouched). This
+    // increments the version, makes the new content current, and requires every employee to
+    // re-acknowledge — previous acknowledgments stay attached to the superseded version's row and
+    // are preserved for audit, never deleted or mutated.
+
+    @Transactional
+    public PolicyResponse publishNewVersion(String actorEmail, Long policyId, PublishPolicyVersionRequest req,
+                                             MultipartFile attachment) throws IOException {
+        User actor = requireUser(actorEmail);
+        requireAdminRole(actorEmail);
+
+        Policy current = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+
+        // Flush the supersede before inserting the new version's acknowledgment rows below — not
+        // required for correctness here (no uniqueness constraint spans policy rows), but keeps
+        // the write order explicit and matches the document-versioning supersede-then-insert
+        // pattern.
+        current.setActive(false);
+        policyRepo.saveAndFlush(current);
+
+        String title = notBlank(req.getTitle(), current.getTitle());
+        String description = notBlank(req.getDescription(), current.getDescription());
+        String audience = notBlank(req.getAudience(), current.getAudience());
+        boolean required = req.getRequired() != null ? req.getRequired() : current.isRequired();
+        String version = notBlank(req.getVersion(), suggestNextVersion(current.getVersion()));
+
+        Policy.PolicyBuilder builder = Policy.builder()
+                .title(title)
+                .version(version)
+                .versionNumber(current.getVersionNumber() + 1)
+                .previousVersionId(current.getId())
+                .description(description)
+                .audience(audience)
+                .required(required)
+                .publishedBy(actor.getId())
+                .publishedAt(Instant.now())
+                .active(true);
+        if (attachment != null && !attachment.isEmpty()) {
+            attachBuilder(builder, attachment);
+        } else {
+            // No new file supplied — carry the previous version's attachment forward so it isn't
+            // silently dropped when HR only changes text fields.
+            builder.attachmentName(current.getAttachmentName())
+                    .attachmentType(current.getAttachmentType())
+                    .attachmentSize(current.getAttachmentSize())
+                    .attachmentData(current.getAttachmentData());
+        }
+        Policy p = builder.build();
+        p = policyRepo.save(p);
+
+        seedAcknowledgmentsAndNotify(p, "Updated Policy: " + p.getTitle(),
+                "A new version (" + p.getVersion() + ") has been published. Please review and acknowledge again.");
+
+        return PolicyResponse.from(p);
+    }
+
+    // ── HR/SA: this policy's version chain, oldest first, for grouped acknowledgment history ──
+
+    @Transactional(readOnly = true)
+    public List<PolicyResponse> getVersionHistory(String actorEmail, Long policyId) {
+        requireAdminRole(actorEmail);
+        Policy anchor = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+
+        LinkedList<Policy> chain = new LinkedList<>();
+        chain.add(anchor);
+
+        Policy cursor = anchor;
+        while (cursor.getPreviousVersionId() != null) {
+            Long previousId = cursor.getPreviousVersionId();
+            cursor = policyRepo.findById(previousId)
+                    .orElseThrow(() -> new NoSuchElementException("Policy not found: " + previousId));
+            chain.addFirst(cursor);
+        }
+        cursor = anchor;
+        Optional<Policy> next = policyRepo.findByPreviousVersionId(cursor.getId());
+        while (next.isPresent()) {
+            cursor = next.get();
+            chain.addLast(cursor);
+            next = policyRepo.findByPreviousVersionId(cursor.getId());
+        }
+
+        return chain.stream().map(PolicyResponse::from).collect(Collectors.toList());
+    }
+
+    private void seedAcknowledgmentsAndNotify(Policy p, String notificationTitle, String notificationMessage) {
         Set<String> audienceRoles = parseAudienceToRoleCodes(p.getAudience());
         List<Employee> targetEmployees = audienceRoles.equals(ALL_ROLE_CODES)
                 ? employeeRepo.findAllActiveWithDetails()
@@ -114,13 +240,44 @@ public class PolicyService {
                     .employeeUserId(emp.getUserId())
                     .build();
             ackRepo.save(ack);
-            notificationService.send(emp.getUserId(), "POLICY_PUBLISHED",
-                    "New Policy: " + p.getTitle(),
-                    "Please review and acknowledge version " + p.getVersion() + ".",
-                    "/policies");
+            notificationService.send(emp.getUserId(), "POLICY_PUBLISHED", notificationTitle, notificationMessage, POLICIES_TAB_LINK);
         }
+    }
 
-        return PolicyResponse.from(p);
+    private static void attachBuilder(Policy.PolicyBuilder builder, MultipartFile attachment) throws IOException {
+        AttachmentValidator.validate(attachment);
+        builder.attachmentName(attachment.getOriginalFilename())
+                .attachmentType(attachment.getContentType())
+                .attachmentSize(attachment.getSize())
+                .attachmentData(attachment.getBytes());
+    }
+
+    // ── Attachment download (any authenticated user who can see the policy) ──
+
+    @Transactional(readOnly = true)
+    public Policy getAttachment(String actorEmail, Long policyId) {
+        requireUser(actorEmail);
+        Policy p = policyRepo.findById(policyId)
+                .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
+        if (p.getAttachmentData() == null) {
+            throw new NoSuchElementException("Policy has no attachment: " + policyId);
+        }
+        return p;
+    }
+
+    private static String notBlank(String candidate, String fallback) {
+        return (candidate != null && !candidate.isBlank()) ? candidate : fallback;
+    }
+
+    // "1.0" -> "2.0", "3.2" -> "4.0"; anything unparsable falls back to "2.0" — same
+    // auto-suggestion the existing PublishModal frontend already does for a same-titled republish.
+    private static String suggestNextVersion(String currentVersion) {
+        try {
+            int major = Integer.parseInt(currentVersion.split("\\.")[0]);
+            return (major + 1) + ".0";
+        } catch (Exception e) {
+            return "2.0";
+        }
     }
 
     // ── HR/SA: edit policy (same version, update metadata) ──
@@ -214,7 +371,7 @@ public class PolicyService {
         notificationService.send(employeeUserId, "POLICY_REMINDER",
                 "Policy Reminder: " + p.getTitle(),
                 "Please review and acknowledge version " + p.getVersion() + " of this policy.",
-                "/policies");
+                POLICIES_TAB_LINK);
     }
 
     // ── Helpers ──

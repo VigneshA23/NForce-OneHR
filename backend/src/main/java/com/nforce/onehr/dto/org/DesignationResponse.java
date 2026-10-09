@@ -12,12 +12,15 @@ public class DesignationResponse {
     String title;
     String grade;
     String level;
+    UUID departmentId;
+    String departmentName;
     boolean active;
     long employeeCount;
     LocalDateTime createdAt;
     LocalDateTime updatedAt;
 
-    public static DesignationResponse from(Designation d, long employeeCount) {
-        return new DesignationResponse(d.getId(), d.getTitle(), d.getGrade(), d.getLevel(), d.isActive(), employeeCount, d.getCreatedAt(), d.getUpdatedAt());
+    public static DesignationResponse from(Designation d, long employeeCount, String departmentName) {
+        return new DesignationResponse(d.getId(), d.getTitle(), d.getGrade(), d.getLevel(), d.getDepartmentId(), departmentName,
+                d.isActive(), employeeCount, d.getCreatedAt(), d.getUpdatedAt());
     }
 }

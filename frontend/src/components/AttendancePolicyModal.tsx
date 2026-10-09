@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Info, X } from 'lucide-react';
+import { TabBar } from './TabBar';
 import { getMyCurrentPolicy, type PenalizationPolicy } from '../api/penalizationPolicy';
 
 /**
@@ -270,28 +271,18 @@ export function AttendancePolicyModal({ token, onClose }: { token: string; onClo
             <X size={18} />
           </button>
         </div>
-        <div className="nf-attpolicy-tabs" style={{ display: 'flex', gap: 8, padding: '0 32px 16px' }}>
-          {([
-            { value: 'PENALISATION', label: 'Penalisation Policy' },
-            { value: 'TIME_TRACKING', label: 'Time Tracking Policy' },
-          ] as const).map((t) => {
-            const active = t.value === tab;
-            return (
-              <button
-                key={t.value}
-                onClick={() => setTab(t.value)}
-                style={{
-                  background: active ? 'rgba(47,182,124,.12)' : 'var(--raised)',
-                  color: active ? '#2FB67C' : 'var(--txt-mut)',
-                  border: `1px solid ${active ? 'rgba(47,182,124,.35)' : 'var(--line2)'}`,
-                  borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
+        {/* Sits directly on the sticky header's bottom border, so no rule of its own. */}
+        <TabBar
+          className="nf-attpolicy-tabs"
+          ariaLabel="Policy"
+          style={{ padding: '0 32px', boxShadow: 'none' }}
+          active={tab}
+          onChange={setTab}
+          tabs={[
+            { key: 'PENALISATION', label: 'Penalisation Policy' },
+            { key: 'TIME_TRACKING', label: 'Time Tracking Policy' },
+          ]}
+        />
       </div>
 
       {/* Scrollable body — full-width panel, but text itself stays capped for readability. */}

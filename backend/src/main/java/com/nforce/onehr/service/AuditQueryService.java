@@ -246,6 +246,7 @@ public class AuditQueryService {
                 .targetId(log.getTargetId())
                 .targetLabel(targetResolver.resolve(log.getAction(), log.getTargetId()))
                 .targetEmployeeCode(targetResolver.resolveEmployeeCode(log.getAction(), log.getTargetId()))
+                .affectedUsers(targetResolver.resolveAffectedUsers(log.getAction(), log.getTargetId()))
                 .beforeState(log.getBeforeState())
                 .afterState(log.getAfterState())
                 .occurredAt(log.getOccurredAt())

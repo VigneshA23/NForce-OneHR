@@ -23,6 +23,16 @@ export interface EmployeeAssignmentRow {
   shiftName: string | null;
   shiftStartTime: string | null;
   shiftEndTime: string | null;
+  // The currently-effective assignment's own effectiveFrom (resolved server-side; never
+  // Employee.shift, a best-effort display cache) — null when the employee has no effective
+  // assignment at all. Powers "Active since <date>".
+  shiftEffectiveSince: string | null;
+  // A SCHEDULED future assignment, if one exists (at most one ever does) — distinct from the
+  // currently-effective shift above, which remains active until this date arrives. Powers
+  // "Scheduled — Effective from <date>".
+  pendingShiftId: string | null;
+  pendingShiftName: string | null;
+  pendingShiftEffectiveFrom: string | null;
   weeklyOffPolicyId: string | null;
   weeklyOffPolicyName: string | null;
   penalisationPolicyId: string | null;
@@ -88,17 +98,21 @@ export const employeeAssignmentsApi = {
     fetch(`${BASE}/employee-assignments/lookups`, { headers: authHeaders(token) })
       .then(r => handle<AssignmentLookups>(r)),
 
-  bulkUpdateShift: (employeeUserIds: string[], policyId: string, token: string) =>
+  // effectiveFrom: required by the backend for this endpoint only (today or any future date,
+  // never a past one) — ignored by bulkUpdateWeeklyOff/bulkUpdatePenalisationPolicy below, which
+  // remain effective-today, open-ended. Kept as a shared trailing param across all three so
+  // MyTeamPage's single applyBulk() call site can invoke whichever one uniformly.
+  bulkUpdateShift: (employeeUserIds: string[], policyId: string, effectiveFrom: string | undefined, token: string) =>
     fetch(`${BASE}/employee-assignments/bulk-update-shift`, {
-      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserIds, policyId }),
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserIds, policyId, effectiveFrom }),
     }).then(r => handle<AssignmentBulkResult>(r)),
 
-  bulkUpdateWeeklyOff: (employeeUserIds: string[], policyId: string, token: string) =>
+  bulkUpdateWeeklyOff: (employeeUserIds: string[], policyId: string, _effectiveFrom: string | undefined, token: string) =>
     fetch(`${BASE}/employee-assignments/bulk-update-weekly-off`, {
       method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserIds, policyId }),
     }).then(r => handle<AssignmentBulkResult>(r)),
 
-  bulkUpdatePenalisationPolicy: (employeeUserIds: string[], policyId: string, token: string) =>
+  bulkUpdatePenalisationPolicy: (employeeUserIds: string[], policyId: string, _effectiveFrom: string | undefined, token: string) =>
     fetch(`${BASE}/employee-assignments/bulk-update-penalisation-policy`, {
       method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserIds, policyId }),
     }).then(r => handle<AssignmentBulkResult>(r)),

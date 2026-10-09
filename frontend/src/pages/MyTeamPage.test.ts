@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
 import type { ApprovalItem } from '../api/approvalCenter';
+import { REPORT_COLUMN_SETS, autoSizeColumns } from './MyTeamPage';
+import type { WorkSheet } from 'xlsx';
 
 function mockRequest(requestType: 'LEAVE' | 'REGULARIZATION', id: string): ApprovalItem {
   return {
@@ -130,6 +132,71 @@ describe('MyTeamPage viewMode and tab persistence on refresh', () => {
   it('prefers URL search parameter over stored tab if present', () => {
     expect(resolveInitialTab('effort', 'penalties')).toBe('effort');
     expect(resolveInitialTab('invalid', 'penalties')).toBe('penalties');
+  });
+});
+
+describe('Overtime report no longer exports a fake OT start/end time', () => {
+  const overtimeHeaders = REPORT_COLUMN_SETS.OVERTIME.map(c => c.header);
+
+  it('does not include Start Time or End Time columns', () => {
+    expect(overtimeHeaders).not.toContain('Start Time');
+    expect(overtimeHeaders).not.toContain('End Time');
+  });
+
+  it('does not export any time-of-day value for a request with only a midnight-anchored placeholder span', () => {
+    // requestedStart/requestedEnd are synthesized by the overtime request modal as a
+    // midnight-anchored span sized to the entered duration (never a real clock time) —
+    // see AttendancePage.tsx OvertimeRequestModal.handleSubmit.
+    const row = {
+      employeeUserId: 'u1', employeeCode: 'E1', fullName: 'Jane Doe', date: '2026-09-10',
+      checkIn: '2026-09-10T00:00:00', checkOut: '2026-09-10T02:00:00',
+      reason: 'Deployment support', status: 'APPROVED', requestMode: null, hours: 2,
+    };
+    const exported = Object.fromEntries(REPORT_COLUMN_SETS.OVERTIME.map(c => [c.header, c.exportValue(row)]));
+    expect(Object.values(exported)).not.toContain('12:00 AM');
+    expect(Object.values(exported)).not.toContain('2:00 AM');
+    expect(exported).toEqual({
+      Employee: 'Jane Doe',
+      Date: '2026-09-10',
+      'Overtime Hours': 2,
+      Reason: 'Deployment support',
+      Status: 'APPROVED',
+    });
+  });
+});
+
+describe('Excel export column auto-sizing', () => {
+  function widthOf(ws: WorkSheet, index: number): number {
+    const cols = ws['!cols'];
+    if (!cols) throw new Error('expected !cols to be set');
+    return (cols[index] as { wch: number }).wch;
+  }
+
+  it('sizes columns wider than their bare header when content is longer', () => {
+    const headers = ['Employee Name', 'Date', 'Check In', 'Reason'];
+    const rows = [
+      { 'Employee Name': 'Alexandria Montgomery-Fitzgerald', Date: '2026-09-10', 'Check In': '9:02 AM', Reason: 'x' },
+      { 'Employee Name': 'Jo Lee', Date: '2026-09-11', 'Check In': '9:15 AM', Reason: 'y' },
+    ];
+    const ws = {} as WorkSheet;
+    autoSizeColumns(ws, rows, headers);
+
+    expect(widthOf(ws, 0)).toBeGreaterThan('Employee Name'.length);
+    expect(widthOf(ws, 1)).toBeGreaterThanOrEqual('Date'.length);
+    expect(widthOf(ws, 2)).toBeGreaterThanOrEqual('Check In'.length);
+  });
+
+  it('caps width for unusually long free-text fields instead of growing unbounded', () => {
+    const longReason = 'R'.repeat(500);
+    const ws = {} as WorkSheet;
+    autoSizeColumns(ws, [{ Reason: longReason }], ['Reason']);
+    expect(widthOf(ws, 0)).toBeLessThanOrEqual(50);
+  });
+
+  it('still gives short columns a readable minimum width', () => {
+    const ws = {} as WorkSheet;
+    autoSizeColumns(ws, [{ Id: '1' }], ['Id']);
+    expect(widthOf(ws, 0)).toBeGreaterThanOrEqual(8);
   });
 });
 

@@ -1,13 +1,16 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.dto.audit.AffectedUserDto;
 import com.nforce.onehr.entity.Attendance;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.ExpenseClaim;
 import com.nforce.onehr.entity.LeaveRequest;
+import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ExpenseClaimRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
+import com.nforce.onehr.repository.PenalizationPolicyVersionRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.repository.WebClockInRequestRepository;
@@ -15,7 +18,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -56,16 +61,57 @@ public class AuditTargetResolver {
     private final AttendanceRepository attendanceRepository;
     private final WebClockInRequestRepository webClockInRequestRepository;
     private final RegularizationRequestRepository regularizationRequestRepository;
+    private final PenalizationPolicyVersionRepository penalizationPolicyVersionRepository;
+    private final PenalizationPolicyService penalizationPolicyService;
+
+    /**
+     * Actions whose {@code target_id} is a domain-record id (a {@link PenalizationPolicyVersion})
+     * standing in for a whole *set* of affected employees rather than one — {@link #resolve} and
+     * {@link #resolveEmployeeCode} both fall back to a placeholder for these (there is no single
+     * affected employee/code to show), and {@link #resolveAffectedUsers} is what actually backs
+     * the frontend's clickable list for them.
+     */
+    private boolean isMultiEmployeeAction(String action) {
+        return action != null
+                && (action.equals("PENALIZATION_POLICY_CREATED") || action.equals("PENALIZATION_POLICY_UPDATED"));
+    }
 
     /** Best-effort human label for the affected user, given the action that produced the row. Never throws. */
     public String resolve(String action, UUID targetId) {
         if (targetId == null) return "—";
+        if (isMultiEmployeeAction(action)) {
+            int count = resolveAffectedUsers(action, targetId).size();
+            return count == 1 ? "1 employee" : count + " employees";
+        }
         try {
             UUID affectedUserId = resolveAffectedUserId(action, targetId);
             return employeeNameOrEmail(affectedUserId).orElseGet(() -> shortId(affectedUserId));
         } catch (Exception e) {
             log.warn("Failed to resolve audit target label for action={} targetId={}", action, targetId, e);
             return shortId(targetId);
+        }
+    }
+
+    /**
+     * The full set of employees affected by a multi-employee action (see
+     * {@link #isMultiEmployeeAction}) — every employee currently governed by the penalization
+     * policy the given version belongs to, resolved via
+     * {@link PenalizationPolicyService#resolveAffectedEmployees}. Empty (never null) for any other
+     * action, or if the version/policy can no longer be found. Never throws.
+     */
+    public List<AffectedUserDto> resolveAffectedUsers(String action, UUID targetId) {
+        if (targetId == null || !isMultiEmployeeAction(action)) return List.of();
+        try {
+            UUID policyId = penalizationPolicyVersionRepository.findById(targetId)
+                    .map(PenalizationPolicyVersion::getPolicyId).orElse(null);
+            if (policyId == null) return List.of();
+            return penalizationPolicyService.resolveAffectedEmployees(policyId).stream()
+                    .map(e -> AffectedUserDto.builder().userId(e.getUserId()).fullName(e.getFullName()).build())
+                    .sorted(Comparator.comparing(AffectedUserDto::getFullName, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to resolve affected users for action={} targetId={}", action, targetId, e);
+            return List.of();
         }
     }
 

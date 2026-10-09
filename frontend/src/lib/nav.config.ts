@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -50,7 +50,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('requests', 'My Requests', HelpCircle, 1),
     item('assets', 'Assets & Expenses', Package, 1),
     item('performance', 'Performance & Growth', GitBranch, 2),
-    item('documents', 'My Documents & Policies', FileText, 1),
+    item('my-documents', 'My Documents & Policies', FileText, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   Manager: [
@@ -65,8 +65,8 @@ export const NAV: Record<Role, NavItem[]> = {
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('performance', 'Team Performance', GitBranch, 2),
     item('assets', 'Team Assets & Expenses', Package, 1),
-    item('documents', 'My Documents & Policies', FileText, 1),
-    item('reports', 'Reports & Analytics', FileText, 2),
+    item('my-documents', 'My Documents & Policies', FileText, 1),
+    item('reports', 'Reports & Analytics', FileText, 1),
     item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
@@ -85,10 +85,11 @@ export const NAV: Record<Role, NavItem[]> = {
     item('policies', 'Policies & Announcements', FileText, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('organization', 'Organization Structure', GitBranch, 1),
+    item('allocations', 'Project Allocations', Briefcase, 1),
     item('performance', 'Performance & Engagement', GitBranch, 2),
     item('assets', 'Assets & Expenses', Package, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
-    item('reports', 'Reports & Analytics', FileText, 2),
+    item('reports', 'Reports & Analytics', FileText, 1),
     item('audit', 'Audit History', Clock, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
@@ -101,14 +102,16 @@ export const NAV: Record<Role, NavItem[]> = {
     item('leave', 'Leave & Holidays', Calendar, 1),
     item('approvals', 'Approval Center', FileText, 1),
     item('assets', 'Assets & Expenses', Package, 1),
-    item('workflows', 'Workflow Studio', GitBranch, 2),
+    item('workflows', 'Workflow Studio', GitBranch, 1),
     item('masters', 'Organization Masters', FileText, 1),
+    item('policies', 'Policies & Announcements', FileText, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
     item('integrations', 'Integrations', FileText, 2),
     item('audit', 'Audit & Security', Clock, 1),
     item('featurelab', 'Future Feature Lab', HelpCircle, 2),
-    item('reports', 'Reports & Analytics', FileText, 2),
+    item('reports', 'Reports & Analytics', FileText, 1),
+    item('api-usage', 'API Usage', Activity, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
 };
@@ -150,8 +153,8 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
   { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
-  { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports'] },
-  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'performance', 'documents', 'policies', 'my-documents'] },
+  { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
+  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'allocations', 'performance', 'documents', 'policies', 'my-documents'] },
   'help',
 ];
 

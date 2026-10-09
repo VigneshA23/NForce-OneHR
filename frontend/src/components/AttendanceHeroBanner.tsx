@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, LogOut } from 'lucide-react';
-import { BrandMark } from './BrandMark';
+import { HeroIllustration } from './HeroIllustration';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { attendanceApi, type TodayAttendance, type AttendanceConfig } from '../api/attendance';
@@ -57,16 +57,18 @@ function minutesOfDay(ms: number): number {
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
 
-// ── Gradient background — matches the auth layout's left-panel dark treatment. ──
+// ── Gradient background — matches the auth layout's left-panel dark treatment. The glow follows
+// the user's "Theme color" accent (var(--brand), set on <html> by lib/accentColor) — the same
+// line as dev's HERO_BG. ──
 
 const HERO_BG = [
-  'radial-gradient(120% 100% at 80% 10%, rgba(177,17,22,.34) 0%, transparent 55%)',
+  'radial-gradient(120% 100% at 80% 10%, color-mix(in srgb, var(--brand) 34%, transparent) 0%, transparent 55%)',
   'linear-gradient(160deg, #0a0b0e 0%, #12141a 100%)',
 ].join(', ');
 
 // ── Shell components ─────────────────────────────────────────────────────────────
 
-function HeroCard({ children }: { children: React.ReactNode }) {
+function HeroCard({ children, shiftLabel }: { children: React.ReactNode; shiftLabel?: string | null }) {
   return (
     <div
       data-theme="dark"
@@ -85,9 +87,7 @@ function HeroCard({ children }: { children: React.ReactNode }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
         {children}
       </div>
-      <div style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
-        <BrandMark size="lg" />
-      </div>
+      <HeroIllustration shiftLabel={shiftLabel} />
     </div>
   );
 }
@@ -204,7 +204,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
   }
 
   return (
-    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', alignSelf: 'flex-start' }}>
       {openWeb && (
         <>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
@@ -333,7 +333,11 @@ export function AttendanceHeroBanner() {
   }, [checkOutAt, webToday]);
 
   const shiftInfo = useMemo(() => {
-    if (!config || !serverNowBase) return null;
+    // config.shiftStart is null for an employee with no effective Shift assignment (ONEHR-355:
+    // a valid, permanent state — a brand-new employee, or one whose first assignment isn't
+    // effective yet) — there is no shift timing to show, so this must degrade to null rather
+    // than crash trying to parse it.
+    if (!config?.shiftStart || !serverNowBase) return null;
     const currentMs = serverNowBase.ms + (now.getTime() - serverNowBase.fetchedAtMs);
     const diffMin = shiftStartMinutes(config.shiftStart) - minutesOfDay(currentMs);
     const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -349,10 +353,17 @@ export function AttendanceHeroBanner() {
     };
   }, [config, now, serverNowBase]);
 
+  // Illustration's calendar chip — the employee's own assigned shift, from the same
+  // AttendanceConfig this component already fetches for the "Shift starts at…" line below.
+  // Never hardcoded, and no new data source: reuses shiftInfo as-is.
+  const shiftLabel = shiftInfo
+    ? (shiftInfo.shiftEndLabel ? `${shiftInfo.shiftStartLabel} - ${shiftInfo.shiftEndLabel}` : shiftInfo.shiftStartLabel)
+    : null;
+
   // ── Loading skeleton ──────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <HeroCard>
+      <HeroCard shiftLabel={shiftLabel}>
         <div style={{ height: 28, width: '100%', maxWidth: 240, background: 'rgba(255,255,255,0.08)', borderRadius: 6, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
         <div style={{ height: 14, width: '100%', maxWidth: 360, background: 'rgba(255,255,255,0.05)', borderRadius: 4, animation: 'nf-hero-pulse 1.4s ease-in-out infinite' }} />
         <div style={{ display: 'flex', gap: 7 }}>
@@ -392,7 +403,7 @@ export function AttendanceHeroBanner() {
       : undefined;
 
     return (
-      <HeroCard>
+      <HeroCard shiftLabel={shiftLabel}>
         <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
           {headline}
         </div>
@@ -418,7 +429,7 @@ export function AttendanceHeroBanner() {
     // explicit request. The factual check-in time is still shown (just the timestamp, no
     // elapsed/worked-minutes narrative) so the employee's status is legible at a glance.
     return (
-      <HeroCard>
+      <HeroCard shiftLabel={shiftLabel}>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           <HeroPill dot="#4E9EE8" label="Working" pulse />
           {statusPill}
@@ -433,7 +444,7 @@ export function AttendanceHeroBanner() {
           disabled={submitting}
           style={{
             alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 7,
-            padding: '8px 18px', background: '#B11116', color: '#fff',
+            padding: '8px 18px', background: 'var(--brand)', color: '#fff',
             border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
             cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1,
           }}
@@ -460,7 +471,7 @@ export function AttendanceHeroBanner() {
     // unaffected. The factual check-in/check-out timestamps of the last completed session are
     // still shown (no elapsed/worked-minutes narrative) so status stays legible at a glance.
     return (
-      <HeroCard>
+      <HeroCard shiftLabel={shiftLabel}>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
           {statusPill}
         </div>
@@ -470,7 +481,7 @@ export function AttendanceHeroBanner() {
             disabled={submitting}
             style={{
               display: 'flex', alignItems: 'center', gap: 7,
-              padding: '8px 18px', background: '#B11116', color: '#fff',
+              padding: '8px 18px', background: 'var(--brand)', color: '#fff',
               border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
               cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1,
             }}
@@ -506,7 +517,7 @@ export function AttendanceHeroBanner() {
   const subtitle = shiftLine || 'You haven\'t checked in yet today.';
 
   return (
-    <HeroCard>
+    <HeroCard shiftLabel={shiftLabel}>
       <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: '#E8EAED', letterSpacing: '-0.01em', lineHeight: 1.25 }}>
         Not checked in yet.
       </div>
@@ -521,7 +532,7 @@ export function AttendanceHeroBanner() {
           disabled={submitting}
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
-            padding: '8px 18px', background: '#B11116', color: '#fff',
+            padding: '8px 18px', background: 'var(--brand)', color: '#fff',
             border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
             cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1,
           }}

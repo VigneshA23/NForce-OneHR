@@ -1,13 +1,16 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.dto.audit.AffectedUserDto;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.ExpenseClaim;
 import com.nforce.onehr.entity.LeaveRequest;
+import com.nforce.onehr.entity.PenalizationPolicyVersion;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ExpenseClaimRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
+import com.nforce.onehr.repository.PenalizationPolicyVersionRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.repository.WebClockInRequestRepository;
@@ -17,6 +20,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,6 +40,8 @@ class AuditTargetResolverTest {
     @Mock private AttendanceRepository attendanceRepository;
     @Mock private WebClockInRequestRepository webClockInRequestRepository;
     @Mock private RegularizationRequestRepository regularizationRequestRepository;
+    @Mock private PenalizationPolicyVersionRepository penalizationPolicyVersionRepository;
+    @Mock private PenalizationPolicyService penalizationPolicyService;
 
     @InjectMocks private AuditTargetResolver resolver;
 
@@ -170,5 +176,66 @@ class AuditTargetResolverTest {
         String label = resolver.resolve("LEAVE_REQUEST_APPROVED", targetId);
 
         assertTrue(label.endsWith("…"));
+    }
+
+    // ── PENALIZATION_POLICY_CREATED/UPDATED: target_id is a version id standing in for every
+    // employee governed by that policy, not one person (see AuditTargetResolver#isMultiEmployeeAction) ──
+
+    @Test
+    void resolve_penalizationPolicyUpdated_returnsAffectedEmployeeCountLabel() {
+        UUID versionId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        when(penalizationPolicyVersionRepository.findById(versionId)).thenReturn(Optional.of(
+                PenalizationPolicyVersion.builder().id(versionId).policyId(policyId).build()));
+        when(penalizationPolicyService.resolveAffectedEmployees(policyId)).thenReturn(List.of(
+                Employee.builder().userId(UUID.randomUUID()).fullName("Ravi Kumar").build(),
+                Employee.builder().userId(UUID.randomUUID()).fullName("Sita Rao").build()));
+
+        assertEquals("2 employees", resolver.resolve("PENALIZATION_POLICY_UPDATED", versionId));
+    }
+
+    @Test
+    void resolve_penalizationPolicyUpdated_singleAffectedEmployee_usesSingularLabel() {
+        UUID versionId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        when(penalizationPolicyVersionRepository.findById(versionId)).thenReturn(Optional.of(
+                PenalizationPolicyVersion.builder().id(versionId).policyId(policyId).build()));
+        when(penalizationPolicyService.resolveAffectedEmployees(policyId)).thenReturn(List.of(
+                Employee.builder().userId(UUID.randomUUID()).fullName("Ravi Kumar").build()));
+
+        assertEquals("1 employee", resolver.resolve("PENALIZATION_POLICY_UPDATED", versionId));
+    }
+
+    @Test
+    void resolveAffectedUsers_penalizationPolicyCreated_returnsAlphabeticallySortedList() {
+        UUID versionId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        UUID zId = UUID.randomUUID();
+        UUID aId = UUID.randomUUID();
+        when(penalizationPolicyVersionRepository.findById(versionId)).thenReturn(Optional.of(
+                PenalizationPolicyVersion.builder().id(versionId).policyId(policyId).build()));
+        when(penalizationPolicyService.resolveAffectedEmployees(policyId)).thenReturn(List.of(
+                Employee.builder().userId(zId).fullName("Zoya Khan").build(),
+                Employee.builder().userId(aId).fullName("Aman Gupta").build()));
+
+        List<AffectedUserDto> affected = resolver.resolveAffectedUsers("PENALIZATION_POLICY_CREATED", versionId);
+
+        assertEquals(List.of(aId, zId), affected.stream().map(AffectedUserDto::getUserId).toList());
+    }
+
+    @Test
+    void resolveAffectedUsers_versionNotFound_returnsEmptyListWithoutThrowing() {
+        UUID versionId = UUID.randomUUID();
+        when(penalizationPolicyVersionRepository.findById(versionId)).thenReturn(Optional.empty());
+
+        assertTrue(resolver.resolveAffectedUsers("PENALIZATION_POLICY_UPDATED", versionId).isEmpty());
+    }
+
+    @Test
+    void resolveAffectedUsers_singleEmployeeAction_returnsEmptyList() {
+        // Only the two multi-employee actions populate this list — every other action's single
+        // "Affected User" is already fully covered by resolve()'s targetLabel.
+        assertTrue(resolver.resolveAffectedUsers("EMPLOYEE_UPDATED", UUID.randomUUID()).isEmpty());
+        verifyNoInteractions(penalizationPolicyVersionRepository, penalizationPolicyService);
     }
 }

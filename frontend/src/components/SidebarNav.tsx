@@ -15,6 +15,15 @@ interface SidebarNavProps {
  * categories/subcategories that expand INLINE, in normal document flow,
  * pushing the rest of the list down. Click-only — there is no hover-driven
  * opening anywhere in this component, at any depth.
+ *
+ * This div (not the outer <aside> in Shell.tsx) is the ONE scroll container for the sidebar:
+ * `flex: 1, minHeight: 0, overflowY: 'auto'` means that when an expanded dropdown makes the
+ * total nav content taller than the space actually available, only THIS region grows a
+ * scrollbar — the logo above and the profile card below (both siblings of this div, outside it)
+ * never move, and neither does the rest of the page. The decorative artwork in Shell.tsx sits
+ * behind this div as a fixed background layer, so as nav content scrolls/grows over it, the
+ * artwork just shows through (or gets covered by) whatever's currently in front — no separate
+ * "make room for the artwork" logic needed here.
  */
 export function SidebarNav({ role, currentKey, onNavigate }: SidebarNavProps) {
   const tree = buildRoleNav(role);
@@ -104,7 +113,7 @@ function NavLeaf({ node, depth, currentKey, onLeafClick }: NavRowProps & { node:
       }}
     >
       {isActive && (
-        <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: '#E4373D', borderRadius: '0 3px 3px 0' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'var(--brand-bright)', borderRadius: '0 3px 3px 0' }} />
       )}
       <Icon size={15} aria-hidden="true" />
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.item.label}</span>
@@ -139,7 +148,7 @@ function NavGroup({ node: group, depth, openKeys, activeAncestors, currentKey, o
         }}
       >
         {isInActivePath && (
-          <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'rgba(228,55,61,.55)', borderRadius: '0 3px 3px 0' }} />
+          <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'color-mix(in srgb, var(--brand-bright) 55%, transparent)', borderRadius: '0 3px 3px 0' }} />
         )}
         <Icon size={15} aria-hidden="true" />
         <span

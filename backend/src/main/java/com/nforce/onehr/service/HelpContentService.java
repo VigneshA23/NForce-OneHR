@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.helpcontent.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.AttachmentValidator;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -57,11 +58,9 @@ public class HelpContentService {
     private static final Set<String> VALID_AUDIENCES = Set.of("EMPLOYEE", "MANAGER", "HR", "ADMIN");
 
     // Multi-attachment upload limits — configurable constants, not hardcoded checks scattered
-    // through the mutation methods.
+    // through the mutation methods. Size/type limits themselves live in AttachmentValidator,
+    // shared with HelpdeskService's ticket-reply attachments.
     private static final int MAX_ATTACHMENTS_PER_CONTENT = 5;
-    private static final long MAX_ATTACHMENT_SIZE_BYTES = 10L * 1024 * 1024; // mirrors spring.servlet.multipart.max-file-size
-    private static final Set<String> ALLOWED_ATTACHMENT_EXTENSIONS =
-            Set.of("pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "png", "jpg", "jpeg", "gif", "txt", "csv");
 
     private final HelpContentRepository repo;
     private final HelpContentAttachmentRepository attachmentRepo;
@@ -175,19 +174,44 @@ public class HelpContentService {
 
     @Transactional(readOnly = true)
     public Page<HelpContentSummaryDto> listAll(String actorEmail, String type, String category, String search, int page, int size) {
-        requireAdmin(actorEmail);
+        User actor = requireAdmin(actorEmail);
         Specification<HelpContent> spec = Specification
                 .allOf(HelpContentSpecifications.typeIs(type),
                         HelpContentSpecifications.categoryIs(category),
-                        HelpContentSpecifications.searchText(search));
+                        HelpContentSpecifications.searchText(search),
+                        HelpContentSpecifications.draftVisibleOnlyToCreator(actor.getId()));
         return repo.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Order.asc("displayOrder"), Sort.Order.desc("createdAt"))))
                 .map(this::toSummary);
     }
 
     @Transactional(readOnly = true)
     public HelpContentDetailDto getForAdmin(UUID id, String actorEmail) {
-        requireAdmin(actorEmail);
-        return toDetail(findOrThrow(id));
+        User actor = requireAdmin(actorEmail);
+        HelpContent content = findOrThrow(id);
+        assertDraftOwner(content, actor);
+        return toDetail(content);
+    }
+
+    /**
+     * The draft-ownership gate every read/mutation entry point that accepts a raw content id
+     * evaluates against the content's status <em>as found</em> — before any status transition
+     * the mutation itself might go on to apply. A DRAFT is private to its creator regardless of
+     * admin/Super Admin role (creation access never implies ownership of someone else's draft —
+     * see {@link HelpContentSpecifications#draftVisibleOnlyToCreator}, the equivalent list-level
+     * gate). Every other status (PENDING_APPROVAL, APPROVED, PUBLISHED, UNPUBLISHED, ARCHIVED) is
+     * untouched by this check, so the existing submit-for-review/approval-center/shared-content
+     * workflows (any admin may edit/publish/archive/restore APPROVED, PUBLISHED, UNPUBLISHED, or
+     * ARCHIVED content) are fully preserved — including editing PUBLISHED content, which forks a
+     * brand-new DRAFT row via {@link #prepareForEdit}; that fork is evaluated on ITS OWN
+     * (freshly-created) status the next time it's read/mutated, never retroactively against this
+     * call. Reuses the not-found convention ({@link NoSuchElementException}) that
+     * {@link #getPublished} already uses for unauthorized single-item access, so another admin's
+     * draft id is never confirmed to exist via a mutation attempt either.
+     */
+    private void assertDraftOwner(HelpContent content, User actor) {
+        if ("DRAFT".equals(content.getStatus()) && !content.getCreatedBy().equals(actor.getId())) {
+            throw new NoSuchElementException("Content not found: " + content.getId());
+        }
     }
 
     // ── HR/SA admin writes ────────────────────────────────────
@@ -217,7 +241,9 @@ public class HelpContentService {
     @Transactional
     public HelpContentDetailDto update(UUID id, UpdateHelpContentRequest req, String actorEmail) {
         User actor = requireAdmin(actorEmail);
-        HelpContent target = prepareForEdit(findOrThrow(id), actor);
+        HelpContent original = findOrThrow(id);
+        assertDraftOwner(original, actor);
+        HelpContent target = prepareForEdit(original, actor);
 
         target.setTitle(req.getTitle().trim());
         target.setDescription(req.getDescription());
@@ -313,7 +339,9 @@ public class HelpContentService {
     @Transactional
     public HelpContentDetailDto addAttachment(UUID id, MultipartFile file, String actorEmail) throws IOException {
         User actor = requireAdmin(actorEmail);
-        HelpContent target = prepareForEdit(findOrThrow(id), actor);
+        HelpContent original = findOrThrow(id);
+        assertDraftOwner(original, actor);
+        HelpContent target = prepareForEdit(original, actor);
         validateAttachmentFile(file);
         long existing = attachmentRepo.countByContentId(target.getId());
         if (existing + 1 > MAX_ATTACHMENTS_PER_CONTENT) {
@@ -352,7 +380,9 @@ public class HelpContentService {
         if (files == null || files.isEmpty()) {
             throw new IllegalArgumentException("At least one file is required");
         }
-        HelpContent target = prepareForEdit(findOrThrow(id), actor);
+        HelpContent original = findOrThrow(id);
+        assertDraftOwner(original, actor);
+        HelpContent target = prepareForEdit(original, actor);
         long existing = attachmentRepo.countByContentId(target.getId());
         if (existing + files.size() > MAX_ATTACHMENTS_PER_CONTENT) {
             throw new IllegalArgumentException("A FAQ/Guide can have at most " + MAX_ATTACHMENTS_PER_CONTENT
@@ -382,30 +412,14 @@ public class HelpContentService {
     }
 
     private void validateAttachmentFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Attachment file is empty");
-        }
-        if (file.getSize() > MAX_ATTACHMENT_SIZE_BYTES) {
-            throw new IllegalArgumentException("\"" + file.getOriginalFilename() + "\" exceeds the "
-                    + (MAX_ATTACHMENT_SIZE_BYTES / (1024 * 1024)) + "MB attachment size limit");
-        }
-        String ext = extensionOf(file.getOriginalFilename());
-        if (!ALLOWED_ATTACHMENT_EXTENSIONS.contains(ext)) {
-            throw new IllegalArgumentException("Unsupported file type: ." + ext
-                    + " (allowed: " + String.join(", ", ALLOWED_ATTACHMENT_EXTENSIONS) + ")");
-        }
-    }
-
-    private static String extensionOf(String fileName) {
-        if (fileName == null) return "";
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase();
+        AttachmentValidator.validate(file);
     }
 
     @Transactional
     public HelpContentDetailDto removeAttachment(UUID id, UUID attachmentId, String actorEmail) {
         User actor = requireAdmin(actorEmail);
         HelpContent original = findOrThrow(id);
+        assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
         HelpContentAttachment attachment = remapAttachment(original, target, attachmentId);
         attachmentRepo.delete(attachment);
@@ -418,6 +432,7 @@ public class HelpContentService {
     public HelpContentDetailDto replaceAttachment(UUID id, UUID attachmentId, MultipartFile file, String actorEmail) throws IOException {
         User actor = requireAdmin(actorEmail);
         HelpContent original = findOrThrow(id);
+        assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
         HelpContentAttachment attachment = remapAttachment(original, target, attachmentId);
         validateAttachmentFile(file);
@@ -437,6 +452,7 @@ public class HelpContentService {
     public HelpContentDetailDto reorderAttachments(UUID id, ReorderAttachmentsRequest req, String actorEmail) {
         User actor = requireAdmin(actorEmail);
         HelpContent original = findOrThrow(id);
+        assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
         List<UUID> remapped = req.getAttachmentIds().stream()
                 .map(aid -> remapAttachment(original, target, aid).getId())
@@ -463,6 +479,7 @@ public class HelpContentService {
     public HelpContentDetailDto submit(UUID id, String actorEmail) {
         User actor = requireAdmin(actorEmail);
         HelpContent content = findOrThrow(id);
+        assertDraftOwner(content, actor);
         if (!"DRAFT".equals(content.getStatus())) {
             throw new AccessDeniedException("Only draft content can be submitted for approval");
         }
@@ -676,10 +693,11 @@ public class HelpContentService {
 
     @Transactional
     public void delete(UUID id, String actorEmail) {
-        requireAdmin(actorEmail);
+        User actor = requireAdmin(actorEmail);
         HelpContent content = findOrThrow(id);
+        assertDraftOwner(content, actor);
         if (!DELETABLE_STATUSES.contains(content.getStatus())) {
-            throw new AccessDeniedException("Only draft or archived content can be deleted");
+            throw new AccessDeniedException("Content pending approval cannot be deleted — withdraw the request first");
         }
         attachmentRepo.deleteByContentId(id);
         audienceRepo.deleteByContentId(id);

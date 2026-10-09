@@ -137,7 +137,7 @@ class WebClockInServiceTest {
             @Override
             public EmployeeShiftAssignment resolve(UUID employeeUserId, LocalDate workDate) {
                 return resolveIfPresent(employeeUserId, workDate)
-                        .orElseThrow(() -> new IllegalStateException("no assignment effective on or before " + workDate));
+                        .orElseThrow(() -> new NoShiftAssignmentException("no assignment effective on or before " + workDate));
             }
         };
         ShiftDayPolicy shiftDayPolicy = new ShiftDayPolicy(new ShiftWeeklyOffRulesService(shiftWeeklyOffRulesRepository), shiftVersionResolver, employeeShiftAssignmentResolver);
@@ -292,6 +292,33 @@ class WebClockInServiceTest {
 
         verify(attendanceRepository).saveAndFlush(argThat(a ->
                 defaultShift.getId().equals(a.getShiftId())));
+    }
+
+    /**
+     * ONEHR-355 fix: a brand-new/no-shift employee (no effective EmployeeShiftAssignment at all)
+     * must still be able to Web Clock-In — an ordinary PRESENT day recorded with no Shift
+     * interpretation, never a thrown IllegalStateException.
+     */
+    @Test
+    void submit_noShiftAssigned_recordsOrdinaryPresentAttendance_withNoShiftInterpretation() {
+        String employeeEmail = "employee@test.com";
+        stubEmployeeUser(employeeEmail);
+        currentEmployeeShift = null;
+        com.nforce.onehr.entity.Employee noShiftEmployee = com.nforce.onehr.entity.Employee.builder()
+                .userId(employeeId).employeeCode("E1").fullName("Test Employee").shift(null).build();
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(noShiftEmployee));
+
+        CreateWebClockInRequest req = CreateWebClockInRequest.builder().reason("Working from home").timezone("Asia/Kolkata").build();
+
+        assertDoesNotThrow(() -> service.submit(req, employeeEmail));
+
+        verify(attendanceRepository).saveAndFlush(argThat(a ->
+                a.getShiftId() == null && "PRESENT".equals(a.getStatus()) && a.getLateByMinutes() == 0
+                        // Code-review corrective pass, finding 1: the discriminator that lets this
+                        // row be resolved as a valid no-Shift state later (never a genuine legacy
+                        // row) — see Attendance.noShiftAssigned's own Javadoc.
+                        && a.isNoShiftAssigned()));
+        verifyNoInteractions(latePenaltyService);
     }
 
     /**

@@ -39,6 +39,21 @@ export function invalidateEmployeePhoto(userId: string) {
   photoCache.delete(userId);
 }
 
+/**
+ * Waits out any photo fetch still in flight for these userIds. A DOM-to-image export (org chart
+ * PNG/PDF) can fire while an EmployeeAvatar mounted moments earlier is still waiting on its photo
+ * — html2canvas then snapshots the pre-photo initials fallback and the export shows a blank
+ * avatar for someone who does have a photo on file. Call this (then let one paint happen) right
+ * before capturing.
+ */
+export function waitForAvatarPhotos(userIds: (string | null | undefined)[]): Promise<void> {
+  const pending = userIds
+    .filter((id): id is string => !!id && !photoCache.has(id))
+    .map((id) => inFlight.get(id))
+    .filter((p): p is Promise<string | null> => !!p);
+  return Promise.all(pending).then(() => undefined);
+}
+
 export function getInitials(nameOrEmail?: string | null): string {
   if (!nameOrEmail) return 'U';
   if (nameOrEmail.includes('@')) return nameOrEmail.slice(0, 2).toUpperCase();
@@ -86,12 +101,18 @@ export function EmployeeAvatar({
 
   const src = directPhoto ? (photoDataUrl ?? null) : resolvedUrl;
   const initials = getInitials(name);
+  // Generated DiceBear avatars often draw their character a little off-center within the square
+  // canvas (varies by seed/pose) — an exact "cover" crop then shows visibly more plain background
+  // on one side than the other once it's cropped into a circle, reading as a lopsided "gap".
+  // Cropping in tighter (a background-size well past 100%, still centered) pushes that
+  // off-center margin outside the visible circle. Real uploaded photos keep an exact cover crop.
+  const isGeneratedAvatar = !!src && src.startsWith('https://api.dicebear.com/');
 
   return (
     <div
       style={{
         width: size, height: size, borderRadius: '50%',
-        background: src ? `url(${src}) center/cover no-repeat` : (background ?? '#B11116'),
+        background: src ? `url(${src}) center / ${isGeneratedAvatar ? '145%' : 'cover'} no-repeat` : (background ?? 'var(--brand)'),
         display: 'grid', placeItems: 'center', color: color ?? '#fff',
         fontSize: fontSize ?? Math.max(10, Math.round(size * 0.4)), fontWeight: 700,
         flexShrink: 0, boxSizing: 'border-box',

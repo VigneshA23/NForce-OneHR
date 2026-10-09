@@ -42,4 +42,30 @@ public class Policy {
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private boolean active = true;
+
+    // Version chain, for the explicit "Publish New Version" action (distinct from the
+    // metadata-only edit) — every version is its own row; previousVersionId links to the row it
+    // superseded. Every existing/first-published policy is version 1 of its own chain.
+    @Column(name = "version_number", nullable = false)
+    @Builder.Default
+    private Integer versionNumber = 1;
+
+    @Column(name = "previous_version_id")
+    private Long previousVersionId;
+
+    // Optional attachment (image/PDF/Word) — mirrors HelpdeskReply's inline attachment columns.
+    // Backed by V200__add_policy_attachment.sql (attachment_name/type/size/data); attachmentType
+    // and attachmentSize aren't exposed on the DTO (see PolicyResponse) but drive the correct
+    // Content-Type on download (see PolicyController#getAttachment).
+    @Column(name = "attachment_name", length = 255)
+    private String attachmentName;
+
+    @Column(name = "attachment_type", length = 100)
+    private String attachmentType;
+
+    @Column(name = "attachment_size")
+    private Long attachmentSize;
+
+    @Column(name = "attachment_data", columnDefinition = "BYTEA")
+    private byte[] attachmentData;
 }

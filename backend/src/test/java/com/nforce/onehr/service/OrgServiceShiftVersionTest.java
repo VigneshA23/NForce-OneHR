@@ -26,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -524,5 +525,135 @@ class OrgServiceShiftVersionTest {
         verify(shiftVersionRepository, times(2)).save(captor.capture());
         assertEquals(0, captor.getAllValues().get(0).getLateGraceMinutes());
         assertEquals(30, captor.getAllValues().get(1).getLateGraceMinutes());
+    }
+
+    // ── Applicable Days (workingDays) — create defaults/validates; update is optional and immediate ──
+
+    @Test
+    void createShift_withNoWorkingDaysSpecified_defaultsToAllSevenDays() {
+        when(shiftRepo.existsByNameIgnoreCase(any())).thenReturn(false);
+        ArgumentCaptor<Shift> captor = ArgumentCaptor.forClass(Shift.class);
+
+        ShiftResponse response = service.createShift(createReq("Morning Shift", LocalTime.of(9, 0), LocalTime.of(18, 0)));
+
+        verify(shiftRepo).save(captor.capture());
+        assertEquals("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY", captor.getValue().getWorkingDays());
+        assertEquals(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"), response.getWorkingDays());
+    }
+
+    @Test
+    void createShift_withMondayToFridaySelected_persistsExactlyThatSubset() {
+        when(shiftRepo.existsByNameIgnoreCase(any())).thenReturn(false);
+        CreateShiftRequest req = createReq("Weekday Shift", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        req.setWorkingDays(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"));
+
+        ShiftResponse response = service.createShift(req);
+
+        assertEquals(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"), response.getWorkingDays());
+    }
+
+    @Test
+    void createShift_withASingleWeekdaySelected_isAccepted() {
+        when(shiftRepo.existsByNameIgnoreCase(any())).thenReturn(false);
+        CreateShiftRequest req = createReq("Monday-Only Shift", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        req.setWorkingDays(List.of("MONDAY"));
+
+        ShiftResponse response = service.createShift(req);
+
+        assertEquals(List.of("MONDAY"), response.getWorkingDays());
+    }
+
+    @Test
+    void createShift_rejectsAnExplicitlyEmptyWorkingDaysList() {
+        when(shiftRepo.existsByNameIgnoreCase(any())).thenReturn(false);
+        CreateShiftRequest req = createReq("Bad Shift", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        req.setWorkingDays(List.of());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.createShift(req));
+        assertTrue(ex.getMessage().toLowerCase().contains("applicable"));
+        verify(shiftRepo, never()).save(any());
+    }
+
+    @Test
+    void createShift_workingDaysAreNormalizedAndDeduplicated() {
+        when(shiftRepo.existsByNameIgnoreCase(any())).thenReturn(false);
+        CreateShiftRequest req = createReq("Weekend Shift", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        req.setWorkingDays(List.of("saturday", "SUNDAY", "Sunday"));
+
+        ShiftResponse response = service.createShift(req);
+
+        assertEquals(List.of("SATURDAY", "SUNDAY"), response.getWorkingDays());
+    }
+
+    /**
+     * Code-review corrective pass, finding 7: a non-empty list of blank-only strings must be
+     * rejected exactly like an explicitly empty one — normalizeDayOfWeekList must not silently
+     * fold it down to {@code ""} and let it slip past the {@code == null} check.
+     */
+    @Test
+    void createShift_blankOnlyWorkingDaysList_isRejected_justLikeAnEmptyList() {
+        when(shiftRepo.existsByNameIgnoreCase(any())).thenReturn(false);
+        CreateShiftRequest req = createReq("Bad Shift", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        req.setWorkingDays(List.of(" ", "  "));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.createShift(req));
+        assertTrue(ex.getMessage().toLowerCase().contains("applicable"));
+        verify(shiftRepo, never()).save(any());
+    }
+
+    /**
+     * A Shift created before this field existed has {@code workingDays == null} in the DB —
+     * updateShift's request omits workingDays entirely (see its own comment), and the response
+     * must still read as "all 7 days" rather than null/empty, so existing shifts behave exactly
+     * as a shift that was never restricted always has.
+     */
+    @Test
+    void updateShift_withNoWorkingDaysInRequest_leavesExistingValueUntouched() {
+        UUID shiftId = UUID.randomUUID();
+        Shift existing = Shift.builder().id(shiftId).name("Regular Shift").active(true).workingDays(null).build();
+        when(shiftRepo.findById(shiftId)).thenReturn(Optional.of(existing));
+
+        ShiftResponse response = service.updateShift(shiftId,
+                updateReq("Regular Shift", LocalTime.of(6, 0), LocalTime.of(15, 0), LocalDate.now().plusDays(1)));
+
+        assertNull(existing.getWorkingDays(), "omitted workingDays must never overwrite the existing value");
+        assertEquals(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"), response.getWorkingDays());
+    }
+
+    /**
+     * Unlike startTime/endTime/breakMinutes/lateGraceMinutes, an Applicable Days change is NOT
+     * versioned/future-effective — it applies immediately to the Shift row itself (see
+     * UpdateShiftRequest's own comment), since it's never read by any attendance/workday
+     * calculation and so has no already-effective configuration to protect.
+     */
+    @Test
+    void updateShift_withNewWorkingDaysProvided_replacesTheExistingValueImmediately() {
+        UUID shiftId = UUID.randomUUID();
+        Shift existing = Shift.builder().id(shiftId).name("Regular Shift").active(true)
+                .workingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY").build();
+        when(shiftRepo.findById(shiftId)).thenReturn(Optional.of(existing));
+        UpdateShiftRequest req = updateReq("Regular Shift", LocalTime.of(6, 0), LocalTime.of(15, 0), LocalDate.now().plusDays(1));
+        req.setWorkingDays(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"));
+
+        ShiftResponse response = service.updateShift(shiftId, req);
+
+        assertEquals("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY", existing.getWorkingDays());
+        assertEquals(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"), response.getWorkingDays());
+    }
+
+    @Test
+    void updateShift_rejectsAnExplicitlyEmptyWorkingDaysList_andAppliesNoOtherChangeEither() {
+        UUID shiftId = UUID.randomUUID();
+        Shift existing = Shift.builder().id(shiftId).name("Regular Shift").active(true)
+                .workingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY").build();
+        when(shiftRepo.findById(shiftId)).thenReturn(Optional.of(existing));
+        UpdateShiftRequest req = updateReq("Regular Shift", LocalTime.of(6, 0), LocalTime.of(15, 0), LocalDate.now().plusDays(1));
+        req.setWorkingDays(List.of());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.updateShift(shiftId, req));
+        assertTrue(ex.getMessage().toLowerCase().contains("applicable"));
+        assertEquals("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY", existing.getWorkingDays(), "rejected update must leave the existing value untouched");
+        assertEquals("Regular Shift", existing.getName(), "rejected update must apply no other field change either");
+        verify(shiftRepo, never()).save(any());
     }
 }

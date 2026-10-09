@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { X, ChevronDown } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord, type UpdateEmployeePayload } from '../api/employees';
 import { orgApi } from '../api/org';
-import { StatusBadge, inactiveDimStyle, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
+import { inactiveDimStyle, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'];
@@ -21,10 +21,47 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
+      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
     </div>
   );
+}
+
+// Page-local, purely presentational restyle of the Active/Inactive pill — same `active` input
+// and same Active/Inactive wording as the shared EmployeeStatus.StatusBadge.
+function StatusBadge({ active }: { active: boolean }) {
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, color: active ? 'var(--ok)' : 'var(--txt-dim)', background: active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+      {active ? 'Active' : 'Inactive'}
+    </span>
+  );
+}
+
+function initials(name: string) {
+  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
+}
+
+function Avatar({ name, size = 32 }: { name: string; size?: number }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      background: 'rgba(177,17,22,.18)', color: 'var(--brand-bright)',
+      display: 'grid', placeItems: 'center',
+      fontSize: size * 0.34, fontWeight: 700, flexShrink: 0,
+      fontFamily: '"Space Grotesk", sans-serif',
+    }}>
+      {initials(name)}
+    </div>
+  );
+}
+
+// Client-side display ordering only — sorts the already-filtered list in memory; never changes
+// what's fetched, filtered, or submitted.
+type SortKey = 'fullName' | 'departmentName' | 'designationName' | 'locationName' | 'active';
+
+function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
+  if (!active) return <ChevronDown size={11} style={{ opacity: 0.3 }} />;
+  return dir === 'asc' ? <ChevronUp size={11} style={{ color: 'var(--brand)' }} /> : <ChevronDown size={11} style={{ color: 'var(--brand)' }} />;
 }
 
 // Department/Designation/Location dropdowns must only offer records still assignable for a NEW
@@ -229,6 +266,10 @@ export default function EmployeeMasterPage() {
   const token = useAuthStore(s => s.token)!;
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  // Set when the real employeesApi.list call fails — drives the error panel + Retry below.
+  // There is deliberately NO fallback data: on failure the table shows the error, never
+  // substitute/placeholder employees.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EmployeeRecord | null>(null);
 
   // Filters
@@ -239,9 +280,27 @@ export default function EmployeeMasterPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 15;
 
-  useEffect(() => {
-    employeesApi.list(token).then(setEmployees).finally(() => setLoading(false));
+  // Sorting (display order only)
+  const [sortKey, setSortKey] = useState<SortKey>('fullName');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir('asc'); }
+  }
+
+  // Same employeesApi.list(token) call as before — wrapped so the Retry button can re-run the
+  // exact same real request after a failure.
+  const loadEmployees = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    employeesApi.list(token)
+      .then(setEmployees)
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load employees'))
+      .finally(() => setLoading(false));
   }, [token]);
+
+  useEffect(() => { loadEmployees(); }, [loadEmployees]);
 
   const departments = Array.from(new Set(employees.map(e => e.departmentName).filter(Boolean))) as string[];
 
@@ -255,12 +314,27 @@ export default function EmployeeMasterPage() {
     return true;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const sorted = [...filtered].sort((a, b) => {
+    let av: string | number = '';
+    let bv: string | number = '';
+    switch (sortKey) {
+      case 'fullName': av = a.fullName; bv = b.fullName; break;
+      case 'departmentName': av = a.departmentName ?? ''; bv = b.departmentName ?? ''; break;
+      case 'designationName': av = a.designationName ?? ''; bv = b.designationName ?? ''; break;
+      case 'locationName': av = a.locationName ?? ''; bv = b.locationName ?? ''; break;
+      case 'active': av = a.active ? 1 : 0; bv = b.active ? 1 : 0; break;
+    }
+    const cmp = typeof av === 'number' ? av - (bv as number) : String(av).localeCompare(String(bv));
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paginated = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   useEffect(() => { setPage(1); }, [search, deptFilter, modeFilter, statusFilter]);
 
   const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  const sortableThStyle: React.CSSProperties = { ...thStyle, cursor: 'pointer', userSelect: 'none' };
   const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
   const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', color: 'var(--txt-mut)', fontSize: 12, cursor: 'pointer', outline: 'none' };
 
@@ -268,19 +342,28 @@ export default function EmployeeMasterPage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage employee records. New hires, role and access are added from Super Admin → User Management.</p>
+          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
+            {loading
+              ? 'Loading employees…'
+              : loadError
+                ? "Couldn't load employees"
+                : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`} · New hires, role and access are added from Super Admin → User Management.
+          </p>
         </div>
       </div>
 
       {/* Search + Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          placeholder="Search name, email, or employee ID…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
-        />
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
+          <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+          <input
+            placeholder="Search name, email, or employee ID…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: '100%', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px 7px 32px', color: 'var(--txt)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+          />
+        </div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} style={filterSelect}>
           <option value="ALL">All Status</option>
           <option value="ACTIVE">Active</option>
@@ -305,10 +388,18 @@ export default function EmployeeMasterPage() {
       </div>
 
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
-        ) : filtered.length === 0 ? (
+        {loadError && !loading ? (
+          <div role="alert" style={{ padding: 48, textAlign: 'center' }}>
+            <AlertCircle size={28} style={{ color: 'var(--risk)', marginBottom: 10 }} />
+            <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>Couldn't load employees</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-dim)', marginBottom: 16 }}>{loadError}</div>
+            <button onClick={loadEmployees} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 16px', fontSize: 13, color: 'var(--txt-mut)', cursor: 'pointer' }}>
+              Retry
+            </button>
+          </div>
+        ) : !loading && filtered.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
+            <Users size={28} style={{ color: 'var(--txt-dim)', marginBottom: 10 }} />
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>{employees.length === 0 ? 'No employees yet' : 'No results'}</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
               {employees.length === 0 ? 'New hires are added from Super Admin → User Management.' : 'Try adjusting search or filters.'}
@@ -320,20 +411,53 @@ export default function EmployeeMasterPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Employee ID', 'Name', 'Email', 'Dept', 'Designation', 'Manager', 'Location', 'Mode', 'Status', ''].map(h => (
-                      <th key={h} style={thStyle}>{h}</th>
-                    ))}
+                    <th style={sortableThStyle} onClick={() => toggleSort('fullName')}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Employee <SortIcon active={sortKey === 'fullName'} dir={sortDir} /></span>
+                    </th>
+                    <th style={thStyle}>Employee ID</th>
+                    <th style={sortableThStyle} onClick={() => toggleSort('departmentName')}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Dept <SortIcon active={sortKey === 'departmentName'} dir={sortDir} /></span>
+                    </th>
+                    <th style={sortableThStyle} onClick={() => toggleSort('designationName')}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Designation <SortIcon active={sortKey === 'designationName'} dir={sortDir} /></span>
+                    </th>
+                    <th style={thStyle}>Manager</th>
+                    <th style={sortableThStyle} onClick={() => toggleSort('locationName')}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Location <SortIcon active={sortKey === 'locationName'} dir={sortDir} /></span>
+                    </th>
+                    <th style={thStyle}>Mode</th>
+                    <th style={sortableThStyle} onClick={() => toggleSort('active')}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Status <SortIcon active={sortKey === 'active'} dir={sortDir} /></span>
+                    </th>
+                    <th style={thStyle}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginated.map(emp => (
+                  {loading ? (
+                    Array.from({ length: 8 }, (_, i) => (
+                      <tr key={i}>
+                        {[180, 90, 110, 120, 110, 100, 70, 60, 30].map((w, ci) => (
+                          <td key={ci} style={{ ...tdStyle, padding: '14px' }}>
+                            <div style={{ height: 12, width: w, borderRadius: 4, background: 'var(--raised2)', animation: 'glow-pulse 1.6s ease-in-out infinite' }} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : paginated.map(emp => (
                     <tr key={emp.userId}
                       style={inactiveDimStyle(emp.active)}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
+                      <td style={tdStyle}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Avatar name={emp.fullName} />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>{emp.fullName}</div>
+                            <div style={{ color: 'var(--txt-dim)', fontSize: 12, whiteSpace: 'nowrap' }}>{emp.email}</div>
+                          </div>
+                        </div>
+                      </td>
                       <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{emp.employeeCode}</td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{emp.fullName}</td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)' }}>{emp.email}</td>
                       <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
                       <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
                       <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
@@ -355,7 +479,7 @@ export default function EmployeeMasterPage() {
               </table>
             </div>
 
-            {totalPages > 1 && (
+            {!loading && totalPages > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
                 <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
                   {filtered.length} result{filtered.length !== 1 ? 's' : ''} · page {page} of {totalPages}

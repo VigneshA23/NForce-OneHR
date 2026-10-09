@@ -207,4 +207,88 @@ class WorkingDayServiceTest {
 
         assertTrue(result.isEmpty());
     }
+
+    // ── nextWorkingDay (not currently called by production code — see its own Javadoc; covered
+    //    here as a small, independently correct utility in its own right) ─────────────────────────
+
+    @Test
+    void nextWorkingDay_isTheImmediateNextDay_whenItIsAlreadyAWorkingDay() {
+        // Thursday, default Sat/Sun weekend — Friday is an ordinary working day, no skip needed.
+        LocalDate thursday = monday.plusDays(3);
+        Employee employee = employee(null, null, null);
+
+        LocalDate next = service.nextWorkingDay(employee, thursday);
+
+        assertEquals(monday.plusDays(4), next); // Friday
+    }
+
+    @Test
+    void nextWorkingDay_skipsSaturdayAndSunday_whenCreatedOnFridayWithDefaultWeekend() {
+        // Friday creation, no WeeklyOffPolicy assigned (default Sat/Sun) — must skip straight to
+        // the following Monday, not Saturday. Matches the ticket's own worked example.
+        LocalDate friday = monday.plusDays(4);
+        Employee employee = employee(null, null, null);
+
+        LocalDate next = service.nextWorkingDay(employee, friday);
+
+        assertEquals(monday.plusDays(7), next); // the following Monday
+    }
+
+    @Test
+    void nextWorkingDay_respectsACustomWeeklyOffPolicy_insteadOfSaturdaySunday() {
+        // Friday/Saturday off (not Sat/Sun) — from Thursday, both Friday and Saturday are skipped
+        // (off under THIS policy); Sunday is an ordinary working day under it.
+        WeeklyOffPolicy fridaySaturdayOff = WeeklyOffPolicy.builder().offDays("FRIDAY,SATURDAY").build();
+        LocalDate thursday = monday.plusDays(3);
+        Employee employee = employee(null, fridaySaturdayOff, null);
+
+        LocalDate next = service.nextWorkingDay(employee, thursday);
+
+        assertEquals(monday.plusDays(6), next); // Sunday — the first working day under this policy
+    }
+
+    @Test
+    void nextWorkingDay_skipsALocationHoliday() {
+        LocalDate tuesday = monday.plusDays(1);
+        LocalDate wednesday = monday.plusDays(2);
+        when(holidayRepository.findByLocation_IdInAndActiveTrue(Set.of(locationA.getId())))
+                .thenReturn(List.of(Holiday.builder().holidayDate(tuesday).location(locationA).active(true).build()));
+        Employee employee = employee(locationA, null, null);
+
+        LocalDate next = service.nextWorkingDay(employee, monday);
+
+        assertEquals(wednesday, next); // Tuesday is a holiday, skipped
+    }
+
+    @Test
+    void nextWorkingDay_combinesWeeklyOffAndHoliday_skippingBoth() {
+        // Friday creation, default Sat/Sun weekend, AND Monday is also a holiday — must land on
+        // Tuesday, skipping Saturday, Sunday, and the Monday holiday all in one pass.
+        LocalDate friday = monday.plusDays(4);
+        LocalDate nextMonday = monday.plusDays(7);
+        LocalDate nextTuesday = monday.plusDays(8);
+        when(holidayRepository.findByLocation_IdInAndActiveTrue(Set.of(locationA.getId())))
+                .thenReturn(List.of(Holiday.builder().holidayDate(nextMonday).location(locationA).active(true).build()));
+        Employee employee = employee(locationA, null, null);
+
+        LocalDate next = service.nextWorkingDay(employee, friday);
+
+        assertEquals(nextTuesday, next);
+    }
+
+    /**
+     * Code-review corrective pass, finding 6: OrgService's own create/update validation is
+     * supposed to make an all-7-days-off WeeklyOffPolicy impossible to save (see
+     * OrgServiceWeeklyOffPolicyTest) — this is the defensive fallback for data that predates that
+     * validation, or was written directly. Must fail loudly and quickly, never hang the
+     * employee-creation request forever searching for a working day that will never come.
+     */
+    @Test
+    void nextWorkingDay_allSevenDaysOff_failsLoudly_neverHangsForever() {
+        WeeklyOffPolicy everyDayOff = WeeklyOffPolicy.builder()
+                .offDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY").build();
+        Employee employee = employee(null, everyDayOff, null);
+
+        assertThrows(IllegalStateException.class, () -> service.nextWorkingDay(employee, monday));
+    }
 }

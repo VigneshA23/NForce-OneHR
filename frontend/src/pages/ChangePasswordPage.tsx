@@ -54,7 +54,7 @@ function PasswordField({
   return (
     <div className="mb-4">
       <label htmlFor={id} className="block text-sm font-medium mb-1.5" style={{ color: '#a0a0a0' }}>
-        {label} {required && <span style={{ color: '#b11116' }}>*</span>}
+        {label} {required && <span style={{ color: 'var(--brand)' }}>*</span>}
       </label>
       <div className="relative">
         <input
@@ -72,7 +72,7 @@ function PasswordField({
             fontFamily: 'Inter, system-ui',
           }}
           onFocus={(e) => {
-            if (!error) e.currentTarget.style.borderColor = '#b11116';
+            if (!error) e.currentTarget.style.borderColor = 'var(--brand)';
           }}
           onBlur={(e) => {
             registration.onBlur(e);
@@ -255,7 +255,7 @@ export default function ChangePasswordPage() {
           {/* New password with strength meter */}
           <div className="mb-4">
             <label htmlFor="newPassword" className="block text-sm font-medium mb-1.5" style={{ color: '#a0a0a0' }}>
-              New password <span style={{ color: '#b11116' }}>*</span>
+              New password <span style={{ color: 'var(--brand)' }}>*</span>
             </label>
             <div className="relative">
               <input
@@ -273,7 +273,7 @@ export default function ChangePasswordPage() {
                   fontFamily: 'Inter, system-ui',
                 }}
                 onFocus={(e) => {
-                  if (!errors.newPassword) e.currentTarget.style.borderColor = '#b11116';
+                  if (!errors.newPassword) e.currentTarget.style.borderColor = 'var(--brand)';
                 }}
                 onBlur={(e) => {
                   register('newPassword').onBlur(e);
@@ -354,17 +354,17 @@ export default function ChangePasswordPage() {
             disabled={loading}
             className="w-full py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-all mt-2"
             style={{
-              background: loading ? '#7a0b0f' : '#b11116',
+              background: loading ? 'var(--brand-deep)' : 'var(--brand)',
               color: '#ffffff',
               border: 'none',
               fontFamily: 'Inter, system-ui',
               opacity: loading ? 0.8 : 1,
             }}
             onMouseEnter={(e) => {
-              if (!loading) e.currentTarget.style.background = '#e4373d';
+              if (!loading) e.currentTarget.style.background = 'var(--brand-bright)';
             }}
             onMouseLeave={(e) => {
-              if (!loading) e.currentTarget.style.background = '#b11116';
+              if (!loading) e.currentTarget.style.background = 'var(--brand)';
             }}
           >
             {loading ? (

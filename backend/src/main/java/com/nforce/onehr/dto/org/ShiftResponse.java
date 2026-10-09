@@ -7,6 +7,8 @@ import lombok.Value;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
 @Value
@@ -34,9 +36,12 @@ public class ShiftResponse {
     boolean active;
     long employeeCount;
     LocalDateTime createdAt;
+    // "Applicable Days" — see Shift.workingDays's own Javadoc. Always 7 entries or fewer, never
+    // empty; a pre-existing Shift with no workingDays set (created before this field existed)
+    // reads as all 7 days, matching the same default a brand-new Shift gets.
+    List<String> workingDays;
 
-    // flexible/workingDays intentionally excluded from the P1 surface — see
-    // CreateShiftRequest's own comment. The Shift entity/DB columns still exist (unused).
+    // flexible intentionally excluded from the P1 surface — see CreateShiftRequest's own comment.
     public static ShiftResponse from(Shift s, ShiftVersion currentVersion, ShiftVersion pendingVersionOrNull, long employeeCount) {
         return new ShiftResponse(s.getId(), s.getName(), s.getCode(), s.getDescription(),
                 currentVersion.getStartTime(), currentVersion.getEndTime(), currentVersion.getBreakMinutes(),
@@ -46,6 +51,13 @@ public class ShiftResponse {
                 pendingVersionOrNull != null ? pendingVersionOrNull.getEndTime() : null,
                 pendingVersionOrNull != null ? pendingVersionOrNull.getBreakMinutes() : null,
                 pendingVersionOrNull != null ? pendingVersionOrNull.getLateGraceMinutes() : null,
-                s.isActive(), employeeCount, s.getCreatedAt());
+                s.isActive(), employeeCount, s.getCreatedAt(), workingDaysOf(s));
+    }
+
+    private static List<String> workingDaysOf(Shift s) {
+        String workingDays = (s.getWorkingDays() == null || s.getWorkingDays().isBlank())
+                ? Shift.ALL_WORKING_DAYS
+                : s.getWorkingDays();
+        return Arrays.stream(workingDays.split(",")).map(String::trim).toList();
     }
 }

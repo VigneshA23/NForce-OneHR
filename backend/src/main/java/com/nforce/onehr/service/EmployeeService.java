@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.dto.BirthdayEntryDto;
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
@@ -9,6 +11,8 @@ import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,7 +21,9 @@ import java.security.SecureRandom;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -40,6 +46,14 @@ public class EmployeeService {
     private final EmailService emailService;
     private final LeaveService leaveService;
     private final EmployeeCodeGenerator employeeCodeGenerator;
+    // Only for createEmployee's initial EmployeeShiftAssignment (effective the admin's own chosen
+    // Effective From date, when a Shift is explicitly chosen at creation) — mirrors
+    // UserManagementService#createUser's identical use. Added last so every existing
+    // explicit-constructor test only needs to append one argument.
+    private final EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
+    // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
+    // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
+    private final AttendanceProperties attendanceProperties;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -98,30 +112,57 @@ public class EmployeeService {
                 throw new IllegalArgumentException("This designation is inactive and cannot be assigned. Choose an active designation.");
             emp.setDesignation(desig);
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             Location loc = locationRepository.findById(req.getLocationId())
                     .orElseThrow(() -> new IllegalArgumentException("Selected location was not found."));
             validateAssignableLocation(loc);
             emp.setLocation(loc);
         }
-        // CreateEmployeeRequest has no shiftId field to pick a specific shift, so this always
-        // defaults to the organization's default shift, resolved server-side — same default,
-        // same stable-name lookup, same live (never cached) read as
-        // UserManagementService#createUser's identical default. Every employee is a hard invariant
-        // to always have an assigned shift (see ShiftDayPolicy, which throws for a null-shift
-        // employee everywhere), so a missing/deactivated default shift now fails account creation
-        // loudly rather than silently leaving the employee shift-less. OrgService also refuses to
-        // rename/deactivate/delete the default shift itself, so this should be unreachable in
-        // practice — it still must fail clearly if it ever isn't.
-        Shift defaultShift = shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME)
-                .filter(Shift::isActive)
-                .orElseThrow(() -> new IllegalStateException(
-                        "The organization's default shift ('" + Shift.DEFAULT_SHIFT_NAME + "') is missing or "
-                                + "inactive — an employee cannot be created without a Shift. Contact an administrator."));
-        emp.setShift(defaultShift);
-
+        // No shiftId in the request at all — same valid, permanent shift-less state
+        // UserManagementService#createUser leaves an employee in when its own shiftId is omitted:
+        // Shift-dependent interpretation (lateness, scheduled hours) is simply skipped until HR/a
+        // Manager assigns one via the Bulk-Edit Team Assignment flow (see
+        // EmployeeAssignmentService#bulkUpdateShift) — never fabricated onto the organization's
+        // Default Shift just to satisfy a schema invariant that no longer exists (employees.shift_id
+        // is nullable — see V178). Check-In/Check-Out still work and attendance is still recorded
+        // for a shift-less employee — see AttendanceInterpretationService's NO_SHIFT_ASSIGNED
+        // handling. A bogus/stale shift id must never silently leave the employee on an unintended
+        // Shift — mirrors UserManagementService#createUser's identical validation.
+        Shift selectedShift = null;
+        if (req.getShiftId() != null) {
+            Shift shift = shiftRepository.findById(req.getShiftId())
+                    .orElseThrow(() -> new IllegalArgumentException("Shift not found"));
+            if (!shift.isActive())
+                throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+            // The admin's own explicit Effective From choice is the ONLY source of this date —
+            // required whenever a Shift is picked, never silently defaulted to an "immediately
+            // active" assignment the business rule requires an explicit date for. Today and any
+            // future date are valid, a past date is rejected — mirrors
+            // UserManagementService#createUser/EmployeeAssignmentService#bulkUpdateShift's
+            // identical rule. Deliberately NOT derived from joiningDate or "next working day" (the
+            // previous, incorrect rule this replaces). Validated before any mutation below.
+            if (req.getEffectiveFrom() == null
+                    || req.getEffectiveFrom().isBefore(LocalDate.now(ZoneId.of(attendanceProperties.getZone())))) {
+                throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+            }
+            // Employee.shift is only a display/roster cache (see its own Javadoc) — set here for
+            // that purpose only; the EmployeeShiftAssignment row below is the sole authoritative
+            // source EmployeeShiftAssignmentResolver reads.
+            emp.setShift(shift);
+            selectedShift = shift;
+        }
         emp = employeeRepository.save(emp);
         leaveService.initializeDefaultBalances(newUser.getId());
+
+        if (selectedShift != null) {
+            employeeShiftAssignmentRepository.save(EmployeeShiftAssignment.builder()
+                    .employeeUserId(newUser.getId())
+                    .shift(selectedShift)
+                    .effectiveFrom(req.getEffectiveFrom())
+                    .createdBy(actor.getId())
+                    .build());
+        }
 
         if (req.getManagerId() != null) {
             EmployeeManagerHistory history = EmployeeManagerHistory.builder()
@@ -160,6 +201,31 @@ public class EmployeeService {
         return staff.stream()
                 .map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * HR Admin + Super Admin. Server-side searched/paginated EMPLOYEE-role staff who don't yet
+     * have an onboarding checklist — backs OnboardingService#eligibleEmployeesPaged (the
+     * Onboarding page's Pending tab, ONEHR-488/489). Kept here rather than in OnboardingService
+     * since it's fundamentally an Employee query + the same Employee->EmployeeResponse mapping
+     * listEmployees above already owns.
+     */
+    @Transactional(readOnly = true)
+    public Page<EmployeeResponse> listEligibleForOnboarding(String search, Pageable pageable) {
+        Page<Employee> page = employeeRepository.findEligibleForOnboarding(searchPattern(search), pageable);
+        Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
+                findCurrentManagersBulk(page.getContent().stream().map(Employee::getUserId).toList());
+        return page.map(e -> toResponse(e, managersByEmployeeId.get(e.getUserId()), e.getUser(), null));
+    }
+
+    /**
+     * "%term%", lowercased, or "%" (matches every row) — never null. findEligibleForOnboarding's
+     * LIKE parameter must always bind a concrete String: see OnboardingChecklistRepository
+     * #searchByStatus's comment for why a null "IS NULL" parameter breaks under Postgres once
+     * the query is promoted to a server-side prepared statement.
+     */
+    private static String searchPattern(String search) {
+        return (search == null || search.isBlank()) ? "%" : "%" + search.trim().toLowerCase() + "%";
     }
 
     /**
@@ -220,6 +286,7 @@ public class EmployeeService {
                 emp.setDesignation(newDesignation);
             }
         }
+        requireDesignationMatchesDepartment(emp);
         if (req.getLocationId() != null) {
             // TEMPORARY (ONEHR-336 follow-up): see UserManagementService#updateUser's identical
             // guard — Location reassignment via Employee update is disabled for now, pending a
@@ -279,6 +346,21 @@ public class EmployeeService {
      * validates the timezone against a fixed supported set — see OrgService#SUPPORTED_TIMEZONES),
      * but this is the hard backstop this feature explicitly requires.
      */
+    // Designations are department-scoped (see V202) — a designation whose own departmentId
+    // disagrees with the employee's resolved department is an invalid combination (e.g. "QA
+    // Engineer III" under Finance). A designation with no departmentId at all predates V202 and
+    // isn't yet scoped to any one department, so it's allowed under any department until re-saved.
+    // Mirrors UserManagementService's identical check.
+    private void requireDesignationMatchesDepartment(Employee emp) {
+        Department dept = emp.getDepartment();
+        Designation desig = emp.getDesignation();
+        if (dept != null && desig != null && desig.getDepartmentId() != null
+                && !desig.getDepartmentId().equals(dept.getId())) {
+            throw new IllegalArgumentException(
+                    "'" + desig.getTitle() + "' is not a designation under the '" + dept.getName() + "' department.");
+        }
+    }
+
     private void validateAssignableLocation(Location location) {
         if (!location.isActive()) {
             throw new IllegalArgumentException("This location is inactive and cannot be assigned. Choose an active location.");
@@ -374,6 +456,80 @@ public class EmployeeService {
     }
 
     /**
+     * Org-wide birthdays today or in the next 7 days — same "all authenticated users, work-info
+     * only" visibility tier as {@link #listDirectory}. Excludes employees with no {@code
+     * dateOfBirth} on file, deactivated users, and anyone already past their {@code
+     * lastWorkingDay} — mirrors {@code ExceptionService#isPastEmploymentTermination}'s reasoning
+     * for preferring lastWorkingDay over {@code User#active} alone: active=false covers other
+     * deactivation reasons too, but a set lastWorkingDay in the past is an unambiguous "no longer
+     * employed" signal. Birth year is never read past {@code getMonthValue}/{@code
+     * getDayOfMonth()} — {@link BirthdayEntryDto} has no field for it.
+     */
+    @Transactional(readOnly = true)
+    public List<BirthdayEntryDto> listUpcomingBirthdays() {
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        return employeeRepository.findAllWithDetails().stream()
+                .filter(e -> e.getDateOfBirth() != null)
+                .filter(e -> e.getUser() != null && e.getUser().isActive())
+                .filter(e -> e.getLastWorkingDay() == null || !today.isAfter(e.getLastWorkingDay()))
+                .map(e -> toBirthdayEntry(e, today))
+                .filter(entry -> entry.getDaysUntil() <= 7)
+                .sorted(Comparator.comparingInt(BirthdayEntryDto::getDaysUntil)
+                        .thenComparing(BirthdayEntryDto::getFullName))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Whether {@code userId}'s birthday falls on today (org-wide zone) — reuses this class's own
+     * leap-day-aware {@link #nextBirthdayOccurrence} rather than duplicating that math. Used by
+     * {@code BirthdayWishService} to keep "send a wish" restricted to someone's actual birthday;
+     * false (not an exception) for anyone with no {@code dateOfBirth} on file or no Employee row,
+     * matching {@link #listUpcomingBirthdays}'s own "just exclude them" handling of that case.
+     */
+    @Transactional(readOnly = true)
+    public boolean isBirthdayToday(UUID userId) {
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        return employeeRepository.findById(userId)
+                .map(Employee::getDateOfBirth)
+                .map(dob -> nextBirthdayOccurrence(dob.getMonthValue(), dob.getDayOfMonth(), today).equals(today))
+                .orElse(false);
+    }
+
+    private BirthdayEntryDto toBirthdayEntry(Employee e, LocalDate today) {
+        LocalDate dob = e.getDateOfBirth();
+        int month = dob.getMonthValue();
+        int day = dob.getDayOfMonth();
+        LocalDate next = nextBirthdayOccurrence(month, day, today);
+        int daysUntil = (int) ChronoUnit.DAYS.between(today, next);
+        return BirthdayEntryDto.builder()
+                .userId(e.getUserId().toString())
+                .fullName(e.getFullName())
+                .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
+                .designationName(e.getDesignation() != null ? e.getDesignation().getTitle() : null)
+                .birthdayMonth(month)
+                .birthdayDay(day)
+                .daysUntil(daysUntil)
+                .today(daysUntil == 0)
+                .build();
+    }
+
+    /**
+     * Next calendar occurrence of month/day on or after today — this year unless that date has
+     * already passed, in which case next year. A Feb 29 birthday lands on Feb 28 in a non-leap
+     * target year (via {@link #clampedDate}) rather than being skipped, mirroring
+     * frontend/src/lib/workAnniversary.ts's own leap-day handling for the same reason.
+     */
+    private LocalDate nextBirthdayOccurrence(int month, int day, LocalDate today) {
+        LocalDate candidate = clampedDate(today.getYear(), month, day);
+        return candidate.isBefore(today) ? clampedDate(today.getYear() + 1, month, day) : candidate;
+    }
+
+    private LocalDate clampedDate(int year, int month, int day) {
+        int lastDayOfMonth = YearMonth.of(year, month).lengthOfMonth();
+        return LocalDate.of(year, month, Math.min(day, lastDayOfMonth));
+    }
+
+    /**
      * Returns direct reports for the given manager email.
      */
     @Transactional(readOnly = true)
@@ -414,6 +570,7 @@ public class EmployeeService {
                         .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                         .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                         .active(emp.getUser().isActive())
+                        .joiningDate(emp.getJoiningDate() != null ? emp.getJoiningDate().toString() : null)
                         .build())
                 .collect(Collectors.toList());
 
@@ -463,6 +620,7 @@ public class EmployeeService {
                         .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)
                         .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                         .active(emp.getUser().isActive())
+                        .joiningDate(emp.getJoiningDate() != null ? emp.getJoiningDate().toString() : null)
                         .roleCode(RoleUtils.primaryRoleCode(emp.getUser().getRoles(), "EMPLOYEE"))
                         .build())
                 .collect(Collectors.toList());
@@ -556,6 +714,15 @@ public class EmployeeService {
         return employeeRepository.findById(userId)
                 .map(Employee::getProfilePhoto)
                 .filter(photo -> photo != null && photo.length > 0)
+                .orElse(null);
+    }
+
+    /** Chosen-avatar counterpart to {@link #getPhoto} — checked only when getPhoto returns null,
+     * since an uploaded photo and a chosen avatar are mutually exclusive (see ProfileService). */
+    @Transactional(readOnly = true)
+    public String getAvatarUrl(UUID userId) {
+        return employeeRepository.findById(userId)
+                .map(Employee::getAvatarUrl)
                 .orElse(null);
     }
 

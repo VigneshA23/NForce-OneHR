@@ -55,6 +55,14 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(e.getMessage(), "EMPLOYEE_CODE_CONFLICT", null));
     }
 
+    // Temporary migration safety switch (app.employee-creation.locked) — not a per-request
+    // conflict like EmployeeCodeConflictException, so it gets its own status/code.
+    @ExceptionHandler(EmployeeCreationLockedException.class)
+    public ResponseEntity<ApiError> handleEmployeeCreationLocked(EmployeeCreationLockedException e) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .body(new ApiError(e.getMessage(), "EMPLOYEE_CREATION_LOCKED", null));
+    }
+
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<ApiError> handleDisabled(DisabledException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)

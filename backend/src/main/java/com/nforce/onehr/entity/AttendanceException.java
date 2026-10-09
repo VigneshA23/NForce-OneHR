@@ -47,6 +47,14 @@ public class AttendanceException {
     @Column(name = "detected_at", nullable = false)
     private LocalDateTime detectedAt;
 
+    // Null until the employee has actually been emailed about this occurrence. Set exclusively by
+    // ExceptionService#notifyUnnotifiedExceptions (the scheduled job) — never by the dashboard-load
+    // detection path — so detection and notification are independent: an exception can be detected
+    // (e.g. by an HR Admin opening the Exceptions dashboard) hours before the scheduled job is the
+    // one that actually sends the email.
+    @Column(name = "notified_at")
+    private LocalDateTime notifiedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

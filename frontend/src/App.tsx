@@ -14,6 +14,8 @@ import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
 import ProfilePage from './pages/ProfilePage';
+import EmployeeProfileViewPage from './pages/EmployeeProfileViewPage';
+import UserPreferencesPage from './pages/UserPreferencesPage';
 import NotificationsPage from './pages/NotificationsPage';
 import DirectoryPage from './pages/DirectoryPage';
 import HierarchyPage from './pages/HierarchyPage';
@@ -30,6 +32,24 @@ import AuditHistoryPage from './pages/AuditHistoryPage';
 import AuditSecurityPage from './pages/AuditSecurityPage';
 import HelpDeskPage from './pages/HelpDeskPage';
 import HelpDeskAdminPage from './pages/HelpDeskAdminPage';
+import WorkflowStudioPage from './pages/WorkflowStudioPage';
+import SearchResultsPage from './pages/SearchResultsPage';
+import ReportsPage from './pages/ReportsPage';
+import ApiUsagePage from './pages/ApiUsagePage';
+import ProjectAllocationsPage from './pages/ProjectAllocationsPage';
+// Role-specific mock/visual-preview page only — not part of the real Leave Management module.
+// See the file header in LeavePreviewPage.tsx for details.
+import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
+// Design-review mock only — the My Profile cover-image feature, reusing the real
+// ProfileCoverBanner component. See the file header in ProfileCoverPreviewPage.tsx for details.
+import ProfileCoverPreviewPage from './pages/profile-cover-preview/ProfileCoverPreviewPage';
+// Design-review mock only — Profile Weekly-off/Holiday status badge + Attendance Log W-OFF/HLDY/
+// worked-on-non-working-day indicator, reusing the real components. See the file header in
+// AttendanceStatusPreviewPage.tsx for details.
+import AttendanceStatusPreviewPage from './pages/attendance-status-preview/AttendanceStatusPreviewPage';
+// Design-review mock only — Dashboard Hero Male/Female/Non-binary/Fallback variants, reusing the
+// real HeroIllustrationArt component. See the file header in HeroGenderPreviewPage.tsx for details.
+import HeroGenderPreviewPage from './pages/hero-gender-preview/HeroGenderPreviewPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -96,6 +116,30 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
+        {/* Design-review mock only — self-contained, mock data, no auth, not linked from the
+            app nav. Not the real Leave Management screen (that's still /leave below). One
+            reusable component, parameterized by role. */}
+        <Route path="/leave-preview/employee" element={<LeavePreviewPage role="employee" />} />
+        <Route path="/leave-preview/manager" element={<LeavePreviewPage role="manager" />} />
+        <Route path="/leave-preview/hr" element={<LeavePreviewPage role="hr" />} />
+        <Route path="/leave-preview/super-admin" element={<LeavePreviewPage role="superAdmin" />} />
+
+        {/* Design-review mock only — My Profile cover-image feature, no auth, not linked from
+            the app nav. Not the real My Profile page (that's still /profile below). Reuses the
+            real ProfileCoverBanner component — see the file's own header for details. */}
+        <Route path="/profile-cover-preview" element={<ProfileCoverPreviewPage />} />
+
+        {/* Design-review mock only — Profile Weekly-off/Holiday badge + Attendance Log W-OFF/
+            HLDY/worked-on-non-working-day feature, no auth, not linked from the app nav. Reuses
+            real components from pages/profile/shared.tsx and pages/AttendancePage.tsx — see the
+            file's own header for details. */}
+        <Route path="/attendance-status-preview" element={<AttendanceStatusPreviewPage />} />
+
+        {/* Design-review mock only — Dashboard Hero Male/Female/Non-binary/Fallback variants, no
+            auth, not linked from the app nav. Reuses the real HeroIllustrationArt component from
+            components/HeroIllustration.tsx — see the file's own header for details. */}
+        <Route path="/hero-gender-preview" element={<HeroGenderPreviewPage />} />
+
         {/* Auth required, password-change gate */}
         <Route
           path="/change-password"
@@ -129,9 +173,12 @@ export default function App() {
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
+          <Route path="/allocations"  element={<ProjectAllocationsPage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />
+          <Route path="/profile/:userId" element={<EmployeeProfileViewPage />} />
+          <Route path="/user-preferences" element={<UserPreferencesPage />} />
           <Route path="/notifications"  element={<NotificationsPage />} />
           <Route path="/directory"      element={<DirectoryPage />} />
           <Route path="/hierarchy"      element={<HierarchyPage />} />
@@ -143,7 +190,11 @@ export default function App() {
           <Route path="/my-documents"   element={<DocumentsPage />} />
           <Route path="/policies"       element={<PoliciesPage />} />
           <Route path="/onboarding"     element={<OnboardingPage />} />
+          <Route path="/workflows"      element={<WorkflowStudioPage />} />
           <Route path="/audit"          element={<AuditRouter />} />
+          <Route path="/search"         element={<SearchResultsPage />} />
+          <Route path="/reports"        element={<ReportsPage />} />
+          <Route path="/api-usage"      element={<ApiUsagePage />} />
         </Route>
 
         <Route path="*"  element={<Navigate to="/dashboard" replace />} />

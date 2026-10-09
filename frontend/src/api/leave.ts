@@ -12,13 +12,29 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+export type LeaveTypeClassification = 'PAID' | 'UNPAID';
+
 export interface LeaveType {
   id: string;
   code: string;
   name: string;
+  classification: LeaveTypeClassification;
+}
+
+export interface CreateLeaveTypePayload {
+  code: string;
+  name: string;
+  classification: LeaveTypeClassification;
+}
+
+export interface UpdateLeaveTypePayload {
+  name?: string;
+  classification?: LeaveTypeClassification;
 }
 
 export interface LeaveBalance {
+  /** Only set by listTeamBalances — null for the caller's own balances. */
+  employeeUserId?: string | null;
   leaveTypeCode: string;
   leaveTypeName: string;
   year: number;
@@ -36,9 +52,11 @@ export interface LeaveRequestRecord {
   employeeCode: string | null;
   leaveTypeCode: string;
   leaveTypeName: string;
+  leaveTypeClassification: LeaveTypeClassification;
   startDate: string;
   endDate: string;
   halfDay: boolean;
+  halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   employeeReason: string;
@@ -53,6 +71,7 @@ export interface SubmitLeaveRequestPayload {
   startDate: string;
   endDate: string;
   halfDay: boolean;
+  halfDaySession?: 'FIRST_HALF' | 'SECOND_HALF';
   reason: string;
 }
 
@@ -60,8 +79,20 @@ export const leaveApi = {
   listTypes: (token: string) =>
     fetch(`${BASE}/types`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
 
+  /** Organization Masters > Leave — create a Leave Type. Super Admin/HR Admin only (server-enforced). */
+  createType: (payload: CreateLeaveTypePayload, token: string) =>
+    fetch(`${BASE}/types`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveType>),
+
+  /** Organization Masters > Leave — edit a Leave Type, including its Paid/Unpaid classification. */
+  updateType: (id: string, payload: UpdateLeaveTypePayload, token: string) =>
+    fetch(`${BASE}/types/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveType>),
+
   listBalances: (token: string) =>
     fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
+
+  /** Current-year balances for the caller's direct reports (each row tagged with employeeUserId). */
+  listTeamBalances: (token: string) =>
+    fetch(`${BASE}/balances/team`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
   submit: (payload: SubmitLeaveRequestPayload, token: string) =>
     fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),

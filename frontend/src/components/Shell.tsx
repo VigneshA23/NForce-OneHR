@@ -1,21 +1,34 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, Outlet, useNavigate, Link } from 'react-router-dom';
-import { Search, Bell, Sun, Moon, Shield, User, LogOut, Menu, X as CloseIcon } from 'lucide-react';
+import {
+  Search, Bell, Settings, KeyRound,
+  Shield, User, LogOut, Menu, X as CloseIcon,
+  Clock as ClockIcon, ArrowRight,
+} from 'lucide-react';
 import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
-import { directoryApi, type DirectoryEntry } from '../api/directory';
-import { useTheme } from '../lib/theme';
+import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
+import { readRecentSearches, addRecentSearch, clearRecentSearches, type RecentDestination } from '../lib/recentSearches';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from './BrandMark';
 import { notificationsApi } from '../api/notifications';
-import { publishNewNotifications } from '../lib/notificationEvents';
+import { publishNewNotifications, subscribeToNewNotifications } from '../lib/notificationEvents';
+import { KudosCelebrationToast, type KudosCelebrationItem } from './KudosCelebrationToast';
+import { NotificationToast, type NotificationToastItem } from './NotificationToast';
 import { authApi } from '../api/auth';
 import { stashSessionMessageForLogin, SESSION_PROFILE_UPDATED_MESSAGE } from '../lib/authFetch';
 import { API_ORIGIN } from '../api/config';
 import { ComplianceBanner } from './ComplianceBanner';
+import { RequiredPolicyGate } from './RequiredPolicyGate';
 import { SidebarNav } from './SidebarNav';
 import { profileApi } from '../api/profile';
-import { StatusBadge, inactiveDimStyle } from './EmployeeStatus';
 import { EmployeeAvatar } from './EmployeeAvatar';
+import { WorkAnniversaryOverlay } from './WorkAnniversaryOverlay';
+import { getAnniversaryYears, hasShownAnniversaryThisYear, markAnniversaryShown } from '../lib/workAnniversary';
+import { BirthdayCelebrationOverlay } from './BirthdayCelebrationOverlay';
+import { isBirthdayToday, localDateKey, hasShownBirthdayToday, markBirthdayShown } from '../lib/birthday';
+import { useAccentColor, ACCENT_BAND_POSITION_X } from '../lib/accentColor';
+import sidebarDecoration from '../assets/sidebar-decoration.png';
+import { AssistantLauncher } from './aiAssistant/AssistantLauncher';
 
 function toRoleTagline(role: Role): string {
   switch (role) {
@@ -48,6 +61,38 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
   );
 }
 
+function DropdownItem({ icon: Icon, label, onClick, trailing, danger }: {
+  icon: typeof User;
+  label: string;
+  onClick: () => void;
+  trailing?: React.ReactNode;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+        background: 'none', border: 'none', cursor: 'pointer',
+        color: danger ? '#E4373D' : '#C8CCD2', fontSize: 13, textAlign: 'left',
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = danger ? 'rgba(228,55,61,.08)' : '#1E2128';
+        if (!danger) (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = 'none';
+        if (!danger) (e.currentTarget as HTMLButtonElement).style.color = '#C8CCD2';
+      }}
+    >
+      <Icon size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>{label}</span>
+      {trailing}
+    </button>
+  );
+}
+
 function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
   name: string;
   email: string;
@@ -69,7 +114,7 @@ function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
       style={{
         position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 220,
         background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10,
-        boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'visible',
       }}
       role="menu"
     >
@@ -84,35 +129,16 @@ function ProfileDropdown({ name, email, role, photoDataUrl, onClose }: {
         </div>
       </div>
 
-      {[
-        { icon: User, label: 'My Profile', action: () => { onClose(); navigate('/profile'); } },
-      ].map(({ icon: Icon, label, action }) => (
-        <button
-          key={label}
-          role="menuitem"
-          onClick={action}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-            background: 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#1E2128'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; (e.currentTarget as HTMLButtonElement).style.color = '#C8CCD2'; }}
-        >
-          <Icon size={14} aria-hidden="true" />
-          {label}
-        </button>
-      ))}
+      <div style={{ padding: '4px 0' }}>
+        <DropdownItem icon={User} label="My Profile" onClick={() => { onClose(); navigate('/profile'); }} />
+        {/* Display mode / Theme color live only in User preferences → Appearance now — no
+            duplicate controls here. */}
+        <DropdownItem icon={Settings} label="User preferences" onClick={() => { onClose(); navigate('/user-preferences'); }} />
+        <DropdownItem icon={KeyRound} label="Change password" onClick={() => { onClose(); navigate('/change-password'); }} />
+      </div>
 
       <div style={{ borderTop: '1px solid #2A2E37', marginTop: 2 }}>
-        <button
-          role="menuitem"
-          onClick={handleSignOut}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-            background: 'none', border: 'none', cursor: 'pointer', color: '#E4373D', fontSize: 13, textAlign: 'left' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(228,55,61,.08)'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-        >
-          <LogOut size={14} aria-hidden="true" />
-          Sign out
-        </button>
+        <DropdownItem icon={LogOut} label="Sign out" onClick={handleSignOut} danger />
       </div>
     </div>
   );
@@ -124,10 +150,25 @@ export function Shell() {
   const token      = useAuthStore((s) => s.token) ?? '';
   const clearAuth  = useAuthStore((s) => s.clearAuth);
   const navigate   = useNavigate();
-  const { theme, toggleTheme } = useTheme();
   const location   = useLocation();
+  const { accent }  = useAccentColor();
   const [dropdownOpen, setDropdownOpen]   = useState(false);
   const [unreadCount, setUnreadCount]     = useState(0);
+  // Work-anniversary celebration — null means "not showing"; see the profile-sync effect below
+  // for when/how this gets set, and workAnniversary.ts for the date/once-per-year logic.
+  const [anniversaryYears, setAnniversaryYears] = useState<number | null>(null);
+  // Birthday celebration — null means "not showing". `anniversaryYears` set alongside it signals
+  // the combined "birthday + work anniversary today" variant (see BirthdayCelebrationOverlay);
+  // these two overlays are mutually exclusive by construction in the profile-sync effect below, so
+  // only one of anniversaryYears/birthdayShowing is ever non-null/true at a time.
+  const [birthdayShowing, setBirthdayShowing] = useState(false);
+  const [birthdayAnniversaryYears, setBirthdayAnniversaryYears] = useState<number | undefined>(undefined);
+  // Small on-page "you've been appreciated" celebration — see KudosCelebrationToast. Fed by the
+  // notification poll below via notificationEvents, so it's not its own network call.
+  const [kudosQueue, setKudosQueue] = useState<KudosCelebrationItem[]>([]);
+  // Real-time popup for any other newly-arrived notification — see NotificationToast. Same feed
+  // as kudosQueue above, just the non-KUDOS half of it.
+  const [notifToastQueue, setNotifToastQueue] = useState<NotificationToastItem[]>([]);
   // Mobile-only off-canvas nav toggle (≤767px). Defaults closed; the CSS that
   // reads this className only exists inside the ≤767px media query, so this
   // state never affects rendering at tablet/desktop widths.
@@ -137,8 +178,10 @@ export function Shell() {
   // ── Global search ────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchPeople, setSearchPeople] = useState<DirectoryEntry[]>([]);
-  const [searchPeopleLoaded, setSearchPeopleLoaded] = useState(false);
+  const [searchGroups, setSearchGroups] = useState<SearchGroup[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<RecentDestination[]>([]);
   const [searchIdx, setSearchIdx] = useState(-1);
   // Mobile-only: the collapsed magnifying-glass icon (≤767px, where the full bar doesn't fit —
   // see .nf-topbar-search-icon) expands into this full-width search row instead of doing nothing.
@@ -153,41 +196,68 @@ export function Shell() {
   const name     = storeUser?.fullName || email || 'User';
 
   const navItems = NAV[role];
-  const current  = navItems.find((n) => location.pathname.startsWith(n.path)) ?? navItems[0];
+  // My Profile is reached via the avatar dropdown (below), not a sidebar module, so it has no
+  // entry in NAV — without this, the lookup below would silently fall back to navItems[0] and
+  // both the topbar title and the sidebar's active-item highlight would show "Home" instead.
+  // /profile/:userId (someone ELSE's profile, reached from Global Search or People Directory —
+  // see EmployeeProfileViewPage) must not be confused with the bare /profile self-service route
+  // below: both start with '/profile', but only the exact, paramless path is really "my own
+  // profile". Mislabeling the former "My Profile" (QA-reported) was exactly this ambiguity.
+  // key: 'directory' (not a new NAV entry of its own) so the sidebar highlights People
+  // Directory — the closest existing section this view actually belongs to — while `label`
+  // independently overrides what the topbar displays; SidebarNav and the topbar title read
+  // different fields off this same object, so they don't have to agree.
+  const current: NavItem = navItems.find((n) => location.pathname.startsWith(n.path))
+    ?? (location.pathname.startsWith('/profile/')
+      ? { key: 'directory', label: 'Employee Profile', icon: User, phase: 1, path: '/profile' }
+      : location.pathname.startsWith('/profile')
+        ? { key: 'profile', label: 'My Profile', icon: User, phase: 1, path: '/profile' }
+        : navItems[0]);
 
-  type SearchResultItem =
+  type FlatResult =
     | { kind: 'nav'; item: NavItem }
-    | { kind: 'person'; record: DirectoryEntry };
+    | { kind: 'module'; result: ApiSearchResultItem };
+
+  const trimmedQuery = searchQuery.trim();
 
   const navMatches = useMemo<NavItem[]>(() => {
-    const q = searchQuery.toLowerCase().trim();
+    const q = trimmedQuery.toLowerCase();
     if (!q) return [];
     return navItems.filter(n => n.label.toLowerCase().includes(q)).slice(0, 4);
-  }, [searchQuery, navItems]);
+  }, [trimmedQuery, navItems]);
 
-  const peopleMatches = useMemo<DirectoryEntry[]>(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (q.length < 2) return [];
-    return searchPeople.filter(p =>
-      p.fullName.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)
-    ).slice(0, 5);
-  }, [searchQuery, searchPeople]);
-
-  const allResults = useMemo<SearchResultItem[]>(() => [
+  const allResults = useMemo<FlatResult[]>(() => [
     ...navMatches.map(item => ({ kind: 'nav' as const, item })),
-    ...peopleMatches.map(record => ({ kind: 'person' as const, record })),
-  ], [navMatches, peopleMatches]);
+    ...searchGroups.flatMap(g => g.items.map(result => ({ kind: 'module' as const, result }))),
+  ], [navMatches, searchGroups]);
 
   useEffect(() => { setSearchIdx(-1); }, [searchQuery]);
 
+  // Debounced global search preview — fires 300ms after typing stops, only once the query meets
+  // the backend's minimum meaningful length (see GlobalSearchService.MIN_QUERY_LENGTH).
   useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length >= 2 && !searchPeopleLoaded && token) {
-      directoryApi.list(token)
-        .then(list => { setSearchPeople(list); setSearchPeopleLoaded(true); })
-        .catch(() => {});
+    if (trimmedQuery.length < 2 || !token) {
+      setSearchGroups([]); setSearchLoading(false); setSearchError(false);
+      return;
     }
-  }, [searchQuery, searchPeopleLoaded, token]);
+    setSearchLoading(true); setSearchError(false);
+    const handle = setTimeout(() => {
+      searchApi.preview(token, trimmedQuery)
+        .then(res => setSearchGroups(res.groups))
+        .catch(() => { setSearchGroups([]); setSearchError(true); })
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [trimmedQuery, token]);
+
+  // Recent searches show only while the box is focused with no query — refresh from storage
+  // each time that happens rather than once on mount, so a search made in another tab this
+  // session still shows up.
+  useEffect(() => {
+    if (searchOpen && !trimmedQuery && email) {
+      setRecentSearches(readRecentSearches(email));
+    }
+  }, [searchOpen, trimmedQuery, email]);
 
   useEffect(() => {
     function out(e: MouseEvent) {
@@ -208,23 +278,55 @@ export function Shell() {
     }
   }, [searchOpen, mobileSearchOpen]);
 
-  function handleResultSelect(result: SearchResultItem) {
+  function closeSearch() {
+    setSearchOpen(false); setSearchQuery(''); setSearchIdx(-1); setMobileSearchOpen(false);
+  }
+
+  function goToResultsPage(q: string) {
+    // Not recorded as a recent destination: the search-results page isn't itself a specific place
+    // to jump back to the way a nav item or an individual result is — see handleResultSelect and
+    // recentSearches.ts's own note on why this tracks destinations, not typed text.
+    navigate(`/search?q=${encodeURIComponent(q)}`);
+    closeSearch();
+  }
+
+  function handleResultSelect(result: FlatResult) {
     if (result.kind === 'nav') {
+      if (email) setRecentSearches(addRecentSearch(email, { label: result.item.label, path: result.item.path }));
       navigate(result.item.path);
     } else {
-      navigate(`/directory?userId=${result.record.userId}`);
+      if (email) setRecentSearches(addRecentSearch(email, { label: result.result.title, path: result.result.detailUrl }));
+      navigate(result.result.detailUrl);
     }
-    setSearchOpen(false); setSearchQuery(''); setSearchIdx(-1);
+    closeSearch();
+  }
+
+  function handleRecentSearchClick(destination: RecentDestination) {
+    // Reaching a destination again from history is itself "accessing it from the search bar", so
+    // it's bumped back to the front the same as a fresh result click would be.
+    if (email) setRecentSearches(addRecentSearch(email, destination));
+    navigate(destination.path);
+    closeSearch();
+  }
+
+  function handleClearRecentSearches() {
+    if (!email) return;
+    clearRecentSearches(email);
+    setRecentSearches([]);
   }
 
   function handleSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Escape') { setSearchOpen(false); setSearchIdx(-1); setMobileSearchOpen(false); return; }
+    if (e.key === 'Escape') { closeSearch(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setSearchIdx(i => Math.min(i + 1, allResults.length - 1)); return; }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSearchIdx(i => Math.max(i - 1, -1)); return; }
-    if (e.key === 'Enter' && searchIdx >= 0) {
+    if (e.key === 'Enter') {
       e.preventDefault();
-      const r = allResults[searchIdx];
-      if (r) handleResultSelect(r);
+      if (searchIdx >= 0) {
+        const r = allResults[searchIdx];
+        if (r) handleResultSelect(r);
+      } else if (trimmedQuery.length >= 2) {
+        goToResultsPage(trimmedQuery);
+      }
     }
   }
 
@@ -242,10 +344,69 @@ export function Shell() {
         if (p.fullName && !storeUser.fullName) patch.fullName = p.fullName;
         if (p.photoDataUrl !== storeUser.photoDataUrl) patch.photoDataUrl = p.photoDataUrl;
         if (Object.keys(patch).length > 0) setAuth(token, { ...storeUser, ...patch });
+
+        // Work-anniversary + birthday celebrations — both piggyback on this same profile fetch
+        // rather than making their own network call. p.hasEmployeeRecord/p.joiningDate/
+        // p.dateOfBirth cover "missing or invalid date" safely (getAnniversaryYears/
+        // isBirthdayToday return null/false for any of those), and the once-per-year /
+        // once-per-day localStorage gates persist across logout/login or a page refresh, not just
+        // this session. When both land on the same day, this shows ONE combined overlay
+        // (BirthdayCelebrationOverlay with anniversaryYears set) instead of the two stacking —
+        // WorkAnniversaryOverlay's own state (anniversaryYears) is deliberately left unset in that
+        // case, so only one overlay's `open` is ever true at a time.
+        if (p.hasEmployeeRecord) {
+          const today = new Date();
+          const years = getAnniversaryYears(p.joiningDate, today);
+          const isBday = isBirthdayToday(p.dateOfBirth, today);
+          const thisYear = today.getFullYear();
+          const dayKey = localDateKey(today);
+
+          const anniversaryDue = years !== null && !hasShownAnniversaryThisYear(window.localStorage, p.email, thisYear);
+          const birthdayDue = isBday && !hasShownBirthdayToday(window.localStorage, p.email, dayKey);
+
+          if (anniversaryDue && birthdayDue) {
+            markAnniversaryShown(window.localStorage, p.email, thisYear);
+            markBirthdayShown(window.localStorage, p.email, dayKey);
+            setBirthdayAnniversaryYears(years ?? undefined);
+            setBirthdayShowing(true);
+          } else if (anniversaryDue) {
+            markAnniversaryShown(window.localStorage, p.email, thisYear);
+            setAnniversaryYears(years);
+          } else if (birthdayDue) {
+            markBirthdayShown(window.localStorage, p.email, dayKey);
+            setBirthdayShowing(true);
+          }
+        }
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Manual QA hook for the work-anniversary/birthday celebrations — e.g. /dashboard?anniversaryTest=5
+  // forces the anniversary overlay open showing "5 Years of Excellence", /dashboard?birthdayTest=1
+  // forces the birthday overlay, and both together force the combined variant — all bypassing the
+  // real date checks and the localStorage "already shown" gates above. There's no UI path to set an
+  // arbitrary employee's join date or date of birth to today for testing, and this shared dev
+  // database has real teammates' data in it, so this is the safe way to preview/QA either overlay
+  // without touching any employee record. Never fires for a real user unless they specifically type
+  // one of these query params.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const anniversaryRaw = params.get('anniversaryTest');
+    const birthdayRaw = params.get('birthdayTest');
+    const years = anniversaryRaw !== null ? Number(anniversaryRaw) : NaN;
+    const hasAnniversary = Number.isInteger(years) && years > 0;
+    const hasBirthday = birthdayRaw !== null;
+
+    if (hasAnniversary && hasBirthday) {
+      setBirthdayAnniversaryYears(years);
+      setBirthdayShowing(true);
+    } else if (hasAnniversary) {
+      setAnniversaryYears(years);
+    } else if (hasBirthday) {
+      setBirthdayShowing(true);
+    }
+  }, [location.search]);
 
   // The one app-wide notification poll (drives the bell badge). Other mounted pages (e.g.
   // LeavePage) react to what it finds via notificationEvents instead of running their own
@@ -291,6 +452,27 @@ export function Shell() {
     const id = setInterval(pollNotifications, 30000);
     return () => clearInterval(id);
   }, [pollNotifications]);
+
+  // "A teammate appreciated you" celebration — reacts to whatever the poll above just found,
+  // same as AttendancePage/LeavePage/MyRequestsPage already do via this same pub/sub, except
+  // this lives in Shell (the root layout) so it fires no matter which page is currently open.
+  // Sending kudos already creates a KUDOS-type Notification server-side (see KudosService); there
+  // is no push/SSE channel for regular notifications in this app today, only this 30s poll, so
+  // the animation can appear up to ~30s after the kudos was actually sent, not instantly.
+  useEffect(() => {
+    return subscribeToNewNotifications((items) => {
+      const kudos = items.filter(n => n.type === 'KUDOS');
+      if (kudos.length > 0) {
+        setKudosQueue(prev => [...prev, ...kudos.map(n => ({ id: n.id, title: n.title, message: n.message }))]);
+      }
+      // Everything else gets the plain real-time popup instead — kudos already has its own
+      // celebratory treatment above, so it's excluded here to avoid showing both for one item.
+      const others = items.filter(n => n.type !== 'KUDOS');
+      if (others.length > 0) {
+        setNotifToastQueue(prev => [...prev, ...others.map(n => ({ id: n.id, title: n.title, message: n.message, linkPath: n.linkPath }))]);
+      }
+    });
+  }, []);
 
   // Server-initiated logout: a Super Admin changing this user's profile bumps their tokenVersion
   // and pushes a FORCE_LOGOUT event (see UserManagementService#updateUser /
@@ -379,21 +561,71 @@ export function Shell() {
     }
   }, [navOpen]);
 
+  // Section label + row styles shared by every group in the dropdown (recent searches, Navigate,
+  // and each module group) so they stay visually identical.
+  const dropdownSectionLabelStyle: React.CSSProperties = {
+    padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#6B7280',
+    textTransform: 'uppercase', letterSpacing: '.08em',
+  };
+  function dropdownRowStyle(active: boolean): React.CSSProperties {
+    return {
+      width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+      background: active ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer',
+      color: '#C8CCD2', fontSize: 13, textAlign: 'left',
+    };
+  }
+
+  // Running start index of each module group within the flattened `allResults` list (nav matches
+  // come first — see allResults above), so a group's rows highlight in step with arrow-key nav.
+  const groupStartIndex: Record<string, number> = {};
+  {
+    let cursor = navMatches.length;
+    for (const g of searchGroups) { groupStartIndex[g.module] = cursor; cursor += g.items.length; }
+  }
+
+  const showRecent = searchOpen && !trimmedQuery && recentSearches.length > 0;
+  const showResults = searchOpen && trimmedQuery.length >= 2;
+  const noMatchesYet = showResults && !searchLoading && !searchError && navMatches.length === 0 && searchGroups.length === 0;
+
   // Results dropdown — shared by the desktop search bar and the mobile expanded-search row
   // below, so the two never drift out of sync. Only one of them is ever mounted at a time
   // (mobileSearchOpen swaps between them), so reusing this element in both branches is safe.
   const searchDropdown = (
     <>
-      {searchOpen && searchQuery.trim() && allResults.length > 0 && (
+      {showRecent && (
         <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflow: 'hidden' }}>
+          <div style={{ ...dropdownSectionLabelStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Recent Searches</span>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); handleClearRecentSearches(); }}
+              style={{ background: 'none', border: 'none', padding: 0, color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', cursor: 'pointer' }}
+              aria-label="Clear recent searches"
+            >
+              Clear
+            </button>
+          </div>
+          {recentSearches.map(destination => (
+            <button key={destination.path} onMouseDown={() => handleRecentSearchClick(destination)} style={dropdownRowStyle(false)}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
+              <ClockIcon size={13} style={{ color: '#6B7280', flexShrink: 0 }} aria-hidden="true" />
+              {destination.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showResults && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, maxHeight: 440, overflowY: 'auto', background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, overflowX: 'hidden' }}>
           {navMatches.length > 0 && (
             <>
-              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.08em' }}>Navigate</div>
+              <div style={dropdownSectionLabelStyle}>Navigate</div>
               {navMatches.map((item, i) => {
                 const Icon = item.icon;
                 return (
                   <button key={item.key} onMouseDown={() => handleResultSelect({ kind: 'nav', item })}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: searchIdx === i ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left' }}
+                    style={dropdownRowStyle(searchIdx === i)}
                     onMouseEnter={() => setSearchIdx(i)} onMouseLeave={() => setSearchIdx(-1)}>
                     <Icon size={14} style={{ color: '#9BA1AC', flexShrink: 0 }} aria-hidden="true" />
                     {item.label}
@@ -402,33 +634,59 @@ export function Shell() {
               })}
             </>
           )}
-          {peopleMatches.length > 0 && (
-            <>
-              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.08em', borderTop: navMatches.length > 0 ? '1px solid #23262D' : 'none' }}>People</div>
-              {peopleMatches.map((record, i) => {
-                const globalIdx = navMatches.length + i;
+
+          {searchLoading && (
+            <div style={{ padding: '14px 12px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>Searching…</div>
+          )}
+
+          {!searchLoading && searchError && (
+            <div style={{ padding: '14px 12px', fontSize: 12, color: '#E4373D', textAlign: 'center' }}>
+              Couldn't load results. Try again.
+            </div>
+          )}
+
+          {!searchLoading && !searchError && searchGroups.map(group => (
+            <div key={group.module} style={{ borderTop: '1px solid #23262D' }}>
+              <div style={dropdownSectionLabelStyle}>{group.label}</div>
+              {group.items.map((item, i) => {
+                const globalIdx = groupStartIndex[group.module] + i;
                 return (
-                  <button key={record.userId} onMouseDown={() => handleResultSelect({ kind: 'person', record })}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: searchIdx === globalIdx ? 'rgba(255,255,255,.06)' : 'none', border: 'none', cursor: 'pointer', color: '#C8CCD2', fontSize: 13, textAlign: 'left', ...inactiveDimStyle(record.active) }}
+                  <button key={item.id} onMouseDown={() => handleResultSelect({ kind: 'module', result: item })}
+                    style={dropdownRowStyle(searchIdx === globalIdx)}
                     onMouseEnter={() => setSearchIdx(globalIdx)} onMouseLeave={() => setSearchIdx(-1)}>
-                    <EmployeeAvatar userId={record.userId} name={record.fullName} size={24} fontSize={9} />
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.fullName}</div>
-                        {!record.active && <StatusBadge active={record.active} />}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{record.email}</div>
+                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</div>
+                      {item.subtitle && (
+                        <div style={{ fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.subtitle}</div>
+                      )}
                     </div>
                   </button>
                 );
               })}
-            </>
+              {group.refineUrl && group.totalCount > group.items.length && (
+                <button onMouseDown={() => navigate(group.refineUrl!)} style={{ ...dropdownRowStyle(false), color: '#E4373D', fontSize: 12, fontWeight: 600 }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
+                  See all {group.totalCount} in {group.label} →
+                </button>
+              )}
+            </div>
+          ))}
+
+          {noMatchesYet && (
+            <div style={{ padding: '14px 12px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
+              No results for "{trimmedQuery}"
+            </div>
           )}
-        </div>
-      )}
-      {searchOpen && searchQuery.trim().length >= 2 && allResults.length === 0 && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: '#16181D', border: '1px solid #2A2E37', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.55)', zIndex: 200, padding: '14px 12px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
-          No results for "{searchQuery.trim()}"
+
+          {!searchLoading && !searchError && searchGroups.length > 0 && (
+            <button onMouseDown={() => goToResultsPage(trimmedQuery)}
+              style={{ ...dropdownRowStyle(false), justifyContent: 'center', borderTop: '1px solid #23262D', color: '#E8EAED', fontWeight: 600 }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
+              See all results for "{trimmedQuery}" <ArrowRight size={13} aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
     </>
@@ -455,6 +713,42 @@ export function Shell() {
           height: 'var(--app-height, 100dvh)',
         }}
       >
+        {/* Decorative artwork for the sidebar's lower empty area — purely visual, so it's
+            absolutely positioned (removed from the flex flow entirely: adds no height, never
+            pushes the logo/nav/profile card) and pointer-events:none (never intercepts clicks).
+            Note this div is NOT a flex item (position:absolute children are pulled out of flex
+            layout entirely per spec), so the "z-index:auto flex items paint in DOM order" rule
+            does not apply to it — it paints under plain CSS stacking rules instead, where a
+            positioned element needs a NEGATIVE z-index to paint behind its static in-flow
+            siblings (z-index:0 would do the opposite and paint above them, hiding the Logo/nav
+            text/profile-card name behind this opaque artwork — that was the bug: zIndex:-1 is
+            what actually keeps it behind everything while still painting above <aside>'s own
+            solid background). SidebarNav's own nav list (which can grow taller than its own
+            space and scroll internally, covering this artwork as it does) then paints above
+            this the same way, being static in-flow content itself.
+            One 5-band sprite image (assets/sidebar-decoration.png) covers all 5 Theme colors —
+            background-size stretches it to 5x this box's width, and background-position-x picks
+            one 1x-wide band per accent (see ACCENT_BAND_POSITION_X) — no per-color image files,
+            and the PNG itself is never cropped/stretched/distorted, only positioned.
+            The mask-image (not a solid overlay box, which would itself look like a second hard
+            edge) fades the image's own alpha from 0 at this box's top down to fully opaque by
+            40% — so the sidebar's plain #0B0C0F background shows through smoothly at the seam
+            instead of a visible boundary line, matching how index.css already fades the profile
+            page's hero banner into its panel background the same way. */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: 380, zIndex: -1,
+            overflow: 'hidden', pointerEvents: 'none',
+            backgroundImage: `url(${sidebarDecoration})`,
+            backgroundSize: '500% auto',
+            backgroundPosition: `${ACCENT_BAND_POSITION_X[accent]} 100%`,
+            backgroundRepeat: 'no-repeat',
+            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.5) 22%, black 42%)',
+            maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.5) 22%, black 42%)',
+          }}
+        />
+
         {/* Logo — height must match topbar exactly so the border forms one continuous line */}
         <Link to="/" className="nf-sidebar-logo" style={{ height: 56, padding: '0 14px', flexShrink: 0, borderBottom: '1px solid #23262D', display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size="sm" />
@@ -468,15 +762,6 @@ export function Shell() {
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
         <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
-
-        {/* Profile card (sidebar) */}
-        <div style={{ borderTop: '1px solid #23262D', padding: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EmployeeAvatar photoDataUrl={storeUser?.photoDataUrl} name={name} size={30} fontSize={11} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: '#E8EAED', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-            <div style={{ fontSize: 10, color: '#6B7280' }}>{role}</div>
-          </div>
-        </div>
       </aside>
 
       {/* Main area */}
@@ -485,8 +770,8 @@ export function Shell() {
         <header
           style={{
             height: 56,
-            background: 'linear-gradient(90deg, #050506 0%, #6B0C10 40%, #A01418 100%)',
-            borderBottom: '1px solid rgba(228,55,61,.22)',
+            background: 'linear-gradient(90deg, #050506 0%, var(--brand-deep) 40%, var(--brand) 100%)',
+            borderBottom: '1px solid color-mix(in srgb, var(--brand-bright) 22%, transparent)',
             position: 'sticky', top: 0, zIndex: 30,
             display: 'flex', alignItems: 'center', padding: '0 18px', gap: 10,
           }}
@@ -577,25 +862,18 @@ export function Shell() {
                 <Search size={15} aria-hidden="true" />
               </button>
 
-              <button
-                onClick={toggleTheme}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                className="nf-topbar-item"
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 7, borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-              >
-                {theme === 'dark' ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}
-                {theme === 'dark' ? 'Light' : 'Dark'}
-              </button>
-
               <Link
                 to="/notifications"
                 aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
                 className="nf-topbar-item"
                 style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, borderRadius: 6, color: 'inherit', textDecoration: 'none' }}
               >
-                <Bell size={15} aria-hidden="true" />
+                <Bell size={19} aria-hidden="true" />
                 {unreadCount > 0 && (
-                  <span style={{ position: 'absolute', top: 3, right: 3, minWidth: 14, height: 14, borderRadius: 7, background: '#e4373d', color: '#fff', fontSize: 9, fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 3px', lineHeight: 1 }}>
+                  // Deliberately var(--risk), not the accent-following var(--brand-bright) — an
+                  // unread-count badge reads as an attention/urgency signal, so it stays red
+                  // regardless of the user's chosen Theme color (same reasoning as "Sign out").
+                  <span style={{ position: 'absolute', top: 3, right: 3, minWidth: 14, height: 14, borderRadius: 7, background: 'var(--risk)', color: '#fff', fontSize: 9, fontWeight: 700, display: 'grid', placeItems: 'center', padding: '0 3px', lineHeight: 1 }}>
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
@@ -633,7 +911,7 @@ export function Shell() {
                         display: 'grid', placeItems: 'center',
                       }}
                     >
-                      <Shield size={8} color="#E4373D" aria-hidden="true" />
+                      <Shield size={8} color="var(--brand-bright)" aria-hidden="true" />
                     </span>
                   )}
                 </button>
@@ -654,9 +932,48 @@ export function Shell() {
 
         <main className="nf-main-content" style={{ flex: 1, padding: 26, background: 'var(--shell)', color: 'var(--txt)' }}>
           <ComplianceBanner />
-          {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
+          {/* Keyed by path so React remounts this div per navigation, re-triggering
+              .nf-section-enter's entrance animation (same class DashboardPage etc. already use
+              for section reveals) instead of the routed page just appearing instantly. */}
+          <div key={location.pathname} className="nf-section-enter">
+            {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
+          </div>
         </main>
       </div>
+
+      <RequiredPolicyGate />
+
+      <WorkAnniversaryOverlay
+        open={anniversaryYears !== null}
+        employeeName={name}
+        photoDataUrl={storeUser?.photoDataUrl}
+        years={anniversaryYears ?? 0}
+        onClose={() => setAnniversaryYears(null)}
+      />
+
+      <BirthdayCelebrationOverlay
+        open={birthdayShowing}
+        employeeName={name}
+        photoDataUrl={storeUser?.photoDataUrl}
+        anniversaryYears={birthdayAnniversaryYears}
+        onClose={() => { setBirthdayShowing(false); setBirthdayAnniversaryYears(undefined); }}
+      />
+
+      <KudosCelebrationToast
+        items={kudosQueue}
+        onDismiss={(id) => setKudosQueue(prev => prev.filter(k => k.id !== id))}
+      />
+
+      <NotificationToast
+        items={notifToastQueue}
+        onDismiss={(id) => setNotifToastQueue(prev => prev.filter(n => n.id !== id))}
+      />
+
+      {/* Outside <main> so the panel is not inside its 26px padding or the sticky header's
+          stacking context, and last in the tree so it layers without changing anything above it.
+          currentPageId reuses `current.key`, already computed for the sidebar - the assistant
+          never derives the page itself, and the server re-validates whatever arrives. */}
+      <AssistantLauncher currentPageId={current.key} unreadCount={unreadCount} />
     </div>
   );
 }

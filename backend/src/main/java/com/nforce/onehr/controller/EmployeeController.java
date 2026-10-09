@@ -1,5 +1,6 @@
 package com.nforce.onehr.controller;
 
+import com.nforce.onehr.dto.BirthdayEntryDto;
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeCodePreviewResponse;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
 import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
@@ -71,6 +73,12 @@ public class EmployeeController {
         return employeeService.listDirectory();
     }
 
+    /** Org-wide birthdays today or in the next 7 days — same visibility as {@link #directory()}. */
+    @GetMapping("/birthdays")
+    public List<BirthdayEntryDto> birthdays() {
+        return employeeService.listUpcomingBirthdays();
+    }
+
     /** Manager dashboard — direct reports for the caller. */
     @GetMapping("/my-reports")
     public ManagerDashboardDto myReports(Principal principal) {
@@ -99,13 +107,27 @@ public class EmployeeController {
     /**
      * Any employee's profile photo, raw bytes — no {@code @PreAuthorize}, so any authenticated
      * user can view it (same visibility as the directory/org chart/team views, which already
-     * show everyone's name and department). 404 when there's no photo, so the frontend's avatar
-     * component can fall back to initials without treating it as an error.
+     * show everyone's name and department). Falls back to a 302 redirect to the employee's chosen
+     * avatar URL (see ProfileService#setAvatar) when there's no uploaded photo — the caller's
+     * blob-fetch already follows redirects transparently, so this needs no frontend change. 404
+     * only when neither exists, so the frontend's avatar component can fall back to initials
+     * without treating it as an error.
      */
     @GetMapping("/{userId}/photo")
     public ResponseEntity<byte[]> photo(@PathVariable UUID userId) {
         byte[] photo = employeeService.getPhoto(userId);
-        if (photo == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(photo);
+        if (photo != null) return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(photo);
+        String avatarUrl = employeeService.getAvatarUrl(userId);
+        if (avatarUrl != null) return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(withExplicitSize(avatarUrl))).build();
+        return ResponseEntity.notFound().build();
+    }
+
+    // DiceBear's SVG omits width/height (only viewBox) unless a size is requested, which is fine
+    // for a plain <img>/background-image but leaves the org chart's PNG/PDF export (html2canvas)
+    // unable to size the image at all — it silently rasterizes nothing. Force an explicit size on
+    // every redirect (old avatarUrls stored before this existed included) rather than relying on
+    // callers to have generated the URL correctly.
+    private static String withExplicitSize(String dicebearUrl) {
+        return dicebearUrl.contains("size=") ? dicebearUrl : dicebearUrl + "&size=200";
     }
 }

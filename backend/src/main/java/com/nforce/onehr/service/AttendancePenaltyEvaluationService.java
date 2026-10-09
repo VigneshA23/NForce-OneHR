@@ -7,11 +7,14 @@ import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
+import com.nforce.onehr.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -49,6 +52,8 @@ public class AttendancePenaltyEvaluationService {
     private final PenaltyDeductionService penaltyDeductionService;
     private final NotificationService notificationService;
     private final EmployeeService employeeService;
+    private final EmployeeRepository employeeRepository;
+    private final EmailService emailService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
 
@@ -127,10 +132,43 @@ public class AttendancePenaltyEvaluationService {
         auditService.log(null, "ATTENDANCE_PENALTY_CREATED", penalty.getId(), null, auditSnapshot.toJson(snapshot));
     }
 
-    /** Section 19: tells the employee (and their current manager, if resolvable) what was applied and why. */
+    /**
+     * Section 19: tells the employee (and their current manager, if resolvable) what was applied
+     * and why — an in-app notification (always) plus an email (whenever the employee's account
+     * has a resolvable address). Both fire exactly once per persisted penalty, guarded by the same
+     * "only called from evaluate() on a genuinely new row" contract as this class's own Javadoc.
+     *
+     * <p>Deferred to run only {@link TransactionSynchronization#afterCommit() afterCommit} —
+     * mirrors {@code UserManagementService#forceLogoutAfterCommit}'s identical guard. The email is
+     * an irreversible external side effect (a fire-and-forget async HTTP call — see
+     * EmailService#sendAsync), but it used to fire from inside evaluate()'s still-open
+     * transaction: if anything later in that same transaction (e.g. {@link
+     * #auditPenaltyCreated}) had thrown and rolled back the just-flushed {@link AttendancePenalty}
+     * row, the email would already be gone while the row it described never actually persisted —
+     * the next re-evaluation (a later dashboard load, or the nightly {@code
+     * PenaltyEvaluationScheduler} run) would then see no existing row, treat the discrepancy as
+     * genuinely new again, and send a second "Attendance Penalty Applied" email for what the
+     * employee experiences as the same penalty. Waiting for the transaction to actually commit
+     * before notifying closes that window entirely: the email only ever fires for a penalty row
+     * that is guaranteed to still be on disk.
+     */
     private void notifyPenaltyApplied(AttendancePenalty penalty) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    doNotifyPenaltyApplied(penalty);
+                }
+            });
+            return;
+        }
+        doNotifyPenaltyApplied(penalty);
+    }
+
+    private void doNotifyPenaltyApplied(AttendancePenalty penalty) {
+        String reason = humanizeDiscrepancyType(penalty.getDiscrepancyType());
         StringBuilder message = new StringBuilder("A ")
-                .append(penalty.getDiscrepancyType() != null ? penalty.getDiscrepancyType().replace('_', ' ').toLowerCase() : "policy")
+                .append(reason.toLowerCase())
                 .append(" penalty of ").append(penalty.getDeductionDays() != null ? penalty.getDeductionDays() : BigDecimal.ZERO)
                 .append(" day(s) has been applied for ").append(penalty.getIncidentDate().format(NOTIFICATION_DATE_FMT)).append('.');
         if (penalty.getLopDays() != null && penalty.getLopDays().signum() > 0) {
@@ -145,11 +183,28 @@ public class AttendancePenaltyEvaluationService {
 
         EmployeeResponse.ManagerRef manager = employeeService.findCurrentManagersBulk(List.of(penalty.getEmployeeUserId()))
                 .get(penalty.getEmployeeUserId());
+
+        // ccEmail (the employee's current manager) is optional — same convention as
+        // ExceptionService.notifyEmployee's late-arrival/missing-punch/leave-conflict emails.
+        employeeRepository.findById(penalty.getEmployeeUserId()).ifPresent(employee -> {
+            if (employee.getUser() != null && employee.getUser().getEmail() != null) {
+                emailService.sendPenaltyEmail(employee.getUser().getEmail(), manager != null ? manager.getEmail() : null,
+                        employee.getFullName(), penalty.getIncidentDate(), reason, penalty.getDeductionDays(),
+                        penalty.getLopDays(), penalty.getLeaveDeductionDays());
+            }
+        });
+
         if (manager != null) {
             notificationService.send(UUID.fromString(manager.getUserId()), "ATTENDANCE_PENALTY_APPLIED",
                     "Attendance Penalty Applied",
                     "A team member's attendance incurred a penalty for " + penalty.getIncidentDate().format(NOTIFICATION_DATE_FMT) + ".",
                     "/my-team");
         }
+    }
+
+    private String humanizeDiscrepancyType(String discrepancyType) {
+        return discrepancyType != null
+                ? discrepancyType.replace('_', ' ').substring(0, 1).toUpperCase() + discrepancyType.replace('_', ' ').substring(1).toLowerCase()
+                : "Policy";
     }
 }

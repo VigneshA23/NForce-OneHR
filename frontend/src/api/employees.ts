@@ -47,6 +47,10 @@ export interface CreateEmployeePayload {
   designationId?: string;
   locationId?: string;
   shiftId?: string;
+  // Required whenever shiftId is set (the backend rejects a shiftId with no effectiveFrom, or a
+  // past date) — the exact date chosen in the Effective From picker. Today and any future date
+  // are valid. Never derived from joiningDate or "next working day" on the backend.
+  effectiveFrom?: string;
   employmentType?: string;
   workMode?: string;
   joiningDate: string;

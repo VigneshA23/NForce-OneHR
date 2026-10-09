@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,4 +32,17 @@ public interface AttendanceRequestRepository extends JpaRepository<AttendanceReq
     // their combined minutes stay within the monthly cap (see partialDayHoursUsedInMonth).
     List<AttendanceRequest> findByEmployeeUserIdAndRequestTypeAndRequestDate(
             UUID employeeUserId, String requestType, LocalDate requestDate);
+
+    // Backs the "Partial Day Requests" / "Working Remotely (WFH/OD) Requests" report cards
+    // (ONEHR-109) — a manager's team, one request type, over a date range.
+    List<AttendanceRequest> findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(
+            Collection<UUID> employeeUserIds, String requestType, LocalDate from, LocalDate to);
+
+    // My Team's "WFH / On duty" card and calendar — approved requests only.
+    List<AttendanceRequest> findByEmployeeUserIdInAndRequestTypeAndStatusAndRequestDateBetween(
+            Collection<UUID> employeeUserIds, String requestType, String status, LocalDate from, LocalDate to);
+
+    // The AI assistant's organisation-wide "who is working from home" for HR/Super Admin.
+    List<AttendanceRequest> findByRequestTypeAndStatusAndRequestDateBetween(
+            String requestType, String status, LocalDate from, LocalDate to);
 }

@@ -28,6 +28,14 @@ import java.util.UUID;
  * {@code outcome} is {@link InterpretationOutcome#LEGACY_UNRESOLVED} only for
  * {@code interpretExistingSession} on a row with no {@code shiftId} snapshot — every other field
  * is then null, and the caller MUST degrade explicitly rather than substitute anything.
+ *
+ * <p>{@code outcome} is {@link InterpretationOutcome#NO_SHIFT_ASSIGNED} for
+ * {@code interpretFreshAction}/{@code interpretForKnownWorkDate} when the employee has no
+ * {@code EmployeeShiftAssignment} effective on the date in question (a valid, permanent state —
+ * see that enum value's own Javadoc). Only {@code workDate} (the plain calendar date) is
+ * populated; {@code isLate}/{@code lateByMinutes}/{@code shiftId} are null. Callers must record
+ * an ordinary PRESENT day with no shift interpretation, never substitute the employee's current
+ * Shift or throw.
  */
 @Value
 @Builder
@@ -44,7 +52,47 @@ public class AttendanceInterpretation {
         return AttendanceInterpretation.builder().outcome(InterpretationOutcome.LEGACY_UNRESOLVED).build();
     }
 
+    /**
+     * A fresh action with no effective {@code EmployeeShiftAssignment} as of {@code workDate} —
+     * see {@link InterpretationOutcome#NO_SHIFT_ASSIGNED}'s own Javadoc. {@code workDate} is the
+     * only populated field (the plain calendar date); every Shift-dependent fact is deliberately
+     * left null rather than guessed.
+     */
+    public static AttendanceInterpretation noShiftAssigned(LocalDate workDate) {
+        return AttendanceInterpretation.builder().outcome(InterpretationOutcome.NO_SHIFT_ASSIGNED).workDate(workDate).build();
+    }
+
     public boolean isLegacyUnresolved() {
         return outcome == InterpretationOutcome.LEGACY_UNRESOLVED;
+    }
+
+    public boolean isNoShiftAssigned() {
+        return outcome == InterpretationOutcome.NO_SHIFT_ASSIGNED;
+    }
+
+    /**
+     * The single, shared derivation every caller (AttendanceService/WebClockInService/
+     * RegularizationService) needs when finalizing a punch's isLate/lateByMinutes/shiftId —
+     * degrading all three to their "ordinary PRESENT day, no shift interpretation" values for
+     * {@link InterpretationOutcome#NO_SHIFT_ASSIGNED}, never guessed or fabricated, exactly as
+     * this class's own Javadoc already documents. Centralized here (rather than each caller
+     * re-deriving the identical {@code noShift ? ... : ...} triplet) so a future caller can't
+     * forget one of the three and accidentally persist a real shiftId/lateByMinutes alongside a
+     * NO_SHIFT_ASSIGNED outcome. Callers still handle {@link #isLegacyUnresolved()} themselves
+     * (it means something different per caller — see this class's own Javadoc), so these are only
+     * ever read once that's already been ruled out.
+     */
+    public boolean effectiveIsLate() {
+        return !isNoShiftAssigned() && Boolean.TRUE.equals(isLate);
+    }
+
+    /** @see #effectiveIsLate() */
+    public int effectiveLateByMinutes() {
+        return isNoShiftAssigned() || lateByMinutes == null ? 0 : lateByMinutes;
+    }
+
+    /** @see #effectiveIsLate() */
+    public UUID effectiveShiftId() {
+        return isNoShiftAssigned() ? null : shiftId;
     }
 }

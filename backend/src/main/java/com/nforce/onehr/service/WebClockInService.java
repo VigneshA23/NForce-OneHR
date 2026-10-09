@@ -100,12 +100,12 @@ public class WebClockInService {
     public WebClockInResponse submit(CreateWebClockInRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
         // Fetched once and reused for every shift-relative computation below (both the stale-
-        // session check and this fresh submission's own day resolution). Every employee is now
-        // expected to have a real Employee profile AND an assigned Shift (see
-        // Shift.DEFAULT_SHIFT_NAME's server-side default + ShiftSeedCorrector's backfill) —
-        // requireEmployee fails loudly and clearly if the profile itself is missing, so a genuine
-        // "no Employee row" case is never confused with ShiftDayPolicy's own (separate) loud
-        // failure for "no assigned shift" further down.
+        // session check and this fresh submission's own day resolution). Every employee is
+        // expected to have a real Employee profile — requireEmployee fails loudly and clearly if
+        // the profile itself is missing — but NOT necessarily an assigned Shift: a brand-new/
+        // no-shift employee (no effective EmployeeShiftAssignment yet) is a valid state, handled
+        // via AttendanceInterpretationService's NO_SHIFT_ASSIGNED outcome further down, never a
+        // failure.
         Employee employee = requireEmployee(actor.getId());
         assertEligibleToPunch(actor);
 
@@ -368,17 +368,28 @@ public class WebClockInService {
         if (alreadyExists) {
             return;
         }
+        // NO_SHIFT_ASSIGNED (no effective EmployeeShiftAssignment — a brand-new/no-shift
+        // employee, or one whose first assignment isn't effective yet) never computes
+        // isLate/lateByMinutes/shiftId at all — an ordinary PRESENT day with no shift
+        // interpretation, never a fabricated Shift. Mirrors AttendanceService.checkIn's identical
+        // handling; the effective*() derivation is centralized on AttendanceInterpretation itself
+        // so this degradation is defined exactly once, never re-derived per caller.
+        boolean isLate = interpretation.effectiveIsLate();
         Attendance record = Attendance.builder()
                 .employeeUserId(req.getEmployeeUserId())
                 .workDate(req.getWorkDate())
                 .checkInAt(req.getRequestedCheckIn())
                 .sessionStartedAt(req.getRequestedCheckIn())
                 .timezone(resolvedZoneId)
-                .status(interpretation.getIsLate() ? STATUS_LATE : STATUS_PRESENT)
-                .lateByMinutes(interpretation.getLateByMinutes())
+                .status(isLate ? STATUS_LATE : STATUS_PRESENT)
+                .lateByMinutes(interpretation.effectiveLateByMinutes())
                 // Snapshotted once, here, at creation — never updated again — see
-                // AttendanceInterpretationService.interpretExistingSession.
-                .shiftId(interpretation.getShiftId())
+                // AttendanceInterpretationService.interpretExistingSession. Null for
+                // NO_SHIFT_ASSIGNED, exactly like a legacy pre-snapshot row.
+                .shiftId(interpretation.effectiveShiftId())
+                // The discriminator that lets this row's shiftId==null be resolved as a valid,
+                // current no-Shift state later — see Attendance.noShiftAssigned's own Javadoc.
+                .noShiftAssigned(interpretation.isNoShiftAssigned())
                 .build();
         record.setSource(SOURCE_WEB_REMOTE);
         Attendance saved;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { exceptionsApi, type ExceptionRecord } from '../api/exceptions';
+import { TablePagination, PAGE_SIZE_OPTIONS, clampPage, paginate } from '../components/TablePagination';
 
 const inputStyle: React.CSSProperties = { background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
@@ -9,13 +10,13 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 const EXCEPTION_TYPE_LABELS: Record<string, string> = {
   LATE_ARRIVAL: 'Late Arrival',
   MISSING_PUNCH: 'Missing Punch',
-  PENDING_LEAVE_APPROVAL: 'Pending Leave Approval',
+  WORK_HOURS_SHORTAGE: 'Work Hours Shortage',
 };
 
 const EXCEPTION_TYPE_STYLES: Record<string, { color: string; background: string; border: string }> = {
   LATE_ARRIVAL: { color: '#E0A93B', background: 'rgba(224,169,59,.1)', border: 'rgba(224,169,59,.25)' },
   MISSING_PUNCH: { color: 'var(--risk)', background: 'rgba(228,55,61,.1)', border: 'rgba(228,55,61,.25)' },
-  PENDING_LEAVE_APPROVAL: { color: '#8B5CF6', background: 'rgba(139,92,246,.1)', border: 'rgba(139,92,246,.25)' },
+  WORK_HOURS_SHORTAGE: { color: '#8B5CF6', background: 'rgba(139,92,246,.1)', border: 'rgba(139,92,246,.25)' },
 };
 
 function todayIso(): string {
@@ -61,9 +62,11 @@ export default function ExceptionDashboardPage() {
   const { showToast } = useToast();
   const [from, setFrom] = useState(daysAgoIso(6));
   const [to, setTo] = useState(todayIso());
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'LATE_ARRIVAL' | 'MISSING_PUNCH' | 'PENDING_LEAVE_APPROVAL'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'LATE_ARRIVAL' | 'MISSING_PUNCH' | 'WORK_HOURS_SHORTAGE'>('ALL');
   const [exceptions, setExceptions] = useState<ExceptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
 
   const isHrOrSuperAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
   const subtitle = isHrOrSuperAdmin
@@ -93,6 +96,11 @@ export default function ExceptionDashboardPage() {
     () => typeFilter === 'ALL' ? exceptions : exceptions.filter(exc => exc.exceptionType === typeFilter),
     [exceptions, typeFilter],
   );
+  // Back to page 1 whenever the filtered set changes — otherwise narrowing the date range or
+  // type filter can strand the view on a now-empty page past the new (shorter) result count.
+  useEffect(() => { setPage(1); }, [from, to, typeFilter]);
+  const currentPage = clampPage(page, visibleExceptions.length, pageSize);
+  const pageRows = paginate(visibleExceptions, currentPage, pageSize);
 
   const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
   const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
@@ -121,7 +129,7 @@ export default function ExceptionDashboardPage() {
             <option value="ALL">All</option>
             <option value="LATE_ARRIVAL">Late Arrival</option>
             <option value="MISSING_PUNCH">Missing Punch</option>
-            <option value="PENDING_LEAVE_APPROVAL">Pending Leave Approval</option>
+            <option value="WORK_HOURS_SHORTAGE">Work Hours Shortage</option>
           </select>
         </div>
       </div>
@@ -132,7 +140,7 @@ export default function ExceptionDashboardPage() {
         ) : visibleExceptions.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>No exceptions in this range</div>
-            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Late arrivals, missing punches, and pending leave approvals will show up here.</div>
+            <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Late arrivals, missing punches, and work hours shortages will show up here.</div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -145,7 +153,7 @@ export default function ExceptionDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleExceptions.map(exc => (
+                {pageRows.map(exc => (
                   <tr key={exc.id}>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{exc.employeeFullName ?? exc.employeeUserId}</td>
                     <td style={tdStyle}><ExceptionTypeBadge type={exc.exceptionType} /></td>
@@ -158,6 +166,11 @@ export default function ExceptionDashboardPage() {
                 ))}
               </tbody>
             </table>
+            <TablePagination
+              page={currentPage} pageSize={pageSize} total={visibleExceptions.length}
+              onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1); }}
+              noun="exceptions"
+            />
           </div>
         )}
       </div>

@@ -7,6 +7,7 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 @Data
 public class UpdateShiftRequest {
@@ -44,6 +45,15 @@ public class UpdateShiftRequest {
     @NotNull(message = "Effective From is required")
     private LocalDate effectiveFrom;
 
-    // flexible/workingDays intentionally removed from the P1 surface — see CreateShiftRequest's
-    // own comment.
+    // flexible intentionally remains off the P1 surface — see CreateShiftRequest's own comment.
+    //
+    // workingDays ("Applicable Days") — unlike every field above, this is NOT versioned/
+    // effective-dated: it is a plain attribute of the Shift row itself (see Shift.workingDays's
+    // own Javadoc), never read by any attendance/workday calculation, so there is no "already-
+    // effective configuration" for a change to retroactively disturb — it takes effect
+    // immediately, exactly like name/code/description already do here. Null/omitted leaves the
+    // Shift's current Applicable Days untouched (a caller that doesn't know about this field must
+    // never silently reset it back to all 7 — see OrgService#updateShift); an explicitly empty
+    // list is rejected, same as on create.
+    private List<String> workingDays;
 }

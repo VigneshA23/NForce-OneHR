@@ -1,0 +1,14 @@
+-- ONEHR-355 corrective pass (code-review finding 1): shiftId == null on an attendance_records row
+-- has meant exactly one thing since V163 — "this row predates the shiftId column entirely" (a
+-- genuine legacy row, LEGACY_UNRESOLVED). ONEHR-355 introduced a SECOND, unrelated reason a row
+-- can have shiftId == null: a valid, current NO_SHIFT_ASSIGNED check-in/punch for an employee with
+-- no effective EmployeeShiftAssignment. The two are indistinguishable from shiftId alone, so a
+-- legitimate no-shift row was being rejected by the same "cannot safely recompute — predates
+-- Shift-based attendance tracking" handling genuine legacy rows correctly get.
+--
+-- This column is that discriminator. FALSE (the default) for every existing row — preserving
+-- exactly the legacy behavior those rows must keep getting — and explicitly set TRUE only by the
+-- app going forward, exclusively at the moment a row is first created via the NO_SHIFT_ASSIGNED
+-- outcome (see AttendanceService#checkIn, WebClockInService#submit,
+-- RegularizationService#applyInterpretation).
+ALTER TABLE attendance_records ADD COLUMN no_shift_assigned BOOLEAN NOT NULL DEFAULT FALSE;

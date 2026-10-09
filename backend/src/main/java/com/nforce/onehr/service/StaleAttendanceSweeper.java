@@ -29,13 +29,11 @@ import org.springframework.stereotype.Component;
  * <p>Hourly is frequent enough that either case is resolved the same shift-day it went stale,
  * without polling so often it's pointless — attendance state doesn't change faster than that.
  *
- * <p>Also runs once at startup (implements {@link ApplicationRunner}, same pattern as {@link
- * com.nforce.onehr.config.ShiftSeedCorrector}) — a fix that only ever ran lazily/hourly would
- * leave every already-eligible record from before this deploy sitting unresolved until either its
- * own employee happened to touch attendance again or the next hourly tick, whichever came first.
+ * <p>Also runs once at startup (implements {@link ApplicationRunner}) — a fix that only ever ran
+ * lazily/hourly would leave every already-eligible record from before this deploy sitting
+ * unresolved until either its own employee happened to touch attendance again or the next hourly
+ * tick, whichever came first.
  */
-// Runs after ShiftSeedCorrector (see its own @Order) so the sweep's shift-end cutoff always
-// reads already-corrected Shift.endTime values, never a stale one mid-correction.
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 @Component
 @RequiredArgsConstructor

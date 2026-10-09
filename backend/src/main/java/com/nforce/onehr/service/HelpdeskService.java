@@ -6,6 +6,7 @@ import com.nforce.onehr.entity.HelpdeskReply;
 import com.nforce.onehr.entity.HelpdeskTicket;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.util.AttachmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -81,7 +82,8 @@ public class HelpdeskService {
 
         auditService.log(employee.getId(), "HELPDESK_TICKET_CREATED", ticket.getId());
 
-        for (UUID hrUserId : userRepo.findAdminUserIds()) {
+        // Active-only: a deactivated HR/Super Admin shouldn't be paged for a brand-new ticket.
+        for (UUID hrUserId : userRepo.findActiveAdminUserIds()) {
             notificationService.send(hrUserId, "HELPDESK_TICKET_CREATED",
                     "New Help Desk ticket",
                     "Ticket " + ticket.getTicketNumber() + " (" + category.getName() + ") raised by "
@@ -180,7 +182,8 @@ public class HelpdeskService {
                     "Employee replied to their ticket",
                     "New reply on ticket " + ticket.getTicketNumber(), LINK_ADMIN_QUEUE);
         } else {
-            for (UUID hrUserId : userRepo.findAdminUserIds()) {
+            // Active-only, same reasoning as createTicket's fan-out above.
+            for (UUID hrUserId : userRepo.findActiveAdminUserIds()) {
                 notificationService.send(hrUserId, "HELPDESK_TICKET_REPLIED",
                         "Employee replied on an unassigned ticket",
                         "New reply on ticket " + ticket.getTicketNumber(), LINK_ADMIN_QUEUE);
@@ -305,8 +308,10 @@ public class HelpdeskService {
         HelpdeskTicket ticket = ticketRepo.findById(ticketId)
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
 
-        if (!userRepo.findAdminUserIds().contains(req.getAssigneeUserId())) {
-            throw new IllegalArgumentException("Assignee must be an HR Admin or Super Admin");
+        // Active-only: a deactivated admin can no longer be picked as a *new* assignment target,
+        // even though an existing assignment made before they were deactivated is left untouched.
+        if (!userRepo.findActiveAdminUserIds().contains(req.getAssigneeUserId())) {
+            throw new IllegalArgumentException("Assignee must be an active HR Admin or Super Admin");
         }
 
         // Assignment is orthogonal to status — it no longer implies a status change (see V93);
@@ -409,7 +414,14 @@ public class HelpdeskService {
         }
         HelpdeskTicket ticket = ticketRepo.findById(reply.getTicketId())
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + reply.getTicketId()));
-        if (!isAdmin(actor) && !ticket.getEmployeeUserId().equals(actor.getId())) {
+        boolean isAdmin = isAdmin(actor);
+        if (!isAdmin && !ticket.getEmployeeUserId().equals(actor.getId())) {
+            throw new AccessDeniedException("You may not access this attachment");
+        }
+        // Internal notes are never visible to the employee — including their attachments — even
+        // though the employee owns the parent ticket. Mirrors toDetail()'s hideInternal filter,
+        // which otherwise strips this same reply out of the conversation the employee ever sees.
+        if (!isAdmin && reply.isInternal()) {
             throw new AccessDeniedException("You may not access this attachment");
         }
         return reply;
@@ -477,6 +489,9 @@ public class HelpdeskService {
 
     private void applyAttachment(HelpdeskReply.HelpdeskReplyBuilder builder, MultipartFile attachment) throws IOException {
         if (attachment == null || attachment.isEmpty()) return;
+        // Same 10MB/allow-list rule HelpContent enforces on its own attachments — a reply
+        // attachment is optional, so only validate once we know one was actually provided.
+        AttachmentValidator.validate(attachment);
         builder.attachmentName(attachment.getOriginalFilename())
                 .attachmentType(attachment.getContentType())
                 .attachmentSize(attachment.getSize())

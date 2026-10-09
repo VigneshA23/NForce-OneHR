@@ -1,10 +1,10 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateEmployeeRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Role;
-import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.exception.EmployeeCodeConflictException;
 import com.nforce.onehr.repository.*;
@@ -50,6 +50,8 @@ class EmployeeServiceCreateTest {
     @Mock private EmailService emailService;
     @Mock private LeaveService leaveService;
     @Mock private EmployeeCodeGenerator employeeCodeGenerator;
+    @Mock private EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
+    @Mock private AttendanceProperties attendanceProperties;
 
     @InjectMocks private EmployeeService employeeService;
 
@@ -71,13 +73,9 @@ class EmployeeServiceCreateTest {
             return u;
         });
         lenient().when(employeeRepository.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
-        // Default-shift lookup (see EmployeeService#createEmployee) — every employee created
-        // must always end up with a real assigned Shift (product invariant, ONEHR-108), so most
-        // tests here that don't care about shift assignment get a normal active Regular Shift by
-        // default; the two tests that specifically exercise the missing/inactive-default-shift
-        // scenario override this below.
-        lenient().when(shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME))
-                .thenReturn(Optional.of(Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(true).build()));
+        // The org-wide business-day clock the "Effective From cannot be in the past" check reads
+        // from (see AttendanceProperties.zone's own Javadoc) — never the JVM default.
+        lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
 
         req = new CreateEmployeeRequest();
         req.setFullName("Jane Smith");
@@ -96,36 +94,135 @@ class EmployeeServiceCreateTest {
     }
 
     /**
-     * CreateEmployeeRequest has no shiftId field at all — this path always defaults to the
-     * organization's default shift, resolved server-side by its stable seeded name (never a
-     * hardcoded id), so an employee created through this endpoint can never end up with no shift.
+     * No shiftId in the request (the field is optional — see its own comment) — this path never
+     * picks a Shift for the employee. A shift-less employee is a valid, permanent state (ONEHR-355
+     * fix) — this must never be silently defaulted onto the organization's Default Shift (that
+     * fabrication was itself ONEHR-355's root cause), and no EmployeeShiftAssignment row is
+     * created either, since there is no Shift to assign.
      */
     @Test
-    void createEmployee_defaultsToRegularShift_whenNoShiftCanBeSpecified() {
-        Shift regularShift = Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(true).build();
-        when(shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME)).thenReturn(Optional.of(regularShift));
+    void createEmployee_leavesEmployeeShiftLess_sinceNoShiftCanBeSpecified() {
         when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
 
         ArgumentCaptor<Employee> captor = ArgumentCaptor.forClass(Employee.class);
         employeeService.createEmployee(req, actorEmail);
 
         verify(employeeRepository).save(captor.capture());
-        assertEquals(regularShift.getId(), captor.getValue().getShift().getId());
+        assertNull(captor.getValue().getShift());
+        verifyNoInteractions(shiftRepository);
+        verifyNoInteractions(employeeShiftAssignmentRepository);
     }
 
     /**
-     * An inactive Regular Shift is never silently assigned — same "must be active" rule every
-     * other shift-assignment path already enforces. Every employee having a real assigned Shift is
-     * a hard invariant now, not a tolerated absence — so this fails loudly rather than saving a
-     * shift-less employee.
+     * createEmployee supports the same initial Shift assignment UserManagementService#createUser
+     * already offers — effective EXACTLY the date the admin chose in the Effective From field,
+     * never derived from joining date or "next working day."
      */
     @Test
-    void createEmployee_failsLoudly_whenTheOnlyRegularShiftIsInactive() {
-        Shift inactiveRegularShift = Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(false).build();
-        when(shiftRepository.findByName(Shift.DEFAULT_SHIFT_NAME)).thenReturn(Optional.of(inactiveRegularShift));
+    void createEmployee_withShiftIdProvided_setsDisplayCacheAndCreatesAssignmentEffectiveOnTheChosenDate() {
+        when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+        com.nforce.onehr.entity.Shift activeShift = com.nforce.onehr.entity.Shift.builder()
+                .id(UUID.randomUUID()).name("Morning Shift").active(true).build();
+        UUID shiftId = activeShift.getId();
+        req.setShiftId(shiftId);
+        LocalDate chosenDate = LocalDate.now().plusDays(3);
+        req.setEffectiveFrom(chosenDate);
+        when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(activeShift));
+        when(employeeShiftAssignmentRepository.save(any(com.nforce.onehr.entity.EmployeeShiftAssignment.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
 
-        assertThrows(IllegalStateException.class, () -> employeeService.createEmployee(req, actorEmail));
+        employeeService.createEmployee(req, actorEmail);
 
+        verify(employeeRepository).save(argThat(e -> activeShift.equals(e.getShift())));
+        verify(employeeShiftAssignmentRepository).save(argThat(a ->
+                activeShift.equals(a.getShift()) && chosenDate.equals(a.getEffectiveFrom())));
+    }
+
+    /** Business rule Case 2: today is a VALID Effective From choice. */
+    @Test
+    void createEmployee_withShiftIdAndEffectiveFromToday_isAccepted() {
+        when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+        com.nforce.onehr.entity.Shift activeShift = com.nforce.onehr.entity.Shift.builder()
+                .id(UUID.randomUUID()).name("Morning Shift").active(true).build();
+        req.setShiftId(activeShift.getId());
+        LocalDate today = LocalDate.now();
+        req.setEffectiveFrom(today);
+        when(shiftRepository.findById(activeShift.getId())).thenReturn(Optional.of(activeShift));
+        when(employeeShiftAssignmentRepository.save(any(com.nforce.onehr.entity.EmployeeShiftAssignment.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        employeeService.createEmployee(req, actorEmail);
+
+        verify(employeeShiftAssignmentRepository).save(argThat(a -> today.equals(a.getEffectiveFrom())));
+    }
+
+    /**
+     * Code-review corrective pass: the "cannot be in the past" check must read the org-wide
+     * business-day clock (AttendanceProperties.zone) rather than the JVM default zone — this
+     * fails if that dependency is ever removed/bypassed again.
+     */
+    @Test
+    void createEmployee_effectiveFromValidation_readsConfiguredBusinessZone_notJvmDefault() {
+        com.nforce.onehr.entity.Shift activeShift = com.nforce.onehr.entity.Shift.builder()
+                .id(UUID.randomUUID()).name("Morning Shift").active(true).build();
+        req.setShiftId(activeShift.getId());
+        req.setEffectiveFrom(LocalDate.now().plusDays(1));
+        when(shiftRepository.findById(activeShift.getId())).thenReturn(Optional.of(activeShift));
+        when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+        when(employeeShiftAssignmentRepository.save(any(com.nforce.onehr.entity.EmployeeShiftAssignment.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        employeeService.createEmployee(req, actorEmail);
+
+        verify(attendanceProperties, atLeastOnce()).getZone();
+    }
+
+    /** Business rule Case 4: a past Effective From is rejected outright. */
+    @Test
+    void createEmployee_withShiftIdAndPastEffectiveFrom_isRejected() {
+        com.nforce.onehr.entity.Shift activeShift = com.nforce.onehr.entity.Shift.builder()
+                .id(UUID.randomUUID()).name("Morning Shift").active(true).build();
+        req.setShiftId(activeShift.getId());
+        req.setEffectiveFrom(LocalDate.now().minusDays(1));
+        when(shiftRepository.findById(activeShift.getId())).thenReturn(Optional.of(activeShift));
+
+        assertThrows(IllegalArgumentException.class, () -> employeeService.createEmployee(req, actorEmail));
+        verify(employeeRepository, never()).save(any());
+        verifyNoInteractions(employeeShiftAssignmentRepository);
+    }
+
+    /** Effective From is required whenever a Shift is picked — never silently defaulted. */
+    @Test
+    void createEmployee_withShiftIdAndNoEffectiveFrom_isRejected() {
+        com.nforce.onehr.entity.Shift activeShift = com.nforce.onehr.entity.Shift.builder()
+                .id(UUID.randomUUID()).name("Morning Shift").active(true).build();
+        req.setShiftId(activeShift.getId());
+        when(shiftRepository.findById(activeShift.getId())).thenReturn(Optional.of(activeShift));
+
+        assertThrows(IllegalArgumentException.class, () -> employeeService.createEmployee(req, actorEmail));
+        verify(employeeRepository, never()).save(any());
+        verifyNoInteractions(employeeShiftAssignmentRepository);
+    }
+
+    @Test
+    void createEmployee_withInactiveShiftId_isRejected() {
+        com.nforce.onehr.entity.Shift inactiveShift = com.nforce.onehr.entity.Shift.builder()
+                .id(UUID.randomUUID()).name("Old Shift").active(false).build();
+        req.setShiftId(inactiveShift.getId());
+        when(shiftRepository.findById(inactiveShift.getId())).thenReturn(Optional.of(inactiveShift));
+
+        assertThrows(IllegalArgumentException.class, () -> employeeService.createEmployee(req, actorEmail));
+        verify(employeeRepository, never()).save(any());
+        verifyNoInteractions(employeeShiftAssignmentRepository);
+    }
+
+    @Test
+    void createEmployee_withUnknownShiftId_isRejected() {
+        UUID bogusShiftId = UUID.randomUUID();
+        req.setShiftId(bogusShiftId);
+        when(shiftRepository.findById(bogusShiftId)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class, () -> employeeService.createEmployee(req, actorEmail));
         verify(employeeRepository, never()).save(any());
     }
 

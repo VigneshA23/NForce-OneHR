@@ -502,34 +502,20 @@ public class RegularizationService {
     }
 
     /**
-     * Stage-aware queue: a plain MANAGER sees only their assigned PENDING requests (stage 1);
-     * HR_ADMIN sees every PARTIALLY_APPROVED request (stage 2, final); SUPER_ADMIN sees both
-     * (they can act at either stage). A dual-role actor (e.g. MANAGER + HR_ADMIN) gets the
-     * union of both queues rather than one role shadowing the other.
+     * HR_ADMIN/SUPER_ADMIN see every PENDING and (legacy) PARTIALLY_APPROVED request — both can
+     * act on either, see {@link #approve}. Everyone else sees only PENDING requests assigned to
+     * them. HR_ADMIN used to see PARTIALLY_APPROVED only, which since approval went single-stage
+     * meant no new request ever reached them — not even one from their own direct report.
      */
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listPendingForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
-        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
-        boolean isHrAdmin = hasRole(actor, "HR_ADMIN");
-        boolean isManager = hasRole(actor, "MANAGER");
-
-        Map<UUID, RegularizationRequest> queue = new LinkedHashMap<>();
-        if (isSuperAdmin) {
-            regularizationRepository.findByStatusIn(List.of(STATUS_PENDING, STATUS_PARTIALLY_APPROVED))
-                    .forEach(r -> queue.put(r.getId(), r));
-        } else {
-            if (isHrAdmin) {
-                regularizationRepository.findByStatus(STATUS_PARTIALLY_APPROVED)
-                        .forEach(r -> queue.put(r.getId(), r));
-            }
-            if (isManager) {
-                regularizationRepository.findByStatus(STATUS_PENDING).stream()
-                        .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
-                        .forEach(r -> queue.put(r.getId(), r));
-            }
+        if (hasOverrideRole(actor)) {
+            return toResponses(regularizationRepository.findByStatusIn(List.of(STATUS_PENDING, STATUS_PARTIALLY_APPROVED)));
         }
-        return toResponses(new ArrayList<>(queue.values()));
+        return toResponses(regularizationRepository.findByStatus(STATUS_PENDING).stream()
+                .filter(r -> actor.getId().equals(r.getAssignedApproverId()))
+                .toList());
     }
 
     /**
@@ -804,15 +790,28 @@ public class RegularizationService {
                             + "tracking and has no recorded Shift context. This record cannot be safely "
                             + "corrected through the normal regularization flow — contact an administrator.");
         }
+        // NO_SHIFT_ASSIGNED (a brand-new row, backdated to a date with no effective
+        // EmployeeShiftAssignment — a brand-new/no-shift employee, or one whose first assignment
+        // isn't effective yet; OR an already-EXISTING valid no-Shift row being corrected, per
+        // Attendance.noShiftAssigned) never computes isLate/lateByMinutes at all — an ordinary
+        // PRESENT/HALF_DAY day with no shift interpretation, never a fabricated Shift. Mirrors
+        // AttendanceService.checkIn/WebClockInService's identical handling; the effective*()
+        // derivation is centralized on AttendanceInterpretation itself so it's defined exactly
+        // once, never re-derived per caller.
         if (isNewRecord) {
-            record.setShiftId(interpretation.getShiftId());
+            record.setShiftId(interpretation.effectiveShiftId());
+            // Set once, at creation, exactly like shiftId above — an EXISTING record (the
+            // isNewRecord==false branch) never touches either field: its own noShiftAssigned was
+            // already fixed at ITS creation and must not be re-derived from this correction's own
+            // interpretation.
+            record.setNoShiftAssigned(interpretation.isNoShiftAssigned());
         }
-        int lateByMinutes = interpretation.getLateByMinutes();
-        record.setLateByMinutes(lateByMinutes);
+        record.setLateByMinutes(interpretation.effectiveLateByMinutes());
+        boolean isLate = interpretation.effectiveIsLate();
 
         if (record.getCheckOutAt() == null) {
             record.setWorkedMinutes(null);
-            record.setStatus(interpretation.getIsLate() ? STATUS_LATE : STATUS_PRESENT);
+            record.setStatus(isLate ? STATUS_LATE : STATUS_PRESENT);
             return;
         }
 
@@ -823,7 +822,7 @@ public class RegularizationService {
         record.setWorkedMinutes(workedMinutes);
         record.setStatus(workedMinutes < attendanceRulesService.getHalfDayMaxHours() * 60
                 ? STATUS_HALF_DAY
-                : (interpretation.getIsLate() ? STATUS_LATE : STATUS_PRESENT));
+                : (isLate ? STATUS_LATE : STATUS_PRESENT));
     }
 
     /**

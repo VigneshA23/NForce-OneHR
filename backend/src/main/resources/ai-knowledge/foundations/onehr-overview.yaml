@@ -1,0 +1,138 @@
+# Application foundations: what OneHR is, how it is organised, and the rules that hold everywhere.
+#
+# Authored from the behaviour of the code, not from how HR systems usually work. Where OneHR
+# differs from the obvious expectation that difference is stated explicitly, because the obvious
+# expectation is exactly what the model would otherwise fall back on.
+
+knowledge:
+
+  - knowledgeId: foundation.onehr.what-it-is
+    type: FOUNDATION
+    module: foundation
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: What OneHR is
+    synonyms:
+      - what is onehr
+      - what does this app do
+      - what is this system
+      - about onehr
+    body: |
+      NForce OneHR is NForce's internal HR management platform. Employees use it to manage their
+      own attendance, leave, documents, assets and expense claims, and to raise requests. Managers
+      use it to see and approve what their direct reports submit. HR Admins administer the
+      organisation-wide records, and Super Admins manage user accounts and the master data the rest
+      of the application is built on.
+
+      Everything in OneHR is scoped by who you are. Employees see their own records. Managers see
+      their own records plus their direct reports. HR Admins and Super Admins see organisation-wide
+      data. This scoping is enforced by the server on every request, so what you can see in the
+      interface is what you are actually permitted to see.
+
+      OneHR is organised into modules, each reached from the sidebar: Home (dashboard), People
+      (My Team, People Directory, Org Hierarchy, Employee Master), Time and Leave (Attendance,
+      Leave and Holidays, Exception Dashboard), Requests and Approvals (Approval Center, Requests),
+      Employee Services (Onboarding, Assets and Expenses, Documents, Policies), Insights (Audit
+      History), Administration (User Management, Organization Masters) and Help and Guidance.
+
+      Which modules appear depends on your role. Some sidebar entries are roadmap placeholders that
+      are visible but not yet built; opening one shows a "ships in a future phase" message rather
+      than a working page.
+
+  - knowledgeId: foundation.onehr.navigation
+    type: FOUNDATION
+    module: foundation
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Finding your way around OneHR
+    synonyms:
+      - where is the menu
+      - how do I navigate
+      - where do I find things
+      - how is the app laid out
+    body: |
+      The sidebar on the left lists the modules available to your role, grouped into categories
+      such as People, Time and Leave, and Requests and Approvals. Categories expand when you click
+      them, and the module you are currently on is highlighted.
+
+      The bar across the top shows the name of the page you are on, a search box, a light and dark
+      mode toggle, a notifications bell, and your profile avatar. The search box searches two
+      things: the names of pages you can reach, and people in the directory. Your profile menu,
+      opened from the avatar, is where My Profile and Sign out live.
+
+      On a phone the sidebar is hidden behind the menu button in the top left, and the search box
+      collapses to a magnifying glass icon.
+
+      Some pages are reached from the top bar rather than the sidebar: My Profile from the avatar
+      menu, and Notifications from the bell.
+
+  - knowledgeId: foundation.onehr.global-rules
+    type: FOUNDATION
+    module: foundation
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Rules that apply across OneHR
+    synonyms:
+      - general rules
+      - how do approvals work in general
+      - who approves things
+      - what happens when I submit something
+    body: |
+      Requests you raise go to an approver and wait. Nothing you submit takes effect immediately;
+      it sits in a pending state until someone with authority decides on it. You can track what you
+      have raised, and its current status, from Requests.
+
+      Approvers see everything waiting for their decision in one place: the Approval Center. This
+      is the only place approval decisions are made, for every kind of request.
+
+      Most requests move through PENDING to either APPROVED or REJECTED. Once a request is decided
+      it is final and cannot be re-decided.
+
+      Being an HR Admin or Super Admin generally gives organisation-wide visibility and the ability
+      to approve regardless of reporting line, but there are deliberate exceptions where holding a
+      senior role does not grant an approval — most notably a Super Admin's own leave.
+
+      When something is rejected, the approver normally records a reason, and you can see it
+      against the request.
+
+      OneHR keeps an audit trail of changes. Managers and HR Admins can see audit history within
+      their scope, and Super Admins can see the full organisation-wide trail including
+      access-control events.
+
+  - knowledgeId: foundation.onehr.access-denied
+    type: FOUNDATION
+    module: foundation
+    version: 1
+    audience: [EMPLOYEE, MANAGER, HR, ADMIN]
+    title: Why you might see Access denied
+    synonyms:
+      - access denied
+      - why cant I do this
+      - permission error
+      - I am not authorised
+      - forbidden
+    body: |
+      OneHR shows the same short message, "Access denied", for every authorisation failure. The
+      message does not say which rule stopped you, so the cause has to be worked out from what you
+      were trying to do.
+
+      The usual causes are:
+
+      You are not the assigned approver. Many approvals are restricted to the person the request
+      was routed to. Being senior to them does not automatically let you decide it.
+
+      The person is not your direct report. Managers can act on their own reports only. Someone
+      else's report is out of scope even if you can see them in the directory.
+
+      Your role does not include the action. Administration pages such as User Management and
+      Organization Masters are Super Admin only; Employee Master, Documents and Compliance,
+      Policies and Onboarding are HR Admin.
+
+      You are acting on your own submission. You cannot approve or reject something you submitted
+      yourself, whatever your role.
+
+      The record has already been decided. A request that is already approved or rejected cannot
+      be decided again, and the failure can read as a permission problem.
+
+      If none of these explain it, raise a ticket with HR from Help and Guidance, and say what you
+      were trying to do and on which record.

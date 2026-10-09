@@ -54,6 +54,54 @@ public class WorkingDayService {
         return computeExpectedWorkingDaysBulk(List.of(employee), from, to).get(employee.getUserId());
     }
 
+    /**
+     * The first working day strictly after {@code from} — the earliest date afterward that is
+     * neither a weekly off (per {@code employee}'s own {@link WeeklyOffPolicy}, falling back to
+     * Saturday/Sunday exactly like {@link #computeExpectedWorkingDaysBulk}) nor a {@code
+     * employee}'s Location holiday. Reuses this class's own weekly-off/holiday resolution
+     * ({@link #weeklyOffDaysOf}/{@link #loadHolidaysByLocation}) rather than a second,
+     * independently-duplicated implementation.
+     *
+     * <p><b>Not currently called by any production code.</b> This was written to compute a
+     * brand-new {@code EmployeeShiftAssignment}'s {@code effectiveFrom} automatically, but the
+     * shipped ONEHR-355 business rule instead takes {@code effectiveFrom} directly from the
+     * admin's own explicit choice in every create path ({@code EmployeeService#createEmployee}/
+     * {@code UserManagementService#createUser}/{@code EmployeeAssignmentService#bulkUpdateShift}/
+     * CSV import) — see each of their own Javadoc ("Deliberately NOT derived from... 'next
+     * working day'"). Kept (with its own test coverage) as a small, independently correct,
+     * reusable utility rather than removed, in case a future flow legitimately needs "the next
+     * working day after X" — but it is not part of any currently-shipped effective-from
+     * derivation. Approved leave is deliberately NOT consulted here (unlike
+     * {@code computeExpectedWorkingDaysBulk}) — a future leave request has no bearing on which
+     * day is a working day for this kind of lookup.
+     */
+    // A generous ceiling nothing legitimate ever approaches (holiday runs are days, weekly-off
+    // patterns repeat within a week) — exists purely to fail loudly rather than hang the
+    // employee-creation request forever if a WeeklyOffPolicy with all 7 days off (which
+    // OrgService's own create/update validation rejects — see its own comment) ever reaches this
+    // method anyway, e.g. through data that predates that validation or was written directly.
+    private static final int NEXT_WORKING_DAY_SEARCH_LIMIT_DAYS = 366;
+
+    public LocalDate nextWorkingDay(Employee employee, LocalDate from) {
+        Set<DayOfWeek> offDays = weeklyOffDaysOf(employee);
+        Set<LocalDate> holidays = employee.getLocation() != null
+                ? loadHolidaysByLocation(List.of(employee)).getOrDefault(employee.getLocation().getId(), Set.of())
+                : Set.of();
+        LocalDate candidate = from.plusDays(1);
+        int daysChecked = 0;
+        while (offDays.contains(candidate.getDayOfWeek()) || holidays.contains(candidate)) {
+            if (++daysChecked > NEXT_WORKING_DAY_SEARCH_LIMIT_DAYS) {
+                throw new IllegalStateException(
+                        "No working day found within " + NEXT_WORKING_DAY_SEARCH_LIMIT_DAYS + " days of " + from
+                                + " for employee " + employee.getUserId() + " — this almost certainly means their "
+                                + "Weekly Off Policy has every day of the week marked off, which should never have "
+                                + "been possible to save. Contact an administrator.");
+            }
+            candidate = candidate.plusDays(1);
+        }
+        return candidate;
+    }
+
     public Map<UUID, WorkingDaySchedule> computeExpectedWorkingDaysBulk(List<Employee> employees, LocalDate from, LocalDate to) {
         if (employees.isEmpty() || from.isAfter(to)) {
             return Map.of();

@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.time.LocalTime;
+import java.util.List;
 
 @Data
 public class CreateShiftRequest {
@@ -33,8 +34,15 @@ public class CreateShiftRequest {
     // global default so an admin who doesn't touch this field gets identical behavior to before.
     private Integer lateGraceMinutes;
 
-    // flexible/workingDays intentionally removed from the P1 surface — flexible is P2 (no shift
-    // in P1 has anything but a fixed start/end); workingDays was never consumed by any weekly-off
-    // decision (WeeklyOffPolicy is the sole source of truth) and conflicted with it. The DB
-    // columns remain for now (see Shift entity) but are no longer settable through this API.
+    // flexible intentionally remains off the P1 surface (P2 — no shift in P1 has anything but a
+    // fixed start/end).
+    //
+    // workingDays ("Applicable Days" in the UI) — java.time.DayOfWeek names, e.g.
+    // ["MONDAY", "TUESDAY"]. Purely a display/record attribute of the Shift itself: it is NOT
+    // consumed by any weekly-off/workday decision (WeeklyOffPolicy remains the sole source of
+    // truth there — see OrgService's own comment) and must never become one, to avoid the exact
+    // conflict this field was previously pulled off the API surface for. Optional: null/omitted
+    // defaults to all 7 days (see OrgService#createShift); an explicitly empty list is rejected —
+    // at least one applicable day is always required.
+    private List<String> workingDays;
 }
