@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase } from 'lucide-react';
+import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase, Search, ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
 
@@ -394,6 +394,100 @@ export function SelectField({ label, value, onChange, options, placeholder = 'Se
         <option value="">{placeholder}</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
+    </div>
+  );
+}
+
+export interface SearchableOption {
+  id: string;
+  label: string;
+  sublabel?: string;
+}
+
+/**
+ * Searchable single-select dropdown fed by a fixed option list (skill/proficiency-level/
+ * certificate-category master lists) — the Skills tab's replacement for free-text entry. Filters
+ * client-side as you type (these lists are small org-wide master data, not worth a server round
+ * trip per keystroke). `noMatchFooter` renders below the (possibly empty) filtered list — the
+ * Skills tab's "Request new skill" link lives there for exactly the case this component can't
+ * otherwise handle: the skill genuinely isn't in the list yet.
+ */
+export function SearchableSelectField({ label, value, onChange, options, placeholder = 'Search…', noMatchFooter }: {
+  label: string;
+  value: string;
+  onChange: (id: string) => void;
+  options: SearchableOption[];
+  placeholder?: string;
+  noMatchFooter?: (query: string) => React.ReactNode;
+}) {
+  const selected = options.find(o => o.id === value);
+  const [query, setQuery] = useState(selected?.label ?? '');
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setQuery(selected?.label ?? ''); }, [selected?.label]);
+
+  useEffect(() => {
+    function onOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) {
+      document.addEventListener('mousedown', onOutside);
+      return () => document.removeEventListener('mousedown', onOutside);
+    }
+  }, [open]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter(o => o.label.toLowerCase().includes(q) || o.sublabel?.toLowerCase().includes(q))
+    : options;
+
+  function select(option: SearchableOption) {
+    onChange(option.id);
+    setQuery(option.label);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <FieldLabel>{label}</FieldLabel>
+      <div style={{ position: 'relative' }}>
+        <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)' }} aria-hidden />
+        <input
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); if (value) onChange(''); }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          style={{ ...INPUT_STYLE, paddingLeft: 30, paddingRight: 28 }}
+        />
+        <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} aria-hidden />
+      </div>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, maxHeight: 220, overflowY: 'auto',
+          background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 8, zIndex: 50,
+          boxShadow: '0 8px 24px rgba(0,0,0,.3)',
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No matches for "{query}"</div>
+          ) : (
+            filtered.map(o => (
+              <button key={o.id} type="button" onMouseDown={() => select(o)} style={{
+                display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none',
+                padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--txt)',
+              }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--raised)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
+                {o.label}
+                {o.sublabel && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--txt-dim)' }}>{o.sublabel}</span>}
+              </button>
+            ))
+          )}
+          {noMatchFooter && (
+            <div style={{ borderTop: '1px solid var(--line)' }}>{noMatchFooter(query)}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

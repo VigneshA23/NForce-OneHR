@@ -210,20 +210,28 @@ export const profileEducationApi = {
     }),
 };
 
-export type ProficiencyLevel = 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
-export const PROFICIENCY_LEVELS: ProficiencyLevel[] = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
+// Admin-configurable (Organization > Talent & Skills > Settings > Proficiency Levels) as of the
+// Skills tab's free-text-to-picker rework — no longer a fixed 4-value union. Display code that
+// still wants to special-case the 4 original names (tone/color mappings, etc.) keys off the
+// string value directly; a custom-renamed level just falls back to that code's own default.
+export type ProficiencyLevel = string;
 
 export interface SkillEntry {
   id: string;
+  // Present once this entry has been through the picker (new) or Migration Review (existing free-
+  // text rows, once resolved) — null for a not-yet-migrated legacy row. skillName/proficiencyLevel
+  // below are always populated either way; see EmployeeSkillResponse's own doc comment.
+  skillId: string | null;
   skillName: string;
+  proficiencyLevelId: string | null;
   proficiencyLevel: ProficiencyLevel;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SkillPayload {
-  skillName: string;
-  proficiencyLevel: ProficiencyLevel;
+  skillId: string;
+  proficiencyLevelId: string;
 }
 
 export const profileSkillsApi = {
@@ -306,6 +314,8 @@ export interface LearningPayload {
 export interface CertificateEntry {
   id: string;
   name: string;
+  categoryId: string | null;
+  categoryName: string | null;
   issuingOrganization: string | null;
   credentialId: string | null;
   credentialUrl: string | null;
@@ -317,6 +327,7 @@ export interface CertificateEntry {
 
 export interface CertificatePayload {
   name: string;
+  categoryId?: string;
   issuingOrganization?: string;
   credentialId?: string;
   credentialUrl?: string;

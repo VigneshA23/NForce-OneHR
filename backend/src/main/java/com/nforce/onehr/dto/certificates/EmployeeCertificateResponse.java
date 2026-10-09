@@ -11,6 +11,8 @@ import java.util.UUID;
 public class EmployeeCertificateResponse {
     private UUID id;
     private String name;
+    private UUID categoryId;
+    private String categoryName;
     private String issuingOrganization;
     private String credentialId;
     private String credentialUrl;
