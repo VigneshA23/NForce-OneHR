@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -112,6 +113,20 @@ class ResponseValidatorTest {
             assertThat(r.getType()).isEqualTo(AssistantResponseType.EXPLANATION);
             assertThat(r.getAnswer()).isEqualTo("Repeated late arrivals:\n- Asha: 3");
             assertThat(r.getConfidence()).isEqualTo(ConfidenceLevel.LOW);
+        }
+
+        @Test
+        void anAnswerSplitIntoLooseStringsKeepsEveryLine() {
+            // ONEHR - "API Usage": a closed one-line intro, its list as bare strings, then whitespace
+            // until Mistral aborted. The same split with a closing brace is unparseable JSON.
+            String split = "{\n  \"type\": \"EXPLANATION\",\n  \"answer\": \"Usage this month:\",\n\n"
+                    + "  \"- 1,304 turns\", \"- $0.26 of $10.00\"";
+            for (String raw : List.of(split + "\n \t\n \t\n \t", split + ",\n  \"steps\": [\"x\"]\n}")) {
+                AssistantResponse r = validator.validate(raw, employee());
+
+                assertThat(r.getType()).as(raw).isEqualTo(AssistantResponseType.EXPLANATION);
+                assertThat(r.getAnswer()).as(raw).isEqualTo("Usage this month:\n- 1,304 turns\n- $0.26 of $10.00");
+            }
         }
     }
 

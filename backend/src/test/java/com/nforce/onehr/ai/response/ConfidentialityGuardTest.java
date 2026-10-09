@@ -134,6 +134,10 @@ class ConfidentialityGuardTest {
         assertThat(claimed.getAnswer()).contains("read-only").doesNotContain("approved your leave");
         assertThat(ConfidentialityGuard.claimsAnAction("Your leave request has been approved by your manager.")).isFalse();
         assertThat(ConfidentialityGuard.claimsAnAction("I have made you a short summary below.")).isFalse();
+        // A suggested follow-up question is not a claim (ONEHR - "API Usage" lost its answer to one).
+        assertThat(ConfidentialityGuard.claimsAnAction("How do I reset the AI assistant's knowledge base?")).isFalse();
+        assertThat(ConfidentialityGuard.claimsAnAction("Can I cancel a submitted leave request?")).isFalse();
+        assertThat(ConfidentialityGuard.claimsAnAction("I reset your password, so you can log in now.")).isTrue();
     }
 
     @Test
