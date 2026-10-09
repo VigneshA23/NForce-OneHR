@@ -12,6 +12,7 @@ import { useEmployeeAssetsData } from '../../assets/useEmployeeAssetsData';
 import { RequestAssetModal } from '../../assets/RequestAssetModal';
 import { ManagerView, HRView, SubmitExpenseModal } from '../../AssetsExpensesPage';
 import { SectionHeader } from '../shared';
+import { TabBar } from '../../../components/TabBar';
 
 function AssetDetailsModal({ asset, onClose }: { asset: AssetAssignmentResponse; onClose: () => void }) {
   return (
@@ -122,20 +123,19 @@ function EmployeeAssetsTab({ token }: { token: string }) {
     }
   }
 
-  const subTabStyle = (t: typeof subTab): React.CSSProperties => ({
-    background: t === subTab ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--raised)',
-    border: `1px solid ${t === subTab ? 'var(--brand)' : 'var(--line2)'}`,
-    color: t === subTab ? 'var(--brand-bright)' : 'var(--txt-mut)',
-    fontSize: 12, fontWeight: 600, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
-  });
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button style={subTabStyle('assets')} onClick={() => setSubTab('assets')}>My Assets</button>
-        <button style={subTabStyle('requests')} onClick={() => setSubTab('requests')}>My Asset Requests</button>
-        <button style={subTabStyle('claims')} onClick={() => setSubTab('claims')}>My Expense Claims</button>
-      </div>
+      <TabBar
+        size="sm"
+        ariaLabel="Assets and expenses"
+        active={subTab}
+        onChange={setSubTab}
+        tabs={[
+          { key: 'assets', label: 'My Assets', count: assignments.length },
+          { key: 'requests', label: 'My Asset Requests', count: requests.length },
+          { key: 'claims', label: 'My Expense Claims', count: claims.length },
+        ]}
+      />
 
       {subTab === 'assets' && (
         <div style={panelStyle}>

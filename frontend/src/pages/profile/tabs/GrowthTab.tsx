@@ -9,6 +9,7 @@ import { SectionHeader } from '../shared';
 import { SkillModal } from './SkillModal';
 import { LearningEntryModal } from './LearningEntryModal';
 import { CertificateModal } from './CertificateModal';
+import { TabBar } from '../../../components/TabBar';
 
 const ADD_BTN_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
@@ -377,22 +378,7 @@ function LearningDevelopmentCard({ token }: { token: string }) {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--line)', paddingBottom: 10, flexWrap: 'wrap' }}>
-        {LEARNING_TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{
-              padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              border: '1px solid ' + (tab === t.key ? 'var(--brand)' : 'var(--line2)'),
-              background: tab === t.key ? 'color-mix(in srgb, var(--brand) 14%, transparent)' : 'var(--raised)',
-              color: tab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabBar size="sm" ariaLabel="Learning" style={{ marginBottom: 16 }} tabs={LEARNING_TABS} active={tab} onChange={setTab} />
 
       {loading ? (
         <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>

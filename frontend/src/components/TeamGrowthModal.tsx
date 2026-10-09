@@ -4,6 +4,7 @@ import { X, Sparkles, Award, BookOpen, CheckCircle2, Clock, Target, ExternalLink
 import type { LucideIcon } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { teamGrowthApi, type TeamGrowthData } from '../api/teamGrowth';
+import { TabBar } from './TabBar';
 
 /** Overlay + card chrome, browse-only (no forced Cancel/Save footer like EditModal) — this is a
  * read-only view over an employee's Skills/Certificates/Learning, not a form. Exported for reuse
@@ -91,25 +92,14 @@ function SectionTabs({ tab, setTab, counts }: {
     { key: 'learning', label: 'Learning', icon: BookOpen },
   ];
   return (
-    <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 12, flexWrap: 'wrap' }}>
-      {tabs.map(t => {
-        const Icon = t.icon;
-        return (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              border: '1px solid ' + (tab === t.key ? 'var(--brand)' : 'var(--line2)'),
-              background: tab === t.key ? 'color-mix(in srgb, var(--brand) 14%, transparent)' : 'var(--raised)',
-              color: tab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-            }}
-          >
-            <Icon size={13} /> {t.label} <span style={{ opacity: .7 }}>({counts[t.key]})</span>
-          </button>
-        );
-      })}
-    </div>
+    <TabBar
+      size="sm"
+      ariaLabel="Growth sections"
+      style={{ marginBottom: 18 }}
+      active={tab}
+      onChange={setTab}
+      tabs={tabs.map(({ key, label, icon: Icon }) => ({ key, label, icon: <Icon size={13} />, count: counts[key] }))}
+    />
   );
 }
 

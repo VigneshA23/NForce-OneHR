@@ -171,16 +171,16 @@ body {
    treatment was previously opt-in per component class), so most of the app's ~670 plain
    <button style={{...}}> elements had zero interaction feedback at all. Excludes the handful of
    classes that already define their own hover/press transition (sidebar/topbar nav, dropdown
-   menu items, calendar cells, segmented tabs, the generic .nf-clickable affordance) so timings
+   menu items, calendar cells, the shared .nf-tab/.nf-chip bars, the generic .nf-clickable affordance) so timings
    never double up. Respects [data-motion="reduce"] above like everything else in this file. */
 @media (prefers-reduced-motion: no-preference) {
-  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled) {
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-clickable):not(.nf-tab):not(.nf-chip):not(:disabled) {
     transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
   }
-  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled):hover {
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-clickable):not(.nf-tab):not(.nf-chip):not(:disabled):hover {
     filter: brightness(1.04);
   }
-  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled):active {
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-clickable):not(.nf-tab):not(.nf-chip):not(:disabled):active {
     transform: scale(.97);
   }
 }
@@ -604,32 +604,6 @@ input[type="date"] {
   .nf-kpi-2x2-mobile { grid-template-columns: repeat(2, 1fr) !important; }
 }
 
-/* Documents & Compliance tab selector (Pending Verification / Verified /
-   Not Submitted) -> auto-adjust to the screen on mobile instead of running
-   off the right edge. The bar was `width: fit-content`, sized to the sum of
-   its three buttons' natural widths, which exceeds narrower phone screens.
-   No scrolling and no truncation: the bar goes full-width, each button is
-   an equal flex share, and the label is allowed to wrap onto a second line
-   within its own button so the full name always stays visible. */
-@media (max-width: 767px) {
-  .nf-doc-tabs {
-    width: 100% !important;
-    align-items: center;
-  }
-  .nf-doc-tabs .nf-doc-tab-btn {
-    flex: 1 1 0;
-    min-width: 0;
-    padding: 6px 4px !important;
-    font-size: 11.5px !important;
-    text-align: center;
-    justify-content: center !important;
-  }
-  .nf-doc-tabs .nf-doc-tab-label {
-    white-space: normal;
-    word-break: break-word;
-    line-height: 1.25;
-  }
-}
 
 /* My Documents & Policies (Employee) search bar -> auto-adjust to fill the
    screen on mobile instead of staying a fixed 200px, which left excess
@@ -699,27 +673,20 @@ input[type="date"] {
   }
 }
 
-/* Attendance Policy full-page view -> tighter padding and horizontally
-   scrollable tabs on mobile, so the two policy-tab buttons never force the
-   header row to overflow or wrap awkwardly on a narrow phone. */
+/* Attendance Policy full-page view -> tighter padding on mobile (the tab bar itself
+   scrolls horizontally via .nf-tabs), so nothing forces the header row to
+   overflow on a narrow phone. */
 @media (max-width: 767px) {
   .nf-attpolicy-header { padding: 16px 18px !important; }
-  .nf-attpolicy-tabs {
-    padding: 0 18px 14px !important;
-    overflow-x: auto;
-    flex-wrap: nowrap !important;
-  }
-  .nf-attpolicy-tabs button { flex-shrink: 0; white-space: nowrap; }
+  .nf-attpolicy-tabs { padding: 0 18px !important; }
   .nf-attpolicy-content { padding: 20px 18px 40px !important; }
   .nf-attpolicy-heading { font-size: 15.5px !important; margin: 24px 0 10px !important; }
   .nf-attpolicy-callout { padding: 10px 12px !important; }
 }
 
-/* Assets & Expenses HR section selector (Asset Inventory / Asset Requests /
-   Expense Categories / Payroll-Ready Claims) -> horizontally scrollable on
-   mobile instead of squeezing/wrapping four tabs into the narrow viewport.
-   Buttons keep their natural nowrap width so labels stay fully readable;
-   the bar scrolls to reveal whichever don't fit. */
+/* Generic horizontally-scrolling button strip on mobile (Directory profile pager). Tab bars
+   scroll on their own via .nf-tabs. Buttons keep their natural nowrap width so labels stay
+   fully readable; the strip scrolls to reveal whichever don't fit. */
 @media (max-width: 767px) {
   .nf-tab-scroll {
     overflow-x: auto !important;
@@ -1150,9 +1117,6 @@ input[type="date"] {
 /* Attendance Log — sticky header while the table body scrolls */
 .nf-sticky-thead th { position: sticky; top: 0; z-index: 2; }
 
-/* Segmented tab bar — active pill slide-in */
-.nf-seg-tab { transition: background .15s, color .15s, box-shadow .15s; }
-
 /* Attendance Log — table vs. card view. The table uses table-layout:fixed with percentage
    columns so it never exceeds its container's width (no horizontal scrollbar by construction);
    below 900px a 6-column row can't stay legible even compacted, so it switches to one compact
@@ -1263,22 +1227,6 @@ input[type="date"] {
   /* Bulk-select checkbox: pinned to the card's top-right corner rather than taking a grid cell. */
   .nf-req-table td.nf-req-select { position: absolute; top: 12px; right: 14px; }
   .nf-req-table td.nf-req-select::before { content: none; }
-}
-
-/* Logs & Requests tab bar — the four tabs (Attendance Log/Calendar/Attendance Requests/
-   Overtime Requests) don't fit their container's natural width below ~900px (same tier the
-   Attendance Log itself switches to cards at), one step earlier than the generic
-   .nf-tab-scroll rule's 767px breakpoint used elsewhere in the app — without this the tab row
-   overflowed the page horizontally at 768–899px even though nothing else on the page did. */
-@media (max-width: 899px) {
-  .nf-log-tabs {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-  .nf-log-tabs > button {
-    flex: 0 0 auto;
-    white-space: nowrap;
-  }
 }
 
 /* DetailDrawer — subtle slide-in from the right, the one consistent detail-view shell used
@@ -1398,24 +1346,10 @@ input[type="date"] {
 
 /* ============================================================
    Organization Masters — presentational polish only.
-   Tab icon badges (per-tab accent), row icon badges, and a
+   Row icon badges (per-tab accent) and a
    lightweight section-loading state. No data/validation/CRUD
    logic here.
    ============================================================ */
-
-.nf-org-tab-icon {
-  display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
-  color: var(--txt-mut); background: transparent;
-  transition: background .15s, color .15s;
-}
-.nf-org-tab[aria-selected="true"] .nf-org-tab-icon {
-  background: color-mix(in srgb, var(--tab-accent, var(--brand)) 20%, transparent);
-  color: var(--tab-accent, var(--brand-bright));
-}
-.nf-org-tab:hover:not([aria-selected="true"]) .nf-org-tab-icon {
-  background: var(--raised2); color: var(--txt);
-}
 
 .nf-org-icon-badge {
   display: flex; align-items: center; justify-content: center;
@@ -1429,3 +1363,87 @@ input[type="date"] {
   border: 2px solid var(--line2); border-top-color: var(--brand-bright);
   animation: nf-org-spin .7s linear infinite;
 }
+
+/* ── Tab bars — one standard for the whole app ──────────────────────────────────────────────
+   Baseline = the Assets & Expenses underline bar (13px, 500 → 700 active, brand-red text and
+   2px brand underline, 11px count badge). Markup comes from components/TabBar.tsx.
+     .nf-tabs            content-navigation tabs (role="tablist")
+     .nf-tabs--sm        same, one step smaller, for tabs nested inside another tab's panel
+     .nf-chips/.nf-chip  filters, view toggles, period selectors (aria-pressed, not tabs) —
+                         square-cornered outline buttons, never a filled capsule
+   The bottom rule is an inset shadow (not a border) so the bar can scroll horizontally on
+   narrow screens without clipping the active underline. */
+:root {
+  --tabbar-fs: 13px;
+  --tabbar-fs-sm: 12px;
+  --tabbar-fw: 500;
+  --tabbar-fw-active: 700;
+  --tabbar-pad: 8px 16px;
+  --tabbar-pad-sm: 6px 12px;
+  --tabbar-gap: 4px;
+  --tabbar-indicator: 2px;
+  --tabbar-icon-gap: 6px;
+  --tabbar-count-fs: 11px;
+  --tabbar-count-fs-sm: 10px;
+  --chip-fs: 12px;
+  --chip-fw: 500;
+  --chip-fw-active: 600;
+  --chip-pad: 5px 12px;
+  --chip-radius: 6px;
+  /* Active text/underline: --brand-bright on dark panels (plain --brand is ~2.5:1 there),
+     --brand on light where it has the stronger contrast. */
+  --tabbar-active: var(--brand-bright);
+}
+[data-theme="light"] { --tabbar-active: var(--brand); }
+[data-theme="dark"] { --tabbar-active: var(--brand-bright); }
+
+.nf-tabs {
+  display: flex; align-items: flex-end; gap: var(--tabbar-gap);
+  box-shadow: inset 0 -1px 0 var(--line);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.nf-tabs::-webkit-scrollbar { display: none; }
+.nf-tab {
+  display: inline-flex; align-items: center; gap: var(--tabbar-icon-gap); flex: 0 0 auto;
+  background: none; border: none; border-bottom: var(--tabbar-indicator) solid transparent;
+  border-radius: 0; margin: 0;
+  padding: var(--tabbar-pad); font-family: inherit; line-height: 1.4; white-space: nowrap;
+  font-size: var(--tabbar-fs); font-weight: var(--tabbar-fw); color: var(--txt-mut);
+  cursor: pointer; transition: color .15s, border-color .15s;
+}
+.nf-tab:hover:not(:disabled):not([aria-selected="true"]) { color: var(--txt); }
+.nf-tab[aria-selected="true"] {
+  color: var(--tabbar-active); font-weight: var(--tabbar-fw-active); border-bottom-color: var(--tabbar-active);
+}
+.nf-tab:disabled { opacity: .5; cursor: not-allowed; }
+.nf-tab:focus-visible, .nf-chip:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: -2px; }
+.nf-tab svg { width: 14px; height: 14px; flex-shrink: 0; }
+.nf-tabs--sm .nf-tab { padding: var(--tabbar-pad-sm); font-size: var(--tabbar-fs-sm); }
+.nf-tabs--sm .nf-tab svg { width: 13px; height: 13px; }
+.nf-tabs-trailing { margin-left: auto; display: flex; align-items: center; gap: 8px; padding-bottom: 6px; flex-shrink: 0; }
+
+/* Count badge — subordinate to the label; filled brand only on the selected tab. */
+.nf-tab-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px;
+  font-size: var(--tabbar-count-fs); font-weight: 700; line-height: 1.45; font-variant-numeric: tabular-nums;
+  padding: 0 6px; border-radius: 10px; background: var(--raised2); color: var(--txt-mut);
+}
+.nf-tabs--sm .nf-tab-count { font-size: var(--tabbar-count-fs-sm); min-width: 16px; padding: 0 5px; }
+.nf-tab[aria-selected="true"] .nf-tab-count, .nf-chip[aria-pressed="true"] .nf-tab-count { background: var(--brand); color: #fff; }
+
+.nf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nf-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: var(--chip-pad); border-radius: var(--chip-radius); font-family: inherit; line-height: 1.4;
+  font-size: var(--chip-fs); font-weight: var(--chip-fw); white-space: nowrap;
+  background: var(--raised); color: var(--txt-mut); border: 1px solid var(--line2);
+  cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+}
+.nf-chip svg { width: 13px; height: 13px; flex-shrink: 0; }
+.nf-chip:hover:not(:disabled):not([aria-pressed="true"]) { color: var(--txt); border-color: var(--txt-dim); }
+.nf-chip[aria-pressed="true"] {
+  color: var(--tabbar-active); font-weight: var(--chip-fw-active); border-color: var(--tabbar-active);
+  background: color-mix(in srgb, var(--brand) 10%, var(--raised));
+}
+.nf-chip:disabled { opacity: .5; cursor: not-allowed; }

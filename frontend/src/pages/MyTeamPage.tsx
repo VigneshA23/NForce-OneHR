@@ -36,6 +36,7 @@ import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeB
 import { businessTodayIsoDate } from '../utils/businessDate';
 import { teamGrowthApi, type TeamGrowthSummary } from '../api/teamGrowth';
 import { DetailModalShell } from '../components/TeamGrowthModal';
+import { ChipGroup, TabBar } from '../components/TabBar';
 import type { CertificateEntry, LearningEntry } from '../api/profile';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
@@ -3376,20 +3377,17 @@ export default function MyTeamPage() {
           </p>
         </div>
         {!isEmployee && directReportCount > 0 && (
-          <div style={{ display: 'inline-flex', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: 4, flexShrink: 0 }} role="tablist" aria-label="My Team view">
-            <button role="tab" aria-selected={viewMode === 'direct'} onClick={() => setViewMode('direct')} style={{
-              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              background: viewMode === 'direct' ? 'var(--brand)' : 'transparent', color: viewMode === 'direct' ? '#fff' : 'var(--txt-mut)',
-            }}>
-              <Users size={13} /> Direct Reports
-            </button>
-            <button role="tab" aria-selected={viewMode === 'peers'} onClick={() => setViewMode('peers')} style={{
-              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              background: viewMode === 'peers' ? 'var(--brand)' : 'transparent', color: viewMode === 'peers' ? '#fff' : 'var(--txt-mut)',
-            }}>
-              <Sparkles size={13} /> Project Team
-            </button>
-          </div>
+          // A view toggle (whose team), not page navigation — so a chip group, not tabs.
+          <ChipGroup
+            ariaLabel="My Team view"
+            style={{ flexShrink: 0 }}
+            value={viewMode}
+            onChange={setViewMode}
+            options={[
+              { key: 'direct', label: 'Direct Reports', icon: <Users size={13} /> },
+              { key: 'peers', label: 'Project Team', icon: <Sparkles size={13} /> },
+            ]}
+          />
         )}
       </div>
 
@@ -3398,24 +3396,21 @@ export default function MyTeamPage() {
       ) : (
       <>
       {/* Sub-tabs — Overview is the original page; the rest are ONEHR-106/107/108/109. */}
-      <div style={{ display: 'flex', gap: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', marginBottom: 20, flexWrap: 'wrap' }}>
-        {([
-          ['overview', 'Overview'],
-          ['effort', 'Efforts / Punctuality'],
-          ['negligence', 'Negligence'],
-          ['penalties', 'Regularize & Cancel Penalties'],
-          ['assignments', 'Employee Assignments'],
-          ['growth', 'Performance'],
-          ['reports', 'Reports'],
-        ] as const).filter(([key]) => allowedTabs.includes(key)).map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} style={{
-            padding: '8px 14px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12.5,
-            background: tab === key ? 'var(--brand)' : 'transparent', color: tab === key ? '#fff' : 'var(--txt-dim)', whiteSpace: 'nowrap',
-          }}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        ariaLabel="My Team sections"
+        style={{ marginBottom: 20 }}
+        active={tab}
+        onChange={setTab}
+        tabs={([
+          { key: 'overview', label: 'Overview' },
+          { key: 'effort', label: 'Efforts / Punctuality' },
+          { key: 'negligence', label: 'Negligence' },
+          { key: 'penalties', label: 'Regularize & Cancel Penalties' },
+          { key: 'assignments', label: 'Employee Assignments' },
+          { key: 'growth', label: 'Performance' },
+          { key: 'reports', label: 'Reports' },
+        ] satisfies { key: MyTeamTab; label: string }[]).filter(t => allowedTabs.includes(t.key))}
+      />
 
       {tab === 'overview' && (<>
       {/* Who's on leave / Not in yet */}
@@ -3618,15 +3613,18 @@ export default function MyTeamPage() {
               <Search size={13} />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or employee code…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
             </div>
-            {(['all', 'IN', 'OUT', 'NOT_IN_YET', 'LEAVE'] as const).map(f => (
-              <button key={f} onClick={() => setStatusFilter(f)} style={{
-                fontSize: 11.5, fontWeight: 600, padding: '6px 11px', borderRadius: 20, border: '1px solid var(--line2)', cursor: 'pointer', whiteSpace: 'nowrap',
-                background: statusFilter === f ? 'var(--brand)' : 'var(--shell)', color: statusFilter === f ? '#fff' : 'var(--txt-mut)',
-                borderColor: statusFilter === f ? 'var(--brand)' : 'var(--line2)',
-              }}>
-                {f === 'all' ? 'All' : f === 'NOT_IN_YET' ? 'Not in yet' : f === 'LEAVE' ? 'On leave' : f === 'IN' ? 'In' : 'Out'}
-              </button>
-            ))}
+            <ChipGroup
+              ariaLabel="Roster status"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { key: 'all', label: 'All' },
+                { key: 'IN', label: 'In' },
+                { key: 'OUT', label: 'Out' },
+                { key: 'NOT_IN_YET', label: 'Not in yet' },
+                { key: 'LEAVE', label: 'On leave' },
+              ]}
+            />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10, padding: '14px 18px' }}>
             {loading ? (

@@ -20,6 +20,7 @@ import { JobTab } from './profile/tabs/JobTab';
 import { DocumentsTab } from './profile/tabs/DocumentsTab';
 import { AssetsTab } from './profile/tabs/AssetsTab';
 import { GrowthTab } from './profile/tabs/GrowthTab';
+import { TabBar } from '../components/TabBar';
 
 type TabKey = 'about' | 'profile' | 'job' | 'growth' | 'documents' | 'assets';
 const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
@@ -327,19 +328,13 @@ export default function ProfilePage() {
         </div>
 
         {/* Primary tabs */}
-        <div style={{ display: 'flex', gap: 4, padding: '0 24px', borderTop: '1px solid var(--line)', overflowX: 'auto' }}>
-          {visibleTabs.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-              padding: '12px 14px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 600,
-              color: activeTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
-            }}>
-              <t.icon size={14} aria-hidden="true" />
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <TabBar
+          tabs={visibleTabs.map(t => ({ key: t.key, label: t.label, icon: <t.icon size={14} aria-hidden="true" /> }))}
+          active={activeTab}
+          onChange={setActiveTab}
+          ariaLabel="Profile sections"
+          style={{ padding: '0 24px', borderTop: '1px solid var(--line)', boxShadow: 'none' }}
+        />
       </div>
 
       {activeTab === 'about' && <AboutTab profile={profile} token={token} onSaved={setProfile} />}

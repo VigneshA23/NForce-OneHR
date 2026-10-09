@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Upload, AlertTriangle, Search } from 'lucide-react';
 import { type EmployeeDocument, type RequiredDocument } from '../../api/documents';
 import { card, thS, tdS, StatusBadge, UploadModal, ViewButton, WithdrawButton, bucketRequiredDocuments } from './shared';
+import { TabBar } from '../../components/TabBar';
 
 type Section = 'verified' | 'pending' | 'rejected' | 'missing';
 
@@ -45,33 +46,25 @@ export function MyDocumentsSection({
 
   const { verified, pending, rejected, missing } = bucketRequiredDocuments(required);
 
-  const secStyle = (s: Section): React.CSSProperties => ({
-    padding: '6px 16px', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 12,
-    background: section === s ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--shell)',
-    color: section === s ? 'var(--brand-bright)' : 'var(--txt-dim)',
-    border: `1px solid ${section === s ? 'var(--brand)' : 'var(--line)'}`,
-  });
-
   const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : section === 'rejected' ? rejected : missing;
   const q = search.trim().toLowerCase();
   const filteredDocs = q ? sectionDocs.filter(r => r.documentTypeName.toLowerCase().includes(q)) : sectionDocs;
 
   return (
     <>
-      <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        <button className="nf-doc-tab-btn" style={secStyle('pending')} onClick={() => setSection('pending')}>
-          <span className="nf-doc-tab-label">Pending Review</span> {pending.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--warn) 20%, transparent)', color: 'var(--warn)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{pending.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={secStyle('verified')} onClick={() => setSection('verified')}>
-          <span className="nf-doc-tab-label">Verified</span> {verified.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--ok) 20%, transparent)', color: 'var(--ok)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{verified.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={secStyle('rejected')} onClick={() => setSection('rejected')}>
-          <span className="nf-doc-tab-label">Rejected</span> {rejected.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--risk) 20%, transparent)', color: 'var(--risk)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{rejected.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={secStyle('missing')} onClick={() => setSection('missing')}>
-          <span className="nf-doc-tab-label">Not Submitted</span> {missing.length > 0 && <span style={{ marginLeft: 4, background: 'color-mix(in srgb, var(--risk) 20%, transparent)', color: 'var(--risk)', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{missing.length}</span>}
-        </button>
-      </div>
+      <TabBar
+        size="sm"
+        ariaLabel="Document status"
+        style={{ marginBottom: 14 }}
+        active={section}
+        onChange={setSection}
+        tabs={[
+          { key: 'pending', label: 'Pending Review', count: pending.length },
+          { key: 'verified', label: 'Verified', count: verified.length },
+          { key: 'rejected', label: 'Rejected', count: rejected.length },
+          { key: 'missing', label: 'Not Submitted', count: missing.length },
+        ]}
+      />
 
       <div className="nf-search-full-mobile" style={{ position: 'relative', marginBottom: 14 }}>
         <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />

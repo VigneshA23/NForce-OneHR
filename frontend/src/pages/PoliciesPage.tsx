@@ -3,6 +3,7 @@ import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip } from 'lucide-r
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { TabBar } from '../components/TabBar';
 import {
   listAllPolicies, publishPolicy, editPolicy, publishPolicyVersion, policyVersionHistory,
   deactivatePolicy, reactivatePolicy, deletePolicy,
@@ -659,12 +660,6 @@ export default function PoliciesPage() {
     }
   }
 
-  const tabStyle = (t: typeof tab): React.CSSProperties => ({
-    padding: '8px 18px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13,
-    background: tab === t ? '#A01418' : 'transparent', color: tab === t ? '#fff' : 'var(--txt-dim)',
-    display: 'flex', alignItems: 'center', gap: 6,
-  });
-
   const activePolicies = policies.filter(p => p.active).length;
   const uniqueAudiences = [...new Set(announcements.map(a => a.audience))];
 
@@ -724,25 +719,16 @@ export default function PoliciesPage() {
         ))}
       </div>
 
-      {/* Tabs — colored badge style */}
-      <div className="nf-tab-scroll" style={{ display: 'flex', gap: 6, marginBottom: 18, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', maxWidth: '100%' }}>
-        <button style={tabStyle('policies')} onClick={() => setTab('policies')}>
-          Policies
-          {policies.length > 0 && (
-            <span style={{ background: tab === 'policies' ? 'rgba(255,255,255,.25)' : '#22c55e', color: tab === 'policies' ? '#fff' : '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>
-              {policies.length}
-            </span>
-          )}
-        </button>
-        <button style={tabStyle('announcements')} onClick={() => setTab('announcements')}>
-          Announcements
-          {announcements.length > 0 && (
-            <span style={{ background: tab === 'announcements' ? 'rgba(255,255,255,.25)' : '#3b82f6', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>
-              {announcements.length}
-            </span>
-          )}
-        </button>
-      </div>
+      <TabBar
+        ariaLabel="Policies and announcements"
+        style={{ marginBottom: 18 }}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'policies', label: 'Policies', count: policies.length },
+          { key: 'announcements', label: 'Announcements', count: announcements.length },
+        ]}
+      />
 
       {/* ── Policies ── */}
       {tab === 'policies' && (

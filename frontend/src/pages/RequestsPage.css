@@ -263,10 +263,10 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 15px 12px 14px;
+  padding: var(--tabbar-pad);
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--tabbar-fs);
+  font-weight: var(--tabbar-fw);
   white-space: nowrap;
   color: var(--txt-mut);
   background: none;
@@ -280,15 +280,16 @@
   left: 8px;
   right: 8px;
   bottom: -1px;
-  height: 2px;
+  height: var(--tabbar-indicator);
   border-radius: 2px 2px 0 0;
   background: transparent;
   transition: background .15s;
 }
 .nf-rq-tab:hover { color: var(--txt); }
-.nf-rq-tab--active { color: var(--rq-accent-txt); }
-.nf-rq-tab--active::after { background: var(--brand); }
-.nf-rq-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -4px; border-radius: 8px; }
+/* Typography, colours and count badge follow the app-wide tab tokens (index.css .nf-tabs). */
+.nf-rq-tab--active { color: var(--tabbar-active); font-weight: var(--tabbar-fw-active); }
+.nf-rq-tab--active::after { background: var(--tabbar-active); }
+.nf-rq-tab:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: -2px; }
 .nf-rq-tab-icon {
   width: 22px;
   height: 22px;
@@ -299,8 +300,12 @@
   color: var(--tone);
   background: color-mix(in srgb, var(--tone) 14%, transparent);
 }
-.nf-rq-tab-count { font-size: 12px; font-weight: 600; color: var(--txt-dim); }
-.nf-rq-tab--active .nf-rq-tab-count { color: var(--rq-accent-txt); }
+.nf-rq-tab-count {
+  min-width: 18px; padding: 0 6px; border-radius: 10px; text-align: center; line-height: 1.45;
+  font-size: var(--tabbar-count-fs); font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--raised2); color: var(--txt-mut);
+}
+.nf-rq-tab--active .nf-rq-tab-count { background: var(--brand); color: #fff; }
 
 .nf-rq-filters {
   display: flex;

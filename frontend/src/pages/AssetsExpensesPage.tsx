@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, ExternalLink, Paperclip, Plus } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
+import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
 import { useToast } from '../context/ToastContext';
@@ -123,18 +124,7 @@ function EmployeeView({ token }: { token: string }) {
       </div>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
-        {tabDef.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand)' : '2px solid transparent',
-            padding: '8px 16px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
-            color: activeTab === t.key ? 'var(--brand)' : 'var(--txt-mut)', cursor: 'pointer', marginBottom: -1,
-          }}>
-            {t.label}
-            {t.count > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: activeTab === t.key ? 'var(--brand)' : 'var(--raised)', color: activeTab === t.key ? '#fff' : 'var(--txt-dim)', borderRadius: 10, padding: '1px 6px' }}>{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <TabBar tabs={tabDef} active={activeTab} onChange={setActiveTab} ariaLabel="My assets and expenses" />
 
       {/* My Assets tab */}
       {activeTab === 'assets' && (
@@ -523,21 +513,11 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
       )}
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
-        {managerTabs.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand)' : '2px solid transparent',
-            padding: '8px 16px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
-            color: activeTab === t.key ? 'var(--brand)' : 'var(--txt-mut)', cursor: 'pointer', marginBottom: -1,
-          }}>
-            {t.label}
-            {t.count > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: activeTab === t.key ? 'var(--brand)' : 'var(--raised)', color: activeTab === t.key ? '#fff' : 'var(--txt-dim)', borderRadius: 10, padding: '1px 6px' }}>{t.count}</span>}
-          </button>
-        ))}
-        <button onClick={() => navigate('/approvals?type=EXPENSE')} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--brand)', borderRadius: 7, padding: '5px 12px', fontSize: 12, color: 'var(--brand)', cursor: 'pointer', marginBottom: 8 }}>
+      <TabBar tabs={managerTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Team assets and expenses" trailing={
+        <button onClick={() => navigate('/approvals?type=EXPENSE')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--brand)', borderRadius: 7, padding: '5px 12px', fontSize: 12, color: 'var(--brand)', cursor: 'pointer' }}>
           <ExternalLink size={12} /> Approval Center
         </button>
-      </div>
+      } />
 
       {/* Team Assets tab */}
       {activeTab === 'assets' && (
@@ -760,18 +740,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
       )}
 
       {/* Tab bar */}
-      <div className="nf-tab-scroll" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
-        {hrTabs.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand)' : '2px solid transparent',
-            padding: '8px 16px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
-            color: activeTab === t.key ? 'var(--brand)' : 'var(--txt-mut)', cursor: 'pointer', marginBottom: -1,
-          }}>
-            {t.label}
-            {t.count > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: activeTab === t.key ? 'var(--brand)' : 'var(--raised)', color: activeTab === t.key ? '#fff' : 'var(--txt-dim)', borderRadius: 10, padding: '1px 6px' }}>{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <TabBar tabs={hrTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Asset and expense administration" />
 
       {/* Asset Inventory tab */}
       {activeTab === 'inventory' && (<div>

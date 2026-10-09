@@ -36,19 +36,20 @@
 }
 .apv-tab {
   position: relative; display: inline-flex; align-items: center; gap: 6px;
-  padding: 11px 10px; background: none; border: none; cursor: pointer; white-space: nowrap;
-  font-size: 12.5px; font-weight: 600; color: var(--txt-mut); font-family: inherit;
+  padding: var(--tabbar-pad); background: none; border: none; cursor: pointer; white-space: nowrap;
+  font-size: var(--tabbar-fs); font-weight: var(--tabbar-fw); color: var(--txt-mut); font-family: inherit;
 }
 .apv-tab:hover { color: var(--txt); }
 .apv-tab::after {
-  content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px;
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; height: var(--tabbar-indicator);
   border-radius: 2px 2px 0 0; background: transparent;
 }
-.apv-tab[aria-pressed='true'] { color: var(--txt); }
-.apv-tab[aria-pressed='true']::after { background: var(--brand-bright); }
+/* A type filter (aria-pressed), drawn with the app-wide tab tokens (index.css .nf-tabs). */
+.apv-tab[aria-pressed='true'] { color: var(--tabbar-active); font-weight: var(--tabbar-fw-active); }
+.apv-tab[aria-pressed='true']::after { background: var(--tabbar-active); }
 .apv-tab:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: -2px; border-radius: 6px; }
 .apv-tab-count {
-  font-size: 10.5px; font-weight: 700; min-width: 18px; padding: 1px 6px; border-radius: 10px;
+  font-size: var(--tabbar-count-fs); font-weight: 700; min-width: 18px; padding: 0 6px; border-radius: 10px; line-height: 1.45;
   background: var(--raised2); color: var(--txt-mut); text-align: center;
 }
 .apv-tab[aria-pressed='true'] .apv-tab-count { background: var(--brand); color: #fff; }
