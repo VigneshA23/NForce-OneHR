@@ -20,6 +20,7 @@ import {
 import { hierarchyApi, type PersonCard } from '../api/hierarchy';
 import { directoryProfileApi, type DirectoryProfileData } from '../api/directoryProfile';
 import type { ProfileData } from '../api/profile';
+import { TabBar } from '../components/TabBar';
 
 type TabKey = 'about' | 'profile' | 'job' | 'skills';
 const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
@@ -243,21 +244,14 @@ function SkillsContent({ data }: { data: DirectoryProfileData }) {
 
   return (
     <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
-        {tabs.map(t => {
-          const Icon = t.icon;
-          return (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              border: '1px solid ' + (tab === t.key ? 'var(--brand)' : 'var(--line2)'),
-              background: tab === t.key ? 'color-mix(in srgb, var(--brand) 14%, transparent)' : 'var(--raised)',
-              color: tab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-            }}>
-              <Icon size={13} /> {t.label} <span style={{ opacity: .7 }}>({t.count})</span>
-            </button>
-          );
-        })}
-      </div>
+      <TabBar
+        size="sm"
+        ariaLabel="Skills sections"
+        style={{ marginBottom: 18 }}
+        active={tab}
+        onChange={setTab}
+        tabs={tabs.map(({ icon: Icon, ...t }) => ({ ...t, icon: <Icon size={13} /> }))}
+      />
 
       {tab === 'skills' && (
         data.skills.length === 0 ? <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Nothing added yet.</div> : (
@@ -472,19 +466,13 @@ export default function EmployeeProfileViewPage() {
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 4, padding: '0 24px', borderTop: '1px solid var(--line)', overflowX: 'auto' }}>
-          {visibleTabs.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-              padding: '12px 14px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 600,
-              color: activeTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
-            }}>
-              <t.icon size={14} aria-hidden="true" />
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <TabBar
+          tabs={visibleTabs.map(t => ({ key: t.key, label: t.label, icon: <t.icon size={14} aria-hidden="true" /> }))}
+          active={activeTab}
+          onChange={setActiveTab}
+          ariaLabel="Profile sections"
+          style={{ padding: '0 24px', borderTop: '1px solid var(--line)', boxShadow: 'none' }}
+        />
       </div>
 
       {activeTab === 'about' && <AboutContent profile={p} />}

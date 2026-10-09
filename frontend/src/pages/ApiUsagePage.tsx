@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { ChipGroup } from '../components/TabBar';
 import {
   fetchUsageStats, fetchBilling, fetchBillingSettings, updateBillingSettings,
   fetchHealth, reindexKnowledge,
@@ -477,22 +478,13 @@ export default function ApiUsagePage() {
       <BillingCard token={token} />
 
       {/* Period selector */}
-      <div style={{ display: 'inline-flex', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: 4, marginBottom: 18 }} role="tablist" aria-label="Usage period">
-        {PERIOD_OPTIONS.map(opt => (
-          <button
-            key={opt.days}
-            role="tab"
-            aria-selected={days === opt.days}
-            onClick={() => setDays(opt.days)}
-            style={{
-              fontSize: 12.5, fontWeight: 600, padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              background: days === opt.days ? 'var(--brand)' : 'transparent', color: days === opt.days ? '#fff' : 'var(--txt-mut)',
-            }}
-          >
-            Last {opt.label}
-          </button>
-        ))}
-      </div>
+      <ChipGroup
+        ariaLabel="Usage period"
+        style={{ marginBottom: 18 }}
+        value={String(days)}
+        onChange={k => setDays(Number(k))}
+        options={PERIOD_OPTIONS.map(opt => ({ key: String(opt.days), label: `Last ${opt.label}` }))}
+      />
 
       {loading ? (
         <div style={{ ...card, padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>

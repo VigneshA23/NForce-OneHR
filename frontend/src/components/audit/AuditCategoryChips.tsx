@@ -1,4 +1,5 @@
 import type { ActionGroup } from '../../api/audit';
+import { TabBar } from '../TabBar';
 
 const GROUPS: { key: ActionGroup | 'ALL'; label: string }[] = [
   { key: 'ALL', label: 'All' },
@@ -18,28 +19,9 @@ interface Props {
   showAccess: boolean;
 }
 
+// Each category swaps the whole log below it, so it's the page's tab bar (standard underline
+// tabs), not a capsule filter. No per-category counts: the API only returns the active group's total.
 export function AuditCategoryChips({ active, onChange, showAccess }: Props) {
-  const chips = GROUPS.filter(g => g.key !== 'ACCESS' || showAccess);
-  return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {chips.map(c => {
-        const isActive = active === c.key;
-        return (
-          <button
-            key={c.key}
-            onClick={() => onChange(c.key)}
-            style={{
-              padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-              border: `1px solid ${isActive ? 'var(--brand)' : 'var(--line2)'}`,
-              background: isActive ? 'var(--brand)' : 'var(--raised)',
-              color: isActive ? '#fff' : 'var(--txt-mut)',
-              cursor: 'pointer',
-            }}
-          >
-            {c.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  const tabs = GROUPS.filter(g => g.key !== 'ACCESS' || showAccess);
+  return <TabBar tabs={tabs} active={active} onChange={onChange} ariaLabel="Audit category" />;
 }

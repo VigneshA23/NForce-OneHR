@@ -5,6 +5,7 @@ import { KebabMenu } from '../components/KebabMenu';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { TabBar } from '../components/TabBar';
 import {
   listAllDocuments, listPendingDocuments, verifyDocument, getAdminKpis, fetchDocumentFile, listMissingDocuments, remindMissingDocument,
   documentHistory,
@@ -403,12 +404,6 @@ export default function DocumentsCompliancePage() {
     }
   }
 
-  const tabStyle = (t: typeof tab): React.CSSProperties => ({
-    padding: '8px 18px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13,
-    background: tab === t ? '#A01418' : 'transparent', color: tab === t ? '#fff' : 'var(--txt-dim)',
-    display: 'flex', alignItems: 'center', gap: 6,
-  });
-
   const [docTypeFilter, setDocTypeFilter] = useState('');
 
   const allDocTypes = [...new Set([
@@ -492,20 +487,17 @@ export default function DocumentsCompliancePage() {
       )}
 
       {/* Tabs */}
-      <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', marginBottom: 14 }}>
-        <button className="nf-doc-tab-btn" style={tabStyle('pending')} onClick={() => setTab('pending')}>
-          <span className="nf-doc-tab-label">Pending Verification</span>
-          {pending.length > 0 && <span style={{ background: tab === 'pending' ? 'rgba(255,255,255,.25)' : '#eab308', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{pending.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('verified')} onClick={() => setTab('verified')}>
-          <span className="nf-doc-tab-label">Verified</span>
-          {verified.length > 0 && <span style={{ background: tab === 'verified' ? 'rgba(255,255,255,.25)' : '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{verified.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('missing')} onClick={() => setTab('missing')}>
-          <span className="nf-doc-tab-label">Not Submitted</span>
-          {missing.length > 0 && <span style={{ background: tab === 'missing' ? 'rgba(255,255,255,.25)' : '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{missing.length}</span>}
-        </button>
-      </div>
+      <TabBar
+        ariaLabel="Document verification status"
+        style={{ marginBottom: 14 }}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'pending', label: 'Pending Verification', count: pending.length },
+          { key: 'verified', label: 'Verified', count: verified.length },
+          { key: 'missing', label: 'Not Submitted', count: missing.length },
+        ]}
+      />
 
       {/* Search + Filter */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>

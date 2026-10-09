@@ -29,6 +29,7 @@ import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeR
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
+import { ChipGroup, TabBar } from '../components/TabBar';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { profileApi } from '../api/profile';
@@ -4072,8 +4073,8 @@ function ArrivalCell({ record, graceMinutes, config }: {
 }
 
 // ─── Logs & Requests tab bar ────────────────────────────────────────────────────
-// One flat row of 4 tabs (Keka reference: nforceone.keka.com/#/me/attendance/logs) — the
-// active tab gets a bordered "chip", inactive tabs stay plain text. Calendar/Attendance Log
+// One flat row of 4 tabs (Keka reference: nforceone.keka.com/#/me/attendance/logs), drawn with
+// the app-wide underline TabBar. Calendar/Attendance Log
 // content lives here (inside MyAttendance, which already owns that state); Attendance
 // Requests/Overtime Requests content is handed in as `otherTabContent` by the page since it
 // lives in sibling components with their own state.
@@ -4088,29 +4089,12 @@ const LOGS_TABS: { value: LogsTab; label: string; icon: LucideIcon }[] = [
 
 function LogsTabBar({ value, onChange }: { value: LogsTab; onChange: (v: LogsTab) => void }) {
   return (
-    <div className="nf-tab-scroll nf-log-tabs" style={{ display: 'flex', gap: 3, background: 'var(--raised2)', border: '1px solid var(--line)', borderRadius: 9, padding: 4, width: '100%', maxWidth: 'fit-content' }}>
-      {LOGS_TABS.map((t) => {
-        const active = t.value === value;
-        const Icon = t.icon;
-        return (
-          <button
-            key={t.value}
-            className="nf-seg-tab"
-            onClick={() => onChange(t.value)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: active ? 'var(--brand)' : 'transparent',
-              border: `1px solid ${active ? 'var(--brand)' : 'transparent'}`,
-              boxShadow: active ? '0 2px 8px color-mix(in srgb, var(--brand) 35%, transparent)' : 'none',
-              borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600,
-              color: active ? '#fff' : 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
-            }}
-          >
-            <Icon size={12.5} style={{ opacity: active ? 1 : 0.75 }} /> {t.label}
-          </button>
-        );
-      })}
-    </div>
+    <TabBar
+      tabs={LOGS_TABS.map(({ value: key, label, icon: Icon }) => ({ key, label, icon: <Icon size={14} /> }))}
+      active={value}
+      onChange={onChange}
+      ariaLabel="Logs and requests"
+    />
   );
 }
 
@@ -5389,30 +5373,10 @@ const STATUS_FILTER_TABS: { value: StatusFilterValue; label: string }[] = [
   { value: 'REJECTED', label: 'Rejected' },
 ];
 
-function FilterTabs<T extends string>({ value, options, onChange }: {
-  value: T; options: { value: T; label: string }[]; onChange: (next: T) => void;
+function FilterTabs<T extends string>({ value, options, onChange, ariaLabel }: {
+  value: T; options: { value: T; label: string }[]; onChange: (next: T) => void; ariaLabel?: string;
 }) {
-  return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {options.map((opt) => {
-        const active = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            onClick={() => onChange(opt.value)}
-            style={{
-              background: active ? 'var(--brand)' : 'var(--raised)',
-              color: active ? '#fff' : 'var(--txt-mut)',
-              border: `1px solid ${active ? 'var(--brand)' : 'var(--line2)'}`,
-              borderRadius: 6, padding: '6px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <ChipGroup options={options.map(o => ({ key: o.value, label: o.label }))} value={value} onChange={onChange} ariaLabel={ariaLabel} />;
 }
 
 // ─── My Requests month filter ──────────────────────────────────────────────────
@@ -5617,7 +5581,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                   </button>
                 )}
               </label>
-              <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} />
+              <FilterTabs value={approvalStatusFilter} options={STATUS_FILTER_TABS} onChange={setApprovalStatusFilter} ariaLabel="Status filter" />
             </div>
           </div>
           {selectedIds.size > 0 && (
@@ -7385,12 +7349,14 @@ function AttendancePageInner() {
             logsTab === 'ATTENDANCE_REQUESTS' ? (
               <div>
                 <div style={{ marginBottom: 16 }}>
-                  <FilterTabs
-                    value={requestsSubTab}
+                  <TabBar
+                    size="sm"
+                    ariaLabel="Attendance requests"
+                    active={requestsSubTab}
                     onChange={setRequestsSubTab}
-                    options={[
-                      { value: 'REGULARIZATION', label: 'Regularization' },
-                      { value: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
+                    tabs={[
+                      { key: 'REGULARIZATION', label: 'Regularization' },
+                      { key: 'WFH_PARTIAL_DAY', label: 'WFH & Partial Day' },
                     ]}
                   />
                 </div>
