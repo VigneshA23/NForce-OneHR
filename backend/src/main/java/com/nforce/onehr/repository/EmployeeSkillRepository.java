@@ -16,4 +16,15 @@ public interface EmployeeSkillRepository extends JpaRepository<EmployeeSkill, UU
     // Backs the Team Performance roster's inline skill chips — one query for the whole team
     // instead of one per direct report.
     List<EmployeeSkill> findByEmployeeUserIdInOrderByCreatedAtAsc(Collection<UUID> employeeUserIds);
+
+    // Talent & Skills master-list admin: usage count (Settings list) and the actual rows to
+    // repoint when a skill is merged into another.
+    long countBySkillId(UUID skillId);
+
+    long countByProficiencyLevelId(UUID proficiencyLevelId);
+
+    List<EmployeeSkill> findBySkillId(UUID skillId);
+
+    // Backs the one-time migration scan: every row not yet matched to the master list.
+    List<EmployeeSkill> findBySkillIdIsNull();
 }

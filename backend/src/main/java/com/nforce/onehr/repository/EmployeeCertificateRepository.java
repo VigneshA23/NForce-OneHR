@@ -16,4 +16,6 @@ public interface EmployeeCertificateRepository extends JpaRepository<EmployeeCer
     // Backs the Team Performance roster's inline certificate badges — one query for the whole
     // team instead of one per direct report.
     List<EmployeeCertificate> findByEmployeeUserIdInOrderByCreatedAtAsc(Collection<UUID> employeeUserIds);
+
+    long countByCategoryId(UUID categoryId);
 }
