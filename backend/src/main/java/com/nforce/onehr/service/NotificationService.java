@@ -23,25 +23,31 @@ public class NotificationService {
 
     private static Map<String, String> buildPriorityMap() {
         Map<String, String> m = new HashMap<>();
-        // HIGH — rejections, action-required for the recipient
+        // HIGH — a negative outcome or a hard deadline; genuinely needs prompt attention. Kept
+        // narrow on purpose: a routine "X submitted, please review" was previously rated HIGH
+        // right alongside these, which meant a manager's queue of ordinary pending-approval
+        // items was indistinguishable (all red) from an actual rejection or expiring document —
+        // see the "same colour for every priority" bug report. Those routine submissions now
+        // sit at MEDIUM below, so HIGH is reserved for things that actually warrant urgency.
         m.put("LEAVE_REJECTED",                   "HIGH");
-        m.put("EXPENSE_SUBMITTED",                "HIGH");  // goes to manager: action needed
         m.put("EXPENSE_MANAGER_REJECTED",         "HIGH");
         m.put("EXPENSE_FINAL_REJECTED",           "HIGH");
-        m.put("ASSET_REQUEST_SUBMITTED",          "HIGH");  // goes to manager: action needed
         m.put("ASSET_REQUEST_REJECTED",           "HIGH");
         m.put("DOCUMENT_REJECTED",                "HIGH");
         m.put("DOCUMENT_EXPIRY",                  "HIGH");
-        m.put("ATTENDANCE",                       "HIGH");  // goes to approver: action needed
         m.put("ATTENDANCE_REQUEST_REJECTED",      "HIGH");
         m.put("OVERTIME_REJECTED",                "HIGH");
-        m.put("REGULARIZATION_SUBMITTED",         "HIGH");  // goes to approver: action needed
         m.put("REGULARIZATION_REJECTED",          "HIGH");
-        m.put("LEAVE_REQUEST_SUBMITTED",          "HIGH");  // goes to manager/HR/Super Admin: action needed
-        m.put("HELP_CONTENT_SUBMITTED",           "HIGH");  // goes to approver: action needed
         m.put("HELP_CONTENT_REJECTED",            "HIGH");
-        m.put("HELPDESK_TICKET_CREATED",          "HIGH");  // goes to HR: action needed
-        // MEDIUM — attention needed, not urgent
+        // MEDIUM — attention needed, not urgent (routine approvals-pending and routine approved/
+        // informational items both land here; neither is a red-flag event)
+        m.put("EXPENSE_SUBMITTED",                "MEDIUM");  // goes to manager: action needed, routine
+        m.put("ASSET_REQUEST_SUBMITTED",          "MEDIUM");  // goes to manager: action needed, routine
+        m.put("ATTENDANCE",                       "MEDIUM");  // goes to approver: action needed, routine
+        m.put("REGULARIZATION_SUBMITTED",         "MEDIUM");  // goes to approver: action needed, routine
+        m.put("LEAVE_REQUEST_SUBMITTED",          "MEDIUM");  // goes to manager/HR/Super Admin: action needed, routine
+        m.put("HELP_CONTENT_SUBMITTED",           "MEDIUM");  // goes to approver: action needed, routine
+        m.put("HELPDESK_TICKET_CREATED",          "MEDIUM");  // goes to HR: action needed, routine
         m.put("LEAVE_APPROVED",                   "MEDIUM");
         m.put("EXPENSE_MANAGER_APPROVED",         "MEDIUM");
         m.put("EXPENSE_FINAL_APPROVED",           "MEDIUM");
