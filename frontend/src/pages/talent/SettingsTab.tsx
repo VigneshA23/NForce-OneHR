@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Check, X, RotateCcw, ScanLine } from 'lucide-react';
+import { Plus, Check, X, RotateCcw, ScanLine, Pencil } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import type { SkillMasterOption } from '../../api/talentMasterData';
@@ -169,6 +169,10 @@ function CertificateCategoriesSection({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [hasExpiry, setHasExpiry] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editHasExpiry, setEditHasExpiry] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   function load() {
     certificateCategorySettingsApi.listAll(token).then(setCats)
@@ -183,6 +187,28 @@ function CertificateCategoriesSection({ token }: { token: string }) {
       setName(''); setHasExpiry(false); load();
       showToast('success', 'Category added');
     } catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not add category'); }
+  }
+
+  function startEdit(c: CertificateCategorySettingsEntry) {
+    setEditingId(c.id);
+    setEditName(c.name);
+    setEditHasExpiry(c.hasExpiry);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
+  async function saveEdit(id: string) {
+    if (!editName.trim()) return;
+    setSaving(true);
+    try {
+      await certificateCategorySettingsApi.update(token, id, { name: editName.trim(), hasExpiry: editHasExpiry });
+      setEditingId(null);
+      load();
+      showToast('success', 'Category updated');
+    } catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not update category'); }
+    finally { setSaving(false); }
   }
 
   async function toggle(c: CertificateCategorySettingsEntry) {
@@ -208,16 +234,38 @@ function CertificateCategoriesSection({ token }: { token: string }) {
             <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center' }}>Loading…</td></tr>
           ) : cats.length === 0 ? (
             <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center' }}>No categories yet.</td></tr>
-          ) : cats.map(c => (
+          ) : cats.map(c => editingId === c.id ? (
+            <tr key={c.id}>
+              <td style={tdS}><input value={editName} onChange={e => setEditName(e.target.value)} style={inputStyle} /></td>
+              <td style={tdS}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--txt-mut)' }}>
+                  <input type="checkbox" checked={editHasExpiry} onChange={e => setEditHasExpiry(e.target.checked)} /> Has expiry
+                </label>
+              </td>
+              <td style={tdS}>{c.usageCount}</td>
+              <td style={tdS}><Pill active={c.active} /></td>
+              <td style={{ ...tdS, textAlign: 'right' }}>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <button onClick={() => saveEdit(c.id)} disabled={!editName.trim() || saving} style={{ ...btnGhost, opacity: !editName.trim() || saving ? 0.6 : 1 }}>
+                    <Check size={11} /> Save
+                  </button>
+                  <button onClick={cancelEdit} style={btnGhost}><X size={11} /> Cancel</button>
+                </div>
+              </td>
+            </tr>
+          ) : (
             <tr key={c.id}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{c.name}</td>
               <td style={tdS}>{c.hasExpiry ? 'Yes' : 'No'}</td>
               <td style={tdS}>{c.usageCount}</td>
               <td style={tdS}><Pill active={c.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
-                <button onClick={() => toggle(c)} style={btnGhost}>
-                  {c.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
-                </button>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <button onClick={() => startEdit(c)} style={btnGhost}><Pencil size={11} /> Edit</button>
+                  <button onClick={() => toggle(c)} style={btnGhost}>
+                    {c.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
