@@ -412,13 +412,17 @@ export interface SearchableOption {
  * Skills tab's "Request new skill" link lives there for exactly the case this component can't
  * otherwise handle: the skill genuinely isn't in the list yet.
  */
-export function SearchableSelectField({ label, value, onChange, options, placeholder = 'Search…', noMatchFooter }: {
+export function SearchableSelectField({ label, value, onChange, options, placeholder = 'Search…', noMatchFooter, disabled }: {
   label: string;
   value: string;
   onChange: (id: string) => void;
   options: SearchableOption[];
   placeholder?: string;
   noMatchFooter?: (query: string) => React.ReactNode;
+  /** While true (e.g. the option list is still loading), the field can't be typed into or opened —
+   *  otherwise a query typed against an empty/partial `options` falsely shows "No matches" for a
+   *  real option that just hasn't arrived yet. */
+  disabled?: boolean;
 }) {
   const selected = options.find(o => o.id === value);
   const [query, setQuery] = useState(selected?.label ?? '');
@@ -456,9 +460,10 @@ export function SearchableSelectField({ label, value, onChange, options, placeho
         <input
           value={query}
           onChange={e => { setQuery(e.target.value); setOpen(true); if (value) onChange(''); }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => !disabled && setOpen(true)}
           placeholder={placeholder}
-          style={{ ...INPUT_STYLE, paddingLeft: 30, paddingRight: 28 }}
+          disabled={disabled}
+          style={{ ...INPUT_STYLE, paddingLeft: 30, paddingRight: 28, opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text' }}
         />
         <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} aria-hidden />
       </div>

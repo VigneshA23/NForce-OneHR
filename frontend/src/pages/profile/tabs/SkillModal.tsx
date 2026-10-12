@@ -115,6 +115,7 @@ export function SkillModal({ token, existing, onClose, onSaved }: {
           onChange={setSkillId}
           options={skills.map(s => ({ id: s.id, label: s.name, sublabel: s.category ?? undefined }))}
           placeholder={loading ? 'Loading…' : 'Search skills…'}
+          disabled={loading}
           noMatchFooter={() => (
             <button type="button" onClick={() => { setRequestName(''); setRequesting(true); }} style={{
               display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none',
