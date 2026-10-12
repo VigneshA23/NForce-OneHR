@@ -14,6 +14,7 @@ export function DirectoryTab() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [exporting, setExporting] = useState(false);
   const { detail, detailLoading, openDetail, closeDetail } = useEmployeeDetail(token);
 
   useEffect(() => {
@@ -55,10 +56,17 @@ export function DirectoryTab() {
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         </div>
-        <a href={talentDirectoryApi.exportUrl()} target="_blank" rel="noreferrer"
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', textDecoration: 'none' }}>
-          <Download size={13} /> Export CSV
-        </a>
+        <button onClick={async () => {
+          setExporting(true);
+          try { await talentDirectoryApi.export(token); }
+          catch (e) { showToast('error', e instanceof Error ? e.message : 'Export failed'); }
+          finally { setExporting(false); }
+        }} disabled={exporting} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)',
+          borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', cursor: exporting ? 'default' : 'pointer', opacity: exporting ? 0.6 : 1,
+        }}>
+          <Download size={13} /> {exporting ? 'Exporting…' : 'Export CSV'}
+        </button>
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{filtered.length} of {rows.length} employees</div>

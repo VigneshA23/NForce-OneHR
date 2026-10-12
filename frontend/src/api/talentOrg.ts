@@ -74,7 +74,22 @@ export const talentDirectoryApi = {
   listAll: (token: string) => fetch(`${BASE}/directory`, { headers: authHeaders(token) }).then(handle<TalentEmployeeSummary[]>),
   getDetail: (token: string, employeeUserId: string) =>
     fetch(`${BASE}/directory/${employeeUserId}`, { headers: authHeaders(token) }).then(handle<TalentEmployeeDetail>),
-  exportUrl: () => `${BASE}/directory/export`,
+  /** Triggers a browser download of the CSV export. A plain <a href> link can't carry the auth
+   *  header, so this fetches the file with it and saves the response blob instead — same pattern
+   *  as reportsApi.exportAttendanceRequests. */
+  export: async (token: string) => {
+    const res = await fetch(`${BASE}/directory/export`, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`Export failed (${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `talent-skills-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ── Search ─────────────────────────────────────────────────────────────────
