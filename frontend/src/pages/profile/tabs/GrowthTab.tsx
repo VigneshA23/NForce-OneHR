@@ -167,8 +167,8 @@ function SkillsCard({ token }: { token: string }) {
               const idx = prev.findIndex(s => s.id === saved.id);
               return idx >= 0 ? prev.map((s, i) => i === idx ? saved : s) : [...prev, saved];
             });
-            skillRequestApi.listMine(token).then(setRequests).catch(() => {});
           }}
+          onRequestSubmitted={() => skillRequestApi.listMine(token).then(setRequests).catch(() => {})}
         />
       )}
     </div>

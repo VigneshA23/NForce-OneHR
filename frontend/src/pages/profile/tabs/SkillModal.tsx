@@ -4,11 +4,14 @@ import { profileSkillsApi, type SkillEntry } from '../../../api/profile';
 import { skillMasterApi, proficiencyLevelApi, skillRequestApi, type SkillMasterOption, type ProficiencyLevelOption } from '../../../api/talentMasterData';
 import { EditModal, EditField, SelectField, SearchableSelectField, FieldLabel, INPUT_STYLE, nameCharsOnly } from '../shared';
 
-export function SkillModal({ token, existing, onClose, onSaved }: {
+export function SkillModal({ token, existing, onClose, onSaved, onRequestSubmitted }: {
   token: string;
   existing: SkillEntry | null;
   onClose: () => void;
   onSaved: (s: SkillEntry) => void;
+  /** Called after a "Request new skill" submission succeeds — lets the parent refresh "My Skill
+   *  Requests" immediately, since that list isn't covered by onSaved (no SkillEntry is created). */
+  onRequestSubmitted?: () => void;
 }) {
   const { showToast } = useToast();
   const [skills, setSkills] = useState<SkillMasterOption[]>([]);
@@ -74,6 +77,7 @@ export function SkillModal({ token, existing, onClose, onSaved }: {
         note: requestNote.trim() || undefined,
       });
       showToast('success', 'Request submitted — HR will review it. Check its status from your Skills tab.');
+      onRequestSubmitted?.();
       onClose();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Could not submit request');
