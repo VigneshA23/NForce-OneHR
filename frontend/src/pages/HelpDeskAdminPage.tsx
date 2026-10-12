@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { TabBar } from '../components/TabBar';
 import {
   helpdeskApi,
   hrHelpdeskApi,
@@ -586,19 +587,13 @@ export default function HelpDeskAdminPage() {
       </p>
 
       <div className="nf-rq-card">
-        <div className="nf-rq-tabs" role="tablist" aria-label="Filter by ticket status">
-          {QUEUE_FILTERS.map(f => (
-            <button
-              key={f.key}
-              role="tab"
-              aria-selected={statusFilter === f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className={`nf-rq-tab${statusFilter === f.key ? ' nf-rq-tab--active' : ''}`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <TabBar
+          ariaLabel="Filter by ticket status"
+          style={{ padding: '0 14px' }}
+          active={statusFilter}
+          onChange={setStatusFilter}
+          tabs={QUEUE_FILTERS}
+        />
 
         <div className="nf-rq-filters">
           <div className="nf-rq-search">

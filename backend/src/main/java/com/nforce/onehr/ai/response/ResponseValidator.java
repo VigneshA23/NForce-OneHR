@@ -177,28 +177,44 @@ public class ResponseValidator {
         } catch (Exception e) {
             // Deliberately not logging the payload: it can contain the user's question verbatim,
             // and com.nforce.onehr runs at DEBUG in every environment.
-            log.info("Model output was not parseable as an AssistantResponse: {}", e.getClass().getSimpleName());
-            return Optional.empty();
+            log.info("Model output was not parseable as an AssistantResponse: {}; salvaging its answer", e.getClass().getSimpleName());
+            return salvageCutOff(json);
         }
     }
 
-    /** The "answer" string of a reply cut off mid-way - escapes intact, however far it got. */
+    /** The "answer" string of a reply cut off mid-way - escapes intact, however far it got - and its closing quote if it got there. */
     private static final java.util.regex.Pattern ANSWER_SO_FAR =
-            java.util.regex.Pattern.compile("\"answer\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)");
+            java.util.regex.Pattern.compile("\"answer\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)(\")?");
+    /** A bare string after the answer, never a key: the model wrote its next line as "...", not \n. */
+    private static final java.util.regex.Pattern LOOSE_LINE =
+            java.util.regex.Pattern.compile("\\s*,?\\s*\"((?:[^\"\\\\]|\\\\.)*)\"(?!\\s*:)");
 
     /**
      * Keeps the answer's complete lines, the same trade {@link #MAX_ANSWER_CHARS} already makes for
      * a long answer. Typed EXPLANATION with LOW confidence; nothing after the answer (steps,
      * navigation) survives, and the leak checks in {@link #validate} still run over what does.
+     *
+     * <p>A closed answer is complete and kept whole, with any loose lines after it. Ministral splits
+     * a list answer into {@code "answer": "Intro:", "- line"}, then pads with whitespace until
+     * Mistral aborts; that single-line intro was declined, so "API Usage" got no answer (ONEHR).
      */
     private Optional<AssistantResponse> salvageCutOff(String json) {
         java.util.regex.Matcher m = ANSWER_SO_FAR.matcher(json);
         if (!m.find()) return Optional.empty();
         String escaped = m.group(1);
-        int lastLine = escaped.lastIndexOf("\\n");
-        // No complete line yet is half a sentence - decline rather than show it.
-        if (lastLine <= 0) return Optional.empty();
-        escaped = escaped.substring(0, lastLine);
+        if (m.group(2) != null) {
+            StringBuilder lines = new StringBuilder(escaped);
+            java.util.regex.Matcher loose = LOOSE_LINE.matcher(json);
+            for (int at = m.end(); loose.region(at, json.length()).lookingAt(); at = loose.end()) {
+                lines.append("\\n").append(loose.group(1));
+            }
+            escaped = lines.toString();
+        } else {
+            int lastLine = escaped.lastIndexOf("\\n");
+            // No complete line yet is half a sentence - decline rather than show it.
+            if (lastLine <= 0) return Optional.empty();
+            escaped = escaped.substring(0, lastLine);
+        }
         try {
             String answer = mapper.readValue("\"" + escaped + "\"", String.class);
             return answer.isBlank() ? Optional.empty() : Optional.of(AssistantResponse.builder()

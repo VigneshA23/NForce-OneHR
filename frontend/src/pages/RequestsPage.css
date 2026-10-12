@@ -247,66 +247,6 @@
   overflow: hidden;
 }
 
-.nf-rq-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 0 14px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  border-bottom: 1px solid var(--line);
-}
-.nf-rq-tabs::-webkit-scrollbar { display: none; }
-.nf-rq-tab {
-  position: relative;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: var(--tabbar-pad);
-  font-family: inherit;
-  font-size: var(--tabbar-fs);
-  font-weight: var(--tabbar-fw);
-  white-space: nowrap;
-  color: var(--txt-mut);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: color .15s;
-}
-.nf-rq-tab::after {
-  content: '';
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: -1px;
-  height: var(--tabbar-indicator);
-  border-radius: 2px 2px 0 0;
-  background: transparent;
-  transition: background .15s;
-}
-.nf-rq-tab:hover { color: var(--txt); }
-/* Typography, colours and count badge follow the app-wide tab tokens (index.css .nf-tabs). */
-.nf-rq-tab--active { color: var(--tabbar-active); font-weight: var(--tabbar-fw-active); }
-.nf-rq-tab--active::after { background: var(--tabbar-active); }
-.nf-rq-tab:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: -2px; }
-.nf-rq-tab-icon {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 7px;
-  color: var(--tone);
-  background: color-mix(in srgb, var(--tone) 14%, transparent);
-}
-.nf-rq-tab-count {
-  min-width: 18px; padding: 0 6px; border-radius: 10px; text-align: center; line-height: 1.45;
-  font-size: var(--tabbar-count-fs); font-weight: 700; font-variant-numeric: tabular-nums;
-  background: var(--raised2); color: var(--txt-mut);
-}
-.nf-rq-tab--active .nf-rq-tab-count { background: var(--brand); color: #fff; }
-
 .nf-rq-filters {
   display: flex;
   flex-wrap: wrap;

@@ -599,7 +599,8 @@ systemprompt|systeminstruction|hiddenprompt|hiddeninstruction|internalinstructio
 (?-i:\b[0-9a-f]{32,}\b)
 
 ## answer-action
-\bi\s*('ve|\s+have|\s+had)?\s+((just|now|successfully|already|gone\s+ahead\s+and)\s+)*(deleted|approved|rejected|cancell?ed|reset|disabled|enabled|removed|submitted|executed|granted|revoked|promoted|elevated|raised|filed|withdrawn|withdrew|deactivated|activated|registered|booked|logged\s+you\s+in)\b
+# never "how do I reset ..." - a suggested question, not a claim; it replaced a good API Usage answer (ONEHR)
+(?<!\b(do|can|could|should|would|will|shall|may|might|must|did)\s{1,5})\bi\s*('ve|\s+have|\s+had)?\s+((just|now|successfully|already|gone\s+ahead\s+and)\s+)*(deleted|approved|rejected|cancell?ed|reset|disabled|enabled|removed|submitted|executed|granted|revoked|promoted|elevated|raised|filed|withdrawn|withdrew|deactivated|activated|registered|booked|logged\s+you\s+in)\b
 \byour\s+(role|password|account|access|permissions?|privileges?|rate\s+limit)\s+(has|have)\s+(now\s+)?been\s+(changed|reset|updated|elevated|granted|deleted|disabled|removed|upgraded|promoted|modified|increased)\b
 
 ## fragment

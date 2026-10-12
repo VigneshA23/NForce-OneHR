@@ -9,6 +9,7 @@ import { useAuthStore } from '../store/authStore';
 import { myRequestsApi, type MyRequestItem, type RequestType } from '../api/myRequests';
 import { formatDurationMinutes } from '../context/TimeFormatContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
+import { TabBar } from '../components/TabBar';
 import './RequestsPage.css';
 
 // Every notification type the backend emits for a decision on one of this page's request types
@@ -634,24 +635,16 @@ export default function MyRequestsPage() {
       <div className="nf-rq-split">
         <div className="nf-rq-card">
           {/* Type filter bar */}
-          <div className="nf-rq-tabs" role="tablist" aria-label="Filter by request type">
-            {(['ALL', ...ALL_TYPES] as const).map(t => {
+          <TabBar
+            ariaLabel="Filter by request type"
+            style={{ padding: '0 14px' }}
+            active={typeFilter}
+            onChange={setTypeFilter}
+            tabs={(['ALL', ...ALL_TYPES] as const).map(t => {
               const Icon = t === 'ALL' ? Layers : TYPE_ICONS[t];
-              const tone = t === 'ALL' ? 'tone-brand' : TYPE_TONES[t];
-              return (
-                <button
-                  key={t}
-                  role="tab"
-                  aria-selected={typeFilter === t}
-                  onClick={() => setTypeFilter(t)}
-                  className={`nf-rq-tab${typeFilter === t ? ' nf-rq-tab--active' : ''}`}
-                >
-                  <span className={`nf-rq-tab-icon ${tone}`}><Icon size={13} /></span>
-                  {t === 'ALL' ? 'All' : TYPE_LABELS[t]} <span className="nf-rq-tab-count">{counts[t]}</span>
-                </button>
-              );
+              return { key: t, label: t === 'ALL' ? 'All' : TYPE_LABELS[t], icon: <Icon size={14} />, count: counts[t] };
             })}
-          </div>
+          />
 
           <div className="nf-rq-filters">
             <div className="nf-rq-search">
