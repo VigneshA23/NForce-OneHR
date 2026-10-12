@@ -139,7 +139,7 @@ public class RegularizationService {
     @Transactional
     public RegularizationResponse submit(CreateRegularizationRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
-        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
+        boolean isSuperAdmin = actorHasRole(actor, "SUPER_ADMIN");
 
         ResolvedTimes times = resolveTimes(req, actor.getId());
         assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
@@ -206,7 +206,7 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public RegularizationBalance getBalance(String actorEmail) {
         User actor = requireActor(actorEmail);
-        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
+        boolean isSuperAdmin = actorHasRole(actor, "SUPER_ADMIN");
         LocalDate today = regularizationBusinessToday();
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
         int usedCount = (int) regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
@@ -235,7 +235,7 @@ public class RegularizationService {
         String before = auditSnapshot.toJson(regularizationSnapshot(existing));
         ResolvedTimes times = resolveTimes(req, actor.getId());
         assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
-        if (!hasRole(actor, "SUPER_ADMIN")) {
+        if (!actorHasRole(actor, "SUPER_ADMIN")) {
             validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
         }
         if (!existing.getAttendanceDate().equals(req.getAttendanceDate())) {
@@ -510,9 +510,9 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listPendingForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
-        boolean isSuperAdmin = hasRole(actor, "SUPER_ADMIN");
-        boolean isHrAdmin = hasRole(actor, "HR_ADMIN");
-        boolean isManager = hasRole(actor, "MANAGER");
+        boolean isSuperAdmin = actorHasRole(actor, "SUPER_ADMIN");
+        boolean isHrAdmin = actorHasRole(actor, "HR_ADMIN");
+        boolean isManager = actorHasRole(actor, "MANAGER");
 
         Map<UUID, RegularizationRequest> queue = new LinkedHashMap<>();
         if (isSuperAdmin) {
@@ -574,15 +574,15 @@ public class RegularizationService {
         boolean finalStage;
         String actingRole;
         if (STATUS_PENDING.equals(req.getStatus())) {
-            if (hasRole(actor, "SUPER_ADMIN")) {
+            if (actorHasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
                 finalStage = true;
-            } else if (hasRole(actor, "HR_ADMIN")) {
+            } else if (actorHasRole(actor, "HR_ADMIN")) {
                 // Same bypass SUPER_ADMIN already has at this stage — HR_ADMIN need not be the
                 // employee's manager, and may act before the manager has (ONEHR-140 follow-up).
                 actingRole = "HR_ADMIN";
                 finalStage = true;
-            } else if (hasRole(actor, "MANAGER")) {
+            } else if (actorHasRole(actor, "MANAGER")) {
                 // A Manager's approval is now final on its own — no HR/Super Admin sign-off
                 // required afterward. Still gated to their own assigned/reporting employee.
                 assertCanReview(req, actor);
@@ -592,10 +592,10 @@ public class RegularizationService {
                 throw new AccessDeniedException("You are not authorized to review this request");
             }
         } else if (STATUS_PARTIALLY_APPROVED.equals(req.getStatus())) {
-            if (hasRole(actor, "SUPER_ADMIN")) {
+            if (actorHasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
                 finalStage = true;
-            } else if (hasRole(actor, "HR_ADMIN")) {
+            } else if (actorHasRole(actor, "HR_ADMIN")) {
                 actingRole = "HR_ADMIN";
                 finalStage = true;
             } else {
@@ -715,21 +715,21 @@ public class RegularizationService {
 
         String actingRole;
         if (STATUS_PENDING.equals(req.getStatus())) {
-            if (hasRole(actor, "SUPER_ADMIN")) {
+            if (actorHasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
-            } else if (hasRole(actor, "HR_ADMIN")) {
+            } else if (actorHasRole(actor, "HR_ADMIN")) {
                 // Same bypass SUPER_ADMIN already has at this stage — see approve() above.
                 actingRole = "HR_ADMIN";
-            } else if (hasRole(actor, "MANAGER")) {
+            } else if (actorHasRole(actor, "MANAGER")) {
                 assertCanReview(req, actor);
                 actingRole = "MANAGER";
             } else {
                 throw new AccessDeniedException("You are not authorized to review this request");
             }
         } else if (STATUS_PARTIALLY_APPROVED.equals(req.getStatus())) {
-            if (hasRole(actor, "SUPER_ADMIN")) {
+            if (actorHasRole(actor, "SUPER_ADMIN")) {
                 actingRole = "SUPER_ADMIN";
-            } else if (hasRole(actor, "HR_ADMIN")) {
+            } else if (actorHasRole(actor, "HR_ADMIN")) {
                 actingRole = "HR_ADMIN";
             } else {
                 throw new AccessDeniedException("You are not authorized to review this request");
@@ -892,7 +892,7 @@ public class RegularizationService {
         return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
-    private boolean hasRole(User actor, String code) {
+    private boolean actorHasRole(User actor, String code) {
         return actor.getRoles().stream().anyMatch(r -> code.equals(r.getCode()));
     }
 
