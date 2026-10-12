@@ -1,24 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Download, Award, BookOpen, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, Download, Award } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
-import { talentDirectoryApi, type TalentEmployeeSummary, type TalentEmployeeDetail } from '../../api/talentOrg';
+import { talentDirectoryApi, type TalentEmployeeSummary } from '../../api/talentOrg';
 import { DetailModalShell } from '../../components/TeamGrowthModal';
-
-const LEVEL_TONE: Record<string, string> = {
-  Beginner: 'var(--txt-dim)', Intermediate: 'var(--info)', Advanced: 'var(--brand-bright)', Expert: 'var(--ok)',
-};
-
-function Pill({ tone, children }: { tone: string; children: React.ReactNode }) {
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-      background: `color-mix(in srgb, ${tone} 15%, transparent)`, color: tone, whiteSpace: 'nowrap',
-    }}>
-      {children}
-    </span>
-  );
-}
+import { LEVEL_TONE, Pill, EmployeeDetailView } from './EmployeeDetailView';
+import { useEmployeeDetail } from './useEmployeeDetail';
 
 export function DirectoryTab() {
   const token = useAuthStore(s => s.token)!;
@@ -27,8 +14,7 @@ export function DirectoryTab() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
-  const [detail, setDetail] = useState<TalentEmployeeDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const { detail, detailLoading, openDetail, closeDetail } = useEmployeeDetail(token);
 
   useEffect(() => {
     talentDirectoryApi.listAll(token)
@@ -52,30 +38,6 @@ export function DirectoryTab() {
     });
   }, [rows, search, departmentFilter]);
 
-  const detailRequestId = useRef(0);
-
-  async function openDetail(employeeUserId: string) {
-    const requestId = ++detailRequestId.current;
-    setDetail(null);
-    setDetailLoading(true);
-    try {
-      const d = await talentDirectoryApi.getDetail(token, employeeUserId);
-      if (detailRequestId.current === requestId) setDetail(d);
-    } catch (e) {
-      if (detailRequestId.current === requestId) showToast('error', e instanceof Error ? e.message : 'Could not load this employee');
-    } finally {
-      if (detailRequestId.current === requestId) setDetailLoading(false);
-    }
-  }
-
-  // Closing must win even if the detail fetch is still in flight — otherwise the response
-  // landing after close flips detailLoading/detail back on and the modal reappears, stuck.
-  function closeDetail() {
-    detailRequestId.current++;
-    setDetail(null);
-    setDetailLoading(false);
-  }
-
   if (loading) return <div style={{ color: 'var(--txt-mut)', fontSize: 13, padding: '20px 0' }}>Loading…</div>;
 
   return (
@@ -94,7 +56,6 @@ export function DirectoryTab() {
           </select>
         </div>
         <a href={talentDirectoryApi.exportUrl()} target="_blank" rel="noreferrer"
-          onClick={() => { /* browser follows the link with its own session cookie/token concerns handled server-side via the auth header — see note below */ }}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', textDecoration: 'none' }}>
           <Download size={13} /> Export CSV
         </a>
@@ -133,60 +94,7 @@ export function DirectoryTab() {
 
       {(detail || detailLoading) && (
         <DetailModalShell title={detail?.employeeName ?? 'Loading…'} onClose={closeDetail}>
-          {detailLoading || !detail ? (
-            <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>
-                  <Sparkles size={13} /> Skills & Expertise
-                </div>
-                {detail.skills.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>None logged.</div>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {detail.skills.map(s => (
-                      <Pill key={s.id} tone={LEVEL_TONE[s.proficiencyLevel] ?? 'var(--txt-dim)'}>{s.skillName} · {s.proficiencyLevel}</Pill>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>
-                  <Award size={13} /> Certificates
-                </div>
-                {detail.certificates.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>None logged.</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {detail.certificates.map(c => (
-                      <div key={c.id} style={{ fontSize: 12.5, color: 'var(--txt)' }}>
-                        <strong>{c.name}</strong>
-                        {c.categoryName && <span style={{ color: 'var(--txt-dim)' }}> · {c.categoryName}</span>}
-                        {c.expiryDate && <span style={{ color: 'var(--txt-dim)' }}> · expires {c.expiryDate}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>
-                  <BookOpen size={13} /> Learning & Development
-                </div>
-                {detail.learningEntries.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>None logged.</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {detail.learningEntries.map(l => (
-                      <div key={l.id} style={{ fontSize: 12.5, color: 'var(--txt)' }}>
-                        <strong>{l.title}</strong> <span style={{ color: 'var(--txt-dim)' }}>· {l.status}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {detailLoading || !detail ? <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div> : <EmployeeDetailView detail={detail} />}
         </DetailModalShell>
       )}
     </div>
