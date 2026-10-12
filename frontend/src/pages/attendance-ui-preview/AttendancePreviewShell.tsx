@@ -19,6 +19,7 @@
  */
 import { useSearchParams } from 'react-router-dom';
 import AttendancePage from '../AttendancePage';
+import { PreviewModeContext } from '../../lib/previewMode';
 import type { Role } from '../../lib/nav.config';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 
@@ -86,7 +87,9 @@ export default function AttendancePreviewShell() {
         </div>
         </div>
         {/* key: remount on role change so every section reloads its role-specific data */}
-        <AttendancePage key={active.param} forcePreview previewRole={active.role} />
+        <PreviewModeContext.Provider value>
+          <AttendancePage key={active.param} forcePreview previewRole={active.role} />
+        </PreviewModeContext.Provider>
       </main>
     </div>
   );

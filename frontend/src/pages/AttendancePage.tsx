@@ -26,6 +26,7 @@ import {
   type SubmitAttendanceRequestPayload,
 } from '../api/attendanceRequests';
 import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeRequests';
+import { usePreviewMode } from '../lib/previewMode';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
@@ -3217,6 +3218,7 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
   loading: boolean;
   onSubmitted: () => Promise<unknown>;
 }) {
+  const isPreview = usePreviewMode(); // design-review mock: never call the API
   const { showToast } = useToast();
   const { formatTime } = useTimeFormat();
   const [open, setOpen] = useState(false);
@@ -3250,13 +3252,13 @@ function WebCheckInAction({ token, actionStyle, today, loading, onSubmitted }: {
     // own UTC calendar date, which can disagree with it near midnight or whenever the employee's
     // device zone differs from their assigned Location's zone.
     const businessTodayIso = today?.workDate;
-    if (!businessTodayIso) { setIsFirstCycleToday(true); setOpenWeb(null); return Promise.resolve(); }
+    if (!businessTodayIso || isPreview) { setIsFirstCycleToday(true); setOpenWeb(null); return Promise.resolve(); }
     return webClockInApi.mine(token).then((list: WebClockInRecord[]) => {
       const todays = list.filter(r => r.workDate === businessTodayIso);
       setIsFirstCycleToday(todays.length === 0);
       setOpenWeb(todays.find(r => !r.checkedOutAt) ?? null);
     }).catch(() => { setIsFirstCycleToday(true); setOpenWeb(null); });
-  }, [token, today]);
+  }, [token, today, isPreview]);
 
   useEffect(() => { refreshMine(); }, [refreshMine]);
 
