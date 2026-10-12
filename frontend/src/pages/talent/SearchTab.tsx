@@ -53,6 +53,10 @@ export function SearchTab() {
     return skills.filter(s => !selectedSkillIds.includes(s.id) && (!q || s.name.toLowerCase().includes(q))).slice(0, 8);
   }, [skills, skillQuery, selectedSkillIds]);
 
+  // Typed text that doesn't resolve to an existing skill must never be silently ignored — Search
+  // running "unfiltered" while that text still sits in the box looks like it searched for it.
+  const hasUnresolvedSkillText = skillQuery.trim().length > 0 && skillOptions.length === 0;
+
   function buildRequest(): TalentSearchRequest {
     return {
       skillIds: selectedSkillIds.length ? selectedSkillIds : undefined,
@@ -136,6 +140,11 @@ export function SearchTab() {
               </div>
             )}
           </div>
+          {hasUnresolvedSkillText && (
+            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 5 }}>
+              No matching skill found. Skills are managed in Settings — clear this to search, or pick from an existing skill.
+            </div>
+          )}
           {selectedSkillIds.length > 1 && (
             <div style={{ display: 'flex', gap: 10, marginTop: 10, fontSize: 12 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--txt-mut)' }}>
@@ -170,16 +179,19 @@ export function SearchTab() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => runSearch()} disabled={searching} style={{
+          <button onClick={() => runSearch()} disabled={searching || hasUnresolvedSkillText}
+            title={hasUnresolvedSkillText ? 'Clear the unmatched skill text first' : undefined} style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#B11116', border: 'none',
-            borderRadius: 7, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: searching ? 'default' : 'pointer', opacity: searching ? 0.7 : 1,
+            borderRadius: 7, color: '#fff', fontSize: 12.5, fontWeight: 700,
+            cursor: searching || hasUnresolvedSkillText ? 'default' : 'pointer', opacity: searching || hasUnresolvedSkillText ? 0.6 : 1,
           }}>
             <Search size={13} /> {searching ? 'Searching…' : 'Search'}
           </button>
           <input value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="Name this search…" style={{ ...inputStyle, width: 180 }} />
-          <button onClick={saveCurrentSearch} disabled={!saveName.trim()} style={{
+          <button onClick={saveCurrentSearch} disabled={!saveName.trim() || hasUnresolvedSkillText} style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)',
-            borderRadius: 7, color: 'var(--txt)', fontSize: 12.5, fontWeight: 600, cursor: saveName.trim() ? 'pointer' : 'default', opacity: saveName.trim() ? 1 : 0.5,
+            borderRadius: 7, color: 'var(--txt)', fontSize: 12.5, fontWeight: 600,
+            cursor: saveName.trim() && !hasUnresolvedSkillText ? 'pointer' : 'default', opacity: saveName.trim() && !hasUnresolvedSkillText ? 1 : 0.5,
           }}>
             <Bookmark size={13} /> Save
           </button>
