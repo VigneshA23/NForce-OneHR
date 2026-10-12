@@ -48,6 +48,10 @@ import AttendanceStatusPreviewPage from './pages/attendance-status-preview/Atten
 // Design-review mock only — Dashboard Hero Male/Female/Non-binary/Fallback variants, reusing the
 // real HeroIllustrationArt component. See the file header in HeroGenderPreviewPage.tsx for details.
 import HeroGenderPreviewPage from './pages/hero-gender-preview/HeroGenderPreviewPage';
+// Design-review mock only — the real AttendancePage in forced mock-data mode. See the route below.
+import AttendancePreviewShell from './pages/attendance-ui-preview/AttendancePreviewShell';
+// Design-review mock only — Home dashboard tile rows per role. See the route below.
+import DashboardPreviewShell from './pages/dashboard-ui-preview/DashboardPreviewShell';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -137,6 +141,15 @@ export default function App() {
             auth, not linked from the app nav. Reuses the real HeroIllustrationArt component from
             components/HeroIllustration.tsx — see the file's own header for details. */}
         <Route path="/hero-gender-preview" element={<HeroGenderPreviewPage />} />
+
+        {/* Design-review mock only — the REAL AttendancePage rendered with forced mock data (no
+            auth, no API calls), inside a minimal frame instead of the authenticated Shell. Not
+            linked from the app nav. Add ?tab=calendar for the Calendar tab. */}
+        <Route path="/attendance-ui-preview" element={<AttendancePreviewShell />} />
+
+        {/* Design-review mock only — the Home dashboard's tile rows (Quick Actions + stat tiles) for
+            each role, built from the real components with invented numbers; no auth, no API calls. */}
+        <Route path="/dashboard-ui-preview" element={<DashboardPreviewShell />} />
 
         {/* Auth required, password-change gate */}
         <Route
