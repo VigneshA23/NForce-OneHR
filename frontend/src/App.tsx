@@ -37,6 +37,7 @@ import SearchResultsPage from './pages/SearchResultsPage';
 import ReportsPage from './pages/ReportsPage';
 import ApiUsagePage from './pages/ApiUsagePage';
 import ProjectAllocationsPage from './pages/ProjectAllocationsPage';
+import BenchPage from './pages/BenchPage';
 // Role-specific mock/visual-preview page only — not part of the real Leave Management module.
 // See the file header in LeavePreviewPage.tsx for details.
 import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
@@ -174,6 +175,7 @@ export default function App() {
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
           <Route path="/allocations"  element={<ProjectAllocationsPage />} />
+          <Route path="/bench"        element={<BenchPage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />

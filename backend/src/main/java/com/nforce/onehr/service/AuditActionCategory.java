@@ -67,7 +67,9 @@ public enum AuditActionCategory {
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
-            "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED"
+            "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED",
+            // BenchStatusService — HR Admin marking/ending an employee's bench status
+            "BENCH_STATUS_CHANGE"
     ));
 
     private final Set<String> actions;
