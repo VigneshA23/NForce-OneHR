@@ -6,7 +6,7 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 /** One (module, action) pair — e.g. (attendance, APPROVE). Actions are deliberately a plain
- *  VARCHAR + CHECK constraint (see V222), not a native Postgres enum, matching this codebase's
+ *  VARCHAR + CHECK constraint (see V224), not a native Postgres enum, matching this codebase's
  *  existing convention for enum-like columns (e.g. SkillMigrationCandidate.status). */
 @Entity
 @Table(name = "permissions")

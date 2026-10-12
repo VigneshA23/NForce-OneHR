@@ -5,7 +5,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
-/** A role's grant of one Permission, at one Scope. See V222__create_permission_tables.sql for
+/** A role's grant of one Permission, at one Scope. See V224__create_permission_tables.sql for
  *  the scope meanings and the "widest scope wins across a user's held roles" resolution rule
  *  (that resolution lives in application code, not here — this is just the stored grant). */
 @Entity

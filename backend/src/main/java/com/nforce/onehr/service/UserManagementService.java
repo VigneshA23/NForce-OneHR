@@ -364,6 +364,11 @@ public class UserManagementService {
                 target.getRoles().addAll(rolesFor(newRole));
                 forceLogoutRequired = true;
                 roleChanged = true;
+                // Separate, access-control-specific audit entry alongside the generic
+                // USER_UPDATED one logged below — see AuditActionCategory#ACCESS_CONTROL.
+                auditService.log(actor.getId(), "ROLE_CHANGED", userId,
+                        auditSnapshot.toJson(Map.of("role", currentRole == null ? "" : currentRole)),
+                        auditSnapshot.toJson(Map.of("role", roleCode)));
             }
         }
 

@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 /** A business-level area of the app (e.g. 'attendance', 'organization') that permissions are
  *  scoped to. Named PermissionModule rather than Module to avoid colliding with the
  *  auto-imported java.lang.Module (Java's own module-system type). See
- *  V222__create_permission_tables.sql for the full design rationale. */
+ *  V224__create_permission_tables.sql for the full design rationale. */
 @Entity
 @Table(name = "modules")
 @Getter

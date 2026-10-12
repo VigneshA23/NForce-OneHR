@@ -31,7 +31,12 @@ public enum AuditActionCategory {
             // — see below. AuthService's login and password self-service events are intentionally
             // absent — see class Javadoc.
             "USER_CREATED", "PASSWORD_RESET",
-            "USER_ACTIVATED", "USER_DEACTIVATED", "USER_SOFT_DELETED"
+            "USER_ACTIVATED", "USER_DEACTIVATED", "USER_SOFT_DELETED",
+            // UserManagementService's role-change block, split out from the generic USER_UPDATED
+            // it used to fall under (that one stays HR_OPERATIONAL for ordinary field edits) —
+            // who holds admin privileges is access-control-sensitive in a way a routine profile
+            // edit isn't, and deserves its own filterable/queryable action.
+            "ROLE_CHANGED"
     )),
 
     HR_OPERATIONAL(Set.of(
