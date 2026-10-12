@@ -14,6 +14,7 @@ import com.nforce.onehr.dto.asset.AssetAssignmentResponse;
 import com.nforce.onehr.dto.asset.AssetRequestResponse;
 import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
+import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -26,6 +27,7 @@ import com.nforce.onehr.service.EmployeeService;
 import com.nforce.onehr.service.ExpenseService;
 import com.nforce.onehr.service.HolidayService;
 import com.nforce.onehr.service.LeaveService;
+import com.nforce.onehr.service.RegularizationService;
 import com.nforce.onehr.service.UserManagementService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -83,6 +85,7 @@ class LiveDataProvidersTest {
     @Mock private ApprovalCenterService approvalCenterService;
     @Mock private ExpenseService expenseService;
     @Mock private AssetService assetService;
+    @Mock private RegularizationService regularizationService;
 
     private LocalDate today;
 
@@ -121,6 +124,7 @@ class LiveDataProvidersTest {
         assertThat(out).contains("Active users by role: Employee 2, Manager 1");
         assertThat(out).contains("Active employees with no reporting manager (1): Bala");
         assertThat(out).contains("Joined this month").contains(": 1");
+        assertThat(out).contains("- " + java.time.YearMonth.from(today) + " (this month): 1 - Engineering 1");
         assertThat(out).contains("Inactive users (1): Dev");
     }
 
@@ -140,8 +144,8 @@ class LiveDataProvidersTest {
                         report("Bala", "Engineering", true, "MANAGER"),
                         report("Chitra", "Sales", false, "EMPLOYEE")))
                 .teamJoiners(List.of(
-                        joiner("Bala", today.withDayOfMonth(1)),
-                        joiner("Old", today.withDayOfMonth(1).minusMonths(3))))
+                        joiner("Bala", "Engineering", today.withDayOfMonth(1)),
+                        joiner("Old", "Sales", today.withDayOfMonth(1).minusMonths(3))))
                 .build());
 
         String out = new OrganisationDataProviders.Headcount(employeeService, attendanceRulesService)
@@ -151,6 +155,29 @@ class LiveDataProvidersTest {
         assertThat(out).contains("Active employees by department: Engineering 2");
         assertThat(out).contains("New joiners in the last 12 months: 2");
         assertThat(out).contains("(1): Bala on " + today.withDayOfMonth(1));
+    }
+
+    @Test
+    @DisplayName("headcount: joiners are broken down by department per month, this month and last month labelled")
+    void headcountJoinersByDepartment() {
+        LocalDate monthStart = today.withDayOfMonth(1);
+        when(employeeService.getOrgDashboard()).thenReturn(ManagerDashboardDto.builder()
+                .directReports(List.of(report("Asha", "Engineering", true, "EMPLOYEE")))
+                .teamJoiners(List.of(
+                        joiner("Asha", "Engineering", monthStart),
+                        joiner("Bala", "Engineering", monthStart),
+                        joiner("Chitra", "Finance", monthStart),
+                        joiner("Dev", "Finance", monthStart.minusMonths(1)),
+                        joiner("Old", "Sales", monthStart.minusMonths(3))))
+                .build());
+
+        String out = new OrganisationDataProviders.Headcount(employeeService, attendanceRulesService)
+                .fetch(as(ShellRole.HR_ADMIN, AudienceBucket.HR, AudienceBucket.EMPLOYEE)).orElseThrow();
+
+        java.time.YearMonth month = java.time.YearMonth.from(today);
+        assertThat(out).contains("\n- " + month + " (this month): 3 - Engineering 2, Finance 1"
+                + "\n- " + month.minusMonths(1) + " (last month): 1 - Finance 1"
+                + "\n- " + month.minusMonths(3) + ": 1 - Sales 1");
     }
 
     @Test
@@ -408,10 +435,63 @@ class LiveDataProvidersTest {
     }
 
     @Test
+    @DisplayName("my regularizations: this month's requests counted by status, not just the latest five")
+    void myRegularizationsCountThisMonthByStatus() {
+        LocalDateTime thisMonth = today.withDayOfMonth(1).atTime(10, 0);
+        when(regularizationService.listMine(EMAIL)).thenReturn(List.of(
+                regularization("Me", "APPROVED", thisMonth), regularization("Me", "APPROVED", thisMonth),
+                regularization("Me", "APPROVED", thisMonth), regularization("Me", "REJECTED", thisMonth),
+                regularization("Me", "PENDING", thisMonth), regularization("Me", "APPROVED", thisMonth.minusMonths(1))));
+
+        String out = new RegularizationDataProviders.MyRegularizations(regularizationService, attendanceRulesService)
+                .fetch(as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)).orElseThrow();
+
+        assertThat(out).contains("Raised this month (submitted on or after " + today.withDayOfMonth(1) + "): 5 - by status: APPROVED 3, ");
+        assertThat(out).contains("PENDING 1").contains("REJECTED 1");
+        assertThat(out).contains("6 regularization request(s) raised by you, ever in total; only the 5 most recent");
+    }
+
+    @Test
+    @DisplayName("my regularizations: none raised is stated, not omitted")
+    void noRegularizationsIsStated() {
+        RegularizationDataProviders.MyRegularizations provider =
+                new RegularizationDataProviders.MyRegularizations(regularizationService, attendanceRulesService);
+        when(regularizationService.listMine(EMAIL)).thenReturn(List.of());
+        assertThat(provider.fetch(as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)))
+                .hasValue("You have never raised a regularization request.");
+
+        LocalDateTime lastMonth = today.withDayOfMonth(1).atTime(10, 0).minusMonths(1);
+        when(regularizationService.listMine(EMAIL)).thenReturn(List.of(regularization("Me", "APPROVED", lastMonth)));
+        assertThat(provider.fetch(as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)).orElseThrow())
+                .contains("Raised this month (submitted on or after " + today.withDayOfMonth(1) + "): 0\n");
+    }
+
+    @Test
+    @DisplayName("pending regularizations: each row has who, which date, when submitted and status; the rest point to the page")
+    void pendingRegularizationsCarryRequestDetails() {
+        LocalDateTime submitted = today.atTime(9, 0);
+        List<RegularizationResponse> pending = new ArrayList<>();
+        for (int i = 1; i <= 6; i++) pending.add(regularization("Emp " + i, "PENDING", submitted.minusDays(i)));
+        when(regularizationService.listPendingForApprover(EMAIL)).thenReturn(pending);
+
+        String out = new RegularizationDataProviders.PendingRegularizations(regularizationService)
+                .fetch(as(ShellRole.MANAGER, AudienceBucket.MANAGER, AudienceBucket.EMPLOYEE)).orElseThrow();
+
+        assertThat(out).startsWith("6 regularization request(s) awaiting your decision in total; only the 5 oldest are listed below, "
+                + "the other 1 are on the matching OneHR page:");
+        assertThat(out).contains("- Emp 6: regularization date " + today.minusDays(10)
+                + ", requested check-in 09:30 AM, check-out 06:30 PM, submitted " + submitted.minusDays(6).toLocalDate()
+                + ", status PENDING, reason: Forgot to punch");
+        // Oldest first, so the newest submission is the one left for the page.
+        assertThat(out).doesNotContain("Emp 1:");
+    }
+
+    @Test
     @DisplayName("a capped list states the true total, not only what it shows")
     void cappedListsStateTheTotal() {
         assertThat(LiveDataText.listHeader(12, 5, "leave request(s)", "most recent"))
-                .startsWith("12 leave request(s) in total; only the 5 most recent are listed");
+                .startsWith("12 leave request(s) in total; only the 5 most recent are listed")
+                .contains("the other 7 are on the matching OneHR page");
         assertThat(LiveDataText.listHeader(3, 5, "leave request(s)", "most recent")).isEqualTo("3 leave request(s):");
     }
 
@@ -428,8 +508,14 @@ class LiveDataProvidersTest {
         return ManagerDashboardDto.DirectReport.builder().fullName(name).departmentName(dept).active(active).roleCode(role).build();
     }
 
-    private static ManagerDashboardDto.TeamJoiner joiner(String name, LocalDate on) {
-        return ManagerDashboardDto.TeamJoiner.builder().fullName(name).joinedTeamOn(on.toString()).active(true).build();
+    private static ManagerDashboardDto.TeamJoiner joiner(String name, String dept, LocalDate on) {
+        return ManagerDashboardDto.TeamJoiner.builder().fullName(name).departmentName(dept).joinedTeamOn(on.toString()).active(true).build();
+    }
+
+    private RegularizationResponse regularization(String name, String status, LocalDateTime submitted) {
+        LocalDate day = today.minusDays(10);
+        return RegularizationResponse.builder().employeeName(name).status(status).createdAt(submitted).attendanceDate(day)
+                .requestedCheckIn(day.atTime(9, 30)).requestedCheckOut(day.atTime(18, 30)).reason("Forgot to punch").build();
     }
 
     private static AttendanceResponse roster(String name, LocalDateTime checkIn, String status, Integer lateBy) {

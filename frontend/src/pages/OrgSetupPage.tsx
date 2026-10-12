@@ -25,6 +25,7 @@ import * as aiAssistantApi from '../api/aiAssistant';
 import PolicyListSection from './penalization/PolicyListSection';
 import PenalizationPolicyAllocationSection from './penalization/PenalizationPolicyAllocationSection';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
+import { TabBar } from '../components/TabBar';
 
 // 'shiftweeklyoff' is ONE top-level Organization Masters tab — Shifts/Weekly Offs/Shift and
 // Weekly Off Rules live as nested sub-tabs inside it (see shiftWeeklyOffSubTab below), matching
@@ -1431,23 +1432,18 @@ function ShiftsMasterDetail({ shifts, loading, token, canManageShifts, kebabItem
                   Versions, both genuinely Shift-level (not employee-list) contexts. */}
               {canManageShifts && detailTab !== 'employees' && <KebabMenu items={kebabItems(selected)} />}
             </div>
-            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', margin: '14px 20px 0' }}>
-              {([
+            <TabBar
+              size="sm"
+              ariaLabel="Shift details"
+              style={{ margin: '14px 20px 0' }}
+              tabs={[
                 { key: 'summary', label: 'Summary' },
                 { key: 'employees', label: 'Employees' },
                 { key: 'versions', label: 'Track Shift Versions' },
-              ] as const).map(t => (
-                <button key={t.key} onClick={() => setDetailTab(t.key)} style={{
-                  padding: '9px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12.5,
-                  fontWeight: detailTab === t.key ? 600 : 400,
-                  color: detailTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-                  borderBottom: detailTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-                  marginBottom: -1,
-                }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              ]}
+              active={detailTab}
+              onChange={setDetailTab}
+            />
             <div style={{ padding: 20, flex: 1, overflowY: 'auto' }}>
               {detailTab === 'summary' ? (
                 <ShiftSummaryPanel shift={selected} />
@@ -1868,7 +1864,7 @@ export default function OrgSetupPage() {
               width instead of forcing the row wider than the panel — overflowX then scrolls the
               tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
               squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
-          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', padding: '0 4px', position: 'relative' }}>
+          <div className="nf-org-toolbar-tabs" style={{ flex: 1, minWidth: 0, position: 'relative' }}>
             {/* Right-edge fade: this row already scrolls (see the comment above on minWidth:0)
                 once there are more tabs than fit — the previous plain clip with no scrollbar or
                 affordance left the extra tabs undiscoverable (hr-ux-audit finding UI-005). This
@@ -1876,38 +1872,22 @@ export default function OrgSetupPage() {
                 against this same scrolling box, so top/right/bottom:0 stays pinned to its visible
                 edge regardless of scroll position, and it's outside the flex flow so it doesn't
                 consume tab-row space. */}
+            <TabBar
+              ariaLabel="Organization sections"
+              style={{ padding: '0 4px', boxShadow: 'none' }}
+              tabs={(Object.keys(TABS) as OrgTab[])
+                // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
+                // load: unlike every other tab here (at least viewable via /organization by HR
+                // Admin), the AI Assistant rate-limit configuration is Super-Admin-only end to end.
+                .filter(key => key !== 'ai-assistant' || role === 'SUPER_ADMIN')
+                .map(key => {
+                  const TabIcon = TABS[key].icon;
+                  return { key, label: TABS[key].label, icon: <TabIcon size={14} aria-hidden="true" /> };
+                })}
+              active={activeTab}
+              onChange={setActiveTab}
+            />
             <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--panel))' }} />
-            {(Object.keys(TABS) as OrgTab[])
-              // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
-              // load: unlike every other tab here (at least viewable via /organization by HR
-              // Admin), the AI Assistant rate-limit configuration is Super-Admin-only end to end.
-              .filter(key => key !== 'ai-assistant' || role === 'SUPER_ADMIN')
-              .map(key => {
-              const T = TABS[key];
-              const TabIcon = T.icon;
-              const isActive = activeTab === key;
-              const accent = TAB_ACCENT[key];
-              return (
-                <button
-                  key={key} onClick={() => setActiveTab(key)}
-                  className="nf-org-tab" aria-selected={isActive}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0, whiteSpace: 'nowrap',
-                    padding: '7px 14px 7px 7px', background: 'transparent', border: 'none',
-                    cursor: 'pointer', fontSize: 12.5,
-                    fontWeight: isActive ? 600 : 500,
-                    color: isActive ? accent : 'var(--txt-mut)',
-                    borderBottom: isActive ? `2px solid ${accent}` : '2px solid transparent',
-                    marginBottom: -1, transition: 'color 120ms',
-                    ['--tab-accent' as string]: accent,
-                  }}>
-                  <span className="nf-org-tab-icon">
-                    <TabIcon size={14} aria-hidden="true" strokeWidth={2.25} />
-                  </span>
-                  {T.label}
-                </button>
-              );
-            })}
           </div>
           {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
             && activeTab !== 'ai-assistant' && (
@@ -1974,22 +1954,17 @@ export default function OrgSetupPage() {
             navigation requirement. */}
         {activeTab === 'penalization' ? (
           <div style={{ padding: 18 }}>
-            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
-              {([
+            <TabBar
+              size="sm"
+              ariaLabel="Penalization"
+              style={{ marginBottom: 16 }}
+              tabs={[
                 { key: 'policy', label: 'Penalization Policy' },
                 { key: 'allocation', label: 'Penalization Policy Allocation' },
-              ] as const).map(t => (
-                <button key={t.key} onClick={() => setPenalizationSubTab(t.key)} style={{
-                  padding: '9px 14px', background: 'transparent', border: 'none', cursor: 'pointer',
-                  fontSize: 12.5, fontWeight: penalizationSubTab === t.key ? 600 : 400,
-                  color: penalizationSubTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-                  borderBottom: penalizationSubTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-                  marginBottom: -1,
-                }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              ]}
+              active={penalizationSubTab}
+              onChange={setPenalizationSubTab}
+            />
             {penalizationSubTab === 'policy' ? (
               <PolicyListSection token={token} onViewAllocations={policyId => {
                 setAllocationInitialPolicyId(policyId);
@@ -2005,23 +1980,18 @@ export default function OrgSetupPage() {
           </div>
         ) : activeTab === 'shiftweeklyoff' ? (
           <div>
-            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', padding: '0 18px' }}>
-              {([
+            <TabBar
+              size="sm"
+              ariaLabel="Shifts and weekly offs"
+              style={{ padding: '0 18px' }}
+              tabs={[
                 { key: 'shifts', label: 'Shifts' },
                 { key: 'weeklyoffs', label: 'Weekly Offs' },
                 { key: 'rules', label: 'Shift and Weekly Off Rules' },
-              ] as const).map(t => (
-                <button key={t.key} onClick={() => setShiftWeeklyOffSubTab(t.key)} style={{
-                  padding: '9px 14px', background: 'transparent', border: 'none', cursor: 'pointer',
-                  fontSize: 12.5, fontWeight: shiftWeeklyOffSubTab === t.key ? 600 : 400,
-                  color: shiftWeeklyOffSubTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-                  borderBottom: shiftWeeklyOffSubTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-                  marginBottom: -1,
-                }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              ]}
+              active={shiftWeeklyOffSubTab}
+              onChange={setShiftWeeklyOffSubTab}
+            />
             {shiftWeeklyOffSubTab === 'shifts' ? (
               <ShiftsMasterDetail
                 shifts={shifts}

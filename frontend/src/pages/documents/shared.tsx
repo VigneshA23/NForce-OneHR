@@ -35,9 +35,9 @@ export function bucketRequiredDocuments(required: RequiredDocument[]): RequiredD
 export function StatusBadge({ status }: { status: string | null }) {
   if (!status) return <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Not uploaded</span>;
   const map: Record<string, { label: string; color: string }> = {
-    VERIFIED: { label: 'Verified', color: '#22c55e' },
-    PENDING_VERIFICATION: { label: 'Pending Review', color: '#eab308' },
-    REJECTED: { label: 'Rejected', color: '#ef4444' },
+    VERIFIED: { label: 'Verified', color: 'var(--ok)' },
+    PENDING_VERIFICATION: { label: 'Pending Review', color: 'var(--warn)' },
+    REJECTED: { label: 'Rejected', color: 'var(--risk)' },
   };
   const cfg = map[status] ?? { label: status, color: 'var(--txt-dim)' };
   return (

@@ -296,6 +296,42 @@ questions:
       assistant still grounds the answer in the real Approval Center workflow and offers
       to open it.
 
+  - id: mgr.approvals.pending-regularization-team
+    role: MANAGER
+    question: "Show pending regularization requests only for my team"
+    category: navigation
+    expect:
+      type: [EXPLANATION]
+      navigation: approvals
+      mustNotMention: ["last 30 days", "Attendance Request Reports"]
+    why: >
+      "my team" steered the model to My Team's Attendance Request Reports block (a 30-day
+      window) instead of the approvals block, so it linked to Reports and would have
+      silently missed any team request pending for longer than 30 days.
+
+  - id: emp.attendance.regularizations-this-month
+    role: EMPLOYEE
+    question: "How many regularization requests did I raise this month and how many were approved?"
+    category: module
+    expect:
+      type: [EXPLANATION]
+      mustNotMention: ["access", "cannot determine"]
+    why: >
+      Regularization shares the attendance module with five other families and lost its slot,
+      and the rows it did send had no submitted date, so the assistant said it could not see the
+      data. It now gets this month's count by status.
+
+  - id: hr.headcount.joiners-by-department
+    role: HR_ADMIN
+    question: "How many employees joined this month by department?"
+    category: module
+    expect:
+      type: [EXPLANATION]
+      mustNotMention: ["not a breakdown", "only provide the total"]
+    why: >
+      The headcount block listed this month's joiners without departments, so the assistant
+      offered only the total and sent the user to Reports.
+
   - id: emp.helpdesk.raise
     role: EMPLOYEE
     question: "How do I raise a ticket with HR?"

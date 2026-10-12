@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, History, Plus, X } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { leaveApi, type LeaveType } from '../../api/leave';
+import { TabBar } from '../../components/TabBar';
 import {
   getCurrentPolicy, getPolicyVersion, getPolicyVersions, savePolicy,
   type PenalizationPolicy, type PenalizationPolicyRequest, type PenalizationPolicyVersionSummary,
@@ -185,18 +186,14 @@ function ViewModal({ policy, initialSection, onClose }: { policy: PenalizationPo
   const [section, setSection] = useState<SectionKey>(initialSection);
   return (
     <ModalShell title={`Version ${policy.version} — ${fmtDate(policy.effectiveFrom)}`} onClose={onClose} width={560}>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid var(--line)', paddingBottom: 8, flexWrap: 'wrap' }}>
-        {SECTIONS.map(s => (
-          <button key={s} onClick={() => setSection(s)} style={{
-            padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: section === s ? 600 : 400,
-            background: section === s ? 'var(--raised)' : 'transparent',
-            color: section === s ? 'var(--brand-bright)' : 'var(--txt-mut)',
-            border: '1px solid ' + (section === s ? 'var(--line2)' : 'transparent'), cursor: 'pointer',
-          }}>
-            {SECTION_LABELS[s]}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        size="sm"
+        ariaLabel="Policy sections"
+        style={{ marginBottom: 14 }}
+        active={section}
+        onChange={setSection}
+        tabs={SECTIONS.map(s => ({ key: s, label: SECTION_LABELS[s] }))}
+      />
       {TOGGLEABLE_SECTIONS.includes(section) && (
         <div style={{ marginBottom: 12 }}>
           <EnabledBadge enabled={

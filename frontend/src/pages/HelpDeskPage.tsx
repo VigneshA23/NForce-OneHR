@@ -27,6 +27,7 @@ import {
 import { ContentFormModal, StatusChip, ConfirmModal } from '../components/helpContent/ContentFormModal';
 import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
+import { ChipGroup } from '../components/TabBar';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -786,17 +787,13 @@ const STATUS_FILTER_OPTIONS: Array<HelpContentStatus | 'ALL'> = ['ALL', 'DRAFT',
  */
 function StatusFilterBar({ value, onChange, counts }: { value: HelpContentStatus | 'ALL'; onChange: (v: HelpContentStatus | 'ALL') => void; counts: Record<string, number> }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-      {STATUS_FILTER_OPTIONS.map(s => (
-        <button key={s} onClick={() => onChange(s)} style={{
-          padding: '5px 12px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: 'none',
-          background: value === s ? 'var(--brand)' : 'var(--raised)',
-          color: value === s ? '#fff' : 'var(--txt-mut)',
-        }}>
-          {s === 'ALL' ? 'All' : STATUS_LABEL[s]} {(counts[s] ?? 0) > 0 && <span style={{ marginLeft: 4, opacity: 0.8 }}>{counts[s]}</span>}
-        </button>
-      ))}
-    </div>
+    <ChipGroup
+      ariaLabel="Status filter"
+      style={{ marginBottom: 14 }}
+      value={value}
+      onChange={onChange}
+      options={STATUS_FILTER_OPTIONS.map(s => ({ key: s, label: s === 'ALL' ? 'All' : STATUS_LABEL[s], count: counts[s] }))}
+    />
   );
 }
 
@@ -1307,17 +1304,13 @@ export default function HelpDeskPage() {
                 style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-              {STATUS_FILTERS.map(s => (
-                <button key={s} onClick={() => setStatusFilter(s)} style={{
-                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
-                  background: statusFilter === s ? 'var(--brand)' : 'var(--raised)',
-                  color: statusFilter === s ? '#fff' : 'var(--txt-mut)',
-                }}>
-                  {s === 'ALL' ? 'All' : s.replace(/_/g, ' ')}
-                </button>
-              ))}
-            </div>
+            <ChipGroup
+              ariaLabel="Status filter"
+              style={{ marginBottom: 16 }}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={STATUS_FILTERS.map(s => ({ key: s, label: s === 'ALL' ? 'All' : s.replace(/_/g, ' ') }))}
+            />
           </>
         )}
 

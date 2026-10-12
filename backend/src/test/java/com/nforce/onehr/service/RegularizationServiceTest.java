@@ -1695,30 +1695,37 @@ class RegularizationServiceTest {
     }
 
     @Test
-    void listPendingForApprover_hrAdminSeesOnlyPartiallyApproved() {
-        // HR is a final-stage-only approver — their queue is PARTIALLY_APPROVED, not PENDING.
-        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+    void listPendingForApprover_hrAdminSeesPendingAndPartiallyApproved() {
+        // HR can approve straight from PENDING (single-stage), so PENDING must reach their queue —
+        // including requests assigned to someone else and ones from HR's own direct reports.
+        RegularizationRequest pendingForOtherManager = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
-                .reason("x").status("PARTIALLY_APPROVED").build();
+                .reason("x").status("PENDING").build();
+        RegularizationRequest pendingForHr = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(managerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
+                .reason("y").status("PENDING").build();
+        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(strangerId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .reason("z").status("PARTIALLY_APPROVED").build();
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
-        when(regularizationRepository.findByStatus("PARTIALLY_APPROVED")).thenReturn(List.of(partiallyApproved));
+        when(regularizationRepository.findByStatusIn(List.of("PENDING", "PARTIALLY_APPROVED")))
+                .thenReturn(List.of(pendingForOtherManager, pendingForHr, partiallyApproved));
 
         List<RegularizationResponse> queue = regularizationService.listPendingForApprover(hrEmail);
 
-        assertEquals(1, queue.size());
-        assertEquals(partiallyApproved.getId(), queue.get(0).getId());
-        verify(regularizationRepository, never()).findByStatus("PENDING");
+        assertEquals(List.of(pendingForOtherManager.getId(), pendingForHr.getId(), partiallyApproved.getId()),
+                queue.stream().map(RegularizationResponse::getId).toList());
     }
 
     @Test
-    void listPendingForApprover_dualRoleManagerAndHrAdmin_seesBothQueues() {
+    void listPendingForApprover_dualRoleManagerAndHrAdmin_seesEverythingPending() {
         RegularizationRequest assignedPending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
                 .reason("x").status("PENDING").build();
-        RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
+        RegularizationRequest notAssignedPending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
-                .reason("y").status("PARTIALLY_APPROVED").build();
+                .reason("y").status("PENDING").build();
         User dualRoleUser = User.builder().id(managerId).email(managerEmail)
                 .roles(Set.of(
                         Role.builder().id(1).code("MANAGER").displayName("Manager").build(),
@@ -1726,14 +1733,13 @@ class RegularizationServiceTest {
                 .build();
 
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(dualRoleUser));
-        when(regularizationRepository.findByStatus("PENDING")).thenReturn(List.of(assignedPending));
-        when(regularizationRepository.findByStatus("PARTIALLY_APPROVED")).thenReturn(List.of(partiallyApproved));
+        when(regularizationRepository.findByStatusIn(List.of("PENDING", "PARTIALLY_APPROVED")))
+                .thenReturn(List.of(assignedPending, notAssignedPending));
 
         List<RegularizationResponse> queue = regularizationService.listPendingForApprover(managerEmail);
 
-        assertEquals(2, queue.size());
-        assertTrue(queue.stream().map(RegularizationResponse::getId)
-                .toList().containsAll(List.of(assignedPending.getId(), partiallyApproved.getId())));
+        assertEquals(List.of(assignedPending.getId(), notAssignedPending.getId()),
+                queue.stream().map(RegularizationResponse::getId).toList());
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
@@ -15,6 +16,7 @@ import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
@@ -35,6 +37,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -66,6 +69,8 @@ public class LeaveService {
     // Matches RegularizationService's NOTIFICATION_DATE_FMT — same "d MMM yyyy" convention used
     // app-wide for dates embedded in notification text.
     private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
+    // Weekday included so a "non-working day" rejection is self-explanatory (e.g. "Saturday, 5 Dec 2026").
+    private static final DateTimeFormatter LEAVE_DATE_FMT = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", Locale.ENGLISH);
     private static final String APPROVALS_LINK = "/approvals?type=LEAVE";
     private static final String EMPLOYEE_LEAVE_LINK = "/my-requests?type=LEAVE";
 
@@ -79,6 +84,8 @@ public class LeaveService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
+    private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    private final HolidayRepository holidayRepository;
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
     // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
     // depended on LeaveService since before this change). A lazy proxy defers resolving the real
@@ -194,6 +201,9 @@ public class LeaveService {
         if (req.getStartDate().isBefore(today)) {
             throw new IllegalArgumentException("Leave cannot be requested for a date before today");
         }
+        // Every requested date must be one of the employee's shift working days and not a Location
+        // holiday — so the plain inclusive day count below is exactly the working days requested.
+        requireOnlyWorkingDays(actor.getId(), req.getStartDate(), req.getEndDate());
         // Any existing PENDING/APPROVED request whose date range overlaps this new one blocks the
         // submission, regardless of whether the new request starts today, in the future, or spans
         // multiple days; REJECTED never blocks. Overlap test: existing.start <= new.end AND
@@ -275,6 +285,37 @@ public class LeaveService {
         auditService.log(actor.getId(), "LEAVE_REQUEST_SUBMITTED", request.getId());
         notifySubmission(request, type, actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * Rejects the request at the first date in [start, end] that is an active holiday of the
+     * employee's Location or an off day of the Shift governing that date — the shift is resolved
+     * per date via {@link EmployeeShiftAssignmentResolver}, since a reassignment can land inside
+     * the range. A date with no effective assignment (a valid no-shift state) is treated as a
+     * working day, i.e. the pre-shift behaviour; an employee with no Location has no holidays.
+     */
+    // ponytail: one assignment lookup per date — fine for leave-sized ranges; batch-fetch the
+    // employee's assignments if multi-month requests ever become common.
+    private void requireOnlyWorkingDays(UUID employeeUserId, LocalDate start, LocalDate end) {
+        Map<LocalDate, String> holidayNames = employeeRepository.findById(employeeUserId)
+                .map(Employee::getLocation)
+                .map(location -> holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId())
+                        .stream().collect(Collectors.toMap(Holiday::getHolidayDate, Holiday::getHolidayName, (a, b) -> a)))
+                .orElse(Map.of());
+        for (LocalDate date : start.datesUntil(end.plusDays(1)).toList()) {
+            String holiday = holidayNames.get(date);
+            if (holiday != null) {
+                throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
+                        + " — it is a holiday (" + holiday + "). Please choose only your working days.");
+            }
+            boolean worksThatDay = employeeShiftAssignmentResolver.resolveIfPresent(employeeUserId, date)
+                    .map(a -> a.getShift().worksOn(date.getDayOfWeek()))
+                    .orElse(true);
+            if (!worksThatDay) {
+                throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
+                        + " — it is a non-working day for your shift. Please choose only your working days.");
+            }
+        }
     }
 
     @Transactional(readOnly = true)

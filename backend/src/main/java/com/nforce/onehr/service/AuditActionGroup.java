@@ -19,6 +19,7 @@ public enum AuditActionGroup {
     EXPENSE,
     ASSET,
     ACCESS,
+    TALENT,
     OTHER;
 
     public static AuditActionGroup of(String action) {
@@ -34,6 +35,8 @@ public enum AuditActionGroup {
         if (action.startsWith("EXPENSE_")) return EXPENSE;
         if (action.startsWith("ASSET_")) return ASSET;
         if (action.startsWith("USER_") || action.startsWith("LOGIN_") || action.startsWith("PASSWORD_")) return ACCESS;
+        if (action.startsWith("SKILL_") || action.startsWith("PROFICIENCY_LEVEL_")
+                || action.startsWith("CERTIFICATE_CATEGORY_") || action.startsWith("TALENT_")) return TALENT;
         return OTHER;
     }
 

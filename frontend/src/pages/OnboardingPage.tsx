@@ -14,6 +14,7 @@ import type { EmployeeRecord } from '../api/employees';
 import { assetsApi, type AssetResponse } from '../api/assets';
 import { documentsForEmployee, fetchDocumentFile, type EmployeeDocument } from '../api/documents';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import { TabBar } from '../components/TabBar';
 import { StatusBadge, inactiveDimStyle, InactiveEditBanner } from '../components/EmployeeStatus';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
@@ -69,10 +70,6 @@ function Kpi({ icon, label, value, note, danger }: { icon: React.ReactNode; labe
       <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
     </div>
   );
-}
-
-function tabStyle(active: boolean): React.CSSProperties {
-  return { padding: '9px 2px', color: active ? 'var(--txt)' : 'var(--txt-mut)', border: 'none', borderBottom: `2px solid ${active ? 'var(--brand)' : 'transparent'}`, background: 'none', fontSize: 13, fontWeight: active ? 600 : 400, cursor: 'pointer' };
 }
 
 function Section({ icon, title, count, children }: { icon: React.ReactNode; title: string; count?: string; children: React.ReactNode }) {
@@ -666,12 +663,18 @@ export default function OnboardingPage() {
         <Kpi icon={<Clock size={14} />} label="Avg. time to complete" value={`${avgDays} d`} note="Joining date to full checklist" />
       </div>
 
-      <div style={{ display: 'flex', gap: 18, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
-        <button onClick={() => switchTab('pending')} style={tabStyle(tab === 'pending')}>Pending Onboarding ({stats?.pendingCount ?? 0})</button>
-        <button onClick={() => switchTab('started')} style={tabStyle(tab === 'started')}>Onboarding Started ({stats?.startedCount ?? 0})</button>
-        <button onClick={() => switchTab('completed')} style={tabStyle(tab === 'completed')}>Successfully Onboarded ({stats?.completedCount ?? 0})</button>
-        <button onClick={() => switchTab('deactivated')} style={tabStyle(tab === 'deactivated')}>Deactivated ({stats?.deactivatedCount ?? 0})</button>
-      </div>
+      <TabBar
+        ariaLabel="Onboarding status"
+        style={{ marginBottom: 16 }}
+        active={tab}
+        onChange={switchTab}
+        tabs={[
+          { key: 'pending', label: 'Pending Onboarding', count: stats?.pendingCount },
+          { key: 'started', label: 'Onboarding Started', count: stats?.startedCount },
+          { key: 'completed', label: 'Successfully Onboarded', count: stats?.completedCount },
+          { key: 'deactivated', label: 'Deactivated', count: stats?.deactivatedCount },
+        ]}
+      />
 
       <div style={{ marginBottom: 12, maxWidth: 340, position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />

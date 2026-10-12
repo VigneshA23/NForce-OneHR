@@ -67,7 +67,25 @@ public enum AuditActionCategory {
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
-            "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED"
+            "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED",
+            // Talent & Skills (SkillMasterService/ProficiencyLevelService/CertificateCategoryService
+            // /SkillRequestService) — Settings configuration changes, same treatment as
+            // PenalizationPolicyService/LeaveTypeService above (both HR Admin and Super Admin see
+            // them). SKILL_REQUEST_SUBMITTED (self-submitted) is intentionally omitted, same as
+            // every other *_SUBMITTED action in this set.
+            "SKILL_MASTER_CREATED", "SKILL_MASTER_UPDATED", "SKILL_MASTER_MERGED",
+            "SKILL_MASTER_DEACTIVATED", "SKILL_MASTER_REACTIVATED",
+            "PROFICIENCY_LEVEL_CREATED", "PROFICIENCY_LEVEL_UPDATED", "PROFICIENCY_LEVEL_DEACTIVATED",
+            "PROFICIENCY_LEVEL_REACTIVATED",
+            "CERTIFICATE_CATEGORY_CREATED", "CERTIFICATE_CATEGORY_UPDATED",
+            "CERTIFICATE_CATEGORY_DEACTIVATED", "CERTIFICATE_CATEGORY_REACTIVATED",
+            "SKILL_REQUEST_APPROVED", "SKILL_REQUEST_REJECTED", "SKILL_REQUEST_MAPPED",
+            "SKILL_MIGRATION_RESOLVED", "SKILL_MIGRATION_REOPENED",
+            // Talent & Skills' org-wide read side (Employee Directory drill-down, CSV/Excel
+            // export) — the spec requires logging every HR/Super Admin view of an individual
+            // employee profile and every export, unlike every *_SUBMITTED self-service action
+            // above. Registered here ahead of that read service itself (a later increment).
+            "TALENT_PROFILE_VIEWED", "TALENT_EXPORTED"
     ));
 
     private final Set<String> actions;

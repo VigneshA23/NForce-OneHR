@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Calendar, RefreshCw, UserRound } from 'lucide-react';
+import { Calendar, RefreshCw, UserRound, Building2, History } from 'lucide-react';
 import { profileApi, type ProfileData, type ProfileTimelineEvent } from '../../../api/profile';
 import { SectionHeader, ReadField, computeDisplayName } from '../shared';
 import { PreferredNameBioModal } from './PreferredNameBioModal';
+import { TabBar } from '../../../components/TabBar';
 
 function SummaryCard({ profile, token, onSaved }: { profile: ProfileData; token: string; onSaved: (p: ProfileData) => void }) {
   const [editing, setEditing] = useState(false);
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <SectionHeader title="Personal Summary & Bio" />
+        <SectionHeader title="Personal Summary & Bio" icon={UserRound} />
         <button onClick={() => setEditing(true)}
           style={{ padding: '5px 12px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', cursor: 'pointer' }}>
           Edit
@@ -45,8 +46,8 @@ function EmploymentContextCard({ profile }: { profile: ProfileData }) {
   })();
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <SectionHeader title="Employment & Organization Context" />
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+      <SectionHeader title="Employment & Organization Context" icon={Building2} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
         <ReadField label="Job Title" value={profile.designationName} />
         <ReadField label="Department" value={profile.departmentName} />
@@ -74,8 +75,8 @@ function TimelineSubTab({ entries, loading }: { entries: ProfileTimelineEvent[];
   // timestamp, not just the date, so same-day changes still order correctly.
   const sorted = [...entries].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
-      <SectionHeader title="Employee Life Cycle & Career History" badge="System History" />
+    <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
+      <SectionHeader title="Employee Life Cycle & Career History" badge="System History" icon={History} />
       <div style={{ position: 'relative', paddingLeft: 8 }}>
         <div style={{ position: 'absolute', left: 23, top: 10, bottom: 10, width: 2, background: 'var(--line2)' }} />
         {sorted.map((e, i) => (
@@ -113,19 +114,18 @@ export function AboutTab({ profile, token, onSaved }: { profile: ProfileData; to
       .finally(() => setTimelineLoading(false));
   }, [token]);
 
-  const subTabStyle = (t: typeof subTab): React.CSSProperties => ({
-    background: t === subTab ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--raised)',
-    border: `1px solid ${t === subTab ? 'var(--brand)' : 'var(--line2)'}`,
-    color: t === subTab ? 'var(--brand-bright)' : 'var(--txt-mut)',
-    fontSize: 12, fontWeight: 600, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
-  });
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button style={subTabStyle('summary')} onClick={() => setSubTab('summary')}>Summary</button>
-        <button style={subTabStyle('timeline')} onClick={() => setSubTab('timeline')}>Timeline</button>
-      </div>
+      <TabBar
+        size="sm"
+        ariaLabel="About"
+        active={subTab}
+        onChange={setSubTab}
+        tabs={[
+          { key: 'summary', label: 'Summary' },
+          { key: 'timeline', label: 'Timeline' },
+        ]}
+      />
 
       {subTab === 'summary' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

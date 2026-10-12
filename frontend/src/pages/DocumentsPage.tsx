@@ -7,6 +7,7 @@ import { myPolicies, acknowledgePolicy, publishedAnnouncements, fetchPolicyAttac
 import { card, bucketRequiredDocuments } from './documents/shared';
 import { useMyDocumentsData } from './documents/useMyDocumentsData';
 import { MyDocumentsSection } from './documents/MyDocumentsSection';
+import { TabBar } from '../components/TabBar';
 
 // ── Policy Read-First Modal ───────────────────────────────
 
@@ -187,11 +188,6 @@ export default function DocumentsPage() {
   const { verified, pending, rejected, missing } = bucketRequiredDocuments(required);
   const pendingPolicies = policies.filter(p => p.required && p.acknowledged === false);
 
-  const tabStyle = (t: typeof tab): React.CSSProperties => ({
-    padding: '8px 20px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13,
-    background: tab === t ? '#A01418' : 'transparent', color: tab === t ? '#fff' : 'var(--txt-dim)',
-  });
-
   const q = search.trim().toLowerCase();
   const filteredAnnouncements = q
     ? announcements.filter(a => a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
@@ -227,17 +223,18 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
-        <button className="nf-doc-tab-btn" style={tabStyle('docs')} onClick={() => setTab('docs')}>
-          <span className="nf-doc-tab-label">My Documents</span>
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('policies')} onClick={() => setTab('policies')}>
-          <span className="nf-doc-tab-label">Policies</span> {pendingPolicies.length > 0 && <span style={{ background: '#A01418', color: '#fff', borderRadius: '50%', fontSize: 10, fontWeight: 700, padding: '1px 6px', marginLeft: 6 }}>{pendingPolicies.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('announcements')} onClick={() => setTab('announcements')}>
-          <span className="nf-doc-tab-label">Announcements</span>
-        </button>
-      </div>
+      <TabBar
+        ariaLabel="Documents and policies"
+        style={{ marginBottom: 20 }}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'docs', label: 'My Documents' },
+          // Badge = required policies still awaiting this employee's acknowledgment.
+          { key: 'policies', label: 'Policies', count: pendingPolicies.length },
+          { key: 'announcements', label: 'Announcements' },
+        ]}
+      />
 
       {/* ── My Documents Tab ── */}
       {tab === 'docs' && (

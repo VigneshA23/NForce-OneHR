@@ -10,10 +10,12 @@ import DashboardPage from './pages/DashboardPage';
 import AttendancePage from './pages/AttendancePage';
 import SuperAdminRegularizationPage from './pages/SuperAdminRegularizationPage';
 import OrgSetupPage from './pages/OrgSetupPage';
+import TalentPerformancePage from './pages/talent/TalentPerformancePage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
 import ProfilePage from './pages/ProfilePage';
+import EmployeeProfileViewPage from './pages/EmployeeProfileViewPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
 import NotificationsPage from './pages/NotificationsPage';
 import DirectoryPage from './pages/DirectoryPage';
@@ -35,6 +37,7 @@ import WorkflowStudioPage from './pages/WorkflowStudioPage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import ReportsPage from './pages/ReportsPage';
 import ApiUsagePage from './pages/ApiUsagePage';
+import ProjectAllocationsPage from './pages/ProjectAllocationsPage';
 // Role-specific mock/visual-preview page only — not part of the real Leave Management module.
 // See the file header in LeavePreviewPage.tsx for details.
 import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
@@ -184,9 +187,12 @@ export default function App() {
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
+          <Route path="/allocations"  element={<ProjectAllocationsPage />} />
+          <Route path="/talent-performance" element={<TalentPerformancePage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />
+          <Route path="/profile/:userId" element={<EmployeeProfileViewPage />} />
           <Route path="/user-preferences" element={<UserPreferencesPage />} />
           <Route path="/notifications"  element={<NotificationsPage />} />
           <Route path="/directory"      element={<DirectoryPage />} />

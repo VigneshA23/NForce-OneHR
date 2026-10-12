@@ -199,10 +199,20 @@ export function Shell() {
   // My Profile is reached via the avatar dropdown (below), not a sidebar module, so it has no
   // entry in NAV — without this, the lookup below would silently fall back to navItems[0] and
   // both the topbar title and the sidebar's active-item highlight would show "Home" instead.
+  // /profile/:userId (someone ELSE's profile, reached from Global Search or People Directory —
+  // see EmployeeProfileViewPage) must not be confused with the bare /profile self-service route
+  // below: both start with '/profile', but only the exact, paramless path is really "my own
+  // profile". Mislabeling the former "My Profile" (QA-reported) was exactly this ambiguity.
+  // key: 'directory' (not a new NAV entry of its own) so the sidebar highlights People
+  // Directory — the closest existing section this view actually belongs to — while `label`
+  // independently overrides what the topbar displays; SidebarNav and the topbar title read
+  // different fields off this same object, so they don't have to agree.
   const current: NavItem = navItems.find((n) => location.pathname.startsWith(n.path))
-    ?? (location.pathname.startsWith('/profile')
-      ? { key: 'profile', label: 'My Profile', icon: User, phase: 1, path: '/profile' }
-      : navItems[0]);
+    ?? (location.pathname.startsWith('/profile/')
+      ? { key: 'directory', label: 'Employee Profile', icon: User, phase: 1, path: '/profile' }
+      : location.pathname.startsWith('/profile')
+        ? { key: 'profile', label: 'My Profile', icon: User, phase: 1, path: '/profile' }
+        : navItems[0]);
 
   type FlatResult =
     | { kind: 'nav'; item: NavItem }

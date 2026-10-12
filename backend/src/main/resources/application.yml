@@ -20,6 +20,21 @@ spring:
       # the next time the pool fills up, this trace is what actually identifies which code is
       # holding the connection instead of guessing again from a generic timeout error.
       leak-detection-threshold: 30000
+      # This is the actual fix for that leak-detection trail: Neon's pooled endpoint occasionally
+      # stalls mid-response on an already-open connection (confirmed via live thread dumps across
+      # two separate incidents — a different, otherwise-healthy query stuck each time, not a bug
+      # in any one query: isolating and EXPLAIN ANALYZE-ing the exact same SQL directly against
+      # Neon returned in under 300ms both times). Without a socket read timeout, pgjdbc just parks
+      # forever waiting for bytes that are never coming — HikariCP has no way to tell that
+      # connection apart from one doing genuinely slow, legitimate work, so it never reclaims it.
+      # One of these every so often permanently shrinks the pool by one until the app is restarted;
+      # enough of them (a session's worth of otherwise-ordinary requests, each unlucky often enough
+      # given how frequently this stall seems to occur) exhausts all 10 connections outright — the
+      # "No results" search failures and intermittent app-wide slowness this traced back to.
+      # validation-timeout bounds how long Hikari's own idle-connection health check can block for
+      # the same reason. Both comfortably exceed every legitimate slow-Neon-cold-start response
+      # actually observed (worst case so far: ~20s), so neither should misfire on real work.
+      validation-timeout: 10000
       data-source-properties:
         # Required for Shift.startTime/endTime's LocalTimeTextConverter (see its own Javadoc):
         # that converter binds a plain String against a native `TIME WITHOUT TIME ZONE` column
@@ -32,6 +47,27 @@ spring:
         # no schema change and no effect on any other typed binding (UUID, timestamptz, int, ...),
         # which continue to bind with their own explicit types exactly as before.
         stringtype: unspecified
+        # The actual stall-recovery mechanism (see above): if Neon goes silent mid-response for
+        # longer than this, pgjdbc throws instead of blocking forever, so Hikari can evict the
+        # connection and hand out a fresh one on the next request rather than that slot being gone
+        # for good. Seconds, per pgjdbc's own socketTimeout property.
+        socketTimeout: "45"
+        tcpKeepAlive: true
+  # The actual, reliable stall-killer (socketTimeout above is defense-in-depth only — proven
+  # insufficient on its own: it's a per-READ timeout, and Neon's pooled endpoint can trickle a
+  # handful of bytes every <45s indefinitely while a query is otherwise stalled, so the clock
+  # resets forever and it never fires — confirmed live against two separate threads stuck 90s+).
+  # A DB-side fix (ALTER ROLE ... SET statement_timeout) was tried and also ruled out: Neon's
+  # PgBouncer-fronted pooled endpoint reuses a small set of already-authenticated backend
+  # processes across logical client connections, and a role-level SET only takes effect the next
+  # time a backend is freshly authenticated — on this low-churn shared dev pooler that could be
+  # arbitrarily far in the future, so it can't be relied on to protect THIS app on its own.
+  # This, instead, bounds every one of this app's (short, single-method, see open-in-view above)
+  # transactions to 30s via Statement.setQueryTimeout(), which pgjdbc enforces with a Timer thread
+  # that sends a cancel request over a SEPARATE, fresh connection — so it fires on schedule
+  # regardless of what the original connection's socket is doing, closing the exact gap above.
+  transaction:
+    default-timeout: 30
   jpa:
     # Off, not the default true: with it on, every request holds a pooled DB connection open for
     # its entire duration (not just while actually querying), including the time spent waiting on
