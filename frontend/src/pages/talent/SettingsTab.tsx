@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Plus, Check, X, RotateCcw, ScanLine, Pencil } from 'lucide-react';
+import { Plus, Check, X, RotateCcw, Pencil } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import type { SkillMasterOption } from '../../api/talentMasterData';
 import {
   skillSettingsApi, proficiencyLevelSettingsApi, certificateCategorySettingsApi,
-  skillRequestSettingsApi, migrationReviewApi,
+  skillRequestSettingsApi,
   type SkillMasterSettingsEntry, type ProficiencyLevelSettingsEntry, type CertificateCategorySettingsEntry,
-  type SkillRequestQueueEntry, type SkillMigrationCandidate, type MigrationScanSummary,
+  type SkillRequestQueueEntry,
 } from '../../api/talentOrg';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
@@ -342,130 +342,15 @@ function SkillRequestsSection({ token }: { token: string }) {
   );
 }
 
-// ── Migration review ──────────────────────────────────────────────────────────
-
-function MigrationReviewSection({ token }: { token: string }) {
-  const { showToast } = useToast();
-  const [candidates, setCandidates] = useState<SkillMigrationCandidate[]>([]);
-  const [discarded, setDiscarded] = useState<SkillMigrationCandidate[]>([]);
-  const [skills, setSkills] = useState<SkillMasterOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false);
-  const [lastScan, setLastScan] = useState<MigrationScanSummary | null>(null);
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-
-  function load() {
-    Promise.all([migrationReviewApi.listPending(token), migrationReviewApi.listAll(token), skillSettingsApi.listAll(token)])
-      .then(([pending, all, s]) => { setCandidates(pending); setDiscarded(all.filter(c => c.status === 'Discarded')); setSkills(s); })
-      .catch(e => showToast('error', e instanceof Error ? e.message : 'Could not load migration candidates'))
-      .finally(() => setLoading(false));
-  }
-  useEffect(load, [token]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function reopen(id: string) {
-    try { await migrationReviewApi.reopen(token, id); load(); }
-    catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not reopen candidate'); }
-  }
-
-  async function scan() {
-    setScanning(true);
-    try {
-      const summary = await migrationReviewApi.scan(token);
-      setLastScan(summary);
-      load();
-    } catch (e) { showToast('error', e instanceof Error ? e.message : 'Scan failed'); }
-    finally { setScanning(false); }
-  }
-
-  async function resolveMap(id: string) {
-    const existingSkillId = mapping[id];
-    if (!existingSkillId) return;
-    try { await migrationReviewApi.resolveMapExisting(token, id, existingSkillId); setCandidates(prev => prev.filter(c => c.id !== id)); }
-    catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not resolve candidate'); }
-  }
-  async function resolveCreate(c: SkillMigrationCandidate) {
-    try { await migrationReviewApi.resolveCreateNew(token, c.id); setCandidates(prev => prev.filter(x => x.id !== c.id)); }
-    catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not create skill from candidate'); }
-  }
-  async function resolveDiscard(id: string) {
-    try { await migrationReviewApi.resolveDiscard(token, id); load(); }
-    catch (e) { showToast('error', e instanceof Error ? e.message : 'Could not discard candidate'); }
-  }
-
-  return (
-    <SubSection title="Migration review — legacy free-text skills" action={
-      <button onClick={scan} disabled={scanning} style={{ ...btnPrimary, opacity: scanning ? 0.7 : 1 }}>
-        <ScanLine size={13} /> {scanning ? 'Scanning…' : 'Scan for unmigrated skills'}
-      </button>
-    }>
-      {lastScan && (
-        <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--txt-dim)', borderBottom: '1px solid var(--line)' }}>
-          Scanned {lastScan.totalUnmigratedRows} unmigrated rows · {lastScan.candidatesCreated} new candidates · {lastScan.candidatesUpdated} updated · {lastScan.autoMatched} auto-matched
-        </div>
-      )}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>{['Raw text', 'Occurrences', 'Proposed match', 'Map to existing', ''].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
-        <tbody>
-          {loading ? (
-            <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center' }}>Loading…</td></tr>
-          ) : candidates.length === 0 ? (
-            <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center' }}>No pending candidates — run a scan to look for unmigrated entries.</td></tr>
-          ) : candidates.map(c => (
-            <tr key={c.id}>
-              <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{c.rawText}</td>
-              <td style={tdS}>{c.occurrenceCount}</td>
-              <td style={tdS}>{c.proposedSkillName ?? <span style={{ fontStyle: 'italic' }}>none</span>}</td>
-              <td style={tdS}>
-                <select value={mapping[c.id] ?? ''} onChange={e => setMapping(prev => ({ ...prev, [c.id]: e.target.value }))} style={inputStyle}>
-                  <option value="">— choose existing skill —</option>
-                  {skills.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </td>
-              <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button onClick={() => resolveMap(c.id)} disabled={!mapping[c.id]} style={{ ...btnGhost, opacity: mapping[c.id] ? 1 : 0.5 }}>Map</button>
-                  <button onClick={() => resolveCreate(c)} style={btnGhost}><Plus size={11} /> Create new</button>
-                  <button onClick={() => resolveDiscard(c.id)} style={btnGhost}><RotateCcw size={11} /> Discard</button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {discarded.length > 0 && (
-        <>
-          <div style={{ padding: '10px 16px', fontSize: 11.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', borderTop: '1px solid var(--line)' }}>
-            Discarded — can be reopened
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <tbody>
-              {discarded.map(c => (
-                <tr key={c.id}>
-                  <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{c.rawText}</td>
-                  <td style={tdS}>{c.occurrenceCount} occurrence{c.occurrenceCount === 1 ? '' : 's'}</td>
-                  <td style={{ ...tdS, textAlign: 'right' }}>
-                    <button onClick={() => reopen(c.id)} style={btnGhost}><RotateCcw size={11} /> Reopen</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-    </SubSection>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type SettingsSubTab = 'skills' | 'levels' | 'categories' | 'requests' | 'migration';
+type SettingsSubTab = 'skills' | 'levels' | 'categories' | 'requests';
 
 const SUB_TABS: { key: SettingsSubTab; label: string }[] = [
   { key: 'skills', label: 'Skills' },
   { key: 'levels', label: 'Proficiency Levels' },
   { key: 'categories', label: 'Certificate Categories' },
   { key: 'requests', label: 'Skill Requests' },
-  { key: 'migration', label: 'Migration Review' },
 ];
 
 export function SettingsTab() {
@@ -491,7 +376,6 @@ export function SettingsTab() {
       {sub === 'levels' && <ProficiencyLevelsSection token={token} />}
       {sub === 'categories' && <CertificateCategoriesSection token={token} />}
       {sub === 'requests' && <SkillRequestsSection token={token} />}
-      {sub === 'migration' && <MigrationReviewSection token={token} />}
     </div>
   );
 }
