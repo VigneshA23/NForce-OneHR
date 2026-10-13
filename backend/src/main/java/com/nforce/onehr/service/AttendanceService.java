@@ -1541,14 +1541,27 @@ public class AttendanceService {
                         employee.getUserId(), start, end)
                 .stream()
                 .map(record -> toResponse(record, employee))
-                .toList();
-        if (!responses.isEmpty()) {
-            Set<LocalDate> penalizedDates = attendancePenaltyRepository
-                    .findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
-                            employee.getUserId(), start, end, AttendancePenaltyStatus.PENDING_REVIEW)
-                    .stream().map(AttendancePenalty::getIncidentDate).collect(Collectors.toSet());
-            responses.forEach(r -> r.setPenalized(penalizedDates.contains(r.getWorkDate())));
-        }
+                .collect(Collectors.toCollection(ArrayList::new));
+        Set<LocalDate> penalizedDates = attendancePenaltyRepository
+                .findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
+                        employee.getUserId(), start, end, AttendancePenaltyStatus.PENDING_REVIEW)
+                .stream().map(AttendancePenalty::getIncidentDate).collect(Collectors.toSet());
+        responses.forEach(r -> r.setPenalized(penalizedDates.contains(r.getWorkDate())));
+        // ONEHR-645: a "No attendance" penalty lands on a day with no Attendance row at all, so the
+        // flag above had nothing to attach to. Same record-less row shape joinRoster uses.
+        Set<LocalDate> recordedDates = responses.stream().map(AttendanceResponse::getWorkDate).collect(Collectors.toSet());
+        penalizedDates.stream().filter(d -> !recordedDates.contains(d)).forEach(d -> {
+            AttendanceResponse placeholder = AttendanceResponse.builder()
+                    .employeeUserId(employee.getUserId())
+                    .employeeCode(employee.getEmployeeCode())
+                    .fullName(employee.getFullName())
+                    .workDate(d)
+                    .workMode(employee.getWorkMode())
+                    .build();
+            placeholder.setPenalized(true);
+            responses.add(placeholder);
+        });
+        responses.sort(Comparator.comparing(AttendanceResponse::getWorkDate).reversed());
         return responses;
     }
 

@@ -202,7 +202,7 @@ public class AttendancePenaltyEvaluationService {
         }
     }
 
-    private String humanizeDiscrepancyType(String discrepancyType) {
+    static String humanizeDiscrepancyType(String discrepancyType) {
         return discrepancyType != null
                 ? discrepancyType.replace('_', ' ').substring(0, 1).toUpperCase() + discrepancyType.replace('_', ' ').substring(1).toLowerCase()
                 : "Policy";
