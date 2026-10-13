@@ -71,17 +71,4 @@ public class UserManagementController {
     public void softDeleteUser(@PathVariable UUID userId, Principal principal) {
         userManagementService.softDeleteUser(userId, principal.getName());
     }
-
-    /** Additive secondary role (e.g. Payroll Admin) — distinct from the primary-role swap above. */
-    @PostMapping("/{userId}/additional-roles/{roleCode}")
-    @PreAuthorize("hasAuthority('user_management:EDIT:ALL')")
-    public EmployeeResponse grantAdditionalRole(@PathVariable UUID userId, @PathVariable String roleCode, Principal principal) {
-        return userManagementService.grantAdditionalRole(userId, roleCode, principal.getName());
-    }
-
-    @DeleteMapping("/{userId}/additional-roles/{roleCode}")
-    @PreAuthorize("hasAuthority('user_management:EDIT:ALL')")
-    public EmployeeResponse revokeAdditionalRole(@PathVariable UUID userId, @PathVariable String roleCode, Principal principal) {
-        return userManagementService.revokeAdditionalRole(userId, roleCode, principal.getName());
-    }
 }
