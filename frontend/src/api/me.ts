@@ -4,8 +4,10 @@ const BASE = `${API_ORIGIN}/api`;
 /** Mirrors backend's MyPermissionsResponse — module -> action -> every scope actually granted
  *  (already cascaded server-side, e.g. an ALL grant also lists OWN/TEAM/DEPARTMENT/LOCATION). */
 export interface MyPermissionsResponse {
+  userId: string;
   primaryRole: string;
   roles: string[];
+  accountOwner: boolean;
   permissions: Record<string, Partial<Record<string, string[]>>>;
 }
 

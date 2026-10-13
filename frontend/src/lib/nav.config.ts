@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, TrendingUp,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, TrendingUp, ShieldAlert,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -98,6 +98,11 @@ export const NAV: Record<Role, NavItem[]> = {
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('talent-performance', 'Performance', TrendingUp, 1),
     item('access', 'User Management', Shield, 1),
+    // Visible only to the account holding the Account Owner flag (see isNavItemVisible's
+    // special-case for this key) — every other Super Admin, including one who holds every other
+    // nav item here, never sees this entry. Listed under the Super Admin role above (rather than
+    // a 5th role) because Account Owner is a flag on a Super Admin account, not a separate role.
+    item('account-owner', 'Account Owner Controls', ShieldAlert, 1),
     item('attendance', 'Attendance Administration', Clock, 1),
     item('leave', 'Leave & Holidays', Calendar, 1),
     item('approvals', 'Approval Center', FileText, 1),
@@ -165,7 +170,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
       { key: 'people-organization', label: 'Organization', icon: GitBranch, children: ['hierarchy', 'organization', 'directory', 'talent-performance'] },
     ],
   },
-  { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
+  { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'account-owner', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },

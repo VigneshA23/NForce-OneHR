@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Copy, Pencil, Power, Trash2, Plus, X, Star } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useAuthStore } from '../../store/authStore';
+import { hasPermission } from '../../lib/permissions';
 import { penalisationPoliciesApi, type PenalisationPolicySummary, type PenalizationFallbackStrategy } from '../../api/penalisationPolicies';
 import PenalizationPolicySection, { ConfirmDiscardModal } from './PenalizationPolicySection';
 
@@ -202,6 +204,12 @@ export default function PolicyListSection({ token, onViewAllocations }: {
   onViewAllocations?: (policyId: string) => void;
 }) {
   const { showToast } = useToast();
+  const permissions = useAuthStore(s => s.permissions);
+  // A fenced Super Admin keeps penalization:VIEW:ALL (reading isn't fenced) but loses these three
+  // — see V228's default fences and AccountOwnerPage.
+  const canCreate = hasPermission(permissions, 'penalization', 'CREATE', 'ALL');
+  const canEdit = hasPermission(permissions, 'penalization', 'EDIT', 'ALL');
+  const canDelete = hasPermission(permissions, 'penalization', 'DELETE', 'ALL');
   const [policies, setPolicies] = useState<PenalisationPolicySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -280,14 +288,16 @@ export default function PolicyListSection({ token, onViewAllocations }: {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button type="button" onClick={() => setCreating(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--brand)',
-          border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer',
-        }}>
-          <Plus size={14} /> New Policy
-        </button>
-      </div>
+      {canCreate && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button type="button" onClick={() => setCreating(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--brand)',
+            border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer',
+          }}>
+            <Plus size={14} /> New Policy
+          </button>
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -329,7 +339,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                 <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{fmtDate(p.effectiveFrom)}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-start' }}>
-                    {(() => {
+                    {canEdit && (() => {
                       const isBusy = settingDefaultId === p.id;
                       const canSetDefault = p.status === 'ACTIVE' && !p.orgDefault && !isBusy;
                       const label = p.orgDefault ? `${p.name} is already the organization default`
@@ -351,15 +361,17 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                         </button>
                       );
                     })()}
-                    <button aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)} title="Edit" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={13} /></button>
-                    <button aria-label={`Clone ${p.name}`} onClick={() => setCloning(p)} title="Clone" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Copy size={13} /></button>
-                    <button aria-label={p.status === 'ACTIVE' ? `Deactivate ${p.name}` : `Activate ${p.name}`}
-                      onClick={() => handleToggleActive(p)} disabled={togglingId === p.id}
-                      title={p.status === 'ACTIVE' ? 'Deactivate — hides it from new allocations, keeps existing history' : 'Activate'}
-                      style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: p.status === 'ACTIVE' ? 'var(--txt-mut)' : 'var(--ok)', cursor: togglingId === p.id ? 'not-allowed' : 'pointer', opacity: togglingId === p.id ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Power size={13} />
-                    </button>
-                    <button aria-label={`Delete ${p.name}`} onClick={() => setDeleting(p)} title="Delete" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--risk)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>
+                    {canEdit && <button aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)} title="Edit" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={13} /></button>}
+                    {canCreate && <button aria-label={`Clone ${p.name}`} onClick={() => setCloning(p)} title="Clone" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Copy size={13} /></button>}
+                    {canEdit && (
+                      <button aria-label={p.status === 'ACTIVE' ? `Deactivate ${p.name}` : `Activate ${p.name}`}
+                        onClick={() => handleToggleActive(p)} disabled={togglingId === p.id}
+                        title={p.status === 'ACTIVE' ? 'Deactivate — hides it from new allocations, keeps existing history' : 'Activate'}
+                        style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: p.status === 'ACTIVE' ? 'var(--txt-mut)' : 'var(--ok)', cursor: togglingId === p.id ? 'not-allowed' : 'pointer', opacity: togglingId === p.id ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Power size={13} />
+                      </button>
+                    )}
+                    {canDelete && <button aria-label={`Delete ${p.name}`} onClick={() => setDeleting(p)} title="Delete" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--risk)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>}
                   </div>
                 </td>
               </tr>
