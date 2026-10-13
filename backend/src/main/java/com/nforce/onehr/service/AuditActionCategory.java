@@ -40,7 +40,13 @@ public enum AuditActionCategory {
             // ManagerRoleSyncService — MANAGER role auto-granted/revoked as reporting lines
             // change (not an admin's own action, but still access-control-sensitive; logged
             // against the actor who triggered the underlying manager-history change).
-            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED"
+            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED",
+            // AccountOwnerService — the Account Owner fencing/un-fencing a module away from
+            // Super Admin's actual reach (see SuperAdminModuleFence).
+            "MODULE_FENCE_APPLIED", "MODULE_FENCE_LIFTED",
+            // UserManagementService's additive secondary-role grant/revoke (e.g. Payroll Admin
+            // handed to an HR user) — distinct from ROLE_CHANGED, which is the primary-role swap.
+            "ADDITIONAL_ROLE_GRANTED", "ADDITIONAL_ROLE_REVOKED"
     )),
 
     HR_OPERATIONAL(Set.of(

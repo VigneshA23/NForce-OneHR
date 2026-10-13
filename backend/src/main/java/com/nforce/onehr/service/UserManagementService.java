@@ -360,6 +360,24 @@ public class UserManagementService {
             if (!PHASE1_ROLES.contains(roleCode))
                 throw new IllegalArgumentException("Invalid role: " + roleCode);
             if (!Objects.equals(currentRole, roleCode)) {
+                // No self-edit of roles — re-submitting the SAME role you already hold is a no-op
+                // caught by the equals-check above, not a "change", so this only ever fires for a
+                // genuine attempted self-promotion/self-demotion.
+                if (userId.equals(actor.getId())) {
+                    throw new IllegalArgumentException("You cannot change your own role. Ask another Super Admin to do this.");
+                }
+                // Mirrors assertNotSelfOrLastActiveSuperAdmin's last-active-Super-Admin guard
+                // (deactivate/delete below), extended to cover demotion — changing the last
+                // active Super Admin's role away from SUPER_ADMIN is exactly as lockout-prone as
+                // deactivating or deleting them, and had no guard at all before this.
+                if ("SUPER_ADMIN".equals(currentRole) && target.isActive()) {
+                    boolean anotherActiveSuperAdminExists = userRepository.findActiveSuperAdmins().stream()
+                            .anyMatch(u -> !u.getId().equals(userId));
+                    if (!anotherActiveSuperAdminExists) {
+                        throw new IllegalArgumentException(
+                                "Cannot change the role of the last active Super Admin. Assign Super Admin to another user first.");
+                    }
+                }
                 Role newRole = roleRepository.findByCode(roleCode)
                         .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
                 target.getRoles().clear();
@@ -445,6 +463,69 @@ public class UserManagementService {
         }
 
         return toResponse(emp, findCurrentManager(userId), target, null);
+    }
+
+    /**
+     * Grants an ADDITIONAL role (e.g. Payroll Admin to an HR user) without touching the target's
+     * existing roles — distinct from updateUser's role field, which replaces the whole set with
+     * a single new primary role. Only for non-Phase-1 roles (EMPLOYEE/MANAGER/HR_ADMIN/
+     * SUPER_ADMIN stay governed by that existing swap mechanism); self-grant is blocked for
+     * every actor regardless of role, per this story's "no self-grant/self-edit of roles"
+     * guardrail. A no-op (not an error) if the target already holds it.
+     */
+    @Transactional
+    public EmployeeResponse grantAdditionalRole(UUID targetUserId, String roleCode, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        if (targetUserId.equals(actor.getId())) {
+            throw new IllegalArgumentException("You cannot grant yourself an additional role.");
+        }
+        String normalizedRoleCode = roleCode.toUpperCase();
+        if (PHASE1_ROLES.contains(normalizedRoleCode)) {
+            throw new IllegalArgumentException("Use the primary role field to change " + normalizedRoleCode);
+        }
+        Employee emp = employeeRepository.findById(targetUserId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        User target = emp.getUser();
+        Role role = roleRepository.findByCode(normalizedRoleCode)
+                .orElseThrow(() -> new IllegalArgumentException("Role not found: " + normalizedRoleCode));
+
+        boolean alreadyHeld = target.getRoles().stream().anyMatch(r -> r.getId().equals(role.getId()));
+        if (!alreadyHeld) {
+            target.getRoles().add(role);
+            userRepository.save(target);
+            auditService.log(actor.getId(), "ADDITIONAL_ROLE_GRANTED", targetUserId,
+                    auditSnapshot.toJson(Map.of("role", "none")),
+                    auditSnapshot.toJson(Map.of("role", normalizedRoleCode)));
+        }
+        return toResponse(emp, findCurrentManager(targetUserId), target, null);
+    }
+
+    /** Revokes an additional role previously granted via {@link #grantAdditionalRole} — same
+     *  self-edit/Phase-1 guards, a no-op if the target doesn't currently hold it. */
+    @Transactional
+    public EmployeeResponse revokeAdditionalRole(UUID targetUserId, String roleCode, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        if (targetUserId.equals(actor.getId())) {
+            throw new IllegalArgumentException("You cannot revoke your own additional role.");
+        }
+        String normalizedRoleCode = roleCode.toUpperCase();
+        if (PHASE1_ROLES.contains(normalizedRoleCode)) {
+            throw new IllegalArgumentException("Use the primary role field to change " + normalizedRoleCode);
+        }
+        Employee emp = employeeRepository.findById(targetUserId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        User target = emp.getUser();
+        Role role = roleRepository.findByCode(normalizedRoleCode)
+                .orElseThrow(() -> new IllegalArgumentException("Role not found: " + normalizedRoleCode));
+
+        boolean removed = target.getRoles().removeIf(r -> r.getId().equals(role.getId()));
+        if (removed) {
+            userRepository.save(target);
+            auditService.log(actor.getId(), "ADDITIONAL_ROLE_REVOKED", targetUserId,
+                    auditSnapshot.toJson(Map.of("role", normalizedRoleCode)),
+                    auditSnapshot.toJson(Map.of("role", "none")));
+        }
+        return toResponse(emp, findCurrentManager(targetUserId), target, null);
     }
 
     /**

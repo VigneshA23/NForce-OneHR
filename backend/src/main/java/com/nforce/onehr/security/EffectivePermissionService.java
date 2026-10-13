@@ -2,7 +2,9 @@ package com.nforce.onehr.security;
 
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.RolePermission;
+import com.nforce.onehr.entity.SuperAdminModuleFence;
 import com.nforce.onehr.repository.RolePermissionRepository;
+import com.nforce.onehr.repository.SuperAdminModuleFenceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Service;
@@ -27,12 +29,21 @@ import java.util.TreeSet;
  * <p>Authority string format: {@code "<moduleCode>:<ACTION>:<SCOPE>"}, e.g.
  * {@code "attendance:VIEW:TEAM"} — plain hasAuthority(...) equality, no ROLE_-style prefix
  * needed (that prefix exists only because hasRole(...) auto-adds it).
+ *
+ * <p>Any account holding SUPER_ADMIN additionally has every {@link SuperAdminModuleFence}-listed
+ * (module, action) pair subtracted from the union above, regardless of which held role actually
+ * supplied that grant — see that entity's own Javadoc. This is the one place in the permission
+ * model where a grant can be taken away rather than only added; everything else here is a pure
+ * union.
  */
 @Service
 @RequiredArgsConstructor
 public class EffectivePermissionService {
 
+    private static final String SUPER_ADMIN = "SUPER_ADMIN";
+
     private final RolePermissionRepository rolePermissionRepository;
+    private final SuperAdminModuleFenceRepository fenceRepository;
 
     @Transactional(readOnly = true)
     public List<SimpleGrantedAuthority> computeAuthorities(Collection<Role> roles) {
@@ -44,6 +55,10 @@ public class EffectivePermissionService {
             for (String covered : ScopeCoverage.coverage(rp.getScope())) {
                 authorities.add(moduleCode + ":" + action + ":" + covered);
             }
+        }
+        if (holdsSuperAdmin(roles)) {
+            List<SuperAdminModuleFence> fences = fenceRepository.findAllWithModule();
+            authorities.removeIf(authority -> isFenced(authority, fences));
         }
         return authorities.stream().map(SimpleGrantedAuthority::new).toList();
     }
@@ -64,7 +79,35 @@ public class EffectivePermissionService {
                     .computeIfAbsent(action, k -> new TreeSet<>())
                     .add(rp.getScope());
         }
+        if (holdsSuperAdmin(roles)) {
+            for (SuperAdminModuleFence fence : fenceRepository.findAllWithModule()) {
+                String moduleCode = fence.getModule().getCode();
+                Map<String, Set<String>> actions = result.get(moduleCode);
+                if (actions == null) continue;
+                if (SuperAdminModuleFence.ALL_ACTIONS.equals(fence.getAction())) {
+                    result.remove(moduleCode);
+                } else {
+                    actions.remove(fence.getAction());
+                    if (actions.isEmpty()) result.remove(moduleCode);
+                }
+            }
+        }
         return result;
+    }
+
+    private boolean holdsSuperAdmin(Collection<Role> roles) {
+        return roles.stream().anyMatch(r -> SUPER_ADMIN.equals(r.getCode()));
+    }
+
+    /** {@code authority} is "<moduleCode>:<ACTION>:<SCOPE>" — fenced on module/action alone, any
+     *  scope. */
+    private boolean isFenced(String authority, List<SuperAdminModuleFence> fences) {
+        int firstColon = authority.indexOf(':');
+        int secondColon = authority.indexOf(':', firstColon + 1);
+        String moduleCode = authority.substring(0, firstColon);
+        String action = authority.substring(firstColon + 1, secondColon);
+        return fences.stream().anyMatch(f -> f.getModule().getCode().equals(moduleCode)
+                && (SuperAdminModuleFence.ALL_ACTIONS.equals(f.getAction()) || f.getAction().equals(action)));
     }
 
     private List<RolePermission> grantsFor(Collection<Role> roles) {
