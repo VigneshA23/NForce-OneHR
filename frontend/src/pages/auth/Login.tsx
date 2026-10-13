@@ -133,7 +133,7 @@ export default function Login() {
     }
     setSubmitting(true);
     try {
-      const data = await authApi.login(email, password);
+      const data = await authApi.login(email, password, rememberMe);
       try {
         if (rememberMe) localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
         else localStorage.removeItem(REMEMBER_EMAIL_KEY);
@@ -144,7 +144,7 @@ export default function Login() {
         email: data.email,
         mustChangePassword: data.mustChangePassword,
         role: data.role,
-      });
+      }, rememberMe);
       if (data.mustChangePassword) {
         // Not `replace: true` — keeps /login in history so the browser back
         // button can return the user to sign-in from the password-setup page.
@@ -409,6 +409,11 @@ export default function Login() {
           .nf-login-spacer { display: none !important; }
           .nf-login-grid { min-height: auto !important; }
           .nfs-auth-panel { min-height: auto !important; }
+        }
+        /* Phones: sign-in card only — hide the stacked artwork and keep the card centred. */
+        @media (max-width: 768px) {
+          .nf-login-art { display: none !important; }
+          .nf-login-grid, .nfs-auth-panel { min-height: 100dvh !important; }
         }
       `}</style>
     </div>
