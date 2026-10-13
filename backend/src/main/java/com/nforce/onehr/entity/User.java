@@ -71,6 +71,14 @@ public class User {
     @Column(name = "token_version_reason", length = 32)
     private String tokenVersionReason;
 
+    // Capped at 1-2 holders org-wide (enforced in application code, not a DB constraint — see
+    // V228's own header on why this app has no tenant boundary to anchor it to instead). Only an
+    // existing Account Owner can grant/revoke this flag on another user — never a Super Admin,
+    // and never on their own account (see AccountOwnerService).
+    @Column(name = "is_account_owner", nullable = false)
+    @Builder.Default
+    private boolean accountOwner = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
