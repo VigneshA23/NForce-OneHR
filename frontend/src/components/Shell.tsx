@@ -5,7 +5,10 @@ import {
   Shield, User, LogOut, Menu, X as CloseIcon,
   Clock as ClockIcon, ArrowRight,
 } from 'lucide-react';
-import { NAV, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
+import { NAV, ALL_NAV_ITEMS, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
+import { isNavItemVisible } from '../lib/permissions';
+import { meApi } from '../api/me';
+import { AccessDenied } from './AccessDenied';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
 import { readRecentSearches, addRecentSearch, clearRecentSearches, type RecentDestination } from '../lib/recentSearches';
 import { useAuthStore } from '../store/authStore';
@@ -191,11 +194,22 @@ export function Shell() {
   const searchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const role     = toShellRole(storeUser?.role);
-  const email    = storeUser?.email || '';
-  const name     = storeUser?.fullName || email || 'User';
+  const role        = toShellRole(storeUser?.role);
+  const email       = storeUser?.email || '';
+  const name        = storeUser?.fullName || email || 'User';
+  const permissions = useAuthStore((s) => s.permissions);
 
   const navItems = NAV[role];
+  // Narrows the role's full candidate list down to what this user's live permissions actually
+  // grant — a plain membership check per item (see isNavItemVisible), not a re-derivation of role
+  // logic. Search suggestions and the sidebar both use this filtered set; `current` below still
+  // matches against the FULL navItems so a denied route is recognized (and its label available)
+  // rather than falling through to an unrelated item.
+  const visibleNavItems = useMemo(
+    () => navItems.filter((n) => isNavItemVisible(n, permissions)),
+    [navItems, permissions]
+  );
+  const isItemVisible = useCallback((n: NavItem) => isNavItemVisible(n, permissions), [permissions]);
   // My Profile is reached via the avatar dropdown (below), not a sidebar module, so it has no
   // entry in NAV — without this, the lookup below would silently fall back to navItems[0] and
   // both the topbar title and the sidebar's active-item highlight would show "Home" instead.
@@ -213,6 +227,15 @@ export function Shell() {
       : location.pathname.startsWith('/profile')
         ? { key: 'profile', label: 'My Profile', icon: User, phase: 1, path: '/profile' }
         : navItems[0]);
+  // Looked up against ALL_NAV_ITEMS (every role's items, not just this one's NAV[role]) — a path
+  // this role's own array doesn't even mention (e.g. an Employee directly visiting /organization,
+  // a key only HR Admin/Super Admin ever see in their nav) must still be checked, or it would
+  // mount completely unguarded on the frontend. Never true for the /profile synthetic entries
+  // above (not in ALL_NAV_ITEMS) or a path no role's nav mentions at all (falls through exactly
+  // as before). Backend @PreAuthorize is still the real enforcement regardless of this check; this
+  // only stops the page component from mounting at all on a denied direct-URL visit.
+  const globalMatch = ALL_NAV_ITEMS.find((n) => location.pathname.startsWith(n.path));
+  const deniedByPermission = globalMatch != null && !isNavItemVisible(globalMatch, permissions);
 
   type FlatResult =
     | { kind: 'nav'; item: NavItem }
@@ -223,8 +246,8 @@ export function Shell() {
   const navMatches = useMemo<NavItem[]>(() => {
     const q = trimmedQuery.toLowerCase();
     if (!q) return [];
-    return navItems.filter(n => n.label.toLowerCase().includes(q)).slice(0, 4);
-  }, [trimmedQuery, navItems]);
+    return visibleNavItems.filter(n => n.label.toLowerCase().includes(q)).slice(0, 4);
+  }, [trimmedQuery, visibleNavItems]);
 
   const allResults = useMemo<FlatResult[]>(() => [
     ...navMatches.map(item => ({ kind: 'nav' as const, item })),
@@ -329,6 +352,16 @@ export function Shell() {
       }
     }
   }
+
+  // Refreshed once per token (not from the login response, which carries no permissions field) —
+  // same "once per mount" pattern as the profile-sync effect below. Drives nav visibility and the
+  // route-level AccessDenied check above; the persisted copy from a previous session covers the
+  // instant-of-reload gap before this resolves (see authStore's own comment on that tradeoff).
+  const setPermissions = useAuthStore((s) => s.setPermissions);
+  useEffect(() => {
+    if (!token) return;
+    meApi.getPermissions(token).then(setPermissions).catch(() => {});
+  }, [token, setPermissions]);
 
   // Heal stale sessions (fullName predating the fullName-in-login-response change) and pick
   // up the user's profile photo — the login response never carries it, so without this the
@@ -760,8 +793,9 @@ export function Shell() {
           </div>
         </Link>
 
-        {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see nav.config.ts) */}
-        <SidebarNav role={role} currentKey={current.key} onNavigate={() => setNavOpen(false)} />
+        {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see
+            nav.config.ts), further narrowed by this user's live permissions (isNavItemVisible) */}
+        <SidebarNav role={role} currentKey={current.key} isVisible={isItemVisible} onNavigate={() => setNavOpen(false)} />
       </aside>
 
       {/* Main area */}
@@ -936,7 +970,11 @@ export function Shell() {
               .nf-section-enter's entrance animation (same class DashboardPage etc. already use
               for section reveals) instead of the routed page just appearing instantly. */}
           <div key={location.pathname} className="nf-section-enter">
-            {isNavItemDisabled(current) ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} /> : <Outlet />}
+            {deniedByPermission
+              ? <AccessDenied />
+              : isNavItemDisabled(current)
+                ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} />
+                : <Outlet />}
           </div>
         </main>
       </div>
