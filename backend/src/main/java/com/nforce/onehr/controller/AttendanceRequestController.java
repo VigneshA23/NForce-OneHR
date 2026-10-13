@@ -27,7 +27,6 @@ public class AttendanceRequestController {
     private final AttendanceRequestService attendanceRequestService;
 
     @PostMapping
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public ResponseEntity<AttendanceRequestResponse> submit(
             @Valid @RequestBody CreateAttendanceRequest req, Principal principal) {
         AttendanceRequestResponse created = attendanceRequestService.submit(req, principal.getName());
@@ -35,14 +34,12 @@ public class AttendanceRequestController {
     }
 
     @GetMapping("/mine")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<AttendanceRequestResponse> mine(Principal principal) {
         return attendanceRequestService.listMine(principal.getName());
     }
 
     /** "View Available Balance" — hours already committed this month vs. the 2h/month cap. */
     @GetMapping("/partial-day-balance")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public AttendanceRequestService.PartialDayBalance partialDayBalance(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date, Principal principal) {
         return attendanceRequestService.getPartialDayBalance(principal.getName(), date);
@@ -50,7 +47,6 @@ public class AttendanceRequestController {
 
     /** WFH's "Remaining balance" line — days used this month vs. the enforced 2-day/month cap. */
     @GetMapping("/wfh-balance")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public AttendanceRequestService.WfhBalance wfhBalance(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date, Principal principal) {
         return attendanceRequestService.getWfhBalance(principal.getName(), date);
@@ -75,13 +71,13 @@ public class AttendanceRequestController {
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance_requests:APPROVE:TEAM')")
     public List<AttendanceRequestResponse> pending(Principal principal) {
         return attendanceRequestService.listPendingForApprover(principal.getName());
     }
 
     @PatchMapping("/{id}/approve")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance_requests:APPROVE:TEAM')")
     public AttendanceRequestResponse approve(@PathVariable UUID id,
                                               @RequestBody(required = false) ApproveRegularizationRequest req,
                                               Principal principal) {
@@ -90,7 +86,7 @@ public class AttendanceRequestController {
     }
 
     @PatchMapping("/{id}/reject")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance_requests:APPROVE:TEAM')")
     public AttendanceRequestResponse reject(@PathVariable UUID id,
                                              @Valid @RequestBody RejectRegularizationRequest req,
                                              Principal principal) {

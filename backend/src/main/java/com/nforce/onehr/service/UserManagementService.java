@@ -32,6 +32,7 @@ public class UserManagementService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final ManagerRoleSyncService managerRoleSyncService;
     private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
@@ -176,6 +177,7 @@ public class UserManagementService {
                     .managerUserId(req.getManagerId())
                     .changedBy(actor.getId())
                     .build());
+            managerRoleSyncService.grantIfNewManager(req.getManagerId(), actor.getId());
         }
 
         auditService.log(actor.getId(), "USER_CREATED", newUser.getId());
@@ -362,8 +364,18 @@ public class UserManagementService {
                         .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
                 target.getRoles().clear();
                 target.getRoles().addAll(rolesFor(newRole));
+                // An auto-granted MANAGER status (see ManagerRoleAutoGrant) reflects live
+                // reporting lines, not this primary-role choice — restore it after the clear
+                // above so changing someone's role never silently drops a status they still
+                // hold by virtue of actually having direct reports.
+                managerRoleSyncService.restoreIfAutoGranted(target);
                 forceLogoutRequired = true;
                 roleChanged = true;
+                // Separate, access-control-specific audit entry alongside the generic
+                // USER_UPDATED one logged below — see AuditActionCategory#ACCESS_CONTROL.
+                auditService.log(actor.getId(), "ROLE_CHANGED", userId,
+                        auditSnapshot.toJson(Map.of("role", currentRole == null ? "" : currentRole)),
+                        auditSnapshot.toJson(Map.of("role", roleCode)));
             }
         }
 
@@ -377,6 +389,13 @@ public class UserManagementService {
                         .managerUserId(req.getManagerId())
                         .changedBy(actor.getId())
                         .build());
+                // The old manager may have just dropped to zero direct reports (revoke-candidate,
+                // only acted on if their MANAGER role was itself auto-granted); the new manager
+                // may have just gained their first (grant-candidate, no-op if already a manager).
+                if (currentManagerId != null) {
+                    managerRoleSyncService.revokeIfNoLongerManager(currentManagerId, actor.getId());
+                }
+                managerRoleSyncService.grantIfNewManager(req.getManagerId(), actor.getId());
                 forceLogoutRequired = true;
                 managerChanged = true;
             }
@@ -613,11 +632,18 @@ public class UserManagementService {
         target.setDeletedAt(Instant.now());
         target.setActive(false);
         userRepository.save(target);
+        // Captured before closing below — once closed this row is no longer "current", so this
+        // is the only chance to know whose direct-report count may have just dropped to zero.
+        UUID formerManagerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId)
+                .map(EmployeeManagerHistory::getManagerUserId).orElse(null);
         // Close out the employee's open manager-history row so they immediately stop being
         // anyone's "current" direct report/peer — without this, every screen that resolves a
         // manager's team via findCurrentDirectReportIds/findCurrentPeerIds keeps surfacing the
         // deleted user forever, since a soft delete otherwise never touches this table.
         historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
+        if (formerManagerId != null) {
+            managerRoleSyncService.revokeIfNoLongerManager(formerManagerId, actor.getId());
+        }
         String after = auditSnapshot.toJson(Map.of("deletedAt", target.getDeletedAt().toString(), "active", false));
         auditService.log(actor.getId(), "USER_SOFT_DELETED", userId, before, after);
     }

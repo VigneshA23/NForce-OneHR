@@ -62,7 +62,7 @@ import DashboardPreviewShell from './pages/dashboard-ui-preview/DashboardPreview
 // Role-switchable mock preview of the redesigned My Team page (?role=manager|hr-admin|super-admin|employee).
 // Mock data only — see the file header in my-team/MyTeamPreviewPage.tsx.
 import MyTeamPreviewPage from './pages/my-team/MyTeamPreviewPage';
-import { toShellRole } from './lib/nav.config';
+import { hasPermission } from './lib/permissions';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
 
@@ -73,9 +73,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function DocumentsRouter() {
-  const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
-  return role === 'HR Admin' || role === 'Super Admin'
+  const permissions = useAuthStore(s => s.permissions);
+  return hasPermission(permissions, 'documents', 'VIEW', 'ALL')
     ? <DocumentsCompliancePage />
     : <DocumentsPage />;
 }
@@ -83,20 +82,23 @@ function DocumentsRouter() {
 // Manager, HR Admin, and Super Admin share the same /audit path with different components —
 // only these three roles have an 'audit' nav entry at all (see nav.config.ts). Super Admin gets
 // the full Audit & Security view; Manager and HR Admin both get the self-scoped Audit History
-// view (the server, not this ternary, enforces that scoping — see AuditLogController).
+// view (the server, not this ternary, enforces that scoping — see AuditLogController). Gated on
+// user_management:VIEW:ALL (Super-Admin-only, see UserManagementController) rather than audit's
+// own permission, which every one of these three roles equally holds (audit is OWN-scoped for
+// everyone by design — see V225's header) and so can't distinguish Super Admin from the other two.
 function AuditRouter() {
-  const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
-  return role === 'Super Admin' ? <AuditSecurityPage /> : <AuditHistoryPage />;
+  const permissions = useAuthStore(s => s.permissions);
+  return hasPermission(permissions, 'user_management', 'VIEW', 'ALL')
+    ? <AuditSecurityPage />
+    : <AuditHistoryPage />;
 }
 
 // /requests is "My Requests" (Leave/Regularization/Web Clock-In tracker) for Employee/Manager,
 // but the Help Desk ticket queue for HR Admin/Super Admin — same nav slot the "HR Service
 // Requests" item already reserved (see nav.config.ts). Mirrors DocumentsRouter/AuditRouter.
 function RequestsRouter() {
-  const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
-  return role === 'HR Admin' || role === 'Super Admin'
+  const permissions = useAuthStore(s => s.permissions);
+  return hasPermission(permissions, 'helpdesk', 'VIEW', 'ALL')
     ? <HelpDeskAdminPage />
     : <MyRequestsPage />;
 }

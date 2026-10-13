@@ -35,7 +35,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/penalization-policy")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class PenalizationPolicyController {
 
     private final PenalizationPolicyService service;
@@ -44,6 +43,7 @@ public class PenalizationPolicyController {
     private final AttendanceProperties attendanceProperties;
 
     @GetMapping("/current")
+    @PreAuthorize("hasAuthority('penalization:VIEW:ALL')")
     public PenalizationPolicyResponse current(@RequestParam(required = false) UUID policyId) {
         return service.getCurrent(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Penalization Policy is not configured"));
@@ -68,16 +68,19 @@ public class PenalizationPolicyController {
     }
 
     @GetMapping("/versions")
+    @PreAuthorize("hasAuthority('penalization:VIEW:ALL')")
     public List<PenalizationPolicyVersionSummary> versions(@RequestParam(required = false) UUID policyId) {
         return service.getVersionHistory(policyId);
     }
 
     @GetMapping("/versions/{id}")
+    @PreAuthorize("hasAuthority('penalization:VIEW:ALL')")
     public PenalizationPolicyResponse version(@PathVariable UUID id) {
         return service.getVersion(id);
     }
 
     @PutMapping
+    @PreAuthorize("hasAuthority('penalization:EDIT:ALL')")
     public PenalizationPolicyResponse save(@RequestParam(required = false) UUID policyId,
                                             @Valid @RequestBody PenalizationPolicyRequest request, Principal principal) {
         return service.save(policyId, request, principal.getName());

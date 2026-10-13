@@ -31,6 +31,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -62,32 +63,32 @@ public class AttendanceController {
     private final AttendancePenaltyService attendancePenaltyService;
     private final ExceptionService exceptionService;
 
-    // Gated on the base EMPLOYEE role, which every account holds alongside whatever admin role
-    // it's assigned (see UserManagementService.rolesFor) — Manager/HR Admin/Super Admin are
-    // staff too and punch in/out the same way, in ADDITION to the oversight endpoints further
-    // down (/day, /team, /employee/{id}) that only they can reach.
+    // No @PreAuthorize below on the self-service endpoints: hasRole('EMPLOYEE') (the pre-Phase-3
+    // gate) was never a real narrowing — every account holds EMPLOYEE alongside whatever admin
+    // role it's assigned (see UserManagementService.rolesFor), so it was already equivalent to
+    // the blanket .anyRequest().authenticated() the security filter chain enforces regardless.
+    // EMPLOYEE deliberately has zero role_permissions rows (see V225's header) — self-service
+    // access is that unconditional floor, not a grant from the permission matrix. Manager/HR
+    // Admin/Super Admin are staff too and punch in/out the same way, in ADDITION to the
+    // permission-gated oversight endpoints further down (/day, /team, /employee/{id}).
 
     @GetMapping("/today")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public TodayAttendanceResponse today(@RequestParam(required = false) String timezone, Principal principal) {
         return attendanceService.getToday(principal.getName(), timezone);
     }
 
     @PostMapping("/check-in")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     @ResponseStatus(HttpStatus.CREATED)
     public AttendanceResponse checkIn(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal) {
         return attendanceService.checkIn(principal.getName(), req != null ? req.getTimezone() : null);
     }
 
     @PostMapping("/check-out")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public AttendanceResponse checkOut(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal) {
         return attendanceService.checkOut(principal.getName(), req != null ? req.getTimezone() : null);
     }
 
     @GetMapping("/me")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<AttendanceResponse> myHistory(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -114,7 +115,6 @@ public class AttendanceController {
 
     /** "Me vs My Team" (peers under the employee's own current manager) for the selected range. */
     @GetMapping("/stats")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public AttendanceStatsResponse stats(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -136,7 +136,6 @@ public class AttendanceController {
 
     /** Always empty today — see AttendanceExceptionResponse's Javadoc. */
     @GetMapping("/exceptions")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<AttendanceExceptionResponse> exceptions(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -145,14 +144,14 @@ public class AttendanceController {
     }
 
     @GetMapping("/day")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:ALL')")
     public List<AttendanceResponse> day(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return attendanceService.getDayForAll(date);
     }
 
     @GetMapping("/team")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public List<AttendanceResponse> team(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             Principal principal) {
@@ -160,7 +159,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/team-month")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public List<AttendanceResponse> teamMonth(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -170,7 +169,7 @@ public class AttendanceController {
 
     /** Avg. Work Hours Leaderboard, ranked desc — direct reports only (ONEHR-106). */
     @GetMapping("/team-effort")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public List<TeamEffortEntry> teamEffort(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -180,7 +179,7 @@ public class AttendanceController {
 
     /** Late Arrivals, Least Hours Worked, and Frequent Breaks — direct reports only (ONEHR-107). */
     @GetMapping("/team-negligence")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public TeamNegligenceResponse teamNegligence(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -190,7 +189,6 @@ public class AttendanceController {
 
     /** Day roster for the caller's current peers — My Team: Peers view (ONEHR-73). Any employee. */
     @GetMapping("/peers")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<AttendanceResponse> peers(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             Principal principal) {
@@ -199,7 +197,6 @@ public class AttendanceController {
 
     /** Peer attendance across a date range — backs the Peers view calendar (ONEHR-73). */
     @GetMapping("/peers-month")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<AttendanceResponse> peersMonth(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -209,7 +206,7 @@ public class AttendanceController {
 
     /** On-Time Leaderboard — "on time" == PRESENT — direct reports only. */
     @GetMapping("/team-punctuality")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public TeamPunctualityResponse teamPunctuality(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -218,16 +215,17 @@ public class AttendanceController {
     }
 
     @GetMapping("/employee/{userId}")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public List<AttendanceResponse> employeeHistory(
             @PathVariable UUID userId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             Authentication authentication) {
-        // A plain Manager is confined to their direct reports; HR/Super Admin may view anyone.
+        // A plain Manager is confined to their direct reports; HR/Super Admin (whose resolved
+        // scope cascades up to ALL) may view anyone.
         boolean privileged = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_HR_ADMIN") || a.equals("ROLE_SUPER_ADMIN"));
+                .anyMatch(a -> a.equals("attendance:VIEW:ALL"));
         return attendanceService.getEmployeeHistory(
                 userId, from, to, authentication.getName(), !privileged);
     }
@@ -235,7 +233,6 @@ public class AttendanceController {
     // ── Regularization: submit + view own requests (Employee only — same reasoning as punching) ──
 
     @PostMapping("/regularization")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public ResponseEntity<RegularizationResponse> submitRegularization(
             @Valid @RequestBody CreateRegularizationRequest req, Principal principal) {
         RegularizationResponse created = regularizationService.submit(req, principal.getName());
@@ -243,14 +240,12 @@ public class AttendanceController {
     }
 
     @GetMapping("/regularization/mine")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<RegularizationResponse> myRegularizations(Principal principal) {
         return regularizationService.listMine(principal.getName());
     }
 
     /** Edit a still-pending request — owner only, PENDING only (enforced in the service). */
     @PatchMapping("/regularization/{id}")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public RegularizationResponse updateRegularization(@PathVariable UUID id,
                                                         @Valid @RequestBody CreateRegularizationRequest req,
                                                         Principal principal) {
@@ -274,7 +269,7 @@ public class AttendanceController {
      * Backs the read-only history modal opened from the Penalties table's kebab menu.
      */
     @GetMapping("/regularization/history")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:VIEW:TEAM')")
     public List<RegularizationResponse> regularizationHistory(
             @RequestParam UUID employeeUserId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate attendanceDate,
@@ -282,22 +277,35 @@ public class AttendanceController {
         return regularizationService.getHistoryForManager(principal.getName(), employeeUserId, attendanceDate);
     }
 
-    /** Super Admin: full history org-wide, with optional filters. */
+    /**
+     * Super Admin: full history org-wide, with optional filters. Deliberately narrower than the
+     * general regularization:VIEW:ALL grant below (HR_ADMIN holds that one too, for the
+     * single-stage approve flow) — Super-Admin-only is checked explicitly here rather than via
+     * the permission matrix, since the matrix has no way to express "ALL scope, but only for this
+     * one role" without a finer-grained action/scope just for this endpoint. See V225's header.
+     */
     @GetMapping("/regularization/all")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:VIEW:ALL')")
     public List<RegularizationResponse> allRegularizations(
             @RequestParam(required = false) UUID employeeUserId,
             @RequestParam(required = false) UUID approverUserId,
             @RequestParam(required = false) UUID departmentId,
             @RequestParam(required = false) String month,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            Authentication authentication) {
+        boolean isSuperAdmin = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> a.equals("ROLE_SUPER_ADMIN"));
+        if (!isSuperAdmin) {
+            throw new AccessDeniedException("Access denied");
+        }
         return regularizationService.listAll(employeeUserId, approverUserId, departmentId, month, status);
     }
 
     // ── Regularization: review (Manager sees assigned requests; HR/Super Admin see all) ──
 
     @GetMapping("/regularization/pending")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:APPROVE:TEAM')")
     public List<RegularizationResponse> pendingRegularizations(Principal principal) {
         return regularizationService.listPendingForApprover(principal.getName());
     }
@@ -308,13 +316,13 @@ public class AttendanceController {
      * client-side over this one list, same pattern as the My Requests month filter).
      */
     @GetMapping("/regularization/for-approver")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:APPROVE:TEAM')")
     public List<RegularizationResponse> regularizationsForApprover(Principal principal) {
         return regularizationService.listForApprover(principal.getName());
     }
 
     @PatchMapping("/regularization/{id}/approve")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:APPROVE:TEAM')")
     public RegularizationResponse approve(@PathVariable UUID id,
                                           @RequestBody(required = false) ApproveRegularizationRequest req,
                                           Principal principal) {
@@ -323,7 +331,7 @@ public class AttendanceController {
     }
 
     @PatchMapping("/regularization/{id}/reject")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:APPROVE:TEAM')")
     public RegularizationResponse reject(@PathVariable UUID id,
                                          @Valid @RequestBody RejectRegularizationRequest req,
                                          Principal principal) {
@@ -336,7 +344,7 @@ public class AttendanceController {
      * approver, or not at a stage this actor can act on) doesn't block the rest of the batch.
      */
     @PostMapping("/regularization/bulk-approve")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:APPROVE:TEAM')")
     public BulkRegularizationResultResponse bulkApprove(@Valid @RequestBody BulkApproveRegularizationRequest req,
                                                          Principal principal) {
         List<UUID> succeeded = new ArrayList<>();
@@ -355,7 +363,7 @@ public class AttendanceController {
 
     /** Bulk reject — same per-item independence as {@link #bulkApprove}. */
     @PostMapping("/regularization/bulk-reject")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('regularization:APPROVE:TEAM')")
     public BulkRegularizationResultResponse bulkReject(@Valid @RequestBody BulkRejectRegularizationRequest req,
                                                         Principal principal) {
         List<UUID> succeeded = new ArrayList<>();
@@ -381,7 +389,7 @@ public class AttendanceController {
      * for the nightly job.
      */
     @GetMapping("/penalties")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public List<AttendancePenaltyResponse> penalties(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -401,7 +409,7 @@ public class AttendanceController {
      * "cancellable" flag; one id's failure doesn't affect the rest of the batch.
      */
     @PostMapping("/penalties/cancel")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public PenaltyCancelResultResponse cancelPenalties(@Valid @RequestBody PenaltyCancelRequest req, Principal principal) {
         return attendancePenaltyService.cancelBulk(principal.getName(), req.getPenaltyIds(), req.getReason());
     }
