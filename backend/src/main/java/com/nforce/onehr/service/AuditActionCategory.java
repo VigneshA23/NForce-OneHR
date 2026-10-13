@@ -36,7 +36,11 @@ public enum AuditActionCategory {
             // it used to fall under (that one stays HR_OPERATIONAL for ordinary field edits) —
             // who holds admin privileges is access-control-sensitive in a way a routine profile
             // edit isn't, and deserves its own filterable/queryable action.
-            "ROLE_CHANGED"
+            "ROLE_CHANGED",
+            // ManagerRoleSyncService — MANAGER role auto-granted/revoked as reporting lines
+            // change (not an admin's own action, but still access-control-sensitive; logged
+            // against the actor who triggered the underlying manager-history change).
+            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED"
     )),
 
     HR_OPERATIONAL(Set.of(

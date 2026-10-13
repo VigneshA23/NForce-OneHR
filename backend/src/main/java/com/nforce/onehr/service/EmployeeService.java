@@ -35,6 +35,7 @@ public class EmployeeService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
+    private final ManagerRoleSyncService managerRoleSyncService;
     private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
@@ -171,6 +172,7 @@ public class EmployeeService {
                     .changedBy(actor.getId())
                     .build();
             historyRepository.save(history);
+            managerRoleSyncService.grantIfNewManager(req.getManagerId(), actor.getId());
         }
 
         auditService.log(actor.getId(), "EMPLOYEE_CREATED", newUser.getId());
