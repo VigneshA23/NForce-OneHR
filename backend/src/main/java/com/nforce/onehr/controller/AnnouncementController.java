@@ -24,46 +24,46 @@ public class AnnouncementController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('announcements:VIEW:ALL')")
     public List<AnnouncementResponse> listAll(Principal principal) {
         return service.listAll(principal.getName());
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('announcements:CREATE:ALL')")
     public AnnouncementResponse create(Principal principal, @Valid @RequestBody CreateAnnouncementRequest req) {
         return service.create(principal.getName(), req);
     }
 
     @PostMapping("/{id}/publish")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('announcements:EDIT:ALL')")
     public AnnouncementResponse publish(Principal principal, @PathVariable Long id) {
         return service.publish(principal.getName(), id);
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('announcements:EDIT:ALL')")
     public AnnouncementResponse update(Principal principal, @PathVariable Long id,
                                        @Valid @RequestBody UpdateAnnouncementRequest req) {
         return service.update(principal.getName(), id, req);
     }
 
     @PostMapping("/{id}/deactivate")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('announcements:EDIT:ALL')")
     public AnnouncementResponse deactivate(Principal principal, @PathVariable Long id) {
         return service.deactivate(principal.getName(), id);
     }
 
     @PostMapping("/{id}/reactivate")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('announcements:EDIT:ALL')")
     public AnnouncementResponse reactivate(Principal principal, @PathVariable Long id) {
         return service.reactivate(principal.getName(), id);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('announcements:DELETE:ALL')")
     public void delete(Principal principal, @PathVariable Long id) {
         service.delete(principal.getName(), id);
     }

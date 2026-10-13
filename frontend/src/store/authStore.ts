@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import type { MyPermissionsResponse } from '../api/me';
 
 export interface AuthUser {
   email: string;
@@ -16,7 +17,14 @@ export interface AuthUser {
 interface AuthState {
   token: string | null;
   user: AuthUser | null;
+  // Refetched once per token by Shell's permission-sync effect (same "once per mount, patch the
+  // store" pattern as the profile-sync effect) — never set directly from a login response, which
+  // carries no permissions field. Persisted so a reload shows the last-known matrix instantly
+  // rather than briefly denying every gated page while the fresh fetch is in flight; the fresh
+  // fetch that follows corrects any staleness, same tradeoff `user.role` already makes.
+  permissions: MyPermissionsResponse | null;
   setAuth: (token: string, user: AuthUser) => void;
+  setPermissions: (permissions: MyPermissionsResponse) => void;
   clearAuth: () => void;
 }
 
@@ -25,8 +33,10 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       token: null,
       user: null,
+      permissions: null,
       setAuth: (token, user) => set({ token, user }),
-      clearAuth: () => set({ token: null, user: null }),
+      setPermissions: (permissions) => set({ permissions }),
+      clearAuth: () => set({ token: null, user: null, permissions: null }),
     }),
     { name: 'onehr-auth', storage: createJSONStorage(() => sessionStorage) }
   )

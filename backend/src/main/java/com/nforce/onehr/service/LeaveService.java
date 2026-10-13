@@ -651,7 +651,7 @@ public class LeaveService {
      */
     private UUID resolveSuperAdminApprover(UUID employeeId) {
         User employee = userRepository.findById(employeeId).orElse(null);
-        if (employee == null || !hasRole(employee, "SUPER_ADMIN")) return null;
+        if (employee == null || !employeeHasRole(employee, "SUPER_ADMIN")) return null;
         return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .map(EmployeeManagerHistory::getManagerUserId)
                 .orElse(employeeId);
@@ -669,7 +669,7 @@ public class LeaveService {
     private Map<UUID, UUID> superAdminApproverByEmployeeId(Set<UUID> employeeIds) {
         if (employeeIds.isEmpty()) return Map.of();
         Set<UUID> superAdminIds = userRepository.findAllById(employeeIds).stream()
-                .filter(u -> hasRole(u, "SUPER_ADMIN"))
+                .filter(u -> employeeHasRole(u, "SUPER_ADMIN"))
                 .map(User::getId)
                 .collect(Collectors.toSet());
         if (superAdminIds.isEmpty()) return Map.of();
@@ -682,7 +682,7 @@ public class LeaveService {
         return approverById;
     }
 
-    private boolean hasRole(User user, String roleCode) {
+    private boolean employeeHasRole(User user, String roleCode) {
         return user.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
     }
 

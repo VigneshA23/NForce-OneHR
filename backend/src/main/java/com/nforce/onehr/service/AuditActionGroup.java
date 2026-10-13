@@ -34,7 +34,8 @@ public enum AuditActionGroup {
         if (action.startsWith("LEAVE_")) return LEAVE;
         if (action.startsWith("EXPENSE_")) return EXPENSE;
         if (action.startsWith("ASSET_")) return ASSET;
-        if (action.startsWith("USER_") || action.startsWith("LOGIN_") || action.startsWith("PASSWORD_")) return ACCESS;
+        if (action.startsWith("USER_") || action.startsWith("LOGIN_") || action.startsWith("PASSWORD_")
+                || action.startsWith("ROLE_")) return ACCESS;
         if (action.startsWith("SKILL_") || action.startsWith("PROFICIENCY_LEVEL_")
                 || action.startsWith("CERTIFICATE_CATEGORY_") || action.startsWith("TALENT_")) return TALENT;
         return OTHER;

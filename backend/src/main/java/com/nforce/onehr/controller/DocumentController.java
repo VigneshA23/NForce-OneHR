@@ -68,19 +68,19 @@ public class DocumentController {
     // ── HR/SA endpoints ────────────────────────────────────
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:VIEW:ALL')")
     public List<EmployeeDocumentResponse> listAll(Principal principal) {
         return service.listAll(principal.getName());
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:VIEW:ALL')")
     public List<EmployeeDocumentResponse> listPending(Principal principal) {
         return service.listPending(principal.getName());
     }
 
     @PostMapping("/{id}/verify")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:APPROVE:ALL')")
     public EmployeeDocumentResponse verify(
             Principal principal,
             @PathVariable UUID id,
@@ -89,13 +89,13 @@ public class DocumentController {
     }
 
     @GetMapping("/kpis")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:VIEW:ALL')")
     public DocumentAdminKpiDto kpis(Principal principal) {
         return service.getAdminKpis(principal.getName());
     }
 
     @GetMapping("/missing")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:VIEW:ALL')")
     public List<MissingDocumentDto> listMissing(Principal principal) {
         return service.listMissing(principal.getName());
     }
@@ -103,14 +103,14 @@ public class DocumentController {
     // Employee-scoped listing — used by the Onboarding workflow's "View Documents" action
     // so HR never needs to leave onboarding context to see one employee's documents.
     @GetMapping("/employee/{employeeUserId}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:VIEW:ALL')")
     public List<EmployeeDocumentResponse> documentsForEmployee(Principal principal, @PathVariable UUID employeeUserId) {
         return service.documentsForEmployee(principal.getName(), employeeUserId);
     }
 
     @PostMapping("/remind/{employeeUserId}/{documentTypeId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:VIEW:ALL')")
     public void remindMissingDocument(Principal principal,
                                       @PathVariable UUID employeeUserId,
                                       @PathVariable Integer documentTypeId) {

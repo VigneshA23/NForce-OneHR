@@ -80,7 +80,7 @@ public class OrgService {
                 .toList();
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:CREATE:ALL')")
     @Transactional
     public BusinessUnitResponse createBusinessUnit(CreateBusinessUnitRequest req) {
         if (businessUnitRepo.existsByNameIgnoreCase(req.getName().trim())) {
@@ -91,7 +91,7 @@ public class OrgService {
         return BusinessUnitResponse.from(saved, 0L);
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public BusinessUnitResponse updateBusinessUnit(UUID id, UpdateBusinessUnitRequest req) {
         BusinessUnit unit = businessUnitRepo.findById(id)
@@ -105,7 +105,7 @@ public class OrgService {
         return BusinessUnitResponse.from(businessUnitRepo.save(unit), count);
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public BusinessUnitResponse toggleBusinessUnitActive(UUID id) {
         BusinessUnit unit = businessUnitRepo.findById(id)
@@ -115,7 +115,7 @@ public class OrgService {
         return BusinessUnitResponse.from(businessUnitRepo.save(unit), count);
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:DELETE:ALL')")
     @Transactional
     public void deleteBusinessUnit(UUID id) {
         BusinessUnit unit = businessUnitRepo.findById(id)
@@ -143,7 +143,7 @@ public class OrgService {
                 .toList();
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:CREATE:ALL')")
     @Transactional
     public DepartmentResponse createDepartment(CreateDepartmentRequest req) {
         if (departmentRepo.existsByNameIgnoreCase(req.getName().trim())) {
@@ -154,7 +154,7 @@ public class OrgService {
         return DepartmentResponse.from(saved, 0L);
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public DepartmentResponse updateDepartment(UUID id, UpdateDepartmentRequest req) {
         Department dept = departmentRepo.findById(id)
@@ -168,7 +168,7 @@ public class OrgService {
         return DepartmentResponse.from(departmentRepo.save(dept), count);
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public DepartmentResponse toggleDepartmentActive(UUID id) {
         Department dept = departmentRepo.findById(id)
@@ -181,7 +181,7 @@ public class OrgService {
     // Hard delete: permanently removes the row once no *current* (non-terminated) employee is
     // assigned to it — any leftover employee FK at this point can only belong to an already
     // soft-deleted employee (see clearDepartmentReferences's own comment below).
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:DELETE:ALL')")
     @Transactional
     public void deleteDepartment(UUID id) {
         Department dept = departmentRepo.findById(id)
@@ -213,7 +213,7 @@ public class OrgService {
                 .toList();
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:CREATE:ALL')")
     @Transactional
     public DesignationResponse createDesignation(CreateDesignationRequest req) {
         if (designationRepo.existsByTitleIgnoreCase(req.getTitle().trim())) {
@@ -230,7 +230,7 @@ public class OrgService {
         return DesignationResponse.from(saved, 0L, dept.getName());
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public DesignationResponse updateDesignation(UUID id, UpdateDesignationRequest req) {
         Designation desig = designationRepo.findById(id)
@@ -248,7 +248,7 @@ public class OrgService {
         return DesignationResponse.from(designationRepo.save(desig), count, dept.getName());
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public DesignationResponse toggleDesignationActive(UUID id) {
         Designation desig = designationRepo.findById(id)
@@ -268,7 +268,7 @@ public class OrgService {
         return dept;
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:DELETE:ALL')")
     @Transactional
     public void deleteDesignation(UUID id) {
         Designation desig = designationRepo.findById(id)
@@ -304,7 +304,7 @@ public class OrgService {
     public static final List<String> SUPPORTED_TIMEZONES =
             List.of("Asia/Kolkata", "America/New_York", "America/Chicago", "America/Los_Angeles");
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:CREATE:ALL')")
     @Transactional
     public LocationResponse createLocation(CreateLocationRequest req) {
         String normalized = toTitleCase(req.getName().trim());
@@ -323,7 +323,7 @@ public class OrgService {
         return LocationResponse.from(saved, 0L);
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public LocationResponse updateLocation(UUID id, UpdateLocationRequest req) {
         Location loc = locationRepo.findById(id)
@@ -381,7 +381,7 @@ public class OrgService {
         return trimmed;
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:EDIT:ALL')")
     @Transactional
     public LocationResponse toggleLocationActive(UUID id) {
         Location loc = locationRepo.findById(id)
@@ -391,7 +391,7 @@ public class OrgService {
         return LocationResponse.from(locationRepo.save(loc), count);
     }
 
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAuthority('organization:DELETE:ALL')")
     @Transactional
     public void deleteLocation(UUID id) {
         Location loc = locationRepo.findById(id)
@@ -490,7 +490,7 @@ public class OrgService {
                 .toList();
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:CREATE:ALL')")
     @Transactional
     public ShiftResponse createShift(CreateShiftRequest req) {
         String trimmedName = req.getName().trim();
@@ -533,7 +533,7 @@ public class OrgService {
         return ShiftResponse.from(saved, version, null, 0L);
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:EDIT:ALL')")
     @Transactional
     public ShiftResponse updateShift(UUID id, UpdateShiftRequest req) {
         Shift shift = shiftRepo.findById(id).orElseThrow(() -> new NoSuchElementException("Shift not found"));
@@ -602,7 +602,7 @@ public class OrgService {
         return ShiftResponse.from(shift, shiftVersionResolver.resolveCurrent(shift), pending, count);
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:EDIT:ALL')")
     @Transactional
     public ShiftResponse toggleShiftActive(UUID id) {
         Shift shift = shiftRepo.findById(id).orElseThrow(() -> new NoSuchElementException("Shift not found"));
@@ -620,7 +620,7 @@ public class OrgService {
         return ShiftResponse.from(saved, shiftVersionResolver.resolveCurrent(saved), pendingVersion(id, LocalDate.now()), count);
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:DELETE:ALL')")
     @Transactional
     public void deleteShift(UUID id) {
         Shift shift = shiftRepo.findById(id).orElseThrow(() -> new NoSuchElementException("Shift not found"));
@@ -782,7 +782,7 @@ public class OrgService {
                 .toList();
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:CREATE:ALL')")
     @Transactional
     public WeeklyOffPolicyResponse createWeeklyOffPolicy(CreateWeeklyOffPolicyRequest req) {
         String trimmedName = req.getName().trim();
@@ -801,7 +801,7 @@ public class OrgService {
         return WeeklyOffPolicyResponse.from(saved, 0L);
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:EDIT:ALL')")
     @Transactional
     public WeeklyOffPolicyResponse updateWeeklyOffPolicy(UUID id, UpdateWeeklyOffPolicyRequest req) {
         WeeklyOffPolicy policy = weeklyOffPolicyRepo.findById(id)
@@ -821,7 +821,7 @@ public class OrgService {
         return WeeklyOffPolicyResponse.from(weeklyOffPolicyRepo.save(policy), count);
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:DELETE:ALL')")
     @Transactional
     public void deleteWeeklyOffPolicy(UUID id) {
         WeeklyOffPolicy policy = weeklyOffPolicyRepo.findById(id)

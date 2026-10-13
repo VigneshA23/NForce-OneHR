@@ -68,7 +68,7 @@ public final class OrganisationDataProviders {
      * User accounts as User Management lists them: totals, active vs inactive, by role, by
      * department, joined this month, and active employees with no manager - the same tiles as the
      * User Management page and the Super Admin dashboard. Super Admin only, matching
-     * {@code UserManagementController}'s class-level {@code hasRole('SUPER_ADMIN')}.
+     * {@code UserManagementController}'s {@code hasAuthority('user_management:VIEW:ALL')}.
      */
     @Component
     @RequiredArgsConstructor
@@ -170,7 +170,7 @@ public final class OrganisationDataProviders {
     /**
      * Today's attendance across the organisation - Attendance Administration's day roster and the
      * HR/Super Admin Home "Present Today" tile, from the same {@code getDayForAll} read. Audiences
-     * match {@code GET /api/attendance/day}'s {@code hasAnyRole('HR_ADMIN','SUPER_ADMIN')}.
+     * match {@code GET /api/attendance/day}'s {@code hasAuthority('attendance:VIEW:ALL')}.
      */
     @Component
     @RequiredArgsConstructor
@@ -264,7 +264,7 @@ public final class OrganisationDataProviders {
     /**
      * Approved leave across the organisation, today and over the next two weeks - the HR Home
      * "On leave today" tile and Leave Administration, from the same {@code listOrgLeave} read.
-     * Audiences match {@code GET /api/leave/organization}'s {@code hasAnyRole('HR_ADMIN','SUPER_ADMIN')}.
+     * Audiences match {@code GET /api/leave/organization}'s {@code hasAuthority('leave:VIEW:ALL')}.
      */
     @Component
     @RequiredArgsConstructor

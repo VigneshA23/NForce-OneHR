@@ -24,7 +24,6 @@ public class OvertimeRequestController {
     private final OvertimeRequestService overtimeRequestService;
 
     @PostMapping
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public ResponseEntity<OvertimeRequestResponse> submit(
             @Valid @RequestBody CreateOvertimeRequest req, Principal principal) {
         OvertimeRequestResponse created = overtimeRequestService.submit(req, principal.getName());
@@ -32,19 +31,18 @@ public class OvertimeRequestController {
     }
 
     @GetMapping("/mine")
-    @PreAuthorize("hasRole('EMPLOYEE')")
     public List<OvertimeRequestResponse> mine(Principal principal) {
         return overtimeRequestService.listMine(principal.getName());
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('overtime:APPROVE:TEAM')")
     public List<OvertimeRequestResponse> pending(Principal principal) {
         return overtimeRequestService.listPendingForApprover(principal.getName());
     }
 
     @PatchMapping("/{id}/approve")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('overtime:APPROVE:TEAM')")
     public OvertimeRequestResponse approve(@PathVariable UUID id,
                                             @RequestBody(required = false) ApproveRegularizationRequest req,
                                             Principal principal) {
@@ -53,7 +51,7 @@ public class OvertimeRequestController {
     }
 
     @PatchMapping("/{id}/reject")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('overtime:APPROVE:TEAM')")
     public OvertimeRequestResponse reject(@PathVariable UUID id,
                                            @Valid @RequestBody RejectRegularizationRequest req,
                                            Principal principal) {

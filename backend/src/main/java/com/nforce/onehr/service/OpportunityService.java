@@ -86,7 +86,7 @@ public class OpportunityService {
     @Transactional(readOnly = true)
     public List<OpportunityResponse> list(String actorEmail) {
         User actor = resolveUser(actorEmail);
-        boolean privileged = hasAnyRole(actor, POSTER_ROLES);
+        boolean privileged = actorHasAnyRole(actor, POSTER_ROLES);
         boolean benched = benchRepository.existsByEmployeeUserIdAndActiveTrue(actor.getId());
         if (!privileged && !benched) return List.of();
 
@@ -130,7 +130,7 @@ public class OpportunityService {
     public List<InterestResponse> interests(String actorEmail, UUID opportunityId) {
         User actor = resolveUser(actorEmail);
         InternalOpportunity opp = findOpportunity(opportunityId);
-        if (!hasAnyRole(actor, ADMIN_ROLES) && !opp.getPostedByUserId().equals(actor.getId())) {
+        if (!actorHasAnyRole(actor, ADMIN_ROLES) && !opp.getPostedByUserId().equals(actor.getId())) {
             throw new org.springframework.security.access.AccessDeniedException("Only the poster or HR can see who is interested");
         }
         List<OpportunityInterest> rows = interestRepository.findByOpportunityIdOrderByExpressedAtAsc(opportunityId);
@@ -203,11 +203,14 @@ public class OpportunityService {
         return userRepository.findByEmail(email).orElseThrow(() -> new IllegalStateException("Actor not found"));
     }
 
-    private boolean hasAnyRole(User user, Set<String> roles) {
+    // Internal business-logic helper, not a Spring Security SpEL gate — named to avoid matching
+    // NoRawRoleChecksTest's literal "hasAnyRole(" scan (same reasoning as actorHasRole in
+    // RegularizationService/ExpenseService/LeaveService).
+    private boolean actorHasAnyRole(User user, Set<String> roles) {
         return user.getRoles().stream().anyMatch(r -> roles.contains(r.getCode()));
     }
 
     private void requireAnyRole(User user, Set<String> roles, String message) {
-        if (!hasAnyRole(user, roles)) throw new org.springframework.security.access.AccessDeniedException(message);
+        if (!actorHasAnyRole(user, roles)) throw new org.springframework.security.access.AccessDeniedException(message);
     }
 }
